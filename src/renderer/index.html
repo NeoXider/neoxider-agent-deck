@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DeepSeek Harness Widget</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="mode-full">
+    <main class="widget-shell">
+      <header class="titlebar drag-region">
+        <div class="brand">
+          <div id="avatarShell" class="avatar-shell idle">
+            <img data-avatar src="assets/neoxider-github.png" alt="NeoXider agent" />
+            <span data-notification class="avatar-count">0</span>
+          </div>
+          <div>
+            <div class="eyebrow">NEOXIDER / HARNESS</div>
+            <div class="title">Agent Deck <small id="avatarState">ready</small></div>
+          </div>
+        </div>
+        <div class="window-actions no-drag">
+          <button id="settingsButton" class="icon-button" type="button" title="Settings" aria-label="Settings">⚙</button>
+          <button id="orbButton" class="icon-button" type="button" title="Collapse to avatar" aria-label="Collapse to avatar">●</button>
+          <button id="dockButton" class="icon-button" type="button" title="Dock to screen edge" aria-label="Dock to screen edge">❯</button>
+        </div>
+      </header>
+
+      <button id="offlineBanner" class="offline-banner no-drag" type="button">
+        Harness is offline · start it
+      </button>
+
+      <section class="stats-strip" aria-label="Agent statistics">
+        <div title="Active agents"><span class="stat-icon">●</span><b id="agentCount">0</b></div>
+        <div title="Sessions"><span class="stat-icon">▣</span><b id="sessionCount">0</b></div>
+        <div title="Subagents"><span class="stat-icon">⑂</span><b id="subagentCount">0</b></div>
+      </section>
+
+      <nav class="tabs no-drag" aria-label="Views">
+        <button class="tab active" data-tab="agents" type="button" title="Agents" aria-label="Agents">◉</button>
+        <button class="tab" data-tab="chat" type="button" title="Chat" aria-label="Chat">✦</button>
+      </nav>
+
+      <section id="agentsPanel" class="panel active">
+        <div id="sessions" class="session-list">
+          <div class="empty-state">Connecting to Harness…</div>
+        </div>
+      </section>
+
+      <section id="chatPanel" class="panel chat-panel">
+        <div class="chat-heading no-drag">
+          <select id="sessionSelect" class="session-select" aria-label="Session"></select>
+          <div id="contextMeter" class="context-meter" title="Context usage unavailable">
+            <svg viewBox="0 0 36 36" aria-hidden="true">
+              <circle class="context-track" cx="18" cy="18" r="15.5"></circle>
+              <circle id="contextArc" class="context-arc" cx="18" cy="18" r="15.5"></circle>
+            </svg>
+            <span id="contextValue">—</span>
+          </div>
+          <button id="newSessionButton" class="ghost-button icon-only" type="button" title="New session" aria-label="New session">＋</button>
+        </div>
+
+        <div class="model-row no-drag">
+          <label class="select-wrap model-wrap" title="Model">
+            <span>◇</span><select id="modelSelect" class="session-select" aria-label="Model"><option value="">Harness default</option></select>
+          </label>
+          <label class="select-wrap reasoning-wrap" title="Reasoning effort">
+            <span>∴</span><select id="reasoningSelect" class="session-select" aria-label="Reasoning effort" disabled><option value="">Auto</option></select>
+          </label>
+          <button id="commandsButton" class="ghost-button icon-only" type="button" title="Harness commands" aria-label="Harness commands">/</button>
+          <button id="cancelButton" class="ghost-button icon-only" type="button" title="Stop current turn" aria-label="Stop current turn">■</button>
+        </div>
+
+        <div class="utility-row no-drag">
+          <label class="select-wrap workspace-wrap" title="Workspace for a new session">
+            <span>⌂</span><select id="workspaceSelect" class="session-select" aria-label="Workspace"><option value="">Current workspace</option></select>
+          </label>
+          <button id="addWorkspaceButton" class="ghost-button icon-only" type="button" title="Add workspace folder" aria-label="Add workspace folder">＋</button>
+          <label class="select-wrap mode-wrap" title="Agent mode">
+            <span>◈</span><select id="modeSelect" class="session-select" aria-label="Agent mode"><option value="agent">Agent</option><option value="plan">Plan</option></select>
+          </label>
+          <button id="attachButton" class="ghost-button icon-only" type="button" title="Attach files" aria-label="Attach files">⌕</button>
+        </div>
+
+        <div id="attachmentList" class="attachment-list no-drag"></div>
+
+        <div id="commandMenu" class="command-menu no-drag" aria-label="Harness commands"></div>
+        <div id="messages" class="messages"><div class="empty-state">Select a session or start a new one.</div></div>
+        <form id="chatForm" class="composer no-drag">
+          <textarea id="messageInput" rows="1" placeholder="Message the agent…" aria-label="Message"></textarea>
+          <button id="sendButton" type="submit" title="Send" aria-label="Send">➜</button>
+        </form>
+        <div id="dropOverlay" class="drop-overlay no-drag"><b>＋</b><span>Drop files here</span></div>
+      </section>
+
+      <section id="settingsPanel" class="settings-panel no-drag">
+        <div class="settings-head"><b>Settings</b><button id="closeSettings" class="icon-button" type="button" title="Close settings" aria-label="Close settings">×</button></div>
+        <label><span>Always on top</span><input id="topToggle" type="checkbox" /></label>
+        <label><span>Start with Windows</span><input id="autoStartToggle" type="checkbox" /></label>
+        <label class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /></label>
+        <label><span>Size</span><select id="sizeSelect"><option value="compact">Compact</option><option value="standard">Standard</option><option value="large">Large</option></select></label>
+        <button id="openHarnessButton" class="primary-button" type="button">Open full Harness</button>
+      </section>
+
+      <footer><span id="lastUpdate">—</span><button id="refreshButton" class="text-button no-drag" type="button" title="Refresh" aria-label="Refresh">↻</button></footer>
+    </main>
+
+    <button id="orbMode" class="orb-mode no-drag" type="button" title="Restore widget" aria-label="Restore widget">
+      <span class="orb-glow"></span>
+      <img data-avatar src="assets/neoxider-github.png" alt="NeoXider agent" />
+      <span data-notification class="orb-count">0</span>
+    </button>
+
+    <button id="edgeMode" class="edge-mode no-drag" type="button" title="Restore widget" aria-label="Restore widget">
+      <span class="edge-line"></span>
+      <span data-notification class="edge-count">0</span>
+    </button>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,45 @@
+{
+  "name": "deepseek-harness-widget",
+  "version": "0.1.0",
+  "description": "A compact Windows desktop companion for DeepSeek Harness sessions, agents, and chat",
+  "author": "NeoXider",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NeoXider/deepseek-harness-widget.git"
+  },
+  "homepage": "https://github.com/NeoXider/deepseek-harness-widget#readme",
+  "bugs": "https://github.com/NeoXider/deepseek-harness-widget/issues",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "smoke": "node scripts/live-smoke.cjs",
+    "feature-smoke": "node scripts/feature-smoke.cjs",
+    "chat-smoke": "node scripts/chat-smoke.cjs",
+    "build": "npm run test && electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "44.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "dev.neoxider.deepseekHarnessWidget",
+    "productName": "DeepSeek Harness Widget",
+    "artifactName": "DeepSeek-Harness-Widget-${version}-portable.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "README.md"
+    ],
+    "asar": true,
+    "win": {
+      "target": ["portable"],
+      "icon": "src/renderer/assets/neoxider-github.png"
+    }
+  }
+}
