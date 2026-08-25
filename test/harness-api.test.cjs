@@ -41,6 +41,59 @@ test("agent session state distinguishes working, idle, and the latest turn error
   assert.equal(sessionStateFromHistory([{ event: { type: "turn/end", data: { reason: { kind: "error", error: { message: "boom" } } } } }]), "error");
 });
 
+test("dashboard ignores stale session.list running after a successful turn end", async () => {
+  const api = new HarnessApi();
+  api.rpc = async (method) => {
+    if (method === "host.describe") return { version: "test" };
+    if (method === "session.list") {
+      return { items: [{ sessionId: "ended", running: true, updatedAt: 10, cwd: "C:\\AI\\ended" }] };
+    }
+    if (method === "subagent.list") return { entries: [] };
+    if (method === "session.history") {
+      return {
+        events: [
+          { event: { type: "turn/start", seq: 1, data: {} } },
+          { event: { type: "assistant/chunk", seq: 2, data: { chunk: { type: "text-delta", text: "Done" } } } },
+          { event: { type: "turn/end", seq: 3, data: { reason: { kind: "success" } } } },
+        ],
+      };
+    }
+    throw new Error(`Unexpected RPC ${method}`);
+  };
+
+  const { sessions } = await api.dashboard();
+  assert.equal(sessions[0].running, false);
+  assert.equal(sessions[0].state, "idle");
+  assert.equal(sessions[0].activity, null);
+});
+
+test("dashboard turns stale running into error after a failed Harness turn", async () => {
+  const api = new HarnessApi();
+  api.rpc = async (method) => {
+    if (method === "host.describe") return { version: "test" };
+    if (method === "session.list") {
+      return { items: [{ sessionId: "failed", running: true, updatedAt: 11, cwd: "C:\\AI\\failed" }] };
+    }
+    if (method === "subagent.list") return { entries: [] };
+    if (method === "session.history") {
+      return {
+        events: [
+          { event: { type: "turn/start", seq: 1, data: {} } },
+          { event: { type: "assistant/message", seq: 2, data: { message: { content: [{ type: "text", text: "400: No models loaded" }] } } } },
+          { event: { type: "turn/end", seq: 3, data: { reason: { kind: "error", error: { message: "400: No models loaded" } } } } },
+        ],
+      };
+    }
+    throw new Error(`Unexpected RPC ${method}`);
+  };
+
+  const { sessions } = await api.dashboard();
+  assert.equal(sessions[0].running, false);
+  assert.equal(sessions[0].state, "error");
+  assert.equal(sessions[0].activity, null);
+  assert.match(sessions[0].preview, /400: No models loaded/);
+});
+
 test("live reasoning deltas become a compact activity stream", () => {
   const activity = activityFromHistory([
     { event: { type: "turn/start", seq: 1, data: {} } },

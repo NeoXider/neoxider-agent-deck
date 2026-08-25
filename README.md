@@ -10,6 +10,7 @@
   <a href="https://github.com/NeoXider/deepseek-harness-widget/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/deepseek-harness-widget/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.2.2-8b79ff" />
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -50,6 +51,22 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
     <td align="center"><strong>One-click Focus Chat</strong></td>
     <td align="center"><strong>Session-aware compact notification</strong></td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/queue.png" alt="Compact authoritative Harness queue actions" /></td>
+    <td width="50%"><img src="docs/screenshots/live-stream.png" alt="Live growing assistant response bubble" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Edit, delete or send queued messages now</strong></td>
+    <td align="center"><strong>Streaming answer grows in place</strong></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/scroll-away.png" alt="Manual scroll position and jump to latest" /></td>
+    <td width="50%"><img src="docs/screenshots/settings.png" alt="Window layer, opacity, glow and size settings" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Reading position stays under user control</strong></td>
+    <td align="center"><strong>Three window layers + adjustable glow</strong></td>
+  </tr>
 </table>
 
 <p align="center">
@@ -61,27 +78,31 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 ## Highlights
 
 - **Chat-first navigation** — the real mini-chat is the default first page; the agent deck is one tap away.
-- **State-aware agent deck** — every session card changes its avatar, glow and label for working, idle or error state.
+- **State-aware agent deck** — every session card changes its avatar, glow and label for working, idle or error state. Activity is cleared from authoritative turn events, so a completed or failed session does not remain falsely marked as working.
 - **Real Harness sessions** — session titles, running state, subagents and errors come from the live HTTP RPC API.
 - **Context pressure** — a compact ring shows projected tokens against the model context window.
 - **Model routing** — use the searchable dark picker for every provider/model exposed by Harness; the active/local route (including LM Studio) stays first.
 - **Reasoning control** — effort options update dynamically for the selected model.
-- **Native commands** — the `/` palette is loaded from `commands/list`, so `/goal`, `/plan`, `/compact`, `/permission` and plugin commands stay current.
+- **Native commands** — the vertical `/` palette opens above the composer and is loaded from `commands/list`, so `/goal`, `/plan`, `/compact`, `/permission` and plugin commands stay current without covering the input.
 - **Workspace switching** — select an existing Harness workspace or add a folder; the widget starts the next session there.
-- **Safe Markdown** — headings, lists, tables, links, quotes and code render inside the chat; executable HTML and unsafe link protocols are blocked.
+- **Safe, colorful Markdown** — headings, emphasis, links, quotes, tables, inline code and fenced code use a restrained dark palette, with Highlight.js syntax colors for supported languages; executable HTML and unsafe link protocols are blocked.
 - **Collapsed tool runs** — consecutive native `tool/call`, `tool/result`, and nested Code Mode dispatches become one expandable group; each child still exposes input, result, timing, and error state.
+- **Live answer bubble** — streamed assistant text grows inside the real chat bubble as it arrives; the activity card remains reserved for reasoning and tool state instead of mislabeling an answer as thinking.
 - **Ephemeral reasoning** — live reasoning stays in one collapsed activity card while the model is generating, then disappears when the turn is complete instead of cluttering chat history.
+- **Authoritative Harness queue** — messages sent during a running turn appear as compact one-line queued items from Harness itself, with Edit, Delete and Send now actions.
+- **Respectful scrolling** — reading older messages is never interrupted by forced auto-scroll; a compact jump-to-latest control appears when new content arrives below.
 - **Files and drag-and-drop** — PNG, JPEG, WebP and GIF files use official image content blocks. Image and video attachments get visible previews without shifting the composer; other files become explicit local `@path` references.
-- **Live chat aura** — gentle, distinct inner glows indicate thinking, writing, and tool execution. No activity means no glow.
+- **Live chat aura** — brighter-by-default, distinct inner glows indicate thinking, writing, and tool execution. No activity means no glow, and glow intensity is adjustable in settings.
 - **Focus Chat** — one compact composer button hides all chrome and setup surfaces, leaving only messages, optional attachment previews, the input, context and actions; tap it again to restore everything.
 - **Three window states** — full deck, notification avatar, or an iridescent edge handle.
 - **Draggable compact modes** — drag either the avatar or the edge handle anywhere vertically or across displays; release to magnetize it to the nearest screen edge.
 - **Click-or-drag brand** — click the full-size avatar to collapse, click the NeoXider title to open the repository, or drag either one to move the full widget without triggering its click action.
-- **Recent reply button** — collapsed pet mode keeps one useful chat button instead of create/command/attachment clutter.
+- **Exact-session pet reply** — collapsed pet mode keeps one useful reply button instead of create/command/attachment clutter; it opens the agent and session that produced the reply.
 - **Session-aware notifications** — a completed reply slides out for about 2.7 seconds with its session name and answer preview; clicking it restores that exact session. The edge handle still bounces when work finishes.
+- **Three window layers** — choose Normal for an ordinary desktop window, Above for the default always-visible widget, or Game for the strongest overlay level used over fullscreen games and similar apps.
 - **No close button** — window close gestures dock the widget to the screen edge. Quit remains available from the tray menu.
 - **Single-instance launch** — repeated shortcut clicks focus the existing widget instead of stacking translucent windows.
-- **Personal controls** — opacity, compact/standard/large size, always-on-top and Windows autostart.
+- **Personal controls** — opacity, compact/standard/large size, chat glow intensity, window layer and Windows autostart.
 
 ## Install
 
@@ -131,6 +152,7 @@ Set `DSH_WIDGET_URL` to use a different Harness endpoint.
 | Agent / Plan switch | Change the Harness interaction mode |
 | Paperclip | Attach files or open the attachment picker |
 | Chat icon beside the collapsed pet | Show the latest reply; click the preview to open that exact session |
+| Jump-to-latest button | Return to the newest message after reading older chat content |
 | Stop beside Send | Cancel only the current running turn |
 | Context ring at the far left | Show projected context usage |
 | Send at the far right | Submit the current message or attachments |
@@ -143,6 +165,7 @@ Drag a collapsed avatar or edge handle and release it anywhere: it snaps to the 
 The widget does not embed or scrape the Harness web page. It uses the installed Harness RPC contracts directly:
 
 - `session.list`, `session.history`, `session.create`, `session.prompt`, `session.cancel`
+- `session.updateQueue` for authoritative Edit, Delete and Send now queue actions
 - `session.models`, `session.selectModel`
 - `workspace.list`, `workspace.create`
 - `commands/list`, `commands/execute`
@@ -163,7 +186,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/DeepSeek-Harness-Widget-0.2.1-portable.exe`.
+The portable executable is written to `release/DeepSeek-Harness-Widget-0.2.2-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 

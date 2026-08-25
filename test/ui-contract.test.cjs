@@ -17,10 +17,12 @@ test("visible widget copy is English and required controls are present", () => {
     "modelSearch",
     "reasoningButton",
     "commandsButton",
+    "commandMenu",
     "workspaceButton",
     "modeSwitch",
     "attachButton",
     "attachmentBar",
+    "queueDock",
     "agentControls",
     "activityCard",
     "focusChatButton",
@@ -28,6 +30,9 @@ test("visible widget copy is English and required controls are present", () => {
     "orbStatus",
     "orbHistoryButton",
     "edgeMode",
+    "glowRange",
+    "scrollLatestButton",
+    "windowLayerSwitch",
   ]) assert.match(html, new RegExp(`id="${id}"`));
 });
 
@@ -68,6 +73,61 @@ test("one composer button toggles a chat-only focus view and can restore the ful
   assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.focus-chat \.titlebar[\s\S]+\.focus-chat #chatPanel/);
 });
 
+test("slash commands render as a vertical filtered palette immediately above the composer", () => {
+  const messages = html.indexOf('id="messages"');
+  const attachments = html.indexOf('id="attachmentBar"');
+  const commands = html.indexOf('id="commandMenu"');
+  const composer = html.indexOf('id="chatForm"');
+  assert.ok(messages > 0 && messages < attachments && attachments < commands && commands < composer);
+  assert.match(renderer, /function filteredCommands/);
+  assert.match(renderer, /className = `command-row/);
+  assert.match(renderer, /command-description/);
+  assert.match(renderer, /\["ArrowDown", "ArrowUp"\]/);
+  assert.match(renderer, /\["Enter", "Tab"\]/);
+  assert.match(renderer, /\/\^\\\/\[\^\\s\]\*\$\//);
+  assert.doesNotMatch(renderer, /command-chip/);
+});
+
+test("busy-session messages use the authoritative Harness queue with compact edit, delete, and steer controls", () => {
+  assert.match(harnessApi, /mode: "queue"/);
+  assert.match(renderer, /queueingBehindTurn/);
+  assert.match(renderer, /trackQueuedPrompt/);
+  assert.match(renderer, /onQueueUpdate/);
+  assert.match(renderer, /window\.widget\.updateQueue/);
+  assert.match(renderer, /kind: "edit"/);
+  assert.match(renderer, /kind: "remove"/);
+  assert.match(renderer, /kind: "steer"/);
+  assert.match(harnessApi, /session\.updateQueue/);
+  assert.doesNotMatch(html, /queue-dock-heading/);
+});
+
+test("live assistant deltas grow a bubble instead of leaving a Writing reasoning card", () => {
+  assert.match(renderer, /onLiveEvent/);
+  assert.match(renderer, /function handleLiveEvent/);
+  assert.match(renderer, /chunk\.type === "text-delta"/);
+  assert.match(renderer, /live-assistant/);
+  assert.match(renderer, /activity\?\.kind !== "writing"/);
+});
+
+test("manual chat scrolling is preserved and a jump-to-latest control appears for new output", () => {
+  assert.match(html, /id="scrollLatestButton"/);
+  assert.match(renderer, /messagesStickToBottom/);
+  assert.match(renderer, /messagesNearBottom/);
+  assert.match(renderer, /previousTop/);
+  assert.match(renderer, /scrollLatestButton/);
+  assert.doesNotMatch(renderer, /root\.scrollTop = root\.scrollHeight;\s*\}/);
+});
+
+test("activity glow intensity is brighter by default, adjustable, and persisted", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(css, /--chat-glow-intensity: \.82/);
+  assert.match(css, /opacity:var\(--chat-glow-intensity\)/);
+  assert.match(renderer, /applyGlowIntensity/);
+  assert.match(renderer, /setGlowIntensity/);
+  assert.match(main, /glowIntensity: 0\.82/);
+  assert.match(main, /set-glow-intensity/);
+});
+
 test("collapsed pet keeps only recent messages and opens the exact notifying session", () => {
   assert.doesNotMatch(html, /id="orb(?:NewSession|Commands|Attach)"/);
   assert.match(renderer, /compactNotificationTimer = setTimeout/);
@@ -75,7 +135,21 @@ test("collapsed pet keeps only recent messages and opens the exact notifying ses
   assert.match(renderer, /orb-status-closing/);
   assert.match(renderer, /notifyCompletion\(nextSessions\.find/);
   assert.match(renderer, /await selectSession\(sessionId, true\)/);
+  assert.match(renderer, /compactReplySessionId/);
+  assert.match(renderer, /openCompactReplySession/);
+  assert.match(renderer, /#icon-send/);
   assert.match(main, /const ORB_SIZE = 128/);
+});
+
+test("window layer has normal, above-by-default, and fullscreen-game modes", () => {
+  assert.match(html, /data-layer="normal"/);
+  assert.match(html, /data-layer="above"/);
+  assert.match(html, /data-layer="game"/);
+  assert.match(main, /windowLayer: "above"/);
+  assert.match(main, /"screen-saver"/);
+  assert.match(main, /"floating"/);
+  assert.match(main, /set-window-layer/);
+  assert.match(renderer, /setWindowLayer/);
 });
 
 test("window contract has no close control and supports avatar and edge modes", () => {
@@ -121,7 +195,7 @@ test("avatar click replaces the redundant collapse icon", () => {
 test("consecutive tool activity collapses into one expandable group", () => {
   assert.match(renderer, /function appendActivityRun/);
   assert.match(renderer, /className = `tool-group/);
-  assert.match(renderer, /messages\[index\]\.role === "tool"/);
+  assert.match(renderer, /state\.currentMessages\[index\]\.role === "tool"/);
   assert.match(renderer, /tool-group-body/);
 });
 
@@ -134,13 +208,13 @@ test("completed reasoning is omitted and live activity remains a collapsed card"
 test("view switch lives in the titlebar and session plus setup share one toolbar", () => {
   const titlebar = html.slice(html.indexOf('<header class="titlebar'), html.indexOf("</header>") + 9);
   assert.match(titlebar, /<nav class="tabs/);
-  const toolbar = html.slice(html.indexOf('<div class="chat-heading'), html.indexOf('<div id="commandMenu"'));
+  const toolbar = html.slice(html.indexOf('<div class="chat-heading'), html.indexOf('<details id="activityCard"'));
   assert.match(toolbar, /id="sessionButton"/);
   assert.match(toolbar, /id="agentControls"/);
 });
 
 test("the session toolbar has a DeepSeek button for the selected Harness session", () => {
-  const toolbar = html.slice(html.indexOf('<div class="chat-heading'), html.indexOf('<div id="commandMenu"'));
+  const toolbar = html.slice(html.indexOf('<div class="chat-heading'), html.indexOf('<details id="activityCard"'));
   assert.match(toolbar, /id="openSessionButton"[\s\S]{0,300}assets\/deepseek\.svg/);
   assert.match(renderer, /openHarnessSession\(state\.selectedSessionId\)/);
   assert.match(main, /open-harness-session/);
@@ -165,6 +239,8 @@ test("Markdown and tool calls have dedicated safe, collapsed render paths", () =
   assert.match(renderer, /bubble\.innerHTML = message\.html/);
   assert.match(main, /renderMarkdown\(message\.text\)/);
   assert.match(html, /id="messages"/);
+  assert.match(readFileSync(path.join(root, "src", "markdown.cjs"), "utf8"), /highlight\.js\/lib\/common/);
+  assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.hljs-keyword/);
 });
 
 test("chat glow distinguishes thinking, writing and tool activity and clears on idle", () => {
@@ -187,6 +263,6 @@ test("sending a message automatically collapses transient setup surfaces", () =>
   const submit = renderer.slice(submitStart, submitEnd);
   assert.match(submit, /\$\("#agentControls"\)\.open = false/);
   assert.match(submit, /\$\("#settingsPanel"\)\.classList\.remove\("open"\)/);
-  assert.match(submit, /\$\("#commandMenu"\)\.classList\.remove\("open"\)/);
+  assert.match(submit, /setCommandMenuOpen\(false\)/);
   assert.match(submit, /closePickers\(\)/);
 });

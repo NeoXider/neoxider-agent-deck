@@ -40,11 +40,15 @@ let windowRef;
 let tray;
 let windowMode = "full";
 let fullBounds;
-let preferences = { opacity: 0.96, size: "standard", alwaysOnTop: true, compactSide: "right" };
+let preferences = { opacity: 0.96, glowIntensity: 0.82, size: "standard", windowLayer: "above", compactSide: "right" };
 let compactStatus = { active: false, label: "Ready", text: "" };
 let compactDragOrigin = null;
 let fullDragOrigin = null;
 let compactDragTrace = [];
+const queueSnapshots = new Map();
+let muxSocket = null;
+let muxReconnectTimer = null;
+let muxStopped = false;
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!hasSingleInstanceLock) app.quit();
@@ -60,7 +64,14 @@ function settingsPath() {
 
 function loadPreferences() {
   try {
-    preferences = { ...preferences, ...JSON.parse(readFileSync(settingsPath(), "utf8")) };
+    const stored = JSON.parse(readFileSync(settingsPath(), "utf8"));
+    const windowLayer = ["normal", "above", "game"].includes(stored?.windowLayer)
+      ? stored.windowLayer
+      : (Object.prototype.hasOwnProperty.call(stored || {}, "alwaysOnTop")
+        ? (stored.alwaysOnTop ? "above" : "normal")
+        : preferences.windowLayer);
+    if (stored && typeof stored === "object") delete stored.alwaysOnTop;
+    preferences = { ...preferences, ...stored, windowLayer };
   } catch {}
 }
 
@@ -69,8 +80,99 @@ function savePreferences() {
   writeFileSync(settingsPath(), `${JSON.stringify(preferences, null, 2)}\n`, "utf8");
 }
 
+function queueItemView(item) {
+  const content = Array.isArray(item?.message?.content) ? item.message.content : [];
+  const textBlocks = content.filter((block) => block?.type === "text" && typeof block.text === "string");
+  const text = textBlocks.map((block) => block.text).join("\n").trim();
+  const editableText = content.length > 0 && content.every((block) => block?.type === "text") ? text : null;
+  return {
+    id: String(item?.id || item?.message?.id || ""),
+    placement: String(item?.placement || "queued"),
+    text: editableText,
+    preview: String(text || (content.length ? `${content.length} attachment${content.length === 1 ? "" : "s"}` : "Queued message")).replace(/\s+/g, " ").slice(0, 240),
+  };
+}
+
+function publishQueue(sessionId, items) {
+  const safeItems = (Array.isArray(items) ? items : []).map(queueItemView).filter((item) => item.id && item.placement === "queued");
+  if (safeItems.length) queueSnapshots.set(sessionId, safeItems);
+  else queueSnapshots.delete(sessionId);
+  if (windowRef && !windowRef.isDestroyed()) windowRef.webContents.send("queue-update", { sessionId, items: safeItems });
+}
+
+function publishLiveEvent(frame) {
+  if (!windowRef || windowRef.isDestroyed() || !frame?.sessionId || !frame?.event) return;
+  const event = frame.event;
+  let data = {};
+  if (event.type === "assistant/chunk") {
+    const chunk = event.data?.chunk || {};
+    data = { chunk: {
+      type: String(chunk.type || ""),
+      index: Number(chunk.index) || 0,
+      blockType: String(chunk.blockType || chunk.block?.type || ""),
+      text: typeof chunk.text === "string" ? chunk.text : "",
+      name: typeof chunk.name === "string" ? chunk.name : "",
+    } };
+  } else if (event.type === "tool/call") {
+    data = { name: String(event.data?.name || "tool"), callId: String(event.data?.callId || "") };
+  } else if (event.type === "tool/result") {
+    data = { callId: String(event.data?.callId || event.data?.toolCallId || "") };
+  } else if (event.type === "turn/end") {
+    data = { reason: { kind: String(event.data?.reason?.kind || "stop") } };
+  } else if (!["turn/start", "assistant/message"].includes(event.type)) {
+    return;
+  }
+  windowRef.webContents.send("live-event", { sessionId: frame.sessionId, event: { type: event.type, seq: event.seq, data } });
+}
+
+function muxUrl() {
+  const url = new URL("/api/events.mux", HARNESS_URL);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.href;
+}
+
+function connectQueueMux() {
+  if (muxStopped || process.env.WIDGET_SCREENSHOT_PATH || muxSocket) return;
+  const socket = new WebSocket(muxUrl());
+  muxSocket = socket;
+  socket.onmessage = (event) => {
+    try {
+      const envelope = JSON.parse(String(event.data));
+      const frame = envelope?.payload;
+      if (frame?.type === "session/subscribed" && queueSnapshots.has(frame.sessionId)) publishQueue(frame.sessionId, []);
+      else if (frame?.type === "session/queue" && frame.sessionId) publishQueue(frame.sessionId, frame.items);
+      else if (frame?.type === "session/event") publishLiveEvent(frame);
+    } catch {}
+  };
+  const reconnect = () => {
+    if (muxSocket === socket) muxSocket = null;
+    if (!muxStopped && !muxReconnectTimer) {
+      muxReconnectTimer = setTimeout(() => {
+        muxReconnectTimer = null;
+        connectQueueMux();
+      }, 1500);
+    }
+  };
+  socket.onclose = reconnect;
+  socket.onerror = () => {};
+}
+
 function captureFullBounds() {
   if (windowRef && windowMode === "full") fullBounds = windowRef.getBounds();
+}
+
+function applyWindowLayer(mode = windowMode) {
+  if (!windowRef || windowRef.isDestroyed()) return;
+  // Pet/edge modes must remain reachable even if the full widget is configured as a normal window.
+  if (mode !== "full") {
+    windowRef.setAlwaysOnTop(true, "screen-saver");
+    return;
+  }
+  if (preferences.windowLayer === "normal") {
+    windowRef.setAlwaysOnTop(false);
+    return;
+  }
+  windowRef.setAlwaysOnTop(true, preferences.windowLayer === "game" ? "screen-saver" : "floating");
 }
 
 async function prepareFile(filePath) {
@@ -163,7 +265,7 @@ function applyWindowMode(nextMode) {
     }, true);
   }
 
-  windowRef.setAlwaysOnTop(nextMode === "full" ? preferences.alwaysOnTop : true, "floating");
+  applyWindowLayer(nextMode);
   if (nextMode === "full") windowRef.show();
   else windowRef.showInactive();
   windowRef.webContents.send("window-mode", windowMode);
@@ -184,7 +286,7 @@ function createWindow() {
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",
-    alwaysOnTop: preferences.alwaysOnTop,
+    alwaysOnTop: preferences.windowLayer !== "normal",
     hasShadow: false,
     roundedCorners: false,
     resizable: true,
@@ -196,6 +298,7 @@ function createWindow() {
       sandbox: true,
     },
   });
+  applyWindowLayer("full");
   windowRef.setOpacity(Math.max(0.65, Math.min(1, Number(preferences.opacity) || 0.96)));
   const screenshotTab = process.env.WIDGET_SCREENSHOT_TAB || "";
   const screenshotFixture = process.env.WIDGET_SCREENSHOT_FIXTURE || "";
@@ -234,7 +337,7 @@ function createWindow() {
         const auditPath = process.env.WIDGET_UI_AUDIT_PATH;
         if (auditPath) {
           const audit = await windowRef.webContents.executeJavaScript(`(() => {
-            const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.tool-group','.tool-call','.attachment-bar.has-items','.composer','.picker.open .picker-menu','.orb-mode','.orb-status','.orb-history-button','.edge-mode'];
+            const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.tool-group','.tool-call','.queue-dock.has-items','.attachment-bar.has-items','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-history-button','.edge-mode'];
             const boxes = selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((element) => {
               const rect = element.getBoundingClientRect();
               const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).display !== 'none';
@@ -251,7 +354,19 @@ function createWindow() {
               titlebarTabs: document.querySelectorAll('.titlebar > .tabs').length,
               setupInToolbar: document.querySelector('#agentControls')?.parentElement?.classList.contains('chat-heading') || false,
               focusMode: document.body.classList.contains('focus-chat'),
-              focusChromeHidden: ['.titlebar','.chat-heading','.activity-card','.command-menu','.settings-panel'].every((selector) => getComputedStyle(document.querySelector(selector)).display === 'none'),
+              focusChromeHidden: ['.titlebar','.chat-heading','.activity-card','.settings-panel'].every((selector) => getComputedStyle(document.querySelector(selector)).display === 'none'),
+              commandRows: document.querySelectorAll('.command-row').length,
+              commandAboveComposer: !document.querySelector('.command-menu.open') || document.querySelector('.command-menu.open').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
+              commandFitsWidth: !document.querySelector('.command-menu.open') || document.querySelector('.command-menu.open').scrollWidth <= document.querySelector('.command-menu.open').clientWidth + 1,
+              queueRows: document.querySelectorAll('.queue-row').length,
+              queueActions: document.querySelectorAll('.queue-action').length,
+              queueSingleLine: [...document.querySelectorAll('.queue-row')].every((row) => row.getBoundingClientRect().height <= 40),
+              queueAboveComposer: !document.querySelector('.queue-dock.has-items') || document.querySelector('.queue-dock.has-items').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
+              liveBubbles: document.querySelectorAll('.live-assistant').length,
+              scrollLatestVisible: Boolean(document.querySelector('.scroll-latest:not([hidden])')),
+              glowControl: document.querySelectorAll('#glowRange').length,
+              glowIntensity: getComputedStyle(document.documentElement).getPropertyValue('--chat-glow-intensity').trim(),
+              windowLayerOptions: document.querySelectorAll('#windowLayerSwitch [data-layer]').length,
               agentWorking: document.querySelectorAll('.session-card.state-working').length,
               agentIdle: document.querySelectorAll('.session-card.state-idle').length,
               agentError: document.querySelectorAll('.session-card.state-error').length,
@@ -326,6 +441,18 @@ ipcMain.handle("send", async (_event, payload) => {
   return { sessionId };
 });
 ipcMain.handle("cancel", async (_event, sessionId) => api.cancel(sessionId));
+ipcMain.handle("get-queue", (_event, sessionId) => queueSnapshots.get(String(sessionId || "")) || []);
+ipcMain.handle("update-queue", async (_event, payload) => {
+  const sessionId = String(payload?.sessionId || "");
+  const itemId = String(payload?.itemId || "");
+  const kind = String(payload?.action?.kind || "");
+  if (!sessionId || !itemId || !["remove", "steer", "edit"].includes(kind)) throw new Error("Invalid queue action");
+  const action = kind === "edit"
+    ? { kind, content: [{ type: "text", text: String(payload?.action?.text || "").trim() }] }
+    : { kind };
+  if (kind === "edit" && !action.content[0].text) throw new Error("Queued message is empty");
+  return api.updateQueue(sessionId, itemId, action);
+});
 ipcMain.handle("open-harness", async () => shell.openExternal(HARNESS_URL));
 ipcMain.handle("open-harness-session", async (_event, sessionId) => shell.openExternal(harnessSessionUrl(HARNESS_URL, sessionId)));
 ipcMain.handle("open-project", async () => shell.openExternal("https://github.com/NeoXider/deepseek-harness-widget"));
@@ -336,16 +463,28 @@ ipcMain.handle("open-external", async (_event, value) => {
 });
 ipcMain.handle("start-harness", async () => shell.openPath(path.join(app.getPath("desktop"), "Запустить DeepSeek Harness.bat")));
 ipcMain.handle("set-always-on-top", (_event, enabled) => {
-  preferences.alwaysOnTop = Boolean(enabled);
-  if (windowMode === "full") windowRef.setAlwaysOnTop(preferences.alwaysOnTop);
+  preferences.windowLayer = enabled ? "above" : "normal";
+  applyWindowLayer();
   savePreferences();
-  return preferences.alwaysOnTop;
+  return preferences.windowLayer !== "normal";
+});
+ipcMain.handle("set-window-layer", (_event, value) => {
+  preferences.windowLayer = ["normal", "above", "game"].includes(value) ? value : "above";
+  applyWindowLayer();
+  savePreferences();
+  return preferences.windowLayer;
 });
 ipcMain.handle("set-opacity", (_event, value) => {
   preferences.opacity = Math.max(0.65, Math.min(1, Number(value) || 0.96));
   windowRef.setOpacity(preferences.opacity);
   savePreferences();
   return preferences.opacity;
+});
+ipcMain.handle("set-glow-intensity", (_event, value) => {
+  const numeric = Number(value);
+  preferences.glowIntensity = Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 0.82;
+  savePreferences();
+  return preferences.glowIntensity;
 });
 ipcMain.handle("set-size", (_event, preset) => {
   const size = SIZE_PRESETS[preset] || SIZE_PRESETS.standard;
@@ -360,9 +499,11 @@ ipcMain.handle("set-auto-start", (_event, enabled) => {
   return app.getLoginItemSettings().openAtLogin;
 });
 ipcMain.handle("get-preferences", () => ({
-  alwaysOnTop: windowRef.isAlwaysOnTop(),
+  alwaysOnTop: preferences.windowLayer !== "normal",
+  windowLayer: preferences.windowLayer,
   autoStart: app.getLoginItemSettings().openAtLogin,
   opacity: preferences.opacity,
+  glowIntensity: preferences.glowIntensity,
   size: preferences.size,
   windowMode,
   compactSide: preferences.compactSide,
@@ -486,6 +627,7 @@ app.on("second-instance", () => {
 app.whenReady().then(() => {
   loadPreferences();
   createWindow();
+  connectQueueMux();
   const iconPath = path.join(__dirname, "renderer", "assets", "neoxider-github.png");
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 32, height: 32 });
   tray = new Tray(icon);
@@ -497,6 +639,14 @@ app.whenReady().then(() => {
     { label: "Quit", click: () => { app.isQuitting = true; app.quit(); } },
   ]));
   tray.on("double-click", () => applyWindowMode(windowMode === "full" ? "edge" : "full"));
+});
+
+app.on("before-quit", () => {
+  muxStopped = true;
+  clearTimeout(muxReconnectTimer);
+  muxReconnectTimer = null;
+  muxSocket?.close();
+  muxSocket = null;
 });
 
 app.on("activate", () => windowRef ? applyWindowMode("full") : createWindow());

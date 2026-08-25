@@ -26,6 +26,9 @@
       <symbol id="icon-send" viewBox="0 0 24 24"><path d="m4 4 17 8-17 8 3-8zM7 12h14"/></symbol>
       <symbol id="icon-close" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
       <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></symbol>
+      <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M4 20h4l11-11-4-4L4 16zM13.5 6.5l4 4"/></symbol>
+      <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></symbol>
+      <symbol id="icon-down" viewBox="0 0 24 24"><path d="M12 4v14M6 12l6 6 6-6"/></symbol>
       <symbol id="icon-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
       <symbol id="icon-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/></symbol>
       <symbol id="icon-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m5 18 5-5 3 3 2-2 4 4"/></symbol>
@@ -115,7 +118,6 @@
           </details>
         </div>
 
-        <div id="commandMenu" class="command-menu no-drag" aria-label="Harness commands"></div>
         <details id="activityCard" class="activity-card no-drag">
           <summary>
             <svg class="ui-icon"><use href="#icon-eye"/></svg>
@@ -125,11 +127,18 @@
           <div id="activityBody" class="activity-body"></div>
         </details>
         <div id="messages" class="messages"><div class="empty-state">Select a session or start a new one.</div></div>
+        <button id="scrollLatestButton" class="scroll-latest no-drag" type="button" title="Jump to latest message" aria-label="Jump to latest message" hidden><svg class="ui-icon"><use href="#icon-down"/></svg><span id="scrollLatestCount">New</span></button>
+
+        <div id="queueDock" class="queue-dock no-drag" aria-live="polite" aria-label="Queued messages">
+          <div id="queueList" class="queue-list"></div>
+        </div>
 
         <div id="attachmentBar" class="attachment-bar no-drag" aria-live="polite">
           <div class="attachment-heading"><svg class="ui-icon"><use href="#icon-paperclip"/></svg><span id="attachmentCount">0 files</span></div>
           <div id="attachmentList" class="attachment-list"></div>
         </div>
+
+        <div id="commandMenu" class="command-menu no-drag" role="listbox" aria-label="Harness commands" aria-hidden="true"></div>
 
         <form id="chatForm" class="composer no-drag">
           <div id="contextMeter" class="context-meter" title="Context usage unavailable">
@@ -140,7 +149,7 @@
             <span id="contextValue">—</span>
           </div>
           <button id="attachButton" class="composer-action" type="button" title="Attach files" aria-label="Attach files"><svg class="ui-icon"><use href="#icon-paperclip"/></svg></button>
-          <button id="commandsButton" class="composer-action" type="button" title="Harness commands" aria-label="Harness commands"><svg class="ui-icon"><use href="#icon-command"/></svg></button>
+          <button id="commandsButton" class="composer-action" type="button" title="Harness commands" aria-label="Harness commands" aria-haspopup="listbox" aria-expanded="false"><svg class="ui-icon"><use href="#icon-command"/></svg></button>
           <button id="focusChatButton" class="composer-action focus-chat-button" type="button" title="Focus chat" aria-label="Focus chat" aria-pressed="false"><svg class="ui-icon focus-enter"><use href="#icon-focus"/></svg><svg class="ui-icon focus-exit"><use href="#icon-focus-exit"/></svg></button>
           <textarea id="messageInput" rows="1" placeholder="Message the agent…" aria-label="Message"></textarea>
           <button id="cancelButton" class="composer-stop" type="button" title="Stop current turn" aria-label="Stop current turn" hidden><svg class="ui-icon"><use href="#icon-stop"/></svg></button>
@@ -151,9 +160,10 @@
 
       <section id="settingsPanel" class="settings-panel no-drag">
         <div class="settings-head"><b>Settings</b><button id="closeSettings" class="icon-button" type="button" title="Close settings" aria-label="Close settings"><svg class="ui-icon"><use href="#icon-close"/></svg></button></div>
-        <label><span>Always on top</span><input id="topToggle" type="checkbox" /></label>
+        <div class="setting-block layer-setting"><span>Window layer</span><div id="windowLayerSwitch" class="layer-switch" role="group" aria-label="Window layer"><button data-layer="normal" type="button" title="Behave like a normal window">Normal</button><button data-layer="above" type="button" title="Stay above ordinary windows">Above</button><button data-layer="game" type="button" title="Maximum layer for fullscreen apps">Game</button></div></div>
         <label><span>Start with Windows</span><input id="autoStartToggle" type="checkbox" /></label>
         <label class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /></label>
+        <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>
         <div class="setting-block"><span>Size</span><div id="sizeSwitch" class="size-switch" role="group" aria-label="Widget size"><button data-size="compact" type="button">S</button><button data-size="standard" type="button">M</button><button data-size="large" type="button">L</button></div></div>
         <button id="openHarnessButton" class="primary-button" type="button">Open full Harness</button>
       </section>

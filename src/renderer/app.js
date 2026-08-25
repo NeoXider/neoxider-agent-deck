@@ -26,6 +26,18 @@ const state = {
   compactNotificationTimer: null,
   compactStatusClosing: false,
   compactHistoryOpen: false,
+  compactReplySessionId: null,
+  commandSelectionIndex: 0,
+  lastCommandQuery: "",
+  queuedPromptsBySession: new Map(),
+  nextQueuedPromptId: 1,
+  queueEditingId: null,
+  queueBusyId: null,
+  liveStreamsBySession: new Map(),
+  currentMessages: [],
+  messagesStickToBottom: true,
+  unseenMessages: 0,
+  historySignature: "",
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -125,8 +137,17 @@ function syncCompactStatus() {
   $("#orbStatusLabel").textContent = label;
   $("#orbStatusText").textContent = text;
   $("#orbStatus").disabled = !preview?.sessionId && !state.selectedSessionId;
-  $("#orbHistoryButton").classList.toggle("active", state.compactHistoryOpen);
-  $("#orbHistoryButton").setAttribute("aria-pressed", String(state.compactHistoryOpen));
+  const compactButton = $("#orbHistoryButton");
+  const replySession = state.dashboard?.sessions?.find((session) => session.sessionId === state.compactReplySessionId);
+  const hasReplyTarget = Boolean(state.compactReplySessionId);
+  const compactButtonLabel = hasReplyTarget
+    ? (replySession?.title ? `Reply to ${replySession.title}` : "Reply in this session")
+    : "Recent messages";
+  compactButton.classList.toggle("active", state.compactHistoryOpen || hasReplyTarget);
+  compactButton.setAttribute("aria-pressed", String(state.compactHistoryOpen));
+  compactButton.title = compactButtonLabel;
+  compactButton.setAttribute("aria-label", compactButtonLabel);
+  compactButton.querySelector("use")?.setAttribute("href", hasReplyTarget ? "#icon-send" : "#icon-chat");
   window.widget.setCompactStatus({ active, label, text }).catch(() => {});
 }
 
@@ -138,7 +159,8 @@ function setActivity(activity) {
   }
   const card = $("#activityCard");
   const hasActivity = Boolean(activity?.text);
-  card.classList.toggle("has-activity", hasActivity);
+  const showCard = hasActivity && activity?.kind !== "writing";
+  card.classList.toggle("has-activity", showCard);
   if (hasActivity) {
     $("#activityLabel").textContent = activity.label || "Activity";
     $("#activityPreview").textContent = compactText(activity.text, 110);
@@ -169,6 +191,7 @@ function notifyCompletion(session) {
   setAvatar("done");
   setActivity({ active: true, kind: "done", label: "Done", text: "Agent finished the current task." });
   if (state.windowMode !== "full") {
+    state.compactReplySessionId = session?.sessionId || state.compactReplySessionId;
     state.compactNotification = {
       kind: "notification",
       sessionId: session?.sessionId || null,
@@ -564,23 +587,209 @@ async function loadModels() {
   }
 }
 
-function renderCommands() {
+function commandQuery() {
+  return /^\/([^\s]*)$/.exec($("#messageInput").value)?.[1]?.toLowerCase() || "";
+}
+
+function filteredCommands(query = "") {
+  const normalized = String(query || "").trim().toLowerCase();
+  if (!normalized) return state.commandCatalog;
+  return state.commandCatalog.filter((command) => `${command.name} ${command.description || ""}`.toLowerCase().includes(normalized));
+}
+
+function setCommandMenuOpen(open) {
+  const root = $("#commandMenu");
+  root.classList.toggle("open", Boolean(open));
+  root.setAttribute("aria-hidden", String(!open));
+  $("#commandsButton").setAttribute("aria-expanded", String(Boolean(open)));
+}
+
+function chooseCommand(command) {
+  if (!command) return;
+  const input = $("#messageInput");
+  input.value = `/${command.name}${command.input?.hint ? " " : ""}`;
+  input.placeholder = command.input?.hint || "Run Harness command…";
+  state.commandSelectionIndex = 0;
+  state.lastCommandQuery = "";
+  setCommandMenuOpen(false);
+  input.focus();
+}
+
+function renderCommands(query = commandQuery()) {
   const root = $("#commandMenu");
   root.replaceChildren();
-  for (const command of state.commandCatalog) {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "command-chip";
-    chip.textContent = `/${command.name}`;
-    chip.title = `${command.description || command.name}${command.input?.hint ? ` · ${command.input.hint}` : ""}`;
-    chip.addEventListener("click", () => {
-      const input = $("#messageInput");
-      input.value = `/${command.name}${command.input?.hint ? " " : ""}`;
-      input.placeholder = command.input?.hint || "Run Harness command…";
-      input.focus();
-    });
-    root.append(chip);
+  const normalized = String(query || "").toLowerCase();
+  if (normalized !== state.lastCommandQuery) {
+    state.commandSelectionIndex = 0;
+    state.lastCommandQuery = normalized;
   }
+  const commands = filteredCommands(normalized);
+  state.commandSelectionIndex = Math.min(state.commandSelectionIndex, Math.max(0, commands.length - 1));
+
+  const head = document.createElement("div");
+  head.className = "command-menu-head";
+  head.append(createIcon("command"));
+  const title = document.createElement("b");
+  title.textContent = "Harness commands";
+  const meta = document.createElement("small");
+  meta.textContent = `${commands.length} shown · ↑↓ select`;
+  head.append(title, meta);
+  root.append(head);
+
+  const options = document.createElement("div");
+  options.className = "command-options";
+  if (!commands.length) {
+    const empty = document.createElement("div");
+    empty.className = "command-empty";
+    empty.textContent = state.commandsBusy ? "Loading commands…" : "No matching commands";
+    options.append(empty);
+  }
+  for (const [index, command] of commands.entries()) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `command-row${index === state.commandSelectionIndex ? " selected" : ""}`;
+    row.setAttribute("role", "option");
+    row.setAttribute("aria-selected", String(index === state.commandSelectionIndex));
+    row.dataset.command = command.name;
+    const name = document.createElement("span");
+    name.className = "command-name";
+    name.textContent = `/${command.name}`;
+    const hint = document.createElement("span");
+    hint.className = "command-hint";
+    hint.textContent = command.input?.hint || "run now";
+    const description = document.createElement("span");
+    description.className = "command-description";
+    description.textContent = command.description || command.name;
+    row.append(name, hint, description);
+    row.addEventListener("pointerenter", () => {
+      state.commandSelectionIndex = index;
+      options.querySelectorAll(".command-row").forEach((item, itemIndex) => {
+        const selected = itemIndex === index;
+        item.classList.toggle("selected", selected);
+        item.setAttribute("aria-selected", String(selected));
+      });
+    });
+    row.addEventListener("click", () => chooseCommand(command));
+    options.append(row);
+  }
+  root.append(options);
+}
+
+function queuedPromptsFor(sessionId = state.selectedSessionId) {
+  return sessionId ? state.queuedPromptsBySession.get(sessionId) || [] : [];
+}
+
+function queueActionButton(icon, title, className, onClick, disabled = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `queue-action ${className || ""}`.trim();
+  button.title = title;
+  button.setAttribute("aria-label", title);
+  button.disabled = disabled;
+  button.append(createIcon(icon));
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+async function updateQueuedPrompt(item, action) {
+  if (!state.selectedSessionId || !item?.id || item.optimistic) return;
+  state.queueBusyId = item.id;
+  renderQueuedPrompts();
+  try {
+    await window.widget.updateQueue({ sessionId: state.selectedSessionId, itemId: item.id, action });
+    const items = queuedPromptsFor();
+    if (["remove", "steer"].includes(action.kind)) {
+      state.queuedPromptsBySession.set(state.selectedSessionId, items.filter((entry) => entry.id !== item.id));
+    } else if (action.kind === "edit") {
+      state.queuedPromptsBySession.set(state.selectedSessionId, items.map((entry) => entry.id === item.id
+        ? { ...entry, text: action.text, preview: action.text }
+        : entry));
+    }
+    state.queueEditingId = null;
+  } catch (error) {
+    showError(error);
+    setAvatar("error", "queue error");
+  } finally {
+    state.queueBusyId = null;
+    renderQueuedPrompts();
+  }
+}
+
+function renderQueuedPrompts() {
+  const root = $("#queueDock");
+  const listRoot = $("#queueList");
+  const items = queuedPromptsFor();
+  root.classList.toggle("has-items", items.length > 0);
+  root.setAttribute("aria-label", `${items.length} queued message${items.length === 1 ? "" : "s"}`);
+  listRoot.replaceChildren();
+  for (const [index, item] of items.entries()) {
+    const row = document.createElement("div");
+    row.className = "queue-row";
+    row.dataset.queueId = item.id;
+    const position = document.createElement("span");
+    position.className = "queue-position";
+    position.textContent = String(index + 1);
+    position.title = "Queued in Harness";
+    row.append(position);
+    const editing = state.queueEditingId === item.id;
+    const busy = state.queueBusyId === item.id;
+    const actions = document.createElement("span");
+    actions.className = "queue-actions";
+    if (editing) {
+      const input = document.createElement("input");
+      input.className = "queue-edit-input";
+      input.value = item.text || "";
+      input.setAttribute("aria-label", "Edit queued message");
+      const save = () => {
+        const text = input.value.trim();
+        if (text) updateQueuedPrompt(item, { kind: "edit", text });
+      };
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); save(); }
+        if (event.key === "Escape") { state.queueEditingId = null; renderQueuedPrompts(); }
+      });
+      actions.append(
+        queueActionButton("check", "Save queued message", "steer", save, busy),
+        queueActionButton("close", "Cancel editing", "", () => { state.queueEditingId = null; renderQueuedPrompts(); }, busy),
+      );
+      row.append(input, actions);
+      requestAnimationFrame(() => { input.focus(); input.select(); });
+    } else {
+      const preview = document.createElement("span");
+      preview.className = "queue-preview";
+      preview.textContent = compactText(item.preview || item.text || `${item.attachmentCount || 1} attachment${item.attachmentCount === 1 ? "" : "s"}`, 110);
+      actions.append(
+        queueActionButton("edit", "Edit queued message", "", () => { state.queueEditingId = item.id; renderQueuedPrompts(); }, busy || item.optimistic || item.text === null),
+        queueActionButton("trash", "Delete queued message", "danger", () => updateQueuedPrompt(item, { kind: "remove" }), busy || item.optimistic),
+        queueActionButton("send", "Send now", "steer", () => updateQueuedPrompt(item, { kind: "steer" }), busy || item.optimistic),
+      );
+      row.append(preview, actions);
+    }
+    listRoot.append(row);
+  }
+}
+
+function trackQueuedPrompt(sessionId, { text, attachmentCount = 0 }) {
+  if (!sessionId) return;
+  const items = queuedPromptsFor(sessionId);
+  state.queuedPromptsBySession.set(sessionId, [...items, {
+    id: `local-${state.nextQueuedPromptId++}`,
+    text: text || null,
+    preview: text || `${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`,
+    attachmentCount,
+    acceptedAt: Date.now(),
+    optimistic: true,
+  }]);
+  renderQueuedPrompts();
+}
+
+async function loadQueue(sessionId = state.selectedSessionId) {
+  if (!sessionId) return;
+  try {
+    const items = await window.widget.getQueue(sessionId);
+    state.queuedPromptsBySession.set(sessionId, Array.isArray(items) ? items : []);
+    if (sessionId === state.selectedSessionId) renderQueuedPrompts();
+  } catch {}
 }
 
 function renderWorkspaces() {
@@ -717,6 +926,9 @@ async function applyModelSelection() {
 
 async function selectSession(sessionId, openChat = false) {
   state.selectedSessionId = sessionId || null;
+  state.messagesStickToBottom = true;
+  state.unseenMessages = 0;
+  state.historySignature = "";
   state.pendingSelection = null;
   state.modelCatalog = null;
   state.commandCatalog = [];
@@ -725,8 +937,9 @@ async function selectSession(sessionId, openChat = false) {
   renderSessionSelect();
   renderContext();
   renderWorkspaces();
+  renderQueuedPrompts();
   if (openChat) setTab("chat");
-  await Promise.all([refreshHistory(), loadModels(), loadCommands(), loadWorkspaces()]);
+  await Promise.all([refreshHistory(), loadModels(), loadCommands(), loadWorkspaces(), loadQueue(sessionId)]);
 }
 
 function createToolCard(message) {
@@ -799,22 +1012,51 @@ function appendActivityRun(root, run) {
   root.append(group);
 }
 
+function messagesNearBottom(root = $("#messages")) {
+  return root.scrollHeight - root.scrollTop - root.clientHeight < 44;
+}
+
+function updateScrollLatestButton() {
+  const button = $("#scrollLatestButton");
+  const visible = !state.messagesStickToBottom && state.unseenMessages > 0;
+  button.hidden = !visible;
+  $("#scrollLatestCount").textContent = state.unseenMessages > 1 ? `${state.unseenMessages} new` : "New";
+}
+
+function appendLiveAssistant(root) {
+  const stream = state.liveStreamsBySession.get(state.selectedSessionId);
+  if (!stream?.text) return;
+  const bubble = document.createElement("div");
+  bubble.className = "bubble assistant plain live-assistant";
+  bubble.dataset.liveSeq = String(stream.lastSeq || "");
+  bubble.textContent = stream.text;
+  root.append(bubble);
+}
+
 function renderMessages(messages) {
   const root = $("#messages");
+  const previousTop = root.scrollTop;
+  const wasPinned = state.messagesStickToBottom;
+  state.currentMessages = Array.isArray(messages) ? messages : [];
+  const stream = state.liveStreamsBySession.get(state.selectedSessionId);
+  const signature = `${state.currentMessages.map((message) => `${message.role}:${message.seq || ""}:${message.text || ""}`).join("|")}::${stream?.text || ""}`;
+  const changed = Boolean(state.historySignature && signature !== state.historySignature);
+  state.historySignature = signature;
   root.replaceChildren();
-  if (!messages.length) {
+  if (!state.currentMessages.length && !stream?.text) {
     root.innerHTML = '<div class="empty-state">Write a message — the widget will create a session.</div>';
+    updateScrollLatestButton();
     return;
   }
-  for (let index = 0; index < messages.length;) {
-    const message = messages[index];
+  for (let index = 0; index < state.currentMessages.length;) {
+    const message = state.currentMessages[index];
     if (message.role === "reasoning") {
       index += 1;
       continue;
     }
     if (message.role === "tool") {
       const run = [];
-      while (index < messages.length && messages[index].role === "tool") run.push(messages[index++]);
+      while (index < state.currentMessages.length && state.currentMessages[index].role === "tool") run.push(state.currentMessages[index++]);
       appendActivityRun(root, run);
       continue;
     }
@@ -825,7 +1067,15 @@ function renderMessages(messages) {
     root.append(bubble);
     index += 1;
   }
-  root.scrollTop = root.scrollHeight;
+  appendLiveAssistant(root);
+  if (wasPinned) {
+    root.scrollTop = root.scrollHeight;
+    state.unseenMessages = 0;
+  } else {
+    root.scrollTop = Math.min(previousTop, Math.max(0, root.scrollHeight - root.clientHeight));
+    if (changed) state.unseenMessages = 1;
+  }
+  updateScrollLatestButton();
 }
 
 function showError(error) {
@@ -851,6 +1101,97 @@ async function refreshHistory() {
     setAvatar("error", "history error");
   } finally {
     state.historyBusy = false;
+  }
+}
+
+function updateLiveSessionState(sessionId, running, activity = null, stateName = null) {
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+  if (session) {
+    session.running = Boolean(running);
+    session.activity = activity;
+    if (stateName) session.state = stateName;
+  }
+  if (running) state.runningSessionIds.add(sessionId);
+  else state.runningSessionIds.delete(sessionId);
+  renderSessions();
+  renderSessionSelect();
+}
+
+async function handleLiveEvent(payload) {
+  const sessionId = payload?.sessionId;
+  const event = payload?.event;
+  if (!sessionId || !event?.type) return;
+  let stream = state.liveStreamsBySession.get(sessionId) || { text: "", reasoning: "", lastSeq: 0 };
+  if (Number(event.seq) && Number(event.seq) <= Number(stream.lastSeq)) return;
+  if (Number(event.seq)) stream.lastSeq = Number(event.seq);
+
+  if (event.type === "turn/start") {
+    stream = { text: "", reasoning: "", lastSeq: Number(event.seq) || 0 };
+    state.liveStreamsBySession.set(sessionId, stream);
+    const activity = { active: true, kind: "thinking", label: "Thinking", text: "Preparing the next step…" };
+    updateLiveSessionState(sessionId, true, activity, "working");
+    if (sessionId === state.selectedSessionId) {
+      setAvatar("working", "thinking");
+      setActivity(activity);
+      renderMessages(state.currentMessages);
+    }
+    return;
+  }
+
+  if (event.type === "assistant/chunk") {
+    const chunk = event.data?.chunk || {};
+    if (chunk.type === "reasoning-delta" && chunk.text) {
+      stream.reasoning += chunk.text;
+      state.liveStreamsBySession.set(sessionId, stream);
+      const activity = { active: true, kind: "thinking", label: "Thinking", text: stream.reasoning.trim() };
+      updateLiveSessionState(sessionId, true, activity, "working");
+      if (sessionId === state.selectedSessionId) {
+        setAvatar("working", "thinking");
+        setActivity(activity);
+      }
+    } else if (chunk.type === "text-delta" && chunk.text) {
+      stream.text += chunk.text;
+      state.liveStreamsBySession.set(sessionId, stream);
+      const activity = { active: true, kind: "writing", label: "Writing", text: stream.text };
+      updateLiveSessionState(sessionId, true, activity, "working");
+      if (sessionId === state.selectedSessionId) {
+        setAvatar("working", "writing");
+        setActivity(activity);
+        renderMessages(state.currentMessages);
+      }
+    }
+    return;
+  }
+
+  if (event.type === "tool/call") {
+    const activity = { active: true, kind: "tool", label: "Using tool", text: event.data?.name || "tool" };
+    updateLiveSessionState(sessionId, true, activity, "working");
+    if (sessionId === state.selectedSessionId) {
+      setAvatar("working", "using tool");
+      setActivity(activity);
+    }
+    return;
+  }
+
+  if (event.type === "turn/end") {
+    const failed = event.data?.reason?.kind === "error";
+    updateLiveSessionState(sessionId, false, null, failed ? "error" : "idle");
+    if (sessionId === state.selectedSessionId) {
+      if (failed) {
+        setAvatar("error", "model error");
+        setActivity({ active: true, kind: "error", label: "Turn failed", text: "The current Harness turn ended with an error." });
+      } else {
+        setAvatar("done", "done");
+        setActivity(null);
+      }
+      setTimeout(async () => {
+        await refreshHistory();
+        state.liveStreamsBySession.delete(sessionId);
+        renderMessages(state.currentMessages);
+      }, 90);
+    } else {
+      state.liveStreamsBySession.delete(sessionId);
+    }
   }
 }
 
@@ -899,7 +1240,23 @@ async function openCompactSession() {
   clearTimeout(state.compactNotificationTimer);
   await setWindowMode("full");
   await selectSession(sessionId, true);
+  if (state.compactReplySessionId === sessionId) state.compactReplySessionId = null;
+  $("#messageInput")?.focus();
   syncCompactStatus();
+}
+
+async function openCompactReplySession() {
+  const sessionId = state.compactReplySessionId || state.compactNotification?.sessionId;
+  if (!sessionId) return;
+  state.compactNotification = null;
+  state.compactStatusClosing = false;
+  state.compactHistoryOpen = false;
+  clearTimeout(state.compactNotificationTimer);
+  await setWindowMode("full");
+  await selectSession(sessionId, true);
+  state.compactReplySessionId = null;
+  syncCompactStatus();
+  requestAnimationFrame(() => $("#messageInput")?.focus());
 }
 
 function detectCompletedSessions(nextSessions) {
@@ -944,6 +1301,8 @@ async function refresh() {
     renderSessions();
     renderSessionSelect();
     renderContext();
+    renderQueuedPrompts();
+    if (state.selectedSessionId && !state.queuedPromptsBySession.has(state.selectedSessionId)) await loadQueue(state.selectedSessionId);
     if (!state.modelCatalog) await loadModels();
     if (!state.commandCatalog.length) await loadCommands();
     if (!state.workspaces.length) await loadWorkspaces();
@@ -1039,9 +1398,21 @@ async function pickAttachments() {
 async function openCommands({ restore = false } = {}) {
   if (restore && state.windowMode !== "full") await setWindowMode("full");
   setTab("chat");
+  const input = $("#messageInput");
+  if (!input.value.trim()) input.value = "/";
   await loadCommands();
-  $("#commandMenu").classList.add("open");
-  $("#messageInput").focus();
+  renderCommands(commandQuery());
+  setCommandMenuOpen(true);
+  input.focus();
+}
+
+function applyGlowIntensity(value) {
+  const numeric = Number(value);
+  const intensity = Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 0.82;
+  document.documentElement.style.setProperty("--chat-glow-intensity", String(intensity));
+  $("#glowRange").value = String(Math.round(intensity * 100));
+  $("#glowValue").textContent = `${Math.round(intensity * 100)}%`;
+  return intensity;
 }
 
 document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => setTab(button.dataset.tab)));
@@ -1054,11 +1425,19 @@ $("#modelButton").addEventListener("click", (event) => {
 $("#reasoningButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#workspaceButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#modelSearch").addEventListener("input", (event) => renderModelOptions(event.target.value));
-document.addEventListener("click", (event) => { if (!event.target.closest(".picker")) closePickers(); });
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePickers(); });
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".picker")) closePickers();
+  if (!event.target.closest("#commandMenu, #commandsButton, #messageInput")) setCommandMenuOpen(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closePickers();
+    setCommandMenuOpen(false);
+  }
+});
 $("#newSessionButton").addEventListener("click", () => createNewSession());
 $("#commandsButton").addEventListener("click", async () => {
-  if ($("#commandMenu").classList.contains("open")) $("#commandMenu").classList.remove("open");
+  if ($("#commandMenu").classList.contains("open")) setCommandMenuOpen(false);
   else await openCommands();
 });
 $("#addWorkspaceButton").addEventListener("click", async () => {
@@ -1088,9 +1467,12 @@ $("#chatForm").addEventListener("submit", async (event) => {
   const input = $("#messageInput");
   const text = input.value.trim();
   if (!text && !state.pendingAttachments.length) return;
+  const targetSessionId = state.selectedSessionId;
+  const queueingBehindTurn = Boolean(targetSessionId && state.runningSessionIds.has(targetSessionId));
+  const attachmentCount = state.pendingAttachments.length;
   $("#agentControls").open = false;
   $("#settingsPanel").classList.remove("open");
-  $("#commandMenu").classList.remove("open");
+  setCommandMenuOpen(false);
   closePickers();
   $("#sendButton").disabled = true;
   $("#sendButton").classList.add("sending");
@@ -1110,6 +1492,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       state.selectedSessionId = result.sessionId;
+      if (queueingBehindTurn) trackQueuedPrompt(result.sessionId, { text, attachmentCount });
       state.pendingAttachments = [];
       renderAttachments();
       setAvatar("waiting", "waiting for reply");
@@ -1126,16 +1509,61 @@ $("#chatForm").addEventListener("submit", async (event) => {
   }
 });
 $("#messageInput").addEventListener("keydown", (event) => {
+  if ($("#commandMenu").classList.contains("open") && !event.shiftKey) {
+    const commands = filteredCommands(commandQuery());
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      state.commandSelectionIndex = (state.commandSelectionIndex + direction + commands.length) % Math.max(1, commands.length);
+      renderCommands(commandQuery());
+      $("#commandMenu .command-row.selected")?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (["Enter", "Tab"].includes(event.key)) {
+      const query = commandQuery();
+      const exact = state.commandCatalog.find((command) => command.name.toLowerCase() === query);
+      if (event.key === "Enter" && exact && !exact.input?.hint) {
+        setCommandMenuOpen(false);
+      } else {
+        event.preventDefault();
+        chooseCommand(commands[state.commandSelectionIndex]);
+        return;
+      }
+    }
+  }
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     $("#chatForm").requestSubmit();
   }
+});
+$("#messageInput").addEventListener("input", async (event) => {
+  const slashMode = /^\/[^\s]*$/.test(event.target.value);
+  if (!slashMode) {
+    setCommandMenuOpen(false);
+    if (!event.target.value) event.target.placeholder = "Message the agent…";
+    return;
+  }
+  if (!state.commandCatalog.length) await loadCommands();
+  renderCommands(commandQuery());
+  setCommandMenuOpen(true);
 });
 $("#messages").addEventListener("click", (event) => {
   const link = event.target.closest("a[href]");
   if (!link) return;
   event.preventDefault();
   window.widget.openExternal(link.href).catch(() => {});
+});
+$("#messages").addEventListener("scroll", () => {
+  const nearBottom = messagesNearBottom();
+  state.messagesStickToBottom = nearBottom;
+  if (nearBottom) state.unseenMessages = 0;
+  updateScrollLatestButton();
+});
+$("#scrollLatestButton").addEventListener("click", () => {
+  state.messagesStickToBottom = true;
+  state.unseenMessages = 0;
+  $("#messages").scrollTo({ top: $("#messages").scrollHeight, behavior: "smooth" });
+  updateScrollLatestButton();
 });
 $("#cancelButton").addEventListener("click", async () => state.selectedSessionId && window.widget.cancel(state.selectedSessionId));
 $("#focusChatButton").addEventListener("click", () => setFocusMode(!state.focusMode));
@@ -1146,7 +1574,10 @@ $("#openSessionButton").addEventListener("click", () => {
 });
 $("#dockButton").addEventListener("click", () => setWindowMode("edge"));
 $("#orbRestore").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
-$("#orbHistoryButton").addEventListener("click", toggleCompactHistory);
+$("#orbHistoryButton").addEventListener("click", () => {
+  if (state.compactReplySessionId) openCompactReplySession().catch(showError);
+  else toggleCompactHistory();
+});
 $("#orbStatus").addEventListener("click", openCompactSession);
 $("#edgeMode").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
 for (const target of [$("#orbMode"), $("#edgeMode")]) {
@@ -1171,12 +1602,19 @@ $("#projectLink").addEventListener("click", (event) => {
 });
 $("#settingsButton").addEventListener("click", () => $("#settingsPanel").classList.toggle("open"));
 $("#closeSettings").addEventListener("click", () => $("#settingsPanel").classList.remove("open"));
-$("#topToggle").addEventListener("change", (event) => window.widget.setAlwaysOnTop(event.target.checked));
+$$('#windowLayerSwitch button').forEach((button) => button.addEventListener("click", async () => {
+  const value = await window.widget.setWindowLayer(button.dataset.layer);
+  $$('#windowLayerSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.layer === value));
+}));
 $("#autoStartToggle").addEventListener("change", async (event) => { event.target.checked = await window.widget.setAutoStart(event.target.checked); });
 $("#opacityRange").addEventListener("input", async (event) => {
   const percent = Number(event.target.value);
   $("#opacityValue").textContent = `${percent}%`;
   await window.widget.setOpacity(percent / 100);
+});
+$("#glowRange").addEventListener("input", async (event) => {
+  const intensity = applyGlowIntensity(Number(event.target.value) / 100);
+  await window.widget.setGlowIntensity(intensity);
 });
 $$('#sizeSwitch button').forEach((button) => button.addEventListener("click", async () => {
   const value = await window.widget.setSize(button.dataset.size);
@@ -1211,6 +1649,12 @@ document.addEventListener("drop", async (event) => {
 
 window.widget.onWindowMode((mode) => applyWindowMode(mode));
 window.widget.onCompactSide((side) => applyCompactSide(side));
+window.widget.onQueueUpdate(({ sessionId, items }) => {
+  if (!sessionId) return;
+  state.queuedPromptsBySession.set(sessionId, Array.isArray(items) ? items : []);
+  if (sessionId === state.selectedSessionId) renderQueuedPrompts();
+});
+window.widget.onLiveEvent((payload) => { handleLiveEvent(payload).catch(showError); });
 window.widget.onEdgeBounce(() => {
   const edge = $("#edgeMode");
   edge.classList.remove("bounce");
@@ -1218,10 +1662,11 @@ window.widget.onEdgeBounce(() => {
   edge.classList.add("bounce");
 });
 window.widget.getPreferences().then((preferences) => {
-  $("#topToggle").checked = preferences.alwaysOnTop;
+  $$('#windowLayerSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.layer === (preferences.windowLayer || "above")));
   $("#autoStartToggle").checked = preferences.autoStart;
   $("#opacityRange").value = Math.round(preferences.opacity * 100);
   $("#opacityValue").textContent = `${Math.round(preferences.opacity * 100)}%`;
+  applyGlowIntensity(preferences.glowIntensity);
   $$('#sizeSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.size === preferences.size));
   applyCompactSide(preferences.compactSide || "right");
   applyWindowMode(preferences.windowMode || "full");
@@ -1239,6 +1684,7 @@ if (requestedTab === "chat") setTab("chat");
 setAvatar("idle");
 renderNotifications();
 renderAttachments();
+renderQueuedPrompts();
 renderMode();
 if (!screenshotFixture) {
   refresh();
@@ -1285,6 +1731,59 @@ if (screenshotFixture) {
       renderModels();
       $("#agentControls").open = true;
       togglePicker($("#modelButton"));
+    } else if (["commands", "focus-commands"].includes(screenshotFixture)) {
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-commands", title: "Command palette", running: false, projections: { values: { contextPressure: { projectedTokens: 22000, contextWindow: 131072 } } }, subagents: [] }] };
+      state.selectedSessionId = "demo-commands";
+      state.commandCatalog = [
+        { name: "compact", description: "Compact older conversation history" },
+        { name: "export", description: "Download this Session log as a ZIP archive" },
+        { name: "feedback", description: "Record feedback about this session", input: { hint: "<text>" } },
+        { name: "goal", description: "Set or view the goal for a long-running task", input: { hint: "[<objective>|clear|edit <objective>|pause|resume]" } },
+        { name: "permission", description: "Switch the permission preset", input: { hint: "<preset>" } },
+        { name: "plan", description: "Enter or leave plan mode", input: { hint: "[off|message]" } },
+      ];
+      renderSessionSelect();
+      renderContext();
+      $("#messageInput").value = "/";
+      if (screenshotFixture === "focus-commands") setFocusMode(true);
+      renderCommands("");
+      setCommandMenuOpen(true);
+    } else if (screenshotFixture === "queued-message") {
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-queue", title: "Long-running agent", running: true, projections: { values: { contextPressure: { projectedTokens: 64120, contextWindow: 131072 } } }, subagents: [] }] };
+      state.selectedSessionId = "demo-queue";
+      state.runningSessionIds = new Set(["demo-queue"]);
+      $("#chatForm").classList.add("has-running");
+      $("#cancelButton").hidden = false;
+      renderMessages([{ role: "assistant", text: "The current turn is still running…" }]);
+      state.queuedPromptsBySession.set("demo-queue", [
+        { id: "queue-1", placement: "queued", text: "After this, run the UI verification.", preview: "After this, run the UI verification." },
+        { id: "queue-2", placement: "queued", text: "Then summarize only the failures.", preview: "Then summarize only the failures." },
+      ]);
+      renderQueuedPrompts();
+    } else if (screenshotFixture === "live-stream") {
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-live", title: "Streaming response", running: true, state: "working", projections: { values: {} }, subagents: [] }] };
+      state.selectedSessionId = "demo-live";
+      state.currentMessages = [{ role: "user", text: "Show me the verified result." }];
+      state.liveStreamsBySession.set("demo-live", { text: "The response grows inside this assistant bubble while Harness is still generating it…", reasoning: "", lastSeq: 4 });
+      setActivity({ active: true, kind: "writing", label: "Writing", text: "The response grows inside this assistant bubble while Harness is still generating it…" });
+      renderMessages(state.currentMessages);
+    } else if (screenshotFixture === "scroll-away") {
+      setTab("chat");
+      state.selectedSessionId = "demo-scroll";
+      const messages = Array.from({ length: 22 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", text: `Earlier message ${index + 1}: scroll position must remain under user control.` }));
+      renderMessages(messages);
+      state.messagesStickToBottom = false;
+      $("#messages").scrollTop = 0;
+      state.unseenMessages = 1;
+      updateScrollLatestButton();
+    } else if (screenshotFixture === "glow-settings") {
+      setTab("chat");
+      applyGlowIntensity(0.82);
+      setActivity({ active: true, kind: "writing", label: "Writing", text: "Composing the answer in the mini-chat…" });
+      $("#settingsPanel").classList.add("open");
     } else if (screenshotFixture === "attachments") {
       setTab("chat");
       const paths = (launchParams.get("screenshotFiles") || "").split("|").filter(Boolean);
@@ -1292,6 +1791,7 @@ if (screenshotFixture) {
     } else if (screenshotFixture === "orb-notification") {
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-notification", title: "Unity gameplay pass", updatedAt: Date.now(), running: false, state: "idle", preview: "The Play Mode verification finished successfully.", projections: { values: {} }, subagents: [] }] };
       state.selectedSessionId = "demo-notification";
+      state.compactReplySessionId = "demo-notification";
       state.compactNotification = { kind: "notification", sessionId: "demo-notification", title: "Unity gameplay pass", text: "The Play Mode verification finished successfully." };
       setAvatar("done", "done");
       syncCompactStatus();
@@ -1310,7 +1810,7 @@ if (screenshotFixture) {
     } else if (screenshotFixture === "markdown-tools") {
       setTab("chat");
       renderMessages([
-        { role: "assistant", text: "Result", html: "<h3>Workspace checked</h3><ul><li><strong>Build</strong> is clean</li><li>2 files inspected</li></ul><pre><code>npm test ✓</code></pre>" },
+        { role: "assistant", text: "Result", html: "<h3>Workspace checked</h3><p><strong>Build</strong> is clean and <em>visually verified</em>.</p><blockquote>Accent colors remain readable on the dark surface.</blockquote><pre><code class=\"language-js\"><span class=\"hljs-keyword\">const</span> status = <span class=\"hljs-string\">\"ready\"</span>; <span class=\"hljs-comment\">// verified</span></code></pre>" },
         { role: "tool", name: "read_file", arguments: "{\n  \"path\": \"src/main.cjs\"\n}", result: "Loaded 412 lines", status: "done", durationMs: 184 },
         { role: "tool", name: "run_tests", arguments: "{\n  \"suite\": \"widget\"\n}", result: "18 tests passed", status: "done", durationMs: 1260, nested: true },
       ]);

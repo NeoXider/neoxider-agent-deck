@@ -326,16 +326,29 @@ class HarnessApi {
           : Promise.resolve(null),
       ]);
       const events = historyValue?.events || [];
-      const activity = session.running ? activityFromHistory(events) : null;
+      // session.list may remain running=true briefly after the turn has ended.
+      // When history is available, only a genuinely open turn is authoritative.
+      const activity = historyValue ? activityFromHistory(events) : null;
+      const effectiveRunning = historyValue
+        ? Boolean(activity?.active)
+        : Boolean(session.running || cachedState?.state === "working");
       const agentState = historyValue
-        ? sessionStateFromHistory(events, session.running)
-        : (session.running ? "working" : cachedState?.state || "idle");
+        ? sessionStateFromHistory(events, effectiveRunning)
+        : (effectiveRunning ? "working" : cachedState?.state || "idle");
       const latestAssistant = historyValue
         ? messagesFromHistory(events).findLast((message) => message.role === "assistant")
         : null;
       const preview = latestAssistant?.text || cachedState?.preview || "";
       this.sessionStateCache.set(session.sessionId, { updatedAt: session.updatedAt, state: agentState, preview });
-      return { ...session, title: titleFromSession(session), subagents: catalog.entries || [], activity, state: agentState, preview };
+      return {
+        ...session,
+        running: effectiveRunning,
+        title: titleFromSession(session),
+        subagents: catalog.entries || [],
+        activity,
+        state: agentState,
+        preview,
+      };
     }));
     return { host, sessions: enriched };
   }
@@ -385,6 +398,10 @@ class HarnessApi {
 
   async cancel(sessionId) {
     return this.rpc("session.cancel", { sessionId });
+  }
+
+  async updateQueue(sessionId, itemId, action) {
+    return this.rpc("session.updateQueue", { sessionId, itemId, action }, 10000);
   }
 
   async commands(sessionId) {
