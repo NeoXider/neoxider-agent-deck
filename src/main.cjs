@@ -2,12 +2,15 @@ const path = require("node:path");
 const { mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
 const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { HarnessApi } = require("./harness-api.cjs");
+const { harnessSessionUrl } = require("./harness-url.cjs");
 const { renderMarkdown } = require("./markdown.cjs");
 const { clamp, moveCompactBounds, snapCompactBounds } = require("./window-geometry.cjs");
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
 if (process.env.WIDGET_SCREENSHOT_PATH) {
-  app.setPath("sessionData", path.join(app.getPath("temp"), "deepseek-harness-widget-smoke", String(process.pid)));
+  const smokeRoot = path.join(app.getPath("temp"), "deepseek-harness-widget-smoke", String(process.pid));
+  app.setPath("sessionData", path.join(smokeRoot, "session"));
+  app.setPath("userData", path.join(smokeRoot, "user-data"));
 }
 const api = new HarnessApi(HARNESS_URL);
 const SIZE_PRESETS = {
@@ -15,9 +18,10 @@ const SIZE_PRESETS = {
   standard: [420, 640],
   large: [500, 760],
 };
-const ORB_SIZE = 80;
-const ORB_QUICK_WIDTH = 204;
-const ORB_STATUS_WIDTH = 350;
+// The transparent margin prevents the animated bloom around the pet from being clipped.
+const ORB_SIZE = 128;
+const ORB_QUICK_WIDTH = 172;
+const ORB_STATUS_WIDTH = 400;
 // Keep enough transparent space for the edge glow to fade out naturally.
 // The visible handle is still flush with the screen edge.
 const EDGE_WIDTH = 88;
@@ -39,7 +43,11 @@ let fullBounds;
 let preferences = { opacity: 0.96, size: "standard", alwaysOnTop: true, compactSide: "right" };
 let compactStatus = { active: false, label: "Ready", text: "" };
 let compactDragOrigin = null;
+let fullDragOrigin = null;
 let compactDragTrace = [];
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) app.quit();
 
 function traceCompactDrag(stage, details = {}) {
   compactDragTrace.push({ stage, at: Date.now(), ...details });
@@ -197,6 +205,7 @@ function createWindow() {
       ...(screenshotTab ? { screenshotTab } : {}),
       ...(screenshotFixture ? { screenshotFixture } : {}),
       ...(screenshotFiles ? { screenshotFiles } : {}),
+      ...(process.env.WIDGET_SCREENSHOT_PATH ? { screenshotStatic: "1" } : {}),
     },
   });
   windowRef.once("ready-to-show", () => {
@@ -225,7 +234,7 @@ function createWindow() {
         const auditPath = process.env.WIDGET_UI_AUDIT_PATH;
         if (auditPath) {
           const audit = await windowRef.webContents.executeJavaScript(`(() => {
-            const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.tool-call','.attachment-bar.has-items','.composer','.picker.open .picker-menu','.orb-mode','.edge-mode'];
+            const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.tool-group','.tool-call','.attachment-bar.has-items','.composer','.picker.open .picker-menu','.orb-mode','.orb-status','.orb-history-button','.edge-mode'];
             const boxes = selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((element) => {
               const rect = element.getBoundingClientRect();
               const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).display !== 'none';
@@ -233,7 +242,23 @@ function createWindow() {
             })).filter((item) => item.visible);
             const tolerance = 1;
             const offenders = boxes.filter((box) => box.left < -tolerance || box.top < -tolerance || box.right > innerWidth + tolerance || box.bottom > innerHeight + tolerance);
-            return { viewport: { width: innerWidth, height: innerHeight }, scroll: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight }, boxes, offenders };
+            const semantic = {
+              toolGroups: document.querySelectorAll('.tool-group').length,
+              toolCalls: document.querySelectorAll('.tool-call').length,
+              historicalReasoning: document.querySelectorAll('.reasoning-bubble').length,
+              markdownLists: document.querySelectorAll('#messages ul, #messages ol').length,
+              footer: document.querySelectorAll('footer').length,
+              titlebarTabs: document.querySelectorAll('.titlebar > .tabs').length,
+              setupInToolbar: document.querySelector('#agentControls')?.parentElement?.classList.contains('chat-heading') || false,
+              focusMode: document.body.classList.contains('focus-chat'),
+              focusChromeHidden: ['.titlebar','.chat-heading','.activity-card','.command-menu','.settings-panel'].every((selector) => getComputedStyle(document.querySelector(selector)).display === 'none'),
+              agentWorking: document.querySelectorAll('.session-card.state-working').length,
+              agentIdle: document.querySelectorAll('.session-card.state-idle').length,
+              agentError: document.querySelectorAll('.session-card.state-error').length,
+              orbUtilityButtons: document.querySelectorAll('#orbMode > button:not(#orbRestore):not(#orbStatus)').length,
+              orbNotification: document.body.classList.contains('orb-has-notification'),
+            };
+            return { viewport: { width: innerWidth, height: innerHeight }, scroll: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight }, boxes, offenders, semantic };
           })()`);
           audit.compactDragTrace = compactDragTrace;
           audit.windowBounds = windowRef.getBounds();
@@ -281,13 +306,18 @@ ipcMain.handle("pick-files", async () => {
   return result.canceled ? [] : prepareFiles(result.filePaths);
 });
 ipcMain.handle("prepare-files", async (_event, filePaths) => prepareFiles(filePaths));
-ipcMain.handle("create-session", async (_event, options) => ({ sessionId: await api.createSession(options || {}) }));
+ipcMain.handle("create-session", async (_event, options) => {
+  const sessionId = await api.createSession(options || {});
+  await api.ensureFullAccess(sessionId);
+  return { sessionId };
+});
 ipcMain.handle("select-model", async (_event, payload) => api.selectModel(payload.sessionId, payload.selection));
 ipcMain.handle("send", async (_event, payload) => {
   const text = String(payload && payload.text || "").trim();
   const attachments = Array.isArray(payload && payload.attachments) ? payload.attachments : [];
   if (!text && !attachments.length) throw new Error("Message is empty");
   const sessionId = payload && payload.sessionId ? payload.sessionId : await api.createSession();
+  await api.ensureFullAccess(sessionId);
   if (payload && payload.selection) await api.selectModel(sessionId, payload.selection);
   const references = attachments.filter((item) => item.kind === "reference").map((item) => `@${item.path}`);
   const promptText = [text, ...references].filter(Boolean).join("\n\n");
@@ -297,6 +327,7 @@ ipcMain.handle("send", async (_event, payload) => {
 });
 ipcMain.handle("cancel", async (_event, sessionId) => api.cancel(sessionId));
 ipcMain.handle("open-harness", async () => shell.openExternal(HARNESS_URL));
+ipcMain.handle("open-harness-session", async (_event, sessionId) => shell.openExternal(harnessSessionUrl(HARNESS_URL, sessionId)));
 ipcMain.handle("open-project", async () => shell.openExternal("https://github.com/NeoXider/deepseek-harness-widget"));
 ipcMain.handle("open-external", async (_event, value) => {
   const url = new URL(String(value));
@@ -352,6 +383,32 @@ ipcMain.handle("set-compact-status", (_event, value) => {
   return compactStatus;
 });
 ipcMain.handle("window-bounds", () => windowRef.getBounds());
+ipcMain.on("begin-full-drag", (event, value) => {
+  if (!windowRef || windowMode !== "full" || event.sender !== windowRef.webContents) return;
+  const screenX = Number(value?.x);
+  const screenY = Number(value?.y);
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+  fullDragOrigin = { screenX, screenY, bounds: windowRef.getBounds() };
+});
+ipcMain.on("move-full-drag", (event, value) => {
+  if (!windowRef || windowMode !== "full" || !fullDragOrigin || event.sender !== windowRef.webContents) return;
+  const screenX = Number(value?.x);
+  const screenY = Number(value?.y);
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+  const candidate = {
+    x: fullDragOrigin.bounds.x + screenX - fullDragOrigin.screenX,
+    y: fullDragOrigin.bounds.y + screenY - fullDragOrigin.screenY,
+  };
+  const display = screen.getDisplayNearestPoint({ x: Math.round(candidate.x), y: Math.round(candidate.y) }).workArea;
+  const moved = moveCompactBounds(fullDragOrigin.bounds, candidate, display);
+  windowRef.setPosition(moved.x, moved.y, false);
+  fullBounds = { ...windowRef.getBounds() };
+});
+ipcMain.handle("end-full-drag", () => {
+  fullDragOrigin = null;
+  captureFullBounds();
+  return windowRef?.getBounds();
+});
 ipcMain.on("begin-compact-drag", (event, value) => {
   if (!windowRef || windowMode === "full" || event.sender !== windowRef.webContents) return;
   const screenX = Number(value?.x);
@@ -417,6 +474,13 @@ ipcMain.handle("end-compact-drag", () => {
 });
 ipcMain.on("agent-complete", () => {
   if (windowMode === "edge") windowRef.webContents.send("edge-bounce");
+});
+
+app.on("second-instance", () => {
+  if (!windowRef || windowRef.isDestroyed()) return;
+  if (windowRef.isMinimized()) windowRef.restore();
+  windowRef.show();
+  windowRef.focus();
 });
 
 app.whenReady().then(() => {

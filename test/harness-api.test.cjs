@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { HarnessApi, activityFromHistory, messagesFromHistory, titleFromSession, toolMessagesFromHistory } = require("../src/harness-api.cjs");
+const { HarnessApi, activityFromHistory, messagesFromHistory, sessionStateFromHistory, titleFromSession, toolMessagesFromHistory } = require("../src/harness-api.cjs");
 
 test("RPC carrier sends the official envelope and unwraps the value", async () => {
   let request;
@@ -13,7 +13,7 @@ test("RPC carrier sends the official envelope and unwraps the value", async () =
   assert.equal(request.method, "host.describe");
 });
 
-test("history keeps human, visible reasoning and assistant text while hiding injected context", () => {
+test("history keeps human and assistant text while hiding injected context and completed reasoning", () => {
   const result = messagesFromHistory([
     { event: { type: "user/message", seq: 1, time: 1, data: { source: { kind: "user" }, content: [{ type: "text", text: "Привет" }] } } },
     { event: { type: "user/message", seq: 2, time: 2, data: { source: { kind: "plugin" }, content: [{ type: "text", text: "hidden" }] } } },
@@ -21,9 +21,24 @@ test("history keeps human, visible reasoning and assistant text while hiding inj
   ]);
   assert.deepEqual(result.map(({ role, text }) => ({ role, text })), [
     { role: "user", text: "Привет" },
-    { role: "reasoning", text: "hidden" },
     { role: "assistant", text: "Готово" },
   ]);
+});
+
+test("completed reasoning disappears with the live activity card after turn end", () => {
+  const activity = activityFromHistory([
+    { event: { type: "turn/start", seq: 1, data: {} } },
+    { event: { type: "assistant/chunk", seq: 2, data: { chunk: { type: "reasoning-delta", text: "private chain" } } } },
+    { event: { type: "assistant/message", seq: 3, data: { message: { content: [{ type: "reasoning", text: "private chain" }, { type: "text", text: "Done" }] } } } },
+    { event: { type: "turn/end", seq: 4, data: {} } },
+  ]);
+  assert.equal(activity, null);
+});
+
+test("agent session state distinguishes working, idle, and the latest turn error", () => {
+  assert.equal(sessionStateFromHistory([], true), "working");
+  assert.equal(sessionStateFromHistory([{ event: { type: "turn/end", data: { reason: { kind: "success" } } } }]), "idle");
+  assert.equal(sessionStateFromHistory([{ event: { type: "turn/end", data: { reason: { kind: "error", error: { message: "boom" } } } } }]), "error");
 });
 
 test("live reasoning deltas become a compact activity stream", () => {
@@ -66,6 +81,26 @@ test("history includes Harness command runs and results", () => {
     { role: "user", text: "/goal" },
     { role: "command", text: "No goal is currently set." },
   ]);
+});
+
+test("automatic Full access commands are hidden from widget history", () => {
+  const result = messagesFromHistory([
+    { event: { type: "command/run", seq: 1, data: { commandId: "auto", name: "permission", args: " danger-full-access", source: { kind: "user" } } } },
+    { event: { type: "command/done", seq: 2, data: { commandId: "auto", kind: "success", text: "Permission preset: danger-full-access" } } },
+    { event: { type: "assistant/message", seq: 3, data: { message: { content: [{ type: "text", text: "Ready" }] } } } },
+  ]);
+  assert.deepEqual(result.map(({ role, text }) => ({ role, text })), [{ role: "assistant", text: "Ready" }]);
+});
+
+test("widget Full access uses the exact preset accepted by Harness", async () => {
+  const api = new HarnessApi();
+  let line;
+  api.executeCommand = async (_sessionId, value) => {
+    line = value;
+    return { result: { kind: "success", text: "Permission preset: danger-full-access" } };
+  };
+  await api.ensureFullAccess("session-test");
+  assert.equal(line, "/permission danger-full-access");
 });
 
 test("official Harness tool call and result events become one collapsed-card model", () => {

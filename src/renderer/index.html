@@ -9,7 +9,6 @@
   <body class="mode-full">
     <svg class="icon-defs" aria-hidden="true">
       <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M7 14v6"/><circle cx="7" cy="17" r="2"/><circle cx="16" cy="7" r="2"/></symbol>
-      <symbol id="icon-orb" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="9" opacity=".35"/></symbol>
       <symbol id="icon-dock" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/><path d="M19 4v16" opacity=".45"/></symbol>
       <symbol id="icon-agents" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.5-4 2.3-6 5.5-6s5 2 5.5 6"/><path d="M16 6.5a3 3 0 0 1 0 5M16.5 14c2.2.5 3.5 2.2 4 5"/></symbol>
       <symbol id="icon-chat" viewBox="0 0 24 24"><path d="M5 18.5 3.5 21l.5-4A8 8 0 1 1 7 20"/><path d="M8 10h8M8 14h5"/></symbol>
@@ -23,30 +22,36 @@
       <symbol id="icon-mode" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="m15.5 8.5-2 5-5 2 2-5z"/></symbol>
       <symbol id="icon-command" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
       <symbol id="icon-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"/></symbol>
-      <symbol id="icon-paperclip" viewBox="0 0 24 24"><path d="m9 12 5.5-5.5a3 3 0 0 1 4.2 4.2l-7.6 7.6a5 5 0 0 1-7.1-7.1l7.3-7.3"/></symbol>
+      <symbol id="icon-paperclip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
       <symbol id="icon-send" viewBox="0 0 24 24"><path d="m4 4 17 8-17 8 3-8zM7 12h14"/></symbol>
-      <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M18.5 9A7 7 0 0 0 6 6.5L4 9M5.5 15A7 7 0 0 0 18 17.5l2-2.5"/></symbol>
       <symbol id="icon-close" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
       <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></symbol>
       <symbol id="icon-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
       <symbol id="icon-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/></symbol>
       <symbol id="icon-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m5 18 5-5 3 3 2-2 4 4"/></symbol>
+      <symbol id="icon-focus" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5"/></symbol>
+      <symbol id="icon-focus-exit" viewBox="0 0 24 24"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></symbol>
     </svg>
     <main class="widget-shell">
       <header class="titlebar drag-region">
-        <button id="projectLink" class="brand brand-button no-drag" type="button" title="Open NeoXider/deepseek-harness-widget on GitHub" aria-label="Open this plugin on GitHub">
-          <div id="avatarShell" class="avatar-shell idle">
-            <img data-avatar src="assets/neoxider-github.png" alt="NeoXider agent" draggable="false" />
-            <span data-notification class="avatar-count">0</span>
-          </div>
-          <div>
-            <div class="eyebrow">NEOXIDER / HARNESS</div>
-            <div class="title">Agent Deck <span id="versionLabel" class="version-badge">v…</span><small id="avatarState">ready</small></div>
-          </div>
-        </button>
+        <div class="brand">
+          <button id="avatarButton" class="avatar-button" type="button" title="Collapse to avatar" aria-label="Collapse to avatar">
+            <span id="avatarShell" class="avatar-shell idle">
+              <img data-avatar src="assets/neoxider-github.png" alt="NeoXider agent" draggable="false" />
+              <span data-notification class="avatar-count">0</span>
+            </span>
+          </button>
+          <button id="projectLink" class="brand-copy-button" type="button" title="Open NeoXider/deepseek-harness-widget on GitHub" aria-label="Open this plugin on GitHub">
+            <span class="eyebrow">NEOXIDER / HARNESS</span>
+            <span class="title">Agent Deck <span id="versionLabel" class="version-badge">v…</span><small id="avatarState">ready</small></span>
+          </button>
+        </div>
+        <nav class="tabs no-drag" aria-label="Views">
+          <button class="tab active" data-tab="chat" type="button" title="Chat" aria-label="Chat"><svg class="ui-icon"><use href="#icon-chat"/></svg></button>
+          <button class="tab" data-tab="agents" type="button" title="Agents" aria-label="Agents"><svg class="ui-icon"><use href="#icon-agents"/></svg></button>
+        </nav>
         <div class="window-actions no-drag">
           <button id="settingsButton" class="icon-button" type="button" title="Settings" aria-label="Settings"><svg class="ui-icon"><use href="#icon-settings"/></svg></button>
-          <button id="orbButton" class="icon-button" type="button" title="Collapse to avatar" aria-label="Collapse to avatar"><svg class="ui-icon"><use href="#icon-orb"/></svg></button>
           <button id="dockButton" class="icon-button" type="button" title="Dock to screen edge" aria-label="Dock to screen edge"><svg class="ui-icon"><use href="#icon-dock"/></svg></button>
         </div>
       </header>
@@ -55,18 +60,13 @@
         Harness is offline · start it
       </button>
 
-      <nav class="tabs no-drag" aria-label="Views">
-        <button class="tab active" data-tab="agents" type="button" title="Agents" aria-label="Agents"><svg class="ui-icon"><use href="#icon-agents"/></svg></button>
-        <button class="tab" data-tab="chat" type="button" title="Chat" aria-label="Chat"><svg class="ui-icon"><use href="#icon-chat"/></svg></button>
-      </nav>
-
-      <section id="agentsPanel" class="panel active">
+      <section id="agentsPanel" class="panel">
         <div id="sessions" class="session-list">
           <div class="empty-state">Connecting to Harness…</div>
         </div>
       </section>
 
-      <section id="chatPanel" class="panel chat-panel">
+      <section id="chatPanel" class="panel chat-panel active">
         <div class="chat-heading no-drag">
           <div class="picker session-picker">
             <button id="sessionButton" class="picker-button" type="button" aria-haspopup="listbox" aria-expanded="false" title="Session">
@@ -74,16 +74,15 @@
             </button>
             <div id="sessionMenu" class="picker-menu" role="listbox"><div id="sessionOptions" class="picker-options"></div></div>
           </div>
+          <button id="openSessionButton" class="ghost-button icon-only harness-button" type="button" title="Open current session in DeepSeek Harness" aria-label="Open current session in DeepSeek Harness" disabled><img src="assets/deepseek.svg" alt="" /></button>
           <button id="newSessionButton" class="ghost-button icon-only" type="button" title="New session" aria-label="New session"><svg class="ui-icon"><use href="#icon-plus"/></svg></button>
-        </div>
-
-        <details id="agentControls" class="agent-controls no-drag">
-          <summary>
-            <span class="controls-label"><svg class="ui-icon"><use href="#icon-controls"/></svg><b>Agent setup</b></span>
-            <span id="controlsSummary" class="controls-summary">Harness default · Auto</span>
-            <svg class="ui-icon controls-chevron"><use href="#icon-chevron"/></svg>
-          </summary>
-          <div class="control-grid">
+          <details id="agentControls" class="agent-controls no-drag">
+            <summary title="Agent setup">
+              <span class="controls-label"><svg class="ui-icon"><use href="#icon-controls"/></svg><b>Setup</b></span>
+              <span id="controlsSummary" class="controls-summary">Default · Auto</span>
+              <svg class="ui-icon controls-chevron"><use href="#icon-chevron"/></svg>
+            </summary>
+            <div class="control-grid">
             <div class="picker model-picker">
               <button id="modelButton" class="picker-button" type="button" aria-haspopup="listbox" aria-expanded="false" title="Model">
                 <svg class="ui-icon"><use href="#icon-model"/></svg><span id="modelButtonText">Harness default</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
@@ -112,8 +111,9 @@
               <button class="mode-option active" data-mode="agent" type="button" title="Agent mode"><svg class="ui-icon"><use href="#icon-mode"/></svg><span>Agent</span></button>
               <button class="mode-option" data-mode="plan" type="button" title="Plan mode"><svg class="ui-icon"><use href="#icon-controls"/></svg><span>Plan</span></button>
             </div>
-          </div>
-        </details>
+            </div>
+          </details>
+        </div>
 
         <div id="commandMenu" class="command-menu no-drag" aria-label="Harness commands"></div>
         <details id="activityCard" class="activity-card no-drag">
@@ -132,11 +132,6 @@
         </div>
 
         <form id="chatForm" class="composer no-drag">
-          <button id="attachButton" class="composer-action" type="button" title="Attach files" aria-label="Attach files"><svg class="ui-icon"><use href="#icon-paperclip"/></svg></button>
-          <button id="commandsButton" class="composer-action" type="button" title="Harness commands" aria-label="Harness commands"><svg class="ui-icon"><use href="#icon-command"/></svg></button>
-          <textarea id="messageInput" rows="1" placeholder="Message the agent…" aria-label="Message"></textarea>
-          <button id="cancelButton" class="composer-stop" type="button" title="Stop current turn" aria-label="Stop current turn" hidden><svg class="ui-icon"><use href="#icon-stop"/></svg></button>
-          <button id="sendButton" type="submit" title="Send" aria-label="Send"><svg class="ui-icon"><use href="#icon-send"/></svg></button>
           <div id="contextMeter" class="context-meter" title="Context usage unavailable">
             <svg viewBox="0 0 36 36" aria-hidden="true">
               <circle class="context-track" cx="18" cy="18" r="15.5"></circle>
@@ -144,6 +139,12 @@
             </svg>
             <span id="contextValue">—</span>
           </div>
+          <button id="attachButton" class="composer-action" type="button" title="Attach files" aria-label="Attach files"><svg class="ui-icon"><use href="#icon-paperclip"/></svg></button>
+          <button id="commandsButton" class="composer-action" type="button" title="Harness commands" aria-label="Harness commands"><svg class="ui-icon"><use href="#icon-command"/></svg></button>
+          <button id="focusChatButton" class="composer-action focus-chat-button" type="button" title="Focus chat" aria-label="Focus chat" aria-pressed="false"><svg class="ui-icon focus-enter"><use href="#icon-focus"/></svg><svg class="ui-icon focus-exit"><use href="#icon-focus-exit"/></svg></button>
+          <textarea id="messageInput" rows="1" placeholder="Message the agent…" aria-label="Message"></textarea>
+          <button id="cancelButton" class="composer-stop" type="button" title="Stop current turn" aria-label="Stop current turn" hidden><svg class="ui-icon"><use href="#icon-stop"/></svg></button>
+          <button id="sendButton" type="submit" title="Send" aria-label="Send"><svg class="ui-icon"><use href="#icon-send"/></svg></button>
         </form>
         <div id="dropOverlay" class="drop-overlay no-drag"><svg class="drop-icon"><use href="#icon-paperclip"/></svg><span>Drop files here</span></div>
       </section>
@@ -157,16 +158,11 @@
         <button id="openHarnessButton" class="primary-button" type="button">Open full Harness</button>
       </section>
 
-      <footer><span id="lastUpdate">—</span><button id="refreshButton" class="text-button no-drag" type="button" title="Refresh" aria-label="Refresh"><svg class="ui-icon"><use href="#icon-refresh"/></svg></button></footer>
     </main>
 
     <section id="orbMode" class="orb-mode no-drag" aria-label="Collapsed agent controls">
-      <span class="orb-status"><b id="orbStatusLabel">Working</b><small id="orbStatusText">Waiting for the model…</small></span>
-      <span class="orb-actions">
-        <button id="orbNewSession" type="button" title="New session" aria-label="New session"><svg class="ui-icon"><use href="#icon-plus"/></svg></button>
-        <button id="orbCommands" type="button" title="Harness commands" aria-label="Harness commands"><svg class="ui-icon"><use href="#icon-command"/></svg></button>
-        <button id="orbAttach" type="button" title="Attach files" aria-label="Attach files"><svg class="ui-icon"><use href="#icon-paperclip"/></svg><span id="orbAttachmentCount"></span></button>
-      </span>
+      <button id="orbStatus" class="orb-status" type="button" title="Open this session" aria-label="Open this session"><b id="orbStatusLabel">Working</b><small id="orbStatusText">Waiting for the model…</small></button>
+      <button id="orbHistoryButton" class="orb-history-button" type="button" title="Recent messages" aria-label="Recent messages" aria-pressed="false"><svg class="ui-icon"><use href="#icon-chat"/></svg></button>
       <button id="orbRestore" class="orb-avatar" type="button" title="Restore widget" aria-label="Restore widget">
         <span class="orb-glow"></span>
         <img data-avatar src="assets/neoxider-github.png" alt="NeoXider agent" draggable="false" />

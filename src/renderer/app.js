@@ -1,7 +1,9 @@
 const state = {
   dashboard: null,
   selectedSessionId: null,
-  tab: "agents",
+  tab: "chat",
+  focusMode: false,
+  focusReturnTab: "chat",
   refreshing: false,
   historyBusy: false,
   modelsBusy: false,
@@ -20,6 +22,10 @@ const state = {
   unread: 0,
   dashboardInitialized: false,
   runningSessionIds: new Set(),
+  compactNotification: null,
+  compactNotificationTimer: null,
+  compactStatusClosing: false,
+  compactHistoryOpen: false,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -90,14 +96,37 @@ function pickerOption(label, { selected = false, meta = "", title = "", onSelect
   return button;
 }
 
+function compactPreviewEntry() {
+  if (state.compactNotification) return state.compactNotification;
+  if (state.compactHistoryOpen) {
+    const sessions = state.dashboard?.sessions || [];
+    const session = sessions.find((item) => item.sessionId === state.selectedSessionId)
+      || [...sessions].sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))[0];
+    if (session) return {
+      kind: "history",
+      sessionId: session.sessionId,
+      title: session.title || "Current session",
+      text: session.preview || "No assistant reply yet.",
+    };
+  }
+  return null;
+}
+
 function syncCompactStatus() {
   const activity = state.currentActivity;
-  const active = Boolean(activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
-  const label = activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
-  const text = compactText(activity?.text || $("#avatarState")?.textContent || label, 96);
+  const preview = compactPreviewEntry();
+  const active = Boolean(state.compactStatusClosing || preview || activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
+  const label = preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
+  const text = compactText(preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
   document.body.classList.toggle("orb-has-status", active);
+  document.body.classList.toggle("orb-has-notification", preview?.kind === "notification");
+  document.body.classList.toggle("orb-status-closing", state.compactStatusClosing);
+  document.body.classList.toggle("orb-history-open", state.compactHistoryOpen);
   $("#orbStatusLabel").textContent = label;
   $("#orbStatusText").textContent = text;
+  $("#orbStatus").disabled = !preview?.sessionId && !state.selectedSessionId;
+  $("#orbHistoryButton").classList.toggle("active", state.compactHistoryOpen);
+  $("#orbHistoryButton").setAttribute("aria-pressed", String(state.compactHistoryOpen));
   window.widget.setCompactStatus({ active, label, text }).catch(() => {});
 }
 
@@ -136,13 +165,31 @@ function renderNotifications() {
   });
 }
 
-function notifyCompletion() {
+function notifyCompletion(session) {
   setAvatar("done");
   setActivity({ active: true, kind: "done", label: "Done", text: "Agent finished the current task." });
   if (state.windowMode !== "full") {
+    state.compactNotification = {
+      kind: "notification",
+      sessionId: session?.sessionId || null,
+      title: session?.title || "Agent finished",
+      text: session?.preview || "A new reply is ready.",
+    };
+    clearTimeout(state.compactNotificationTimer);
+    state.compactStatusClosing = false;
+    state.compactNotificationTimer = setTimeout(() => {
+      state.compactNotification = null;
+      state.compactStatusClosing = !state.compactHistoryOpen;
+      syncCompactStatus();
+      if (state.compactStatusClosing) setTimeout(() => {
+        state.compactStatusClosing = false;
+        syncCompactStatus();
+      }, 240);
+    }, 2500);
     state.unread += 1;
     renderNotifications();
     window.widget.notifyAgentComplete();
+    syncCompactStatus();
   }
   setTimeout(() => {
     if (!state.dashboard?.sessions?.some((session) => session.running)) {
@@ -174,9 +221,52 @@ function applyCompactSide(side) {
 
 let compactDrag = null;
 let suppressCompactClick = false;
+let fullDrag = null;
+let suppressProjectClick = false;
+let suppressProjectClickTimer = null;
+
+function suppressBrandClickAfterDrag() {
+  suppressProjectClick = true;
+  clearTimeout(suppressProjectClickTimer);
+  suppressProjectClickTimer = setTimeout(() => { suppressProjectClick = false; }, 1200);
+}
+
+function beginFullDrag(event) {
+  if (event.button !== 0) return;
+  fullDrag = {
+    target: event.currentTarget,
+    pointerId: event.pointerId,
+    startX: event.screenX,
+    startY: event.screenY,
+    moved: false,
+  };
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  window.widget.beginFullDrag({ x: event.screenX, y: event.screenY });
+}
+
+function moveFullDrag(event) {
+  if (!fullDrag || fullDrag.pointerId !== event.pointerId) return;
+  if (!fullDrag.moved && Math.hypot(event.screenX - fullDrag.startX, event.screenY - fullDrag.startY) < 4) return;
+  fullDrag.moved = true;
+  suppressBrandClickAfterDrag();
+  event.preventDefault();
+  window.widget.moveFullDrag({ x: event.screenX, y: event.screenY });
+}
+
+function endFullDrag(event) {
+  if (!fullDrag || fullDrag.pointerId !== event.pointerId) return;
+  const moved = fullDrag.moved;
+  fullDrag.target.releasePointerCapture?.(event.pointerId);
+  fullDrag = null;
+  if (moved) {
+    event.preventDefault();
+    suppressBrandClickAfterDrag();
+  }
+  window.widget.endFullDrag().catch(() => null);
+}
 
 function beginCompactDrag(event) {
-  if (event.button !== 0 || event.target.closest(".orb-actions button")) return;
+  if (event.button !== 0 || event.target.closest("#orbStatus, #orbHistoryButton")) return;
   compactDrag = {
     target: event.currentTarget,
     pointerId: event.pointerId,
@@ -277,11 +367,17 @@ function renderSessions() {
     return;
   }
   for (const session of sessions) {
+    const agentState = ["working", "error"].includes(session.state)
+      ? session.state
+      : (session.running ? "working" : "idle");
     const card = document.createElement("div");
-    card.className = `session-card${session.sessionId === state.selectedSessionId ? " selected" : ""}`;
+    card.className = `session-card state-${agentState}${session.sessionId === state.selectedSessionId ? " selected" : ""}`;
     const avatar = document.createElement("div");
-    avatar.className = `avatar${session.running ? " running" : ""}`;
-    avatar.textContent = initials(session.title);
+    avatar.className = `agent-avatar ${agentState}`;
+    const avatarImage = document.createElement("img");
+    avatarImage.src = AVATARS[agentState] || AVATARS.idle;
+    avatarImage.alt = "";
+    avatar.append(avatarImage);
     const main = document.createElement("div");
     main.className = "session-main";
     const name = document.createElement("div");
@@ -291,12 +387,12 @@ function renderSessions() {
     meta.className = "session-meta";
     const childCount = (session.subagents || []).filter((item) => item.kind === "child").length;
     const pressure = contextPressure(session);
-    meta.textContent = `${session.running ? "working" : "idle"}${childCount ? ` · ${childCount} subagent${childCount === 1 ? "" : "s"}` : ""}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}`;
+    meta.textContent = `${agentState}${childCount ? ` · ${childCount} subagent${childCount === 1 ? "" : "s"}` : ""}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}`;
     main.append(name, meta);
-    const badge = document.createElement("div");
-    badge.className = "agent-badge";
-    badge.textContent = (session.subagents || []).filter((item) => item.kind === "child" && item.activity === "running").length || "·";
-    card.append(avatar, main, badge);
+    const status = document.createElement("div");
+    status.className = `session-state ${agentState}`;
+    status.textContent = agentState;
+    card.append(avatar, main, status);
     card.addEventListener("click", () => selectSession(session.sessionId, true));
     root.append(card);
   }
@@ -305,6 +401,10 @@ function renderSessions() {
 function renderSessionSelect() {
   const sessions = state.dashboard?.sessions || [];
   const selected = sessions.find((session) => session.sessionId === state.selectedSessionId);
+  $("#openSessionButton").disabled = !state.selectedSessionId;
+  $("#openSessionButton").title = selected
+    ? `Open ${selected.title || "current session"} in DeepSeek Harness`
+    : "Select a session to open it in DeepSeek Harness";
   $("#sessionButtonText").textContent = selected?.title || "New session";
   const root = $("#sessionOptions");
   root.replaceChildren();
@@ -570,7 +670,6 @@ function renderAttachments() {
   const count = state.pendingAttachments.length;
   $("#attachmentBar").classList.toggle("has-items", count > 0);
   $("#attachmentCount").textContent = `${count} file${count === 1 ? "" : "s"}`;
-  $("#orbAttachmentCount").textContent = count ? String(count) : "";
 }
 
 function addAttachments(attachments) {
@@ -630,6 +729,76 @@ async function selectSession(sessionId, openChat = false) {
   await Promise.all([refreshHistory(), loadModels(), loadCommands(), loadWorkspaces()]);
 }
 
+function createToolCard(message) {
+  const details = document.createElement("details");
+  details.className = `tool-call${message.isError ? " failed" : ""}${message.nested ? " nested" : ""}`;
+  const summary = document.createElement("summary");
+  summary.append(createIcon("command"));
+  const identity = document.createElement("span");
+  identity.className = "tool-identity";
+  const name = document.createElement("b");
+  name.textContent = message.name || "Tool call";
+  const status = document.createElement("small");
+  status.textContent = message.status === "running" ? "running" : message.isError ? "failed" : "completed";
+  identity.append(name, status);
+  summary.append(identity);
+  if (Number.isFinite(message.durationMs)) {
+    const duration = document.createElement("time");
+    duration.textContent = message.durationMs < 1000 ? `${message.durationMs} ms` : `${(message.durationMs / 1000).toFixed(1)} s`;
+    summary.append(duration);
+  }
+  summary.append(createIcon("chevron", "ui-icon tool-chevron"));
+  const body = document.createElement("div");
+  body.className = "tool-body";
+  const addSection = (label, value) => {
+    if (!value) return;
+    const section = document.createElement("section");
+    const heading = document.createElement("b");
+    heading.textContent = label;
+    const pre = document.createElement("pre");
+    pre.textContent = value;
+    section.append(heading, pre);
+    body.append(section);
+  };
+  addSection("Input", message.arguments);
+  addSection(message.isError ? "Error" : "Result", message.result);
+  if (!body.childElementCount) {
+    const pending = document.createElement("span");
+    pending.className = "tool-pending";
+    pending.textContent = "Waiting for the tool result…";
+    body.append(pending);
+  }
+  details.append(summary, body);
+  return details;
+}
+
+function appendActivityRun(root, run) {
+  const toolCount = run.length;
+  if (toolCount === 1) {
+    root.append(createToolCard(run[0]));
+    return;
+  }
+  const failed = run.some((message) => message.isError);
+  const running = run.some((message) => message.status === "running");
+  const group = document.createElement("details");
+  group.className = `tool-group${failed ? " failed" : ""}${running ? " running" : ""}`;
+  const summary = document.createElement("summary");
+  summary.append(createIcon("command"));
+  const identity = document.createElement("span");
+  identity.className = "tool-group-identity";
+  const label = document.createElement("b");
+  label.textContent = `${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;
+  const meta = document.createElement("small");
+  meta.textContent = running ? "running" : failed ? "failed" : "completed";
+  identity.append(label, meta);
+  summary.append(identity, createIcon("chevron", "ui-icon tool-chevron"));
+  const body = document.createElement("div");
+  body.className = "tool-group-body";
+  for (const message of run) body.append(createToolCard(message));
+  group.append(summary, body);
+  root.append(group);
+}
+
 function renderMessages(messages) {
   const root = $("#messages");
   root.replaceChildren();
@@ -637,64 +806,16 @@ function renderMessages(messages) {
     root.innerHTML = '<div class="empty-state">Write a message — the widget will create a session.</div>';
     return;
   }
-  for (const message of messages) {
-    if (message.role === "tool") {
-      const details = document.createElement("details");
-      details.className = `tool-call${message.isError ? " failed" : ""}${message.nested ? " nested" : ""}`;
-      const summary = document.createElement("summary");
-      summary.append(createIcon("command"));
-      const identity = document.createElement("span");
-      identity.className = "tool-identity";
-      const name = document.createElement("b");
-      name.textContent = message.name || "Tool call";
-      const status = document.createElement("small");
-      status.textContent = message.status === "running" ? "running" : message.isError ? "failed" : "completed";
-      identity.append(name, status);
-      summary.append(identity);
-      if (Number.isFinite(message.durationMs)) {
-        const duration = document.createElement("time");
-        duration.textContent = message.durationMs < 1000 ? `${message.durationMs} ms` : `${(message.durationMs / 1000).toFixed(1)} s`;
-        summary.append(duration);
-      }
-      summary.append(createIcon("chevron", "ui-icon tool-chevron"));
-      const body = document.createElement("div");
-      body.className = "tool-body";
-      const addSection = (label, value) => {
-        if (!value) return;
-        const section = document.createElement("section");
-        const heading = document.createElement("b");
-        heading.textContent = label;
-        const pre = document.createElement("pre");
-        pre.textContent = value;
-        section.append(heading, pre);
-        body.append(section);
-      };
-      addSection("Input", message.arguments);
-      addSection(message.isError ? "Error" : "Result", message.result);
-      if (!body.childElementCount) {
-        const pending = document.createElement("span");
-        pending.className = "tool-pending";
-        pending.textContent = "Waiting for the tool result…";
-        body.append(pending);
-      }
-      details.append(summary, body);
-      root.append(details);
+  for (let index = 0; index < messages.length;) {
+    const message = messages[index];
+    if (message.role === "reasoning") {
+      index += 1;
       continue;
     }
-    if (message.role === "reasoning") {
-      const details = document.createElement("details");
-      details.className = "reasoning-bubble";
-      const summary = document.createElement("summary");
-      summary.append(createIcon("reasoning"));
-      const preview = document.createElement("span");
-      preview.textContent = compactText(message.text, 130);
-      summary.append(preview, createIcon("chevron"));
-      const body = document.createElement("div");
-      body.className = "reasoning-text";
-      if (message.html) body.innerHTML = message.html;
-      else { body.classList.add("plain"); body.textContent = message.text; }
-      details.append(summary, body);
-      root.append(details);
+    if (message.role === "tool") {
+      const run = [];
+      while (index < messages.length && messages[index].role === "tool") run.push(messages[index++]);
+      appendActivityRun(root, run);
       continue;
     }
     const bubble = document.createElement("div");
@@ -702,6 +823,7 @@ function renderMessages(messages) {
     if (message.html) bubble.innerHTML = message.html;
     else { bubble.classList.add("plain"); bubble.textContent = message.text; }
     root.append(bubble);
+    index += 1;
   }
   root.scrollTop = root.scrollHeight;
 }
@@ -740,12 +862,54 @@ function setTab(tab) {
   if (tab === "chat") Promise.all([refreshHistory(), loadModels(), loadCommands()]);
 }
 
+function setFocusMode(enabled) {
+  const next = Boolean(enabled);
+  if (next && !state.focusMode) state.focusReturnTab = state.tab;
+  state.focusMode = next;
+  if (next) {
+    if (state.tab !== "chat") setTab("chat");
+    $("#agentControls").open = false;
+    $("#settingsPanel").classList.remove("open");
+    $("#commandMenu").classList.remove("open");
+    closePickers();
+  } else if (state.focusReturnTab !== "chat") {
+    setTab(state.focusReturnTab);
+  }
+  document.body.classList.toggle("focus-chat", next);
+  const button = $("#focusChatButton");
+  button.classList.toggle("active", next);
+  button.setAttribute("aria-pressed", String(next));
+  button.title = next ? "Show full interface" : "Focus chat";
+  button.setAttribute("aria-label", button.title);
+}
+
+function toggleCompactHistory() {
+  state.compactHistoryOpen = !state.compactHistoryOpen;
+  if (state.compactHistoryOpen) state.compactNotification = null;
+  syncCompactStatus();
+}
+
+async function openCompactSession() {
+  const entry = compactPreviewEntry();
+  const sessionId = entry?.sessionId || state.selectedSessionId;
+  if (!sessionId) return;
+  state.compactNotification = null;
+  state.compactStatusClosing = false;
+  state.compactHistoryOpen = false;
+  clearTimeout(state.compactNotificationTimer);
+  await setWindowMode("full");
+  await selectSession(sessionId, true);
+  syncCompactStatus();
+}
+
 function detectCompletedSessions(nextSessions) {
   const currentRunning = new Set(nextSessions.filter((session) => session.running).map((session) => session.sessionId));
   if (state.dashboardInitialized) {
     const existing = new Set(nextSessions.map((session) => session.sessionId));
     for (const sessionId of state.runningSessionIds) {
-      if (!currentRunning.has(sessionId) && existing.has(sessionId)) notifyCompletion();
+      if (!currentRunning.has(sessionId) && existing.has(sessionId)) {
+        notifyCompletion(nextSessions.find((session) => session.sessionId === sessionId));
+      }
     }
   }
   state.runningSessionIds = currentRunning;
@@ -759,6 +923,7 @@ async function refresh() {
     const dashboard = await window.widget.dashboard();
     detectCompletedSessions(dashboard.sessions || []);
     state.dashboard = dashboard;
+    syncCompactStatus();
     if (state.selectedSessionId && !dashboard.sessions?.some((session) => session.sessionId === state.selectedSessionId)) state.selectedSessionId = null;
     if (!state.selectedSessionId && dashboard.sessions?.length) {
       state.selectedSessionId = (dashboard.sessions.find((session) => session.running) || dashboard.sessions[0]).sessionId;
@@ -776,7 +941,6 @@ async function refresh() {
       setAvatar("working", running?.activity?.label || "working");
     }
     else if (!["done", "error"].includes(state.avatarMode)) setAvatar("idle");
-    $("#lastUpdate").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     renderSessions();
     renderSessionSelect();
     renderContext();
@@ -924,7 +1088,12 @@ $("#chatForm").addEventListener("submit", async (event) => {
   const input = $("#messageInput");
   const text = input.value.trim();
   if (!text && !state.pendingAttachments.length) return;
+  $("#agentControls").open = false;
+  $("#settingsPanel").classList.remove("open");
+  $("#commandMenu").classList.remove("open");
+  closePickers();
   $("#sendButton").disabled = true;
+  $("#sendButton").classList.add("sending");
   input.value = "";
   input.placeholder = "Message the agent…";
   try {
@@ -952,6 +1121,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
     setAvatar("error", "not sent");
   } finally {
     $("#sendButton").disabled = false;
+    $("#sendButton").classList.remove("sending");
     input.focus();
   }
 });
@@ -968,15 +1138,16 @@ $("#messages").addEventListener("click", (event) => {
   window.widget.openExternal(link.href).catch(() => {});
 });
 $("#cancelButton").addEventListener("click", async () => state.selectedSessionId && window.widget.cancel(state.selectedSessionId));
+$("#focusChatButton").addEventListener("click", () => setFocusMode(!state.focusMode));
 $("#offlineBanner").addEventListener("click", () => window.widget.startHarness());
 $("#openHarnessButton").addEventListener("click", () => window.widget.openHarness());
-$("#refreshButton").addEventListener("click", refresh);
-$("#orbButton").addEventListener("click", () => setWindowMode("orb"));
+$("#openSessionButton").addEventListener("click", () => {
+  if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId);
+});
 $("#dockButton").addEventListener("click", () => setWindowMode("edge"));
 $("#orbRestore").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
-$("#orbNewSession").addEventListener("click", () => createNewSession({ restore: false }));
-$("#orbCommands").addEventListener("click", () => openCommands({ restore: true }));
-$("#orbAttach").addEventListener("click", pickAttachments);
+$("#orbHistoryButton").addEventListener("click", toggleCompactHistory);
+$("#orbStatus").addEventListener("click", openCompactSession);
 $("#edgeMode").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
 for (const target of [$("#orbMode"), $("#edgeMode")]) {
   target.addEventListener("pointerdown", beginCompactDrag);
@@ -984,7 +1155,20 @@ for (const target of [$("#orbMode"), $("#edgeMode")]) {
   target.addEventListener("pointerup", endCompactDrag);
   target.addEventListener("pointercancel", endCompactDrag);
 }
-$("#projectLink").addEventListener("click", () => window.widget.openProject());
+for (const target of [$("#avatarButton"), $("#projectLink")]) {
+  target.addEventListener("pointerdown", beginFullDrag);
+  target.addEventListener("pointermove", moveFullDrag);
+  target.addEventListener("pointerup", endFullDrag);
+  target.addEventListener("pointercancel", endFullDrag);
+}
+$("#avatarButton").addEventListener("click", (event) => {
+  if (suppressProjectClick) event.preventDefault();
+  else setWindowMode("orb");
+});
+$("#projectLink").addEventListener("click", (event) => {
+  if (suppressProjectClick) event.preventDefault();
+  else window.widget.openProject();
+});
 $("#settingsButton").addEventListener("click", () => $("#settingsPanel").classList.toggle("open"));
 $("#closeSettings").addEventListener("click", () => $("#settingsPanel").classList.remove("open"));
 $("#topToggle").addEventListener("change", (event) => window.widget.setAlwaysOnTop(event.target.checked));
@@ -1050,6 +1234,7 @@ window.widget.getAppInfo().then((info) => {
 const launchParams = new URLSearchParams(location.search);
 const requestedTab = launchParams.get("screenshotTab");
 const screenshotFixture = launchParams.get("screenshotFixture");
+if (launchParams.get("screenshotStatic")) document.body.classList.add("screenshot-static");
 if (requestedTab === "chat") setTab("chat");
 setAvatar("idle");
 renderNotifications();
@@ -1067,25 +1252,25 @@ if (screenshotFixture) {
       state.dashboard = {
         harness: true,
         sessions: [
-          { sessionId: "demo-active", title: "NeuralNetLab experiment", running: true, projections: { values: { contextPressure: { projectedTokens: 32768, contextWindow: 131072 } } }, subagents: [{ kind: "child", activity: "running" }, { kind: "child", activity: "idle" }] },
-          { sessionId: "demo-unity", title: "Unity gameplay pass", running: false, projections: { values: { contextPressure: { projectedTokens: 11800, contextWindow: 65536 } } }, subagents: [] },
-          { sessionId: "demo-review", title: "Release verification", running: false, projections: { values: {} }, subagents: [{ kind: "child", activity: "idle" }] },
+          { sessionId: "demo-active", title: "NeuralNetLab experiment", running: true, state: "working", projections: { values: { contextPressure: { projectedTokens: 32768, contextWindow: 131072 } } }, subagents: [{ kind: "child", activity: "running" }, { kind: "child", activity: "idle" }] },
+          { sessionId: "demo-unity", title: "Unity gameplay pass", running: false, state: "idle", projections: { values: { contextPressure: { projectedTokens: 11800, contextWindow: 65536 } } }, subagents: [] },
+          { sessionId: "demo-review", title: "Release verification", running: false, state: "error", projections: { values: {} }, subagents: [{ kind: "child", activity: "idle" }] },
         ],
       };
       state.selectedSessionId = "demo-active";
       renderSessions();
-    } else if (screenshotFixture === "chat") {
+    } else if (["chat", "focus-chat"].includes(screenshotFixture)) {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-chat", title: "Release verification", running: false, projections: { values: { contextPressure: { projectedTokens: 55296, contextWindow: 131072 } } }, subagents: [] }] };
       state.selectedSessionId = "demo-chat";
-      $("#sessionButtonText").textContent = "Release verification";
+      renderSessionSelect();
       $("#controlsSummary").textContent = "LM Studio · Qwen 3.5 9B · Medium";
       renderContext();
       renderMessages([
         { role: "user", text: "Verify the compact widget and summarize the result." },
-        { role: "reasoning", text: "I should inspect the layout, run the automated checks, and report only verified results.", html: "<p>I should inspect the layout, run the automated checks, and report only verified results.</p>" },
         { role: "assistant", text: "All checks passed.", html: "<p><strong>All checks passed.</strong></p><ul><li>No clipped controls</li><li>Markdown and tool calls render correctly</li><li>Compact modes snap to screen edges</li></ul>" },
       ]);
+      if (screenshotFixture === "focus-chat") setFocusMode(true);
     } else if (screenshotFixture === "model") {
       setTab("chat");
       state.modelCatalog = {
@@ -1104,6 +1289,12 @@ if (screenshotFixture) {
       setTab("chat");
       const paths = (launchParams.get("screenshotFiles") || "").split("|").filter(Boolean);
       if (paths.length) addAttachments(await window.widget.prepareFiles(paths));
+    } else if (screenshotFixture === "orb-notification") {
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-notification", title: "Unity gameplay pass", updatedAt: Date.now(), running: false, state: "idle", preview: "The Play Mode verification finished successfully.", projections: { values: {} }, subagents: [] }] };
+      state.selectedSessionId = "demo-notification";
+      state.compactNotification = { kind: "notification", sessionId: "demo-notification", title: "Unity gameplay pass", text: "The Play Mode verification finished successfully." };
+      setAvatar("done", "done");
+      syncCompactStatus();
     } else if (screenshotFixture === "thinking") {
       setTab("chat");
       setAvatar("working", "thinking");

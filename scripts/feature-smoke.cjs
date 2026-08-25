@@ -5,6 +5,7 @@ async function main() {
   const host = await api.rpc("host.describe");
   const workspaces = await api.workspaces();
   const sessionId = await api.createSession({ cwd: host.cwd });
+  const fullAccess = await api.ensureFullAccess(sessionId);
   await api.rpc("session.rename", { sessionId, title: "Widget feature smoke" });
 
   const [commands, models, sessions] = await Promise.all([
@@ -23,6 +24,7 @@ async function main() {
     commandNames,
     reasoningModels,
     goalCommand: commandResult.result,
+    fullAccess: fullAccess.result,
   };
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (created?.cwd !== host.cwd) throw new Error("Workspace-aware session creation did not preserve cwd");
@@ -31,6 +33,7 @@ async function main() {
   }
   if (reasoningModels < 1) throw new Error("No reasoning-capable models were returned");
   if (commandResult.result?.kind !== "success") throw new Error("/goal command did not succeed");
+  if (fullAccess.result?.kind !== "success") throw new Error("Full access was not enabled");
 }
 
 main().catch((error) => {

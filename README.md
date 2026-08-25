@@ -15,7 +15,7 @@
 
 Agent Deck keeps [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) close without keeping the full web interface open. It shows live sessions and subagents, provides a real mini-chat, tracks context pressure, switches models and reasoning effort, runs native Harness commands, changes workspaces, accepts file drops, renders safe Markdown, and keeps tool calls compact.
 
-The NeoXider avatar reacts to agent state: breathing while idle, typing while working, floating while waiting, shaking on errors and celebrating completion. A subtle inner chat glow independently distinguishes model thinking, answer generation, and tool execution; idle chat has no glow.
+The NeoXider avatar reacts to agent state: breathing while idle, typing while working, floating while waiting, shaking on errors and celebrating completion. A subtle inner chat glow independently distinguishes model thinking, answer generation, and tool execution; idle chat has no glow. Short spring transitions make buttons, Send, view changes, avatar collapse, and edge docking feel responsive without ignoring Windows reduced-motion preferences.
 
 ## Preview
 
@@ -42,16 +42,26 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
   <tr>
     <td colspan="2" align="center"><strong>Stable PNG and video attachment previews</strong></td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/focus-chat.png" alt="Chat-only focus mode" /></td>
+    <td width="50%"><img src="docs/screenshots/notification-orb.png" alt="Animated compact reply notification" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>One-click Focus Chat</strong></td>
+    <td align="center"><strong>Session-aware compact notification</strong></td>
+  </tr>
 </table>
 
 <p align="center">
-  <img src="docs/screenshots/avatar-mode.png" alt="Avatar mode" width="76" />
+  <img src="docs/screenshots/avatar-mode.png" alt="Avatar mode" height="96" />
   &nbsp;&nbsp;&nbsp;&nbsp;
   <img src="docs/screenshots/edge-mode.png" alt="Edge handle mode" height="132" />
 </p>
 
 ## Highlights
 
+- **Chat-first navigation** — the real mini-chat is the default first page; the agent deck is one tap away.
+- **State-aware agent deck** — every session card changes its avatar, glow and label for working, idle or error state.
 - **Real Harness sessions** — session titles, running state, subagents and errors come from the live HTTP RPC API.
 - **Context pressure** — a compact ring shows projected tokens against the model context window.
 - **Model routing** — use the searchable dark picker for every provider/model exposed by Harness; the active/local route (including LM Studio) stays first.
@@ -59,14 +69,18 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Native commands** — the `/` palette is loaded from `commands/list`, so `/goal`, `/plan`, `/compact`, `/permission` and plugin commands stay current.
 - **Workspace switching** — select an existing Harness workspace or add a folder; the widget starts the next session there.
 - **Safe Markdown** — headings, lists, tables, links, quotes and code render inside the chat; executable HTML and unsafe link protocols are blocked.
-- **Collapsed tool calls** — native `tool/call`, `tool/result`, and nested Code Mode dispatches render as compact expandable rows with input, result, timing, and error state.
+- **Collapsed tool runs** — consecutive native `tool/call`, `tool/result`, and nested Code Mode dispatches become one expandable group; each child still exposes input, result, timing, and error state.
+- **Ephemeral reasoning** — live reasoning stays in one collapsed activity card while the model is generating, then disappears when the turn is complete instead of cluttering chat history.
 - **Files and drag-and-drop** — PNG, JPEG, WebP and GIF files use official image content blocks. Image and video attachments get visible previews without shifting the composer; other files become explicit local `@path` references.
 - **Live chat aura** — gentle, distinct inner glows indicate thinking, writing, and tool execution. No activity means no glow.
+- **Focus Chat** — one compact composer button hides all chrome and setup surfaces, leaving only messages, optional attachment previews, the input, context and actions; tap it again to restore everything.
 - **Three window states** — full deck, notification avatar, or an iridescent edge handle.
 - **Draggable compact modes** — drag either the avatar or the edge handle anywhere vertically or across displays; release to magnetize it to the nearest screen edge.
-- **Avatar quick actions** — create a session, open Harness commands, or attach a file without restoring the full window.
-- **Completion notifications** — the avatar badge increments while collapsed; the edge handle bounces when work finishes.
+- **Click-or-drag brand** — click the full-size avatar to collapse, click the NeoXider title to open the repository, or drag either one to move the full widget without triggering its click action.
+- **Recent reply button** — collapsed pet mode keeps one useful chat button instead of create/command/attachment clutter.
+- **Session-aware notifications** — a completed reply slides out for about 2.7 seconds with its session name and answer preview; clicking it restores that exact session. The edge handle still bounces when work finishes.
 - **No close button** — window close gestures dock the widget to the screen edge. Quit remains available from the tray menu.
+- **Single-instance launch** — repeated shortcut clicks focus the existing widget instead of stacking translucent windows.
 - **Personal controls** — opacity, compact/standard/large size, always-on-top and Windows autostart.
 
 ## Install
@@ -104,8 +118,11 @@ Set `DSH_WIDGET_URL` to use a different Harness endpoint.
 
 | Control | Action |
 |---|---|
-| Agents / chat tabs | Switch between the session list and mini-chat |
-| Circle button | Collapse to the animated avatar and quick actions |
+| Glowing header tabs | Switch between the session list and mini-chat |
+| Focus icon in the composer | Hide every surface except chat, attachment previews, input, context and actions; tap again to restore |
+| Full-size avatar | Click to collapse to the animated avatar and quick actions; drag to move the window |
+| NeoXider / Agent Deck title | Click to open this repository; drag to move the window |
+| DeepSeek whale beside the session | Open the selected session directly in Harness Web |
 | Edge arrow | Dock to the iridescent edge handle |
 | Terminal button | Open the live Harness command palette |
 | Model chip | Search providers and models |
@@ -113,11 +130,13 @@ Set `DSH_WIDGET_URL` to use a different Harness endpoint.
 | Folder chip | Choose or add a workspace |
 | Agent / Plan switch | Change the Harness interaction mode |
 | Paperclip | Attach files or open the attachment picker |
+| Chat icon beside the collapsed pet | Show the latest reply; click the preview to open that exact session |
 | Stop beside Send | Cancel only the current running turn |
-| Context ring beside Send | Show projected context usage |
+| Context ring at the far left | Show projected context usage |
+| Send at the far right | Submit the current message or attachments |
 
-Click the avatar or edge handle to restore the full deck. Use the tray menu to quit completely.
-Drag the avatar or edge handle and release it anywhere: it snaps to the nearest left or right screen edge and remembers that side.
+Click the collapsed avatar or edge handle to restore the full deck. Use the tray menu to quit completely.
+Drag a collapsed avatar or edge handle and release it anywhere: it snaps to the nearest left or right screen edge and remembers that side.
 
 ## How chat works
 
@@ -129,6 +148,8 @@ The widget does not embed or scrape the Harness web page. It uses the installed 
 - `commands/list`, `commands/execute`
 
 This keeps the UI small and avoids coupling it to Harness HTML layout changes. Provider credentials remain inside Harness; the widget never reads API keys.
+
+Every session created or prompted from the widget is explicitly switched to Harness `danger-full-access` before the prompt runs. This matches the widget's intended trusted-desktop workflow, but it also means the selected agent can read, write, execute, and use configured tools without an additional permission prompt. Use the widget only with models, workspaces, MCP servers, and skills you trust.
 
 ## Build and verify
 
@@ -142,9 +163,9 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/DeepSeek-Harness-Widget-0.2.0-portable.exe`.
+The portable executable is written to `release/DeepSeek-Harness-Widget-0.2.1-portable.exe`.
 
-The test suite verifies the official Harness event shapes, safe Markdown, tool call/result correlation, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
+The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
 ## Security
 

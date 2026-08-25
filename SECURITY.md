@@ -7,5 +7,6 @@
 - Files are attached only after an explicit picker action or drag-and-drop.
 - Images are capped at 8 MB by the widget. Non-image files are passed to Harness as explicit local `@path` references rather than uploaded elsewhere.
 - API keys remain in DeepSeek Harness provider storage and are never read by the widget.
+- Sessions created or prompted from the widget are deliberately switched to Harness `danger-full-access`. The agent can read, write, execute, and use configured tools without another permission prompt, so only trusted models, workspaces, MCP servers, and skills should be used.
 
 Report vulnerabilities privately through GitHub Security Advisories. Do not include credentials, private prompts, local paths, or session exports in a public issue.

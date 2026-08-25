@@ -161,6 +161,13 @@ function titleFromSession(session) {
 function messagesFromHistory(entries) {
   if (!Array.isArray(entries)) return [];
   const messages = [];
+  const hiddenCommandIds = new Set(entries
+    .map((entry) => entry?.event)
+    .filter((event) => event?.type === "command/run"
+      && event.data?.name === "permission"
+      && String(event.data?.args || "").trim() === "danger-full-access")
+    .map((event) => String(event.data.commandId || ""))
+    .filter(Boolean));
   for (const entry of entries) {
     const event = entry && entry.event;
     if (!event || !event.data) continue;
@@ -170,14 +177,14 @@ function messagesFromHistory(entries) {
       if (text) messages.push({ role: "user", text, time: event.time, seq: event.seq });
     } else if (event.type === "assistant/message") {
       const blocks = event.data.message && event.data.message.content;
-      const reasoning = reasoningFromBlocks(blocks);
       const text = textFromBlocks(blocks);
-      if (reasoning) messages.push({ role: "reasoning", text: reasoning, time: event.time, seq: (event.seq || 0) - 0.1 });
       if (text) messages.push({ role: "assistant", text, time: event.time, seq: event.seq });
     } else if (event.type === "command/run" && event.data.source && event.data.source.kind === "user") {
+      if (hiddenCommandIds.has(String(event.data.commandId || ""))) continue;
       const text = `/${event.data.name}${event.data.args || ""}`;
       messages.push({ role: "user", text, time: event.time, seq: event.seq });
     } else if (event.type === "command/done" && event.data.text) {
+      if (hiddenCommandIds.has(String(event.data.commandId || ""))) continue;
       messages.push({
         role: event.data.kind === "error" ? "error" : "command",
         text: event.data.text,
@@ -203,7 +210,6 @@ function activityFromHistory(entries) {
   let turnOpen = false;
   let reasoning = "";
   let writing = "";
-  let lastReasoning = "";
   let latestSignal = null;
   let activeTool = null;
   const pendingTools = new Map();
@@ -249,9 +255,6 @@ function activityFromHistory(entries) {
         activeTool = null;
         latestSignal = null;
       }
-    } else if (event.type === "assistant/message") {
-      const finalReasoning = reasoningFromBlocks(data.message && data.message.content);
-      if (finalReasoning) lastReasoning = finalReasoning;
     } else if (event.type === "turn/end") {
       turnOpen = false;
     }
@@ -262,14 +265,25 @@ function activityFromHistory(entries) {
     if (latestSignal === "writing" && writing.trim()) return { active: true, kind: "writing", label: "Writing", text: writing.trim() };
     return { active: true, kind: "working", label: "Working", text: "Preparing the next step…" };
   }
-  if (lastReasoning) return { active: false, kind: "reasoning", label: "Last reasoning", text: lastReasoning };
   return null;
+}
+
+function sessionStateFromHistory(entries, running = false) {
+  if (running) return "working";
+  if (!Array.isArray(entries)) return "idle";
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const event = entries[index]?.event;
+    if (event?.type !== "turn/end") continue;
+    return event.data?.reason?.kind === "error" ? "error" : "idle";
+  }
+  return "idle";
 }
 
 class HarnessApi {
   constructor(baseUrl = "http://127.0.0.1:3080", fetchImpl = globalThis.fetch) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.fetch = fetchImpl;
+    this.sessionStateCache = new Map();
   }
 
   async rpc(method, payload = {}, timeoutMs = 8000) {
@@ -303,13 +317,25 @@ class HarnessApi {
     ]);
     const sessions = (sessionsValue.items || []).slice(0, 18);
     const enriched = await Promise.all(sessions.map(async (session) => {
-      const [catalog, activity] = await Promise.all([
+      const cachedState = this.sessionStateCache.get(session.sessionId);
+      const shouldReadState = session.running || !cachedState || cachedState.updatedAt !== session.updatedAt;
+      const [catalog, historyValue] = await Promise.all([
         this.rpc("subagent.list", { parentSessionId: session.sessionId }, 4000).catch(() => ({ entries: [] })),
-        session.running
-          ? this.rpc("session.history", { sessionId: session.sessionId, maxMessages: 120 }, 6000).then((value) => activityFromHistory(value.events || [])).catch(() => null)
+        shouldReadState
+          ? this.rpc("session.history", { sessionId: session.sessionId, maxMessages: session.running ? 120 : 12 }, 6000).catch(() => null)
           : Promise.resolve(null),
       ]);
-      return { ...session, title: titleFromSession(session), subagents: catalog.entries || [], activity };
+      const events = historyValue?.events || [];
+      const activity = session.running ? activityFromHistory(events) : null;
+      const agentState = historyValue
+        ? sessionStateFromHistory(events, session.running)
+        : (session.running ? "working" : cachedState?.state || "idle");
+      const latestAssistant = historyValue
+        ? messagesFromHistory(events).findLast((message) => message.role === "assistant")
+        : null;
+      const preview = latestAssistant?.text || cachedState?.preview || "";
+      this.sessionStateCache.set(session.sessionId, { updatedAt: session.updatedAt, state: agentState, preview });
+      return { ...session, title: titleFromSession(session), subagents: catalog.entries || [], activity, state: agentState, preview };
     }));
     return { host, sessions: enriched };
   }
@@ -370,6 +396,14 @@ class HarnessApi {
       args: { agentId: sessionId, line, images: [] },
     }, 30000);
   }
+
+  async ensureFullAccess(sessionId) {
+    const response = await this.executeCommand(sessionId, "/permission danger-full-access");
+    if (response?.result?.kind !== "success") {
+      throw new Error(response?.result?.text || "Harness did not enable Full access");
+    }
+    return response;
+  }
 }
 
 module.exports = {
@@ -378,6 +412,7 @@ module.exports = {
   messagesFromHistory,
   readableToolValue,
   reasoningFromBlocks,
+  sessionStateFromHistory,
   textFromBlocks,
   titleFromSession,
   toolMessagesFromHistory,
