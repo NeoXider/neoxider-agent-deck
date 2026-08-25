@@ -2,16 +2,25 @@ const path = require("node:path");
 const { mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
 const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { HarnessApi } = require("./harness-api.cjs");
+const { renderMarkdown } = require("./markdown.cjs");
+const { clamp, moveCompactBounds, snapCompactBounds } = require("./window-geometry.cjs");
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
+if (process.env.WIDGET_SCREENSHOT_PATH) {
+  app.setPath("sessionData", path.join(app.getPath("temp"), "deepseek-harness-widget-smoke", String(process.pid)));
+}
 const api = new HarnessApi(HARNESS_URL);
 const SIZE_PRESETS = {
   compact: [380, 520],
   standard: [420, 640],
   large: [500, 760],
 };
-const ORB_SIZE = 76;
-const EDGE_WIDTH = 22;
+const ORB_SIZE = 80;
+const ORB_QUICK_WIDTH = 204;
+const ORB_STATUS_WIDTH = 350;
+// Keep enough transparent space for the edge glow to fade out naturally.
+// The visible handle is still flush with the screen edge.
+const EDGE_WIDTH = 88;
 const EDGE_HEIGHT = 132;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const IMAGE_TYPES = new Map([
@@ -21,12 +30,21 @@ const IMAGE_TYPES = new Map([
   [".webp", "image/webp"],
   [".gif", "image/gif"],
 ]);
+const VIDEO_TYPES = new Set([".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".wmv"]);
 
 let windowRef;
 let tray;
 let windowMode = "full";
 let fullBounds;
-let preferences = { opacity: 0.96, size: "standard", alwaysOnTop: true };
+let preferences = { opacity: 0.96, size: "standard", alwaysOnTop: true, compactSide: "right" };
+let compactStatus = { active: false, label: "Ready", text: "" };
+let compactDragOrigin = null;
+let compactDragTrace = [];
+
+function traceCompactDrag(stage, details = {}) {
+  compactDragTrace.push({ stage, at: Date.now(), ...details });
+  compactDragTrace = compactDragTrace.slice(-24);
+}
 
 function settingsPath() {
   return path.join(app.getPath("userData"), "widget-settings.json");
@@ -47,16 +65,30 @@ function captureFullBounds() {
   if (windowRef && windowMode === "full") fullBounds = windowRef.getBounds();
 }
 
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function prepareFile(filePath) {
+async function prepareFile(filePath) {
   const resolved = path.resolve(String(filePath));
   const info = statSync(resolved);
   if (!info.isFile()) throw new Error(`Not a file: ${resolved}`);
-  const mediaType = IMAGE_TYPES.get(path.extname(resolved).toLowerCase());
-  if (!mediaType) return { kind: "reference", path: resolved, name: path.basename(resolved) };
+  const extension = path.extname(resolved).toLowerCase();
+  const mediaType = IMAGE_TYPES.get(extension);
+  if (!mediaType) {
+    if (VIDEO_TYPES.has(extension)) {
+      let thumbnailData = "";
+      try {
+        const thumbnail = await nativeImage.createThumbnailFromPath(resolved, { width: 160, height: 100 });
+        if (!thumbnail.isEmpty()) thumbnailData = thumbnail.toPNG().toString("base64");
+      } catch {}
+      return {
+        kind: "reference",
+        previewKind: "video",
+        thumbnailData,
+        thumbnailMediaType: thumbnailData ? "image/png" : "",
+        path: resolved,
+        name: path.basename(resolved),
+      };
+    }
+    return { kind: "reference", previewKind: "file", path: resolved, name: path.basename(resolved) };
+  }
   if (info.size > MAX_IMAGE_BYTES) throw new Error(`${path.basename(resolved)} exceeds the 8 MB image limit`);
   return {
     kind: "image",
@@ -68,10 +100,10 @@ function prepareFile(filePath) {
   };
 }
 
-function prepareFiles(filePaths) {
-  return [...new Set((filePaths || []).map((value) => path.resolve(String(value))))]
+async function prepareFiles(filePaths) {
+  return Promise.all([...new Set((filePaths || []).map((value) => path.resolve(String(value))))]
     .slice(0, 12)
-    .map(prepareFile);
+    .map(prepareFile));
 }
 
 function applyWindowMode(nextMode) {
@@ -98,12 +130,16 @@ function applyWindowMode(nextMode) {
   } else if (nextMode === "orb") {
     const source = fullBounds || windowRef.getBounds();
     const display = screen.getDisplayMatching(source).workArea;
+    const orbWidth = compactStatus.active ? ORB_STATUS_WIDTH : ORB_QUICK_WIDTH;
     windowRef.setResizable(false);
     windowRef.setSkipTaskbar(true);
+    const preferredX = preferences.compactSide === "left"
+      ? display.x + 8
+      : display.x + display.width - orbWidth - 8;
     windowRef.setBounds({
-      x: clamp(source.x + source.width - ORB_SIZE, display.x, display.x + display.width - ORB_SIZE),
+      x: preferredX,
       y: clamp(source.y, display.y, display.y + display.height - ORB_SIZE),
-      width: ORB_SIZE,
+      width: orbWidth,
       height: ORB_SIZE,
     }, true);
   } else {
@@ -112,7 +148,7 @@ function applyWindowMode(nextMode) {
     windowRef.setResizable(false);
     windowRef.setSkipTaskbar(true);
     windowRef.setBounds({
-      x: display.x + display.width - EDGE_WIDTH,
+      x: preferences.compactSide === "left" ? display.x : display.x + display.width - EDGE_WIDTH,
       y: clamp(source.y + Math.round((source.height - EDGE_HEIGHT) / 2), display.y, display.y + display.height - EDGE_HEIGHT),
       width: EDGE_WIDTH,
       height: EDGE_HEIGHT,
@@ -123,10 +159,15 @@ function applyWindowMode(nextMode) {
   if (nextMode === "full") windowRef.show();
   else windowRef.showInactive();
   windowRef.webContents.send("window-mode", windowMode);
+  windowRef.webContents.send("compact-side", preferences.compactSide);
 }
 
 function createWindow() {
-  const [width, height] = SIZE_PRESETS[preferences.size] || SIZE_PRESETS.standard;
+  const [presetWidth, presetHeight] = SIZE_PRESETS[preferences.size] || SIZE_PRESETS.standard;
+  const requestedWidth = Number(process.env.WIDGET_SCREENSHOT_WIDTH);
+  const requestedHeight = Number(process.env.WIDGET_SCREENSHOT_HEIGHT);
+  const width = Number.isFinite(requestedWidth) && requestedWidth >= 360 ? requestedWidth : presetWidth;
+  const height = Number.isFinite(requestedHeight) && requestedHeight >= 500 ? requestedHeight : presetHeight;
   windowRef = new BrowserWindow({
     width,
     height,
@@ -149,8 +190,14 @@ function createWindow() {
   });
   windowRef.setOpacity(Math.max(0.65, Math.min(1, Number(preferences.opacity) || 0.96)));
   const screenshotTab = process.env.WIDGET_SCREENSHOT_TAB || "";
+  const screenshotFixture = process.env.WIDGET_SCREENSHOT_FIXTURE || "";
+  const screenshotFiles = process.env.WIDGET_SCREENSHOT_FILES || "";
   windowRef.loadFile(path.join(__dirname, "renderer", "index.html"), {
-    query: screenshotTab ? { screenshotTab } : {},
+    query: {
+      ...(screenshotTab ? { screenshotTab } : {}),
+      ...(screenshotFixture ? { screenshotFixture } : {}),
+      ...(screenshotFiles ? { screenshotFiles } : {}),
+    },
   });
   windowRef.once("ready-to-show", () => {
     fullBounds = windowRef.getBounds();
@@ -168,17 +215,37 @@ function createWindow() {
   const screenshotPath = process.env.WIDGET_SCREENSHOT_PATH;
   if (screenshotPath) {
     windowRef.webContents.once("did-finish-load", () => {
+      const requestedDelay = Number(process.env.WIDGET_SCREENSHOT_DELAY);
+      const captureDelay = Number.isFinite(requestedDelay) && requestedDelay >= 1200 ? requestedDelay : 5000;
       const requestedMode = process.env.WIDGET_SCREENSHOT_MODE;
       if (["orb", "edge"].includes(requestedMode)) {
-        setTimeout(() => applyWindowMode(requestedMode), 3500);
+        setTimeout(() => applyWindowMode(requestedMode), Math.min(3500, captureDelay - 650));
       }
       setTimeout(async () => {
+        const auditPath = process.env.WIDGET_UI_AUDIT_PATH;
+        if (auditPath) {
+          const audit = await windowRef.webContents.executeJavaScript(`(() => {
+            const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.tool-call','.attachment-bar.has-items','.composer','.picker.open .picker-menu','.orb-mode','.edge-mode'];
+            const boxes = selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((element) => {
+              const rect = element.getBoundingClientRect();
+              const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).display !== 'none';
+              return { selector, visible, left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height };
+            })).filter((item) => item.visible);
+            const tolerance = 1;
+            const offenders = boxes.filter((box) => box.left < -tolerance || box.top < -tolerance || box.right > innerWidth + tolerance || box.bottom > innerHeight + tolerance);
+            return { viewport: { width: innerWidth, height: innerHeight }, scroll: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight }, boxes, offenders };
+          })()`);
+          audit.compactDragTrace = compactDragTrace;
+          audit.windowBounds = windowRef.getBounds();
+          mkdirSync(path.dirname(auditPath), { recursive: true });
+          writeFileSync(auditPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+        }
         const image = await windowRef.webContents.capturePage();
         mkdirSync(path.dirname(screenshotPath), { recursive: true });
         writeFileSync(screenshotPath, image.toPNG());
         app.isQuitting = true;
         app.quit();
-      }, 5000);
+      }, captureDelay);
     });
   }
 }
@@ -191,7 +258,15 @@ ipcMain.handle("dashboard", async () => {
     return { ok: false, harness: false, error: error instanceof Error ? error.message : String(error), sessions: [] };
   }
 });
-ipcMain.handle("history", async (_event, sessionId) => api.history(sessionId));
+ipcMain.handle("history", async (_event, sessionId) => {
+  const view = await api.history(sessionId);
+  return {
+    ...view,
+    messages: view.messages.map((message) => typeof message.text === "string"
+      ? { ...message, html: renderMarkdown(message.text) }
+      : message),
+  };
+});
 ipcMain.handle("models", async (_event, sessionId) => api.models(sessionId || undefined));
 ipcMain.handle("commands", async (_event, sessionId) => api.commands(sessionId));
 ipcMain.handle("execute-command", async (_event, payload) => api.executeCommand(payload.sessionId, payload.line));
@@ -222,6 +297,12 @@ ipcMain.handle("send", async (_event, payload) => {
 });
 ipcMain.handle("cancel", async (_event, sessionId) => api.cancel(sessionId));
 ipcMain.handle("open-harness", async () => shell.openExternal(HARNESS_URL));
+ipcMain.handle("open-project", async () => shell.openExternal("https://github.com/NeoXider/deepseek-harness-widget"));
+ipcMain.handle("open-external", async (_event, value) => {
+  const url = new URL(String(value));
+  if (!new Set(["http:", "https:", "mailto:"]).has(url.protocol)) throw new Error("Unsupported external link protocol");
+  return shell.openExternal(url.href);
+});
 ipcMain.handle("start-harness", async () => shell.openPath(path.join(app.getPath("desktop"), "Запустить DeepSeek Harness.bat")));
 ipcMain.handle("set-always-on-top", (_event, enabled) => {
   preferences.alwaysOnTop = Boolean(enabled);
@@ -253,10 +334,86 @@ ipcMain.handle("get-preferences", () => ({
   opacity: preferences.opacity,
   size: preferences.size,
   windowMode,
+  compactSide: preferences.compactSide,
 }));
+ipcMain.handle("app-info", () => ({ version: app.getVersion(), repository: "https://github.com/NeoXider/deepseek-harness-widget" }));
 ipcMain.handle("set-window-mode", (_event, mode) => {
   applyWindowMode(mode);
   return windowMode;
+});
+ipcMain.handle("set-compact-status", (_event, value) => {
+  const wasActive = compactStatus.active;
+  compactStatus = {
+    active: Boolean(value && value.active),
+    label: String(value && value.label || "Ready").slice(0, 80),
+    text: String(value && value.text || "").slice(0, 180),
+  };
+  if (windowMode === "orb" && wasActive !== compactStatus.active && !compactDragOrigin) applyWindowMode("orb");
+  return compactStatus;
+});
+ipcMain.handle("window-bounds", () => windowRef.getBounds());
+ipcMain.on("begin-compact-drag", (event, value) => {
+  if (!windowRef || windowMode === "full" || event.sender !== windowRef.webContents) return;
+  const screenX = Number(value?.x);
+  const screenY = Number(value?.y);
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+  compactDragOrigin = { screenX, screenY, bounds: windowRef.getBounds() };
+  traceCompactDrag("begin", { screenX, screenY, bounds: compactDragOrigin.bounds });
+});
+ipcMain.on("move-compact-drag", (event, value) => {
+  if (!windowRef || windowMode === "full" || !compactDragOrigin || event.sender !== windowRef.webContents) return;
+  const screenX = Number(value?.x);
+  const screenY = Number(value?.y);
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+  const candidate = {
+    x: compactDragOrigin.bounds.x + screenX - compactDragOrigin.screenX,
+    y: compactDragOrigin.bounds.y + screenY - compactDragOrigin.screenY,
+  };
+  const display = screen.getDisplayNearestPoint({ x: Math.round(candidate.x), y: Math.round(candidate.y) }).workArea;
+  const moved = moveCompactBounds(compactDragOrigin.bounds, candidate, display);
+  windowRef.setPosition(moved.x, moved.y, false);
+  traceCompactDrag("move", { screenX, screenY, x: moved.x, y: moved.y });
+});
+ipcMain.handle("move-compact-window", (_event, value) => {
+  if (!windowRef || windowMode === "full") return windowRef?.getBounds();
+  const bounds = windowRef.getBounds();
+  const requestedX = Number(value?.x);
+  const requestedY = Number(value?.y);
+  const candidateX = Number.isFinite(requestedX) ? requestedX : bounds.x;
+  const candidateY = Number.isFinite(requestedY) ? requestedY : bounds.y;
+  const display = screen.getDisplayNearestPoint({ x: Math.round(candidateX), y: Math.round(candidateY) }).workArea;
+  const moved = moveCompactBounds(bounds, { x: candidateX, y: candidateY }, display);
+  windowRef.setPosition(moved.x, moved.y, false);
+  if (fullBounds) {
+    fullBounds.y = moved.y;
+    fullBounds.x = clamp(moved.x + bounds.width - fullBounds.width, display.x, display.x + display.width - fullBounds.width);
+  }
+  return windowRef.getBounds();
+});
+ipcMain.handle("snap-compact-window", () => {
+  if (!windowRef || windowMode === "full") return windowRef?.getBounds();
+  const bounds = windowRef.getBounds();
+  const display = screen.getDisplayMatching(bounds).workArea;
+  const snapped = snapCompactBounds(bounds, display, windowMode);
+  preferences.compactSide = snapped.side;
+  windowRef.setBounds({ x: snapped.x, y: snapped.y, width: snapped.width, height: snapped.height }, true);
+  savePreferences();
+  windowRef.webContents.send("compact-side", preferences.compactSide);
+  return { ...windowRef.getBounds(), side: preferences.compactSide };
+});
+ipcMain.handle("end-compact-drag", () => {
+  compactDragOrigin = null;
+  if (!windowRef || windowMode === "full") return windowRef?.getBounds();
+  const bounds = windowRef.getBounds();
+  const display = screen.getDisplayMatching(bounds).workArea;
+  const snapped = snapCompactBounds(bounds, display, windowMode);
+  traceCompactDrag("end", { before: bounds, snapped });
+  preferences.compactSide = snapped.side;
+  windowRef.setBounds({ x: snapped.x, y: snapped.y, width: snapped.width, height: snapped.height }, true);
+  savePreferences();
+  windowRef.webContents.send("compact-side", preferences.compactSide);
+  if (fullBounds) fullBounds.y = snapped.y;
+  return { ...windowRef.getBounds(), side: preferences.compactSide };
 });
 ipcMain.on("agent-complete", () => {
   if (windowMode === "edge") windowRef.webContents.send("edge-bounce");

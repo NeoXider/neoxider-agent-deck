@@ -19,7 +19,7 @@ async function main() {
   }
   const history = await api.history(sessionId);
   process.stdout.write(`${JSON.stringify({ sessionId, provider, model, running, history }, null, 2)}\n`);
-  if (running || !history.some((message) => message.role === "assistant" && /OK/i.test(message.text))) {
+  if (running || !history.messages.some((message) => message.role === "assistant" && /OK/i.test(message.text))) {
     process.exitCode = 1;
   }
 }

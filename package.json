@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness-widget",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A compact Windows desktop companion for DeepSeek Harness sessions, agents, and chat",
   "author": "NeoXider",
   "license": "MIT",
@@ -15,9 +15,11 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
+    "test:ui": "node scripts/ui-visual-smoke.cjs",
     "smoke": "node scripts/live-smoke.cjs",
     "feature-smoke": "node scripts/feature-smoke.cjs",
     "chat-smoke": "node scripts/chat-smoke.cjs",
+    "tool-smoke": "node scripts/tool-call-smoke.cjs",
     "build": "npm run test && electron-builder --win portable"
   },
   "devDependencies": {
@@ -38,8 +40,14 @@
     ],
     "asar": true,
     "win": {
-      "target": ["portable"],
+      "target": [
+        "portable"
+      ],
       "icon": "src/renderer/assets/neoxider-github.png"
     }
+  },
+  "dependencies": {
+    "markdown-it": "15.0.0",
+    "sanitize-html": "2.17.7"
   }
 }

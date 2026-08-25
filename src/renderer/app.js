@@ -15,12 +15,15 @@ const state = {
   pendingSelection: null,
   windowMode: "full",
   avatarMode: "idle",
+  currentActivity: null,
+  currentMode: "agent",
   unread: 0,
   dashboardInitialized: false,
   runningSessionIds: new Set(),
 };
 
 const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
 const AVATARS = {
   idle: "assets/neoxider-github.png",
   working: "assets/avatar-working.png",
@@ -36,6 +39,85 @@ const AVATAR_LABELS = {
   done: "done",
 };
 
+function createIcon(name, className = "ui-icon") {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", className);
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `#icon-${name}`);
+  svg.append(use);
+  return svg;
+}
+
+function compactText(value, limit = 120) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit - 1)}…` : normalized;
+}
+
+function closePickers(except = null) {
+  $$(".picker.open").forEach((picker) => {
+    if (picker === except) return;
+    picker.classList.remove("open");
+    picker.querySelector(".picker-button")?.setAttribute("aria-expanded", "false");
+  });
+}
+
+function togglePicker(button) {
+  if (button.disabled) return;
+  const picker = button.closest(".picker");
+  const open = !picker.classList.contains("open");
+  closePickers(open ? picker : null);
+  picker.classList.toggle("open", open);
+  button.setAttribute("aria-expanded", String(open));
+}
+
+function pickerOption(label, { selected = false, meta = "", title = "", onSelect } = {}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `picker-option${selected ? " selected" : ""}`;
+  button.title = title || label;
+  const mark = document.createElement("i");
+  mark.className = "picker-check";
+  if (selected) mark.append(createIcon("check"));
+  const text = document.createElement("span");
+  text.textContent = label;
+  button.append(mark, text);
+  if (meta) {
+    const small = document.createElement("small");
+    small.textContent = meta;
+    button.append(small);
+  }
+  button.addEventListener("click", onSelect);
+  return button;
+}
+
+function syncCompactStatus() {
+  const activity = state.currentActivity;
+  const active = Boolean(activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
+  const label = activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
+  const text = compactText(activity?.text || $("#avatarState")?.textContent || label, 96);
+  document.body.classList.toggle("orb-has-status", active);
+  $("#orbStatusLabel").textContent = label;
+  $("#orbStatusText").textContent = text;
+  window.widget.setCompactStatus({ active, label, text }).catch(() => {});
+}
+
+function setActivity(activity) {
+  state.currentActivity = activity || null;
+  document.body.classList.remove("activity-thinking", "activity-writing", "activity-tool");
+  if (activity?.active && ["thinking", "writing", "tool"].includes(activity.kind)) {
+    document.body.classList.add(`activity-${activity.kind}`);
+  }
+  const card = $("#activityCard");
+  const hasActivity = Boolean(activity?.text);
+  card.classList.toggle("has-activity", hasActivity);
+  if (hasActivity) {
+    $("#activityLabel").textContent = activity.label || "Activity";
+    $("#activityPreview").textContent = compactText(activity.text, 110);
+    $("#activityBody").textContent = activity.text;
+  }
+  syncCompactStatus();
+}
+
 function setAvatar(mode, label) {
   state.avatarMode = mode;
   const shell = $("#avatarShell");
@@ -44,6 +126,7 @@ function setAvatar(mode, label) {
   $("#avatarState").textContent = label || AVATAR_LABELS[mode] || "ready";
   document.body.classList.remove("state-idle", "state-working", "state-waiting", "state-error", "state-done");
   document.body.classList.add(`state-${mode}`);
+  syncCompactStatus();
 }
 
 function renderNotifications() {
@@ -55,13 +138,17 @@ function renderNotifications() {
 
 function notifyCompletion() {
   setAvatar("done");
+  setActivity({ active: true, kind: "done", label: "Done", text: "Agent finished the current task." });
   if (state.windowMode !== "full") {
     state.unread += 1;
     renderNotifications();
     window.widget.notifyAgentComplete();
   }
   setTimeout(() => {
-    if (!state.dashboard?.sessions?.some((session) => session.running)) setAvatar("idle");
+    if (!state.dashboard?.sessions?.some((session) => session.running)) {
+      setAvatar("idle");
+      setActivity(null);
+    }
   }, 1600);
 }
 
@@ -73,10 +160,55 @@ function applyWindowMode(mode) {
     state.unread = 0;
     renderNotifications();
   }
+  syncCompactStatus();
 }
 
 async function setWindowMode(mode) {
   applyWindowMode(await window.widget.setWindowMode(mode));
+}
+
+function applyCompactSide(side) {
+  document.body.classList.toggle("side-left", side === "left");
+  document.body.classList.toggle("side-right", side !== "left");
+}
+
+let compactDrag = null;
+let suppressCompactClick = false;
+
+function beginCompactDrag(event) {
+  if (event.button !== 0 || event.target.closest(".orb-actions button")) return;
+  compactDrag = {
+    target: event.currentTarget,
+    pointerId: event.pointerId,
+    startX: event.screenX,
+    startY: event.screenY,
+    moved: false,
+  };
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  window.widget.beginCompactDrag({ x: event.screenX, y: event.screenY });
+}
+
+function moveCompactDrag(event) {
+  if (!compactDrag || compactDrag.pointerId !== event.pointerId) return;
+  const dx = event.screenX - compactDrag.startX;
+  const dy = event.screenY - compactDrag.startY;
+  if (!compactDrag.moved && Math.hypot(dx, dy) < 4) return;
+  compactDrag.moved = true;
+  event.preventDefault();
+  window.widget.moveCompactDrag({ x: event.screenX, y: event.screenY });
+}
+
+async function endCompactDrag(event) {
+  if (!compactDrag || compactDrag.pointerId !== event.pointerId) return;
+  const moved = compactDrag.moved;
+  compactDrag.target.releasePointerCapture?.(event.pointerId);
+  compactDrag = null;
+  if (!moved) return;
+  event.preventDefault();
+  suppressCompactClick = true;
+  const result = await window.widget.endCompactDrag().catch(() => null);
+  if (result?.side) applyCompactSide(result.side);
+  setTimeout(() => { suppressCompactClick = false; }, 0);
 }
 
 function initials(title) {
@@ -171,19 +303,29 @@ function renderSessions() {
 }
 
 function renderSessionSelect() {
-  const select = $("#sessionSelect");
   const sessions = state.dashboard?.sessions || [];
-  select.replaceChildren();
-  const fresh = document.createElement("option");
-  fresh.value = "";
-  fresh.textContent = "+ New session";
-  select.append(fresh);
+  const selected = sessions.find((session) => session.sessionId === state.selectedSessionId);
+  $("#sessionButtonText").textContent = selected?.title || "New session";
+  const root = $("#sessionOptions");
+  root.replaceChildren();
+  root.append(pickerOption("New session", {
+    meta: "new",
+    onSelect: async () => {
+      closePickers();
+      await createNewSession();
+    },
+  }));
   for (const session of sessions) {
-    const option = document.createElement("option");
-    option.value = session.sessionId;
-    option.textContent = `${session.running ? "● " : ""}${session.title}`;
-    option.selected = session.sessionId === state.selectedSessionId;
-    select.append(option);
+    const pressure = contextPressure(session);
+    root.append(pickerOption(session.title || "New session", {
+      selected: session.sessionId === state.selectedSessionId,
+      meta: session.running ? "working" : pressure ? `${Math.round(pressure.percent)}%` : "idle",
+      title: session.cwd || session.title,
+      onSelect: async () => {
+        closePickers();
+        await selectSession(session.sessionId);
+      },
+    }));
   }
 }
 
@@ -199,57 +341,113 @@ function selectedModelDefinition() {
 }
 
 function renderReasoning() {
-  const select = $("#reasoningSelect");
-  select.replaceChildren();
   const model = selectedModelDefinition();
   const efforts = model?.reasoning?.efforts || [];
-  const auto = document.createElement("option");
-  auto.value = "";
-  auto.textContent = model?.reasoning?.defaultEffort ? `Auto (${model.reasoning.defaultEffort})` : "Auto";
-  select.append(auto);
+  const selectedId = state.pendingSelection?.reasoningEffort || state.modelCatalog?.current?.reasoningEffort || "";
+  const autoLabel = model?.reasoning?.defaultEffort ? `Auto · ${model.reasoning.defaultEffort}` : "Auto";
+  const selectedEffort = efforts.find((effort) => effort.id === selectedId);
+  $("#reasoningButtonText").textContent = selectedEffort?.name || selectedEffort?.id || autoLabel;
+  $("#reasoningButton").disabled = efforts.length === 0;
+  const root = $("#reasoningOptions");
+  root.replaceChildren();
+  root.append(pickerOption(autoLabel, {
+    selected: !selectedId,
+    onSelect: async () => {
+      const base = state.pendingSelection || state.modelCatalog?.current;
+      if (base) state.pendingSelection = { provider: base.provider, model: base.model };
+      closePickers();
+      renderReasoning();
+      updateControlsSummary();
+      await applyModelSelection();
+    },
+  }));
   for (const effort of efforts) {
-    const option = document.createElement("option");
-    option.value = effort.id;
-    option.textContent = effort.name || effort.id;
-    select.append(option);
+    root.append(pickerOption(effort.name || effort.id, {
+      selected: effort.id === selectedId,
+      onSelect: async () => {
+        const base = state.pendingSelection || state.modelCatalog?.current;
+        if (!base) return;
+        state.pendingSelection = { provider: base.provider, model: base.model, reasoningEffort: effort.id };
+        closePickers();
+        renderReasoning();
+        updateControlsSummary();
+        await applyModelSelection();
+      },
+    }));
   }
-  select.disabled = efforts.length === 0;
-  select.value = state.pendingSelection?.reasoningEffort || state.modelCatalog?.current?.reasoningEffort || "";
+}
+
+function modelDisplay(selection) {
+  if (!selection) return "Harness default";
+  const group = state.modelCatalog?.groups?.find((item) => item.id === selection.provider);
+  const model = group?.models?.find((item) => item.id === selection.model);
+  return `${group?.name || selection.provider} · ${model?.name || selection.model}`;
+}
+
+function updateControlsSummary() {
+  const model = modelDisplay(state.pendingSelection || state.modelCatalog?.current);
+  const effort = $("#reasoningButtonText")?.textContent || "Auto";
+  $("#controlsSummary").textContent = `${model} · ${effort}`;
+}
+
+function renderModelOptions(query = "") {
+  const root = $("#modelOptions");
+  root.replaceChildren();
+  const catalog = state.modelCatalog;
+  const selected = state.pendingSelection || catalog?.current;
+  const normalized = query.trim().toLowerCase();
+  root.append(pickerOption("Harness default", {
+    selected: !selected,
+    meta: "auto",
+    onSelect: () => {
+      state.pendingSelection = null;
+      closePickers();
+      renderModels();
+    },
+  }));
+  if (!catalog) return;
+  const currentProvider = selected?.provider || catalog.current?.provider;
+  const localRank = (id) => id === currentProvider ? 0 : ["lmstudio", "ollama", "local"].includes(String(id).toLowerCase()) ? 1 : 2;
+  const groups = [...(catalog.groups || [])].sort((left, right) => localRank(left.id) - localRank(right.id) || String(left.name || left.id).localeCompare(String(right.name || right.id)));
+  let matches = 0;
+  for (const group of groups) {
+    const models = (group.models || []).filter((model) => !normalized || `${group.name || group.id} ${group.id} ${model.name || model.id} ${model.id}`.toLowerCase().includes(normalized));
+    if (!models.length) continue;
+    const heading = document.createElement("div");
+    heading.className = "picker-group";
+    heading.textContent = group.name || group.id;
+    root.append(heading);
+    for (const model of models) {
+      matches += 1;
+      root.append(pickerOption(model.name || model.id, {
+        selected: selected?.provider === group.id && selected?.model === model.id,
+        meta: model.reasoning?.efforts?.length ? "reasoning" : "",
+        title: `${group.name || group.id} / ${model.name || model.id}`,
+        onSelect: async () => {
+          state.pendingSelection = { provider: group.id, model: model.id };
+          if (model.reasoning?.defaultEffort) state.pendingSelection.reasoningEffort = model.reasoning.defaultEffort;
+          closePickers();
+          renderModels();
+          await applyModelSelection();
+        },
+      }));
+    }
+  }
+  if (normalized && matches === 0) {
+    const empty = document.createElement("div");
+    empty.className = "picker-empty";
+    empty.textContent = "No matching models";
+    root.append(empty);
+  }
 }
 
 function renderModels() {
-  const select = $("#modelSelect");
-  select.replaceChildren();
-  const auto = document.createElement("option");
-  auto.value = "";
-  auto.textContent = "Harness default";
-  select.append(auto);
   const catalog = state.modelCatalog;
-  if (!catalog) {
-    renderReasoning();
-    return;
-  }
-  for (const group of catalog.groups || []) {
-    const optgroup = document.createElement("optgroup");
-    optgroup.label = group.name || group.id;
-    for (const model of group.models || []) {
-      const option = document.createElement("option");
-      option.value = modelSelectionValue({ provider: group.id, model: model.id });
-      option.textContent = model.name || model.id;
-      optgroup.append(option);
-    }
-    select.append(optgroup);
-  }
-  const selected = state.pendingSelection || catalog.current;
-  select.value = modelSelectionValue(selected);
-  if (selected && !select.value) {
-    const fallback = document.createElement("option");
-    fallback.value = modelSelectionValue(selected);
-    fallback.textContent = `${selected.provider} / ${selected.model}`;
-    select.prepend(fallback);
-    select.value = fallback.value;
-  }
+  const selected = state.pendingSelection || catalog?.current;
+  $("#modelButtonText").textContent = modelDisplay(selected);
+  renderModelOptions($("#modelSearch").value || "");
   renderReasoning();
+  updateControlsSummary();
 }
 
 async function loadModels() {
@@ -286,21 +484,31 @@ function renderCommands() {
 }
 
 function renderWorkspaces() {
-  const select = $("#workspaceSelect");
-  select.replaceChildren();
-  const current = document.createElement("option");
-  current.value = "";
-  current.textContent = "Current workspace";
-  select.append(current);
-  for (const workspace of state.workspaces) {
-    const option = document.createElement("option");
-    option.value = workspace.workspaceId;
-    option.textContent = workspace.title || workspace.path;
-    option.title = workspace.path;
-    select.append(option);
-  }
   const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
-  select.value = session?.workspaceId || state.selectedWorkspaceId || "";
+  const selectedId = session?.workspaceId || state.selectedWorkspaceId || "";
+  const selected = state.workspaces.find((workspace) => workspace.workspaceId === selectedId);
+  $("#workspaceButtonText").textContent = selected?.title || selected?.path || "Current workspace";
+  const root = $("#workspaceOptions");
+  root.replaceChildren();
+  root.append(pickerOption("Current workspace", {
+    selected: !selectedId,
+    onSelect: () => {
+      state.selectedWorkspaceId = null;
+      closePickers();
+      renderWorkspaces();
+    },
+  }));
+  for (const workspace of state.workspaces) {
+    root.append(pickerOption(workspace.title || workspace.path, {
+      selected: workspace.workspaceId === selectedId,
+      meta: "folder",
+      title: workspace.path,
+      onSelect: async () => {
+        closePickers();
+        await switchWorkspace(workspace.workspaceId);
+      },
+    }));
+  }
 }
 
 async function loadWorkspaces() {
@@ -324,21 +532,45 @@ function renderAttachments() {
     const chip = document.createElement("div");
     chip.className = "attachment-chip";
     chip.title = attachment.path;
-    const icon = document.createElement("i");
-    icon.textContent = attachment.kind === "image" ? "▧" : "⌕";
+    const preview = document.createElement("div");
+    preview.className = "attachment-preview";
+    if (attachment.kind === "image" && attachment.data && attachment.mediaType) {
+      const image = document.createElement("img");
+      image.src = `data:${attachment.mediaType};base64,${attachment.data}`;
+      image.alt = "";
+      preview.append(image);
+    } else if (attachment.thumbnailData && attachment.thumbnailMediaType) {
+      const image = document.createElement("img");
+      image.src = `data:${attachment.thumbnailMediaType};base64,${attachment.thumbnailData}`;
+      image.alt = "";
+      preview.append(image);
+    } else {
+      preview.append(createIcon(attachment.kind === "image" ? "image" : attachment.previewKind === "video" ? "image" : "file"));
+    }
     const name = document.createElement("span");
-    name.textContent = attachment.name;
+    name.className = "attachment-name";
+    const title = document.createElement("b");
+    title.textContent = attachment.name;
+    const kind = document.createElement("small");
+    kind.textContent = attachment.kind === "image" ? "image" : attachment.previewKind === "video" ? "video" : "file";
+    name.append(title, kind);
     const remove = document.createElement("button");
     remove.type = "button";
+    remove.className = "attachment-remove";
     remove.title = "Remove attachment";
-    remove.textContent = "×";
+    remove.setAttribute("aria-label", `Remove ${attachment.name}`);
+    remove.append(createIcon("close"));
     remove.addEventListener("click", () => {
       state.pendingAttachments.splice(index, 1);
       renderAttachments();
     });
-    chip.append(icon, name, remove);
+    chip.append(preview, name, remove);
     root.append(chip);
   });
+  const count = state.pendingAttachments.length;
+  $("#attachmentBar").classList.toggle("has-items", count > 0);
+  $("#attachmentCount").textContent = `${count} file${count === 1 ? "" : "s"}`;
+  $("#orbAttachmentCount").textContent = count ? String(count) : "";
 }
 
 function addAttachments(attachments) {
@@ -406,9 +638,69 @@ function renderMessages(messages) {
     return;
   }
   for (const message of messages) {
+    if (message.role === "tool") {
+      const details = document.createElement("details");
+      details.className = `tool-call${message.isError ? " failed" : ""}${message.nested ? " nested" : ""}`;
+      const summary = document.createElement("summary");
+      summary.append(createIcon("command"));
+      const identity = document.createElement("span");
+      identity.className = "tool-identity";
+      const name = document.createElement("b");
+      name.textContent = message.name || "Tool call";
+      const status = document.createElement("small");
+      status.textContent = message.status === "running" ? "running" : message.isError ? "failed" : "completed";
+      identity.append(name, status);
+      summary.append(identity);
+      if (Number.isFinite(message.durationMs)) {
+        const duration = document.createElement("time");
+        duration.textContent = message.durationMs < 1000 ? `${message.durationMs} ms` : `${(message.durationMs / 1000).toFixed(1)} s`;
+        summary.append(duration);
+      }
+      summary.append(createIcon("chevron", "ui-icon tool-chevron"));
+      const body = document.createElement("div");
+      body.className = "tool-body";
+      const addSection = (label, value) => {
+        if (!value) return;
+        const section = document.createElement("section");
+        const heading = document.createElement("b");
+        heading.textContent = label;
+        const pre = document.createElement("pre");
+        pre.textContent = value;
+        section.append(heading, pre);
+        body.append(section);
+      };
+      addSection("Input", message.arguments);
+      addSection(message.isError ? "Error" : "Result", message.result);
+      if (!body.childElementCount) {
+        const pending = document.createElement("span");
+        pending.className = "tool-pending";
+        pending.textContent = "Waiting for the tool result…";
+        body.append(pending);
+      }
+      details.append(summary, body);
+      root.append(details);
+      continue;
+    }
+    if (message.role === "reasoning") {
+      const details = document.createElement("details");
+      details.className = "reasoning-bubble";
+      const summary = document.createElement("summary");
+      summary.append(createIcon("reasoning"));
+      const preview = document.createElement("span");
+      preview.textContent = compactText(message.text, 130);
+      summary.append(preview, createIcon("chevron"));
+      const body = document.createElement("div");
+      body.className = "reasoning-text";
+      if (message.html) body.innerHTML = message.html;
+      else { body.classList.add("plain"); body.textContent = message.text; }
+      details.append(summary, body);
+      root.append(details);
+      continue;
+    }
     const bubble = document.createElement("div");
     bubble.className = `bubble ${message.role}`;
-    bubble.textContent = message.text;
+    if (message.html) bubble.innerHTML = message.html;
+    else { bubble.classList.add("plain"); bubble.textContent = message.text; }
     root.append(bubble);
   }
   root.scrollTop = root.scrollHeight;
@@ -426,8 +718,10 @@ async function refreshHistory() {
   }
   state.historyBusy = true;
   try {
-    const messages = await window.widget.history(state.selectedSessionId);
+    const view = await window.widget.history(state.selectedSessionId);
+    const messages = view.messages || [];
     renderMessages(messages);
+    setActivity(view.activity || null);
     const latest = messages[messages.length - 1];
     if (latest?.role === "error") setAvatar("error", "model error");
   } catch (error) {
@@ -469,13 +763,18 @@ async function refresh() {
     if (!state.selectedSessionId && dashboard.sessions?.length) {
       state.selectedSessionId = (dashboard.sessions.find((session) => session.running) || dashboard.sessions[0]).sessionId;
     }
-    const summary = counts(dashboard);
-    $("#agentCount").textContent = summary.active;
-    $("#sessionCount").textContent = summary.sessions;
-    $("#subagentCount").textContent = summary.subagents;
     $("#offlineBanner").classList.toggle("show", !dashboard.harness);
+    const selectedSession = dashboard.sessions?.find((session) => session.sessionId === state.selectedSessionId);
+    const selectedRunning = Boolean(selectedSession?.running);
+    $("#chatForm").classList.toggle("has-running", selectedRunning);
+    $("#cancelButton").hidden = !selectedRunning;
     if (!dashboard.harness) setAvatar("error", "Harness offline");
-    else if (dashboard.sessions?.some((session) => session.running)) setAvatar("working");
+    else if (dashboard.sessions?.some((session) => session.running)) {
+      const running = selectedSession?.running ? selectedSession : dashboard.sessions.find((session) => session.running);
+      if (running?.activity) setActivity(running.activity);
+      else setActivity({ active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" });
+      setAvatar("working", running?.activity?.label || "working");
+    }
     else if (!["done", "error"].includes(state.avatarMode)) setAvatar("idle");
     $("#lastUpdate").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     renderSessions();
@@ -503,46 +802,34 @@ async function executeHarnessCommand(line) {
   await refreshHistory();
 }
 
-document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => setTab(button.dataset.tab)));
-$("#sessionSelect").addEventListener("change", (event) => selectSession(event.target.value));
-$("#newSessionButton").addEventListener("click", async () => {
+async function createNewSession({ restore = true } = {}) {
   setAvatar("waiting", "creating session");
-  const result = await window.widget.createSession(state.selectedWorkspaceId ? { workspaceId: state.selectedWorkspaceId } : {});
-  state.selectedSessionId = result.sessionId;
-  state.pendingSelection = null;
-  state.modelCatalog = null;
-  state.commandCatalog = [];
-  await refresh();
-  await Promise.all([loadModels(), loadCommands(), loadWorkspaces()]);
-  $("#messageInput").focus();
-});
-$("#modelSelect").addEventListener("change", async (event) => {
-  if (!event.target.value) {
+  setActivity({ active: true, kind: "working", label: "New session", text: "Creating a Harness session…" });
+  try {
+    const result = await window.widget.createSession(state.selectedWorkspaceId ? { workspaceId: state.selectedWorkspaceId } : {});
+    state.selectedSessionId = result.sessionId;
     state.pendingSelection = null;
-    renderReasoning();
-    return;
+    state.modelCatalog = null;
+    state.commandCatalog = [];
+    await refresh();
+    await Promise.all([loadModels(), loadCommands(), loadWorkspaces()]);
+    if (restore) {
+      setTab("chat");
+      $("#messageInput").focus();
+    }
+    setAvatar("done", "session ready");
+    setActivity({ active: true, kind: "done", label: "Session ready", text: "A new Harness session is ready." });
+  } catch (error) {
+    showError(error);
+    setAvatar("error", "session error");
+    setActivity({ active: true, kind: "error", label: "Session error", text: String(error?.message || error) });
   }
-  state.pendingSelection = JSON.parse(event.target.value);
-  const model = selectedModelDefinition();
-  if (model?.reasoning?.defaultEffort) state.pendingSelection.reasoningEffort = model.reasoning.defaultEffort;
-  renderReasoning();
-  await applyModelSelection();
-});
-$("#reasoningSelect").addEventListener("change", async (event) => {
-  const base = state.pendingSelection || state.modelCatalog?.current;
-  if (!base) return;
-  state.pendingSelection = { provider: base.provider, model: base.model };
-  if (event.target.value) state.pendingSelection.reasoningEffort = event.target.value;
-  await applyModelSelection();
-});
-$("#commandsButton").addEventListener("click", async () => {
-  await loadCommands();
-  $("#commandMenu").classList.toggle("open");
-});
-$("#workspaceSelect").addEventListener("change", async (event) => {
-  const workspaceId = event.target.value;
+}
+
+async function switchWorkspace(workspaceId) {
   if (!workspaceId) return;
   setAvatar("waiting", "switching workspace");
+  setActivity({ active: true, kind: "working", label: "Workspace", text: "Opening the selected workspace…" });
   try {
     state.selectedWorkspaceId = workspaceId;
     const result = await window.widget.createSession({ workspaceId });
@@ -553,6 +840,62 @@ $("#workspaceSelect").addEventListener("change", async (event) => {
     showError(error);
     setAvatar("error", "workspace error");
   }
+}
+
+function renderMode() {
+  $$(".mode-option").forEach((button) => button.classList.toggle("active", button.dataset.mode === state.currentMode));
+}
+
+async function setAgentMode(mode) {
+  const previous = state.currentMode;
+  state.currentMode = mode;
+  renderMode();
+  try {
+    await executeHarnessCommand(mode === "plan" ? "/plan" : "/plan off");
+  } catch (error) {
+    state.currentMode = previous;
+    renderMode();
+    showError(error);
+    setAvatar("error", "mode error");
+  }
+}
+
+async function pickAttachments() {
+  try {
+    addAttachments(await window.widget.pickFiles());
+    if (state.pendingAttachments.length && state.windowMode !== "full") {
+      setActivity({ active: true, kind: "files", label: "Files ready", text: `${state.pendingAttachments.length} attachment${state.pendingAttachments.length === 1 ? "" : "s"} ready to send.` });
+    }
+  } catch (error) {
+    showError(error);
+    setAvatar("error", "attachment error");
+  }
+}
+
+async function openCommands({ restore = false } = {}) {
+  if (restore && state.windowMode !== "full") await setWindowMode("full");
+  setTab("chat");
+  await loadCommands();
+  $("#commandMenu").classList.add("open");
+  $("#messageInput").focus();
+}
+
+document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => setTab(button.dataset.tab)));
+$("#sessionButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
+$("#modelButton").addEventListener("click", (event) => {
+  event.stopPropagation();
+  togglePicker(event.currentTarget);
+  if (event.currentTarget.closest(".picker").classList.contains("open")) setTimeout(() => $("#modelSearch").focus(), 0);
+});
+$("#reasoningButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
+$("#workspaceButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
+$("#modelSearch").addEventListener("input", (event) => renderModelOptions(event.target.value));
+document.addEventListener("click", (event) => { if (!event.target.closest(".picker")) closePickers(); });
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePickers(); });
+$("#newSessionButton").addEventListener("click", () => createNewSession());
+$("#commandsButton").addEventListener("click", async () => {
+  if ($("#commandMenu").classList.contains("open")) $("#commandMenu").classList.remove("open");
+  else await openCommands();
 });
 $("#addWorkspaceButton").addEventListener("click", async () => {
   setAvatar("waiting", "choosing workspace");
@@ -574,22 +917,8 @@ $("#addWorkspaceButton").addEventListener("click", async () => {
     setAvatar("error", "workspace error");
   }
 });
-$("#modeSelect").addEventListener("change", async (event) => {
-  try {
-    await executeHarnessCommand(event.target.value === "plan" ? "/plan" : "/plan off");
-  } catch (error) {
-    showError(error);
-    setAvatar("error", "mode error");
-  }
-});
-$("#attachButton").addEventListener("click", async () => {
-  try {
-    addAttachments(await window.widget.pickFiles());
-  } catch (error) {
-    showError(error);
-    setAvatar("error", "attachment error");
-  }
-});
+$$('.mode-option').forEach((button) => button.addEventListener("click", () => setAgentMode(button.dataset.mode)));
+$("#attachButton").addEventListener("click", pickAttachments);
 $("#chatForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const input = $("#messageInput");
@@ -632,14 +961,30 @@ $("#messageInput").addEventListener("keydown", (event) => {
     $("#chatForm").requestSubmit();
   }
 });
+$("#messages").addEventListener("click", (event) => {
+  const link = event.target.closest("a[href]");
+  if (!link) return;
+  event.preventDefault();
+  window.widget.openExternal(link.href).catch(() => {});
+});
 $("#cancelButton").addEventListener("click", async () => state.selectedSessionId && window.widget.cancel(state.selectedSessionId));
 $("#offlineBanner").addEventListener("click", () => window.widget.startHarness());
 $("#openHarnessButton").addEventListener("click", () => window.widget.openHarness());
 $("#refreshButton").addEventListener("click", refresh);
 $("#orbButton").addEventListener("click", () => setWindowMode("orb"));
 $("#dockButton").addEventListener("click", () => setWindowMode("edge"));
-$("#orbMode").addEventListener("click", () => setWindowMode("full"));
-$("#edgeMode").addEventListener("click", () => setWindowMode("full"));
+$("#orbRestore").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
+$("#orbNewSession").addEventListener("click", () => createNewSession({ restore: false }));
+$("#orbCommands").addEventListener("click", () => openCommands({ restore: true }));
+$("#orbAttach").addEventListener("click", pickAttachments);
+$("#edgeMode").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
+for (const target of [$("#orbMode"), $("#edgeMode")]) {
+  target.addEventListener("pointerdown", beginCompactDrag);
+  target.addEventListener("pointermove", moveCompactDrag);
+  target.addEventListener("pointerup", endCompactDrag);
+  target.addEventListener("pointercancel", endCompactDrag);
+}
+$("#projectLink").addEventListener("click", () => window.widget.openProject());
 $("#settingsButton").addEventListener("click", () => $("#settingsPanel").classList.toggle("open"));
 $("#closeSettings").addEventListener("click", () => $("#settingsPanel").classList.remove("open"));
 $("#topToggle").addEventListener("change", (event) => window.widget.setAlwaysOnTop(event.target.checked));
@@ -649,7 +994,10 @@ $("#opacityRange").addEventListener("input", async (event) => {
   $("#opacityValue").textContent = `${percent}%`;
   await window.widget.setOpacity(percent / 100);
 });
-$("#sizeSelect").addEventListener("change", (event) => window.widget.setSize(event.target.value));
+$$('#sizeSwitch button').forEach((button) => button.addEventListener("click", async () => {
+  const value = await window.widget.setSize(button.dataset.size);
+  $$('#sizeSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.size === value));
+}));
 
 let dragDepth = 0;
 document.addEventListener("dragenter", (event) => {
@@ -678,6 +1026,7 @@ document.addEventListener("drop", async (event) => {
 });
 
 window.widget.onWindowMode((mode) => applyWindowMode(mode));
+window.widget.onCompactSide((side) => applyCompactSide(side));
 window.widget.onEdgeBounce(() => {
   const edge = $("#edgeMode");
   edge.classList.remove("bounce");
@@ -689,13 +1038,91 @@ window.widget.getPreferences().then((preferences) => {
   $("#autoStartToggle").checked = preferences.autoStart;
   $("#opacityRange").value = Math.round(preferences.opacity * 100);
   $("#opacityValue").textContent = `${Math.round(preferences.opacity * 100)}%`;
-  $("#sizeSelect").value = preferences.size;
+  $$('#sizeSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.size === preferences.size));
+  applyCompactSide(preferences.compactSide || "right");
   applyWindowMode(preferences.windowMode || "full");
 });
+window.widget.getAppInfo().then((info) => {
+  $("#versionLabel").textContent = `v${info.version}`;
+  $("#projectLink").title = `Open NeoXider/deepseek-harness-widget v${info.version} on GitHub`;
+});
 
-const requestedTab = new URLSearchParams(location.search).get("screenshotTab");
+const launchParams = new URLSearchParams(location.search);
+const requestedTab = launchParams.get("screenshotTab");
+const screenshotFixture = launchParams.get("screenshotFixture");
 if (requestedTab === "chat") setTab("chat");
 setAvatar("idle");
 renderNotifications();
-refresh();
-setInterval(refresh, 2500);
+renderAttachments();
+renderMode();
+if (!screenshotFixture) {
+  refresh();
+  setInterval(refresh, 2500);
+}
+
+if (screenshotFixture) {
+  setTimeout(async () => {
+    if (screenshotFixture === "overview") {
+      setTab("agents");
+      state.dashboard = {
+        harness: true,
+        sessions: [
+          { sessionId: "demo-active", title: "NeuralNetLab experiment", running: true, projections: { values: { contextPressure: { projectedTokens: 32768, contextWindow: 131072 } } }, subagents: [{ kind: "child", activity: "running" }, { kind: "child", activity: "idle" }] },
+          { sessionId: "demo-unity", title: "Unity gameplay pass", running: false, projections: { values: { contextPressure: { projectedTokens: 11800, contextWindow: 65536 } } }, subagents: [] },
+          { sessionId: "demo-review", title: "Release verification", running: false, projections: { values: {} }, subagents: [{ kind: "child", activity: "idle" }] },
+        ],
+      };
+      state.selectedSessionId = "demo-active";
+      renderSessions();
+    } else if (screenshotFixture === "chat") {
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-chat", title: "Release verification", running: false, projections: { values: { contextPressure: { projectedTokens: 55296, contextWindow: 131072 } } }, subagents: [] }] };
+      state.selectedSessionId = "demo-chat";
+      $("#sessionButtonText").textContent = "Release verification";
+      $("#controlsSummary").textContent = "LM Studio · Qwen 3.5 9B · Medium";
+      renderContext();
+      renderMessages([
+        { role: "user", text: "Verify the compact widget and summarize the result." },
+        { role: "reasoning", text: "I should inspect the layout, run the automated checks, and report only verified results.", html: "<p>I should inspect the layout, run the automated checks, and report only verified results.</p>" },
+        { role: "assistant", text: "All checks passed.", html: "<p><strong>All checks passed.</strong></p><ul><li>No clipped controls</li><li>Markdown and tool calls render correctly</li><li>Compact modes snap to screen edges</li></ul>" },
+      ]);
+    } else if (screenshotFixture === "model") {
+      setTab("chat");
+      state.modelCatalog = {
+        current: { provider: "lmstudio", model: "qwen3.5-9b", reasoningEffort: "medium" },
+        groups: [
+          { id: "lmstudio", name: "LM Studio", models: [{ id: "qwen3.5-9b", name: "Qwen 3.5 9B", reasoning: { defaultEffort: "medium", efforts: [{ id: "low", name: "Low" }, { id: "medium", name: "Medium" }, { id: "high", name: "High" }] } }, { id: "deepseek-r1", name: "DeepSeek R1 Distill" }] },
+          { id: "deepseek", name: "DeepSeek", models: [{ id: "deepseek-chat", name: "DeepSeek Chat" }, { id: "deepseek-reasoner", name: "DeepSeek Reasoner" }] },
+          { id: "openai", name: "OpenAI", models: [{ id: "gpt-5.6", name: "GPT-5.6" }, { id: "gpt-5.6-codex", name: "GPT-5.6 Codex" }] },
+        ],
+      };
+      state.pendingSelection = state.modelCatalog.current;
+      renderModels();
+      $("#agentControls").open = true;
+      togglePicker($("#modelButton"));
+    } else if (screenshotFixture === "attachments") {
+      setTab("chat");
+      const paths = (launchParams.get("screenshotFiles") || "").split("|").filter(Boolean);
+      if (paths.length) addAttachments(await window.widget.prepareFiles(paths));
+    } else if (screenshotFixture === "thinking") {
+      setTab("chat");
+      setAvatar("working", "thinking");
+      setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Reviewing the workspace and preparing the next tool call…" });
+    } else if (screenshotFixture === "writing") {
+      setTab("chat");
+      setAvatar("working", "writing");
+      setActivity({ active: true, kind: "writing", label: "Writing", text: "Composing the answer in the mini-chat…" });
+    } else if (screenshotFixture === "tool") {
+      setTab("chat");
+      setAvatar("working", "using tool");
+      setActivity({ active: true, kind: "tool", label: "Using tool", text: "read_file" });
+    } else if (screenshotFixture === "markdown-tools") {
+      setTab("chat");
+      renderMessages([
+        { role: "assistant", text: "Result", html: "<h3>Workspace checked</h3><ul><li><strong>Build</strong> is clean</li><li>2 files inspected</li></ul><pre><code>npm test ✓</code></pre>" },
+        { role: "tool", name: "read_file", arguments: "{\n  \"path\": \"src/main.cjs\"\n}", result: "Loaded 412 lines", status: "done", durationMs: 184 },
+        { role: "tool", name: "run_tests", arguments: "{\n  \"suite\": \"widget\"\n}", result: "18 tests passed", status: "done", durationMs: 1260, nested: true },
+      ]);
+    }
+  }, 700);
+}
