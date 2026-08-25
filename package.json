@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness-widget",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "A compact Windows desktop companion for DeepSeek Harness sessions, agents, and chat",
   "author": "NeoXider",
   "license": "MIT",

@@ -175,6 +175,13 @@ function applyWindowLayer(mode = windowMode) {
   windowRef.setAlwaysOnTop(true, preferences.windowLayer === "game" ? "screen-saver" : "floating");
 }
 
+function applyEdgePointerHit(active = false) {
+  if (!windowRef || windowRef.isDestroyed()) return;
+  const ignore = windowMode === "edge" && !active && !compactDragOrigin;
+  if (ignore) windowRef.setIgnoreMouseEvents(true, { forward: true });
+  else windowRef.setIgnoreMouseEvents(false);
+}
+
 async function prepareFile(filePath) {
   const resolved = path.resolve(String(filePath));
   const info = statSync(resolved);
@@ -266,6 +273,7 @@ function applyWindowMode(nextMode) {
   }
 
   applyWindowLayer(nextMode);
+  applyEdgePointerHit(false);
   if (nextMode === "full") windowRef.show();
   else windowRef.showInactive();
   windowRef.webContents.send("window-mode", windowMode);
@@ -372,6 +380,17 @@ function createWindow() {
               agentError: document.querySelectorAll('.session-card.state-error').length,
               orbUtilityButtons: document.querySelectorAll('#orbMode > button:not(#orbRestore):not(#orbStatus)').length,
               orbNotification: document.body.classList.contains('orb-has-notification'),
+              edgeHitActive: document.querySelector('#edgeMode')?.classList.contains('edge-hit-active') || false,
+              edgeLineWidth: Math.round(document.querySelector('.edge-line')?.getBoundingClientRect().width || 0),
+              brandUserSelect: getComputedStyle(document.querySelector('.brand')).userSelect,
+              contextCenterDelta: (() => {
+                const meter = document.querySelector('#contextMeter').getBoundingClientRect();
+                const value = document.querySelector('#contextValue').getBoundingClientRect();
+                return Math.round(Math.max(
+                  Math.abs((meter.left + meter.right - value.left - value.right) / 2),
+                  Math.abs((meter.top + meter.bottom - value.top - value.bottom) / 2),
+                ) * 100) / 100;
+              })(),
             };
             return { viewport: { width: innerWidth, height: innerHeight }, scroll: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight }, boxes, offenders, semantic };
           })()`);
@@ -523,6 +542,10 @@ ipcMain.handle("set-compact-status", (_event, value) => {
   if (windowMode === "orb" && wasActive !== compactStatus.active && !compactDragOrigin) applyWindowMode("orb");
   return compactStatus;
 });
+ipcMain.on("set-edge-pointer-active", (event, active) => {
+  if (!windowRef || windowRef.isDestroyed() || event.sender !== windowRef.webContents) return;
+  applyEdgePointerHit(Boolean(active));
+});
 ipcMain.handle("window-bounds", () => windowRef.getBounds());
 ipcMain.on("begin-full-drag", (event, value) => {
   if (!windowRef || windowMode !== "full" || event.sender !== windowRef.webContents) return;
@@ -555,6 +578,7 @@ ipcMain.on("begin-compact-drag", (event, value) => {
   const screenX = Number(value?.x);
   const screenY = Number(value?.y);
   if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+  applyEdgePointerHit(true);
   compactDragOrigin = { screenX, screenY, bounds: windowRef.getBounds() };
   traceCompactDrag("begin", { screenX, screenY, bounds: compactDragOrigin.bounds });
 });

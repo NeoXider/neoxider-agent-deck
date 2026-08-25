@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld("widget", {
   beginCompactDrag: (value) => ipcRenderer.send("begin-compact-drag", value),
   moveCompactDrag: (value) => ipcRenderer.send("move-compact-drag", value),
   endCompactDrag: () => ipcRenderer.invoke("end-compact-drag"),
+  setEdgePointerActive: (active) => ipcRenderer.send("set-edge-pointer-active", Boolean(active)),
   beginFullDrag: (value) => ipcRenderer.send("begin-full-drag", value),
   moveFullDrag: (value) => ipcRenderer.send("move-full-drag", value),
   endFullDrag: () => ipcRenderer.invoke("end-full-drag"),

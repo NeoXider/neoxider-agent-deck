@@ -226,6 +226,7 @@ function applyWindowMode(mode) {
   state.windowMode = mode;
   document.body.classList.remove("mode-full", "mode-orb", "mode-edge");
   document.body.classList.add(`mode-${mode}`);
+  if (mode !== "edge") window.widget.setEdgePointerActive(true);
   if (mode === "full") {
     state.unread = 0;
     renderNotifications();
@@ -247,6 +248,31 @@ let suppressCompactClick = false;
 let fullDrag = null;
 let suppressProjectClick = false;
 let suppressProjectClickTimer = null;
+let edgePointerActive = false;
+const EDGE_HIT_PADDING = 5;
+
+function setEdgePointerActive(active) {
+  const next = state.windowMode === "edge" && Boolean(active);
+  if (edgePointerActive === next) return;
+  edgePointerActive = next;
+  $("#edgeMode").classList.toggle("edge-hit-active", next);
+  window.widget.setEdgePointerActive(next);
+}
+
+function updateEdgePointerHit(event) {
+  if (state.windowMode !== "edge") return;
+  if (compactDrag) {
+    setEdgePointerActive(true);
+    return;
+  }
+  const line = $("#edgeMode .edge-line");
+  const rect = line.getBoundingClientRect();
+  const hit = event.clientX >= rect.left - EDGE_HIT_PADDING
+    && event.clientX <= rect.right + EDGE_HIT_PADDING
+    && event.clientY >= rect.top - EDGE_HIT_PADDING
+    && event.clientY <= rect.bottom + EDGE_HIT_PADDING;
+  setEdgePointerActive(hit);
+}
 
 function suppressBrandClickAfterDrag() {
   suppressProjectClick = true;
@@ -316,11 +342,12 @@ async function endCompactDrag(event) {
   const moved = compactDrag.moved;
   compactDrag.target.releasePointerCapture?.(event.pointerId);
   compactDrag = null;
+  const result = await window.widget.endCompactDrag().catch(() => null);
   if (!moved) return;
   event.preventDefault();
   suppressCompactClick = true;
-  const result = await window.widget.endCompactDrag().catch(() => null);
   if (result?.side) applyCompactSide(result.side);
+  if (state.windowMode === "edge") setEdgePointerActive(false);
   setTimeout(() => { suppressCompactClick = false; }, 0);
 }
 
@@ -1586,7 +1613,14 @@ for (const target of [$("#orbMode"), $("#edgeMode")]) {
   target.addEventListener("pointerup", endCompactDrag);
   target.addEventListener("pointercancel", endCompactDrag);
 }
-for (const target of [$("#avatarButton"), $("#projectLink")]) {
+document.addEventListener("mousemove", updateEdgePointerHit, true);
+document.addEventListener("mouseleave", () => {
+  if (!compactDrag) setEdgePointerActive(false);
+});
+window.addEventListener("blur", () => {
+  if (!compactDrag) setEdgePointerActive(false);
+});
+for (const target of [$(".brand")]) {
   target.addEventListener("pointerdown", beginFullDrag);
   target.addEventListener("pointermove", moveFullDrag);
   target.addEventListener("pointerup", endFullDrag);
@@ -1693,7 +1727,9 @@ if (!screenshotFixture) {
 
 if (screenshotFixture) {
   setTimeout(async () => {
-    if (screenshotFixture === "overview") {
+    if (screenshotFixture === "edge-hover") {
+      $("#edgeMode").classList.add("edge-hit-active");
+    } else if (screenshotFixture === "overview") {
       setTab("agents");
       state.dashboard = {
         harness: true,

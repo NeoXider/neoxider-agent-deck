@@ -10,7 +10,7 @@
   <a href="https://github.com/NeoXider/deepseek-harness-widget/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/deepseek-harness-widget/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.2.2-8b79ff" />
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.2.3-8b79ff" />
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -96,7 +96,10 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Focus Chat** — one compact composer button hides all chrome and setup surfaces, leaving only messages, optional attachment previews, the input, context and actions; tap it again to restore everything.
 - **Three window states** — full deck, notification avatar, or an iridescent edge handle.
 - **Draggable compact modes** — drag either the avatar or the edge handle anywhere vertically or across displays; release to magnetize it to the nearest screen edge.
-- **Click-or-drag brand** — click the full-size avatar to collapse, click the NeoXider title to open the repository, or drag either one to move the full widget without triggering its click action.
+- **Click-through edge glow** — only the visible 8 px edge line (plus a small 5 px comfort margin) accepts hover, restore, and drag input; the wider transparent glow area no longer blocks clicks in apps underneath. The line gently lifts inward on hover.
+- **Smooth pet status glow** — the collapsed avatar now eases between idle, thinking, writing, tool, waiting, error, and done palettes instead of switching its ring abruptly.
+- **Classic NeoXider slimes** — idle, working, waiting, error, and done now use the original soft-bottom mascot shapes from NeoXider Video Studio instead of the round variants.
+- **Click-or-drag brand** — click the full-size avatar to collapse, click the NeoXider title to open the repository, or drag anywhere across the brand area to move the full widget. Brand text is non-selectable, so a drag cannot turn into a text selection.
 - **Exact-session pet reply** — collapsed pet mode keeps one useful reply button instead of create/command/attachment clutter; it opens the agent and session that produced the reply.
 - **Session-aware notifications** — a completed reply slides out for about 2.7 seconds with its session name and answer preview; clicking it restores that exact session. The edge handle still bounces when work finishes.
 - **Three window layers** — choose Normal for an ordinary desktop window, Above for the default always-visible widget, or Game for the strongest overlay level used over fullscreen games and similar apps.
@@ -186,7 +189,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/DeepSeek-Harness-Widget-0.2.2-portable.exe`.
+The portable executable is written to `release/DeepSeek-Harness-Widget-0.2.3-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 

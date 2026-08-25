@@ -45,6 +45,7 @@ test("compact layout uses custom pickers, expandable controls, and no useless co
 });
 
 test("composer keeps attachment, stop, send and context controls in the requested order", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   const context = html.indexOf('id="contextMeter"');
   const attach = html.indexOf('id="attachButton"');
   const focus = html.indexOf('id="focusChatButton"');
@@ -52,6 +53,8 @@ test("composer keeps attachment, stop, send and context controls in the requeste
   const stop = html.indexOf('id="cancelButton"');
   const send = html.indexOf('id="sendButton"');
   assert.ok(context > 0 && context < attach && attach < focus && focus < input && input < stop && stop < send);
+  assert.match(css, /\.context-meter svg \{[^}]+top:50%[^}]+left:50%[^}]+translate\(-50%,-50%\)/);
+  assert.match(css, /\.context-meter span \{[^}]+position:absolute[^}]+inset:0[^}]+place-items:center/);
   assert.match(renderer, /attachment-preview/);
   assert.match(renderer, /thumbnailData/);
 });
@@ -173,7 +176,39 @@ test("compact modes use immediate pointer capture, native drag IPC, and magnetic
   assert.match(html, /data-avatar[^>]+draggable="false"/);
 });
 
+test("edge mode only captures the visible handle and passes transparent glow clicks through", () => {
+  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(main, /setIgnoreMouseEvents\(true, \{ forward: true \}\)/);
+  assert.match(main, /set-edge-pointer-active/);
+  assert.match(preload, /setEdgePointerActive/);
+  assert.match(renderer, /const EDGE_HIT_PADDING = 5/);
+  assert.match(renderer, /getBoundingClientRect\(\)/);
+  assert.match(renderer, /rect\.left - EDGE_HIT_PADDING/);
+  assert.match(renderer, /document\.addEventListener\("mousemove", updateEdgePointerHit, true\)/);
+  assert.match(css, /\.edge-hit-active \.edge-line[^}]+translateX\(-4px\)/);
+  assert.match(css, /\.side-left \.edge-hit-active \.edge-line[^}]+translateX\(4px\)/);
+  const endCompactDrag = renderer.match(/async function endCompactDrag\(event\) \{[\s\S]+?\n\}/)?.[0] || "";
+  assert.ok(
+    endCompactDrag.indexOf("window.widget.endCompactDrag()") < endCompactDrag.indexOf("if (!moved) return"),
+    "a click without movement must still clear the native compact drag origin",
+  );
+});
+
+test("orb activity glow eases between idle, thinking, writing, tool, waiting, error, and done palettes", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(css, /@property --orb-ring-primary/);
+  assert.match(css, /\.orb-glow[^}]+transition:--orb-ring-primary \.58s ease/);
+  assert.match(css, /\.mode-orb\.activity-thinking\s*\{/);
+  assert.match(css, /\.mode-orb\.activity-writing\s*\{/);
+  assert.match(css, /\.mode-orb\.activity-tool\s*\{/);
+  assert.match(css, /\.mode-orb\.state-waiting\s*\{/);
+  assert.match(css, /\.mode-orb\.state-error\s*\{/);
+  assert.match(css, /\.mode-orb\.state-done\s*\{/);
+});
+
 test("the clickable NeoXider brand becomes a full-window drag target after movement", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   assert.match(renderer, /beginFullDrag/);
   assert.match(renderer, /moveFullDrag/);
   assert.match(renderer, /endFullDrag/);
@@ -183,7 +218,9 @@ test("the clickable NeoXider brand becomes a full-window drag target after movem
   assert.match(main, /end-full-drag/);
   assert.match(renderer, /function suppressBrandClickAfterDrag/);
   assert.match(renderer, /suppressProjectClick = false; \}, 1200/);
-  assert.match(renderer, /\[\$\("#avatarButton"\), \$\("#projectLink"\)\]/);
+  assert.match(html, /class="brand no-drag"/);
+  assert.match(renderer, /for \(const target of \[\$\("\.brand"\)\]\)/);
+  assert.match(css, /\.brand \{[^}]+user-select:none[^}]+-webkit-user-drag:none/);
 });
 
 test("avatar click replaces the redundant collapse icon", () => {

@@ -8,8 +8,8 @@ const output = path.join(root, "tmp", "ui-smoke");
 
 const cases = [
   { name: "overview", fixture: "overview", expect: { agentWorking: 1, agentIdle: 1, agentError: 1 } },
-  { name: "chat", tab: "chat", fixture: "chat", expect: { historicalReasoning: 0, markdownLists: 1, footer: 0, titlebarTabs: 1, setupInToolbar: true } },
-  { name: "focus-chat", tab: "chat", fixture: "focus-chat", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, historicalReasoning: 0 } },
+  { name: "chat", tab: "chat", fixture: "chat", expect: { historicalReasoning: 0, markdownLists: 1, footer: 0, titlebarTabs: 1, setupInToolbar: true, brandUserSelect: "none", contextCenterDelta: 0 } },
+  { name: "focus-chat", tab: "chat", fixture: "focus-chat", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, historicalReasoning: 0, contextCenterDelta: 0 } },
   { name: "commands", tab: "chat", fixture: "commands", expect: { commandRows: 6, commandAboveComposer: true, commandFitsWidth: true } },
   { name: "focus-commands", tab: "chat", fixture: "focus-commands", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, commandRows: 6, commandAboveComposer: true, commandFitsWidth: true } },
   { name: "queued-message", tab: "chat", fixture: "queued-message", width: 360, height: 500, expect: { queueRows: 2, queueActions: 6, queueSingleLine: true, queueAboveComposer: true } },
@@ -26,6 +26,7 @@ const cases = [
   { name: "thinking-orb", tab: "chat", fixture: "thinking", mode: "orb", expect: { orbUtilityButtons: 1 } },
   { name: "notification-orb", tab: "chat", fixture: "orb-notification", mode: "orb", expect: { orbUtilityButtons: 1, orbNotification: true } },
   { name: "edge", mode: "edge" },
+  { name: "edge-hover", fixture: "edge-hover", mode: "edge", expect: { edgeHitActive: true, edgeLineWidth: 8 } },
 ];
 
 function runElectron(testCase) {
