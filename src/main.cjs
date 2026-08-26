@@ -15,6 +15,7 @@ const {
 const { APP_ID, PRODUCT_NAME, REPOSITORY_URL } = require("./product.cjs");
 const { renderMarkdown } = require("./markdown.cjs");
 const { createAttachmentReader } = require("./attachments.cjs");
+const { queueItemView } = require("./queue-view.cjs");
 const { attachScreenshotHarness } = require("../scripts/screenshot-harness.cjs");
 const { createMuxClient } = require("./mux-client.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
@@ -154,19 +155,6 @@ function autoStartPreference() {
   } catch {
     return { enabled: false, available: false };
   }
-}
-
-function queueItemView(item) {
-  const content = Array.isArray(item?.message?.content) ? item.message.content : [];
-  const textBlocks = content.filter((block) => block?.type === "text" && typeof block.text === "string");
-  const text = textBlocks.map((block) => block.text).join("\n").trim();
-  const editableText = content.length > 0 && content.every((block) => block?.type === "text") ? text : null;
-  return {
-    id: String(item?.id || item?.message?.id || ""),
-    placement: String(item?.placement || "queued"),
-    text: editableText,
-    preview: String(text || (content.length ? `${content.length} attachment${content.length === 1 ? "" : "s"}` : "Queued message")).replace(/\s+/g, " ").slice(0, 240),
-  };
 }
 
 function publishQueue(sessionId, items) {
