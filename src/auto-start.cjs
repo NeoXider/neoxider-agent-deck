@@ -4,6 +4,7 @@ const { APP_ID, LEGACY } = require("./product.cjs");
 
 const LOGIN_ITEM_NAME = APP_ID;
 const LEGACY_LOGIN_ITEM_NAMES = LEGACY.loginItemNames;
+const WINDOWS_RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 
 function resolveLoginItemTarget({ env = process.env, execPath = process.execPath, isPackaged = true, appPath = "", platform = process.platform } = {}) {
   const portablePath = typeof env.PORTABLE_EXECUTABLE_FILE === "string" ? env.PORTABLE_EXECUTABLE_FILE.trim() : "";
@@ -35,7 +36,7 @@ function readWindowsRunItemPath(name = LOGIN_ITEM_NAME, run = execFileSync, env 
     const executable = env.SystemRoot ? path.win32.join(env.SystemRoot, "System32", "reg.exe") : "reg.exe";
     const output = run(executable, [
       "query",
-      "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+      WINDOWS_RUN_KEY,
       "/v",
       name,
     ], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
@@ -45,8 +46,28 @@ function readWindowsRunItemPath(name = LOGIN_ITEM_NAME, run = execFileSync, env 
   }
 }
 
-function sameWindowsPath(left, right) {
-  return Boolean(left && right) && path.win32.normalize(left).toLowerCase() === path.win32.normalize(right).toLowerCase();
+function deleteWindowsRunItem(name, run = execFileSync, env = process.env) {
+  if (!LEGACY_LOGIN_ITEM_NAMES.includes(name)) {
+    return { ok: false, deleted: false, name: String(name || ""), reason: "not-legacy-name" };
+  }
+
+  try {
+    const executable = env.SystemRoot ? path.win32.join(env.SystemRoot, "System32", "reg.exe") : "reg.exe";
+    run(executable, ["delete", WINDOWS_RUN_KEY, "/v", name, "/f"], {
+      encoding: "utf8",
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { ok: true, deleted: true, name };
+  } catch (error) {
+    return {
+      ok: false,
+      deleted: false,
+      name,
+      reason: "delete-failed",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 function createAutoStartController({
@@ -55,6 +76,8 @@ function createAutoStartController({
   execPath = process.execPath,
   platform = process.platform,
   readRunItemPath = (name) => readWindowsRunItemPath(name, execFileSync, env),
+  deleteRunItem = (name) => deleteWindowsRunItem(name, execFileSync, env),
+  reportMigrationIssue = (issue) => console.warn("Auto-start migration cleanup failed", issue),
 } = {}) {
   const target = resolveLoginItemTarget({ env, execPath, platform, isPackaged: app.isPackaged, appPath: app.getAppPath() });
 
@@ -98,6 +121,7 @@ function createAutoStartController({
   const disableLegacy = (items) => {
     for (const item of items) writeItem(item.name, { path: item.path, args: item.args || [] }, false);
   };
+  let lastMigrationResult = { status: "not-run", migrated: false };
 
   return {
     available: true,
@@ -110,27 +134,65 @@ function createAutoStartController({
       if (!enabled) disableLegacy(legacyItems().filter((item) => item.enabled !== false));
       return this.getEnabled();
     },
+    getLastMigrationResult() {
+      return lastMigrationResult;
+    },
     migrateLegacy() {
-      if (!env.PORTABLE_EXECUTABLE_FILE) return this.getEnabled();
+      if (!env.PORTABLE_EXECUTABLE_FILE) {
+        const enabled = this.getEnabled();
+        lastMigrationResult = { status: "not-portable", migrated: false, enabled };
+        return enabled;
+      }
       const knownLegacy = legacyItems();
+      const rawLegacyNames = LEGACY_LOGIN_ITEM_NAMES.filter((name) => Boolean(readRunItemPath(name)));
       if (knownLegacy.length) {
         const enabledLegacy = knownLegacy.filter((item) => item.enabled !== false);
-        if (!enabledLegacy.length) return this.getEnabled();
-        writeItem(LOGIN_ITEM_NAME, target, true);
-        if (!this.getEnabled()) return false;
-        disableLegacy(enabledLegacy);
-        return true;
+        if (!enabledLegacy.length) {
+          const enabled = this.getEnabled();
+          if (enabled && rawLegacyNames.length) {
+            const cleanupFailures = rawLegacyNames
+              .map((name) => deleteRunItem(name))
+              .filter((result) => !result?.ok);
+            if (cleanupFailures.length) {
+              lastMigrationResult = { status: "cleanup-failed", migrated: false, enabled: true, cleanupFailures };
+              reportMigrationIssue(lastMigrationResult);
+              return false;
+            }
+            lastMigrationResult = { status: "recovered-partial-migration", migrated: true, enabled: true, deletedRunItems: rawLegacyNames };
+            return true;
+          }
+          lastMigrationResult = { status: "legacy-disabled", migrated: false, enabled };
+          return enabled;
+        }
       }
 
-      for (const name of LEGACY_LOGIN_ITEM_NAMES) {
-        const registeredPath = readRunItemPath(name);
-        if (!registeredPath || sameWindowsPath(registeredPath, target.path)) continue;
-        writeItem(LOGIN_ITEM_NAME, target, true);
-        if (!this.getEnabled()) return false;
-        disableLegacy([{ name, path: registeredPath, args: [] }]);
-        return true;
+      const enabledLegacy = knownLegacy.filter((item) => item.enabled !== false);
+      if (!enabledLegacy.length && !rawLegacyNames.length) {
+        const enabled = this.getEnabled();
+        lastMigrationResult = { status: "nothing-to-migrate", migrated: false, enabled };
+        return enabled;
       }
-      return this.getEnabled();
+
+      writeItem(LOGIN_ITEM_NAME, target, true);
+      if (!this.getEnabled()) {
+        lastMigrationResult = { status: "target-verification-failed", migrated: false, enabled: false };
+        return false;
+      }
+
+      disableLegacy(enabledLegacy);
+      const cleanupFailures = [];
+      for (const name of rawLegacyNames) {
+        const result = deleteRunItem(name);
+        if (!result?.ok) cleanupFailures.push(result || { ok: false, deleted: false, name, reason: "unknown" });
+      }
+      if (cleanupFailures.length) {
+        lastMigrationResult = { status: "cleanup-failed", migrated: false, enabled: true, cleanupFailures };
+        reportMigrationIssue(lastMigrationResult);
+        return false;
+      }
+
+      lastMigrationResult = { status: "migrated", migrated: true, enabled: true, deletedRunItems: rawLegacyNames };
+      return true;
     },
   };
 }
@@ -139,6 +201,7 @@ module.exports = {
   LEGACY_LOGIN_ITEM_NAMES,
   LOGIN_ITEM_NAME,
   createAutoStartController,
+  deleteWindowsRunItem,
   loginItemEnabled,
   parseWindowsRunItemPath,
   readWindowsRunItemPath,

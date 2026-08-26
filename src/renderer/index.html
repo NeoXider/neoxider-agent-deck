@@ -53,9 +53,9 @@
             <span class="title">Agent Deck <span id="versionLabel" class="version-badge">v…</span><small id="avatarState">ready</small></span>
           </button>
         </div>
-        <nav class="tabs no-drag" aria-label="Views">
-          <button class="tab active" data-tab="chat" type="button" title="Chat" aria-label="Chat"><svg class="ui-icon"><use href="#icon-chat"/></svg></button>
-          <button class="tab" data-tab="agents" type="button" title="Agents" aria-label="Agents"><svg class="ui-icon"><use href="#icon-agents"/></svg></button>
+        <nav class="tabs no-drag" role="tablist" aria-label="Views">
+          <button id="chatTab" class="tab active" data-tab="chat" type="button" role="tab" aria-selected="true" aria-controls="chatPanel" tabindex="0" title="Chat" aria-label="Chat"><svg class="ui-icon"><use href="#icon-chat"/></svg></button>
+          <button id="agentsTab" class="tab" data-tab="agents" type="button" role="tab" aria-selected="false" aria-controls="agentsPanel" tabindex="-1" title="Agents" aria-label="Agents"><svg class="ui-icon"><use href="#icon-agents"/></svg></button>
         </nav>
         <div class="window-actions no-drag">
           <button id="settingsButton" class="icon-button" type="button" title="Settings" aria-label="Settings" aria-haspopup="dialog" aria-controls="settingsPanel" aria-expanded="false"><svg class="ui-icon"><use href="#icon-settings"/></svg></button>
@@ -68,13 +68,13 @@
         <button id="startHarnessButton" type="button">Start</button>
       </div>
 
-      <section id="agentsPanel" class="panel">
+      <section id="agentsPanel" class="panel" role="tabpanel" aria-labelledby="agentsTab" hidden>
         <div id="sessions" class="session-list">
           <div class="empty-state">Connecting to Harness…</div>
         </div>
       </section>
 
-      <section id="chatPanel" class="panel chat-panel active">
+      <section id="chatPanel" class="panel chat-panel active" role="tabpanel" aria-labelledby="chatTab">
         <div class="chat-heading no-drag">
           <div class="picker session-picker">
             <button id="sessionButton" class="picker-button" type="button" aria-haspopup="listbox" aria-controls="sessionMenu" aria-expanded="false" title="Session">
@@ -86,8 +86,8 @@
           <button id="newSessionButton" class="ghost-button icon-only" type="button" title="New session" aria-label="New session"><svg class="ui-icon"><use href="#icon-plus"/></svg></button>
           <details id="agentControls" class="agent-controls no-drag">
             <summary title="Model and agent setup" aria-label="Model and agent setup">
-              <span class="controls-label"><svg class="ui-icon"><use href="#icon-controls"/></svg><b>Model / Setup</b></span>
-              <span id="controlsSummary" class="controls-summary">Default · Auto</span>
+              <span class="controls-label"><svg class="ui-icon"><use href="#icon-controls"/></svg><b id="controlsPrimary">Auto</b></span>
+              <span id="controlsSummary" class="controls-summary" aria-hidden="true">Automatic route · Auto</span>
               <svg class="ui-icon controls-chevron"><use href="#icon-chevron"/></svg>
             </summary>
             <div class="control-grid">
@@ -117,8 +117,8 @@
               <button id="addWorkspaceButton" class="ghost-button icon-only" type="button" title="Add workspace folder" aria-label="Add workspace folder"><svg class="ui-icon"><use href="#icon-plus"/></svg></button>
             </div>
             <div id="modeSwitch" class="mode-switch" role="group" aria-label="Agent mode">
-              <button class="mode-option active" data-mode="agent" type="button" title="Agent mode"><svg class="ui-icon"><use href="#icon-mode"/></svg><span>Agent</span></button>
-              <button class="mode-option" data-mode="plan" type="button" title="Plan mode"><svg class="ui-icon"><use href="#icon-controls"/></svg><span>Plan</span></button>
+              <button class="mode-option active" data-mode="agent" type="button" title="Agent mode" aria-pressed="true"><svg class="ui-icon"><use href="#icon-mode"/></svg><span>Agent</span></button>
+              <button class="mode-option" data-mode="plan" type="button" title="Plan mode" aria-pressed="false"><svg class="ui-icon"><use href="#icon-controls"/></svg><span>Plan</span></button>
             </div>
             </div>
           </details>
@@ -168,11 +168,11 @@
 
       <section id="settingsPanel" class="settings-panel no-drag" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" aria-hidden="true" inert>
         <div class="settings-head"><b id="settingsTitle">Settings</b><button id="closeSettings" class="icon-button" type="button" title="Close settings" aria-label="Close settings"><svg class="ui-icon"><use href="#icon-close"/></svg></button></div>
-        <div class="setting-block layer-setting"><span>Window layer</span><div id="windowLayerSwitch" class="layer-switch" role="group" aria-label="Window layer"><button data-layer="normal" type="button" title="Behave like a normal window">Normal</button><button data-layer="above" type="button" title="Stay above ordinary windows">Above</button><button data-layer="game" type="button" title="Maximum layer for fullscreen apps">Game</button></div></div>
-        <label class="autostart-setting"><span>Start with Windows<small id="autoStartStatus" role="status" aria-live="polite">Checking…</small></span><input id="autoStartToggle" type="checkbox" disabled /></label>
-        <label class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /></label>
+        <div class="setting-block layer-setting"><span>Window layer</span><div id="windowLayerSwitch" class="layer-switch" role="group" aria-label="Window layer"><button data-layer="normal" type="button" title="Behave like a normal window" aria-pressed="false">Normal</button><button data-layer="above" type="button" title="Stay above ordinary windows" aria-pressed="true">Above</button><button data-layer="game" type="button" title="Maximum layer for fullscreen apps" aria-pressed="false">Game</button></div><small id="platformStatus" class="setting-hint" role="status" aria-live="polite" hidden></small></div>
+        <label class="autostart-setting"><span><span id="autoStartLabel">Start at login</span><small id="autoStartStatus" role="status" aria-live="polite">Checking…</small></span><input id="autoStartToggle" type="checkbox" disabled /></label>
+        <label id="opacitySetting" class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /><small id="opacityStatus" class="setting-hint" role="status" hidden></small></label>
         <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>
-        <div class="setting-block"><span>Size</span><div id="sizeSwitch" class="size-switch" role="group" aria-label="Widget size"><button data-size="compact" type="button">S</button><button data-size="standard" type="button">M</button><button data-size="large" type="button">L</button></div></div>
+        <div class="setting-block"><span>Size</span><div id="sizeSwitch" class="size-switch" role="group" aria-label="Widget size"><button data-size="compact" type="button" aria-pressed="false">S</button><button data-size="standard" type="button" aria-pressed="true">M</button><button data-size="large" type="button" aria-pressed="false">L</button></div></div>
         <button id="openHarnessButton" class="primary-button" type="button">Open full Harness</button>
       </section>
 
@@ -193,6 +193,7 @@
       <span data-notification class="edge-count">0</span>
     </button>
 
+    <script src="platform-presentation.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

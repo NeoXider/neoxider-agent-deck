@@ -4,6 +4,8 @@ const path = require("node:path");
 const { readFileSync } = require("node:fs");
 const packageJson = require(path.join("..", "package.json"));
 const packageLock = require(path.join("..", "package-lock.json"));
+const readme = readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
+const changelog = readFileSync(path.join(__dirname, "..", "CHANGELOG.md"), "utf8");
 const {
   APP_ID,
   PACKAGE_NAME,
@@ -21,11 +23,17 @@ test("package metadata stays coherent with the product source of truth", () => {
   assert.equal(packageJson.repository.url, `${REPOSITORY_URL}.git`);
   assert.equal(packageJson.homepage, `${REPOSITORY_URL}#readme`);
   assert.equal(packageJson.bugs, `${REPOSITORY_URL}/issues`);
-  assert.equal(packageJson.version, "0.3.0");
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+$/);
   assert.equal(packageLock.name, PACKAGE_NAME);
   assert.equal(packageLock.version, packageJson.version);
   assert.equal(packageLock.packages[""].name, PACKAGE_NAME);
   assert.equal(packageLock.packages[""].version, packageJson.version);
+  const escapedVersion = packageJson.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  assert.match(readme, new RegExp(`source-v${escapedVersion}`));
+  assert.match(readme, new RegExp(`changelog-${escapedVersion}`));
+  assert.match(readme, new RegExp(`NeoXider-Agent-Deck-${escapedVersion}-windows-x64-portable\\.exe`));
+  assert.match(readme, new RegExp(`current release, ${escapedVersion}`));
+  assert.match(changelog, new RegExp(`^## \\[${escapedVersion}\\]`, "m"));
   assert.deepEqual(USER_DATA_SEGMENTS, ["NeoXider", "AgentDeck"]);
   const main = readFileSync(path.join(__dirname, "..", "src", "main.cjs"), "utf8");
   assert.match(main, /app\.setName\(PRODUCT_NAME\)/);

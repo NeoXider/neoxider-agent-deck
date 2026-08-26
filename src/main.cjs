@@ -400,6 +400,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true } = {
 }
 
 function createWindow() {
+  const screenshotPath = process.env.WIDGET_SCREENSHOT_PATH;
   const [presetWidth, presetHeight] = SIZE_PRESETS[preferences.size] || SIZE_PRESETS.standard;
   const requestedWidth = Number(process.env.WIDGET_SCREENSHOT_WIDTH);
   const requestedHeight = Number(process.env.WIDGET_SCREENSHOT_HEIGHT);
@@ -426,7 +427,9 @@ function createWindow() {
     },
   });
   const initialFallback = windowRef.getBounds();
-  const initialTarget = preferences.windowState.full || initialFallback;
+  // Visual smoke requests must be deterministic even when the real app has a
+  // different full-window size saved in user preferences.
+  const initialTarget = screenshotPath ? initialFallback : (preferences.windowState.full || initialFallback);
   const initialDisplay = screen.getDisplayMatching(initialTarget).workArea;
   fullBounds = fitFullBounds(initialTarget, initialFallback, initialDisplay, { minWidth: 360, minHeight: 500 });
   setPlatformBounds(windowRef, fullBounds, false, PLATFORM_CAPABILITIES);
@@ -436,11 +439,13 @@ function createWindow() {
   const screenshotTab = process.env.WIDGET_SCREENSHOT_TAB || "";
   const screenshotFixture = process.env.WIDGET_SCREENSHOT_FIXTURE || "";
   const screenshotFiles = process.env.WIDGET_SCREENSHOT_FILES || "";
+  const screenshotBackdrop = process.env.WIDGET_SCREENSHOT_BACKDROP || "";
   windowRef.loadFile(path.join(__dirname, "renderer", "index.html"), {
     query: {
       ...(screenshotTab ? { screenshotTab } : {}),
       ...(screenshotFixture ? { screenshotFixture } : {}),
       ...(screenshotFiles ? { screenshotFiles } : {}),
+      ...(screenshotBackdrop ? { screenshotBackdrop } : {}),
       ...(process.env.WIDGET_SCREENSHOT_PATH ? { screenshotStatic: "1" } : {}),
     },
   });
@@ -472,7 +477,8 @@ function createWindow() {
     windowRef.webContents.reload();
   });
   windowRef.once("ready-to-show", () => {
-    applyWindowMode(preferences.windowState.mode, { captureCurrent: false, persist: false });
+    if (screenshotPath) applyWindowMode("full", { captureCurrent: false, persist: false });
+    else applyWindowMode(preferences.windowState.mode, { captureCurrent: false, persist: false });
   });
   windowRef.on("close", (event) => {
     if (!app.isQuitting) {
@@ -491,7 +497,6 @@ function createWindow() {
     schedulePreferenceSave();
   });
 
-  const screenshotPath = process.env.WIDGET_SCREENSHOT_PATH;
   if (screenshotPath) {
     windowRef.webContents.once("did-finish-load", () => {
       const requestedDelay = Number(process.env.WIDGET_SCREENSHOT_DELAY);
@@ -502,8 +507,9 @@ function createWindow() {
       }
       setTimeout(async () => {
         const auditPath = process.env.WIDGET_UI_AUDIT_PATH;
+        let audit = null;
         if (auditPath) {
-          const audit = await windowRef.webContents.executeJavaScript(`(() => {
+          audit = await windowRef.webContents.executeJavaScript(`(() => {
             const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.queue-dock.has-items','.attachment-bar.has-items','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-history-button','.edge-mode'];
             const boxes = selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((element) => {
               const rect = element.getBoundingClientRect();
@@ -532,9 +538,35 @@ function createWindow() {
               attachmentChips: document.querySelectorAll('.attachment-chip').length,
               attachmentsAboveComposer: !document.querySelector('.attachment-bar.has-items') || document.querySelector('.attachment-bar.has-items').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
               liveBubbles: document.querySelectorAll('.live-assistant').length,
-              offlineBanners: document.querySelectorAll('.offline-banner.show').length,
-              startHarnessButtons: document.querySelectorAll('#offlineBanner.show #startHarnessButton').length,
-              headerStateText: document.querySelector('#avatarState')?.textContent || '',
+               offlineBanners: document.querySelectorAll('.offline-banner.show').length,
+               startHarnessButtons: document.querySelectorAll('#offlineBanner.show #startHarnessButton').length,
+               startHarnessText: document.querySelector('#startHarnessButton')?.textContent?.trim() || '',
+               startHarnessButtonVisible: (() => {
+                 const button = document.querySelector('#startHarnessButton');
+                 const rect = button?.getBoundingClientRect();
+                 const style = button && getComputedStyle(button);
+                 return Boolean(rect && rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility === 'visible' && Number(style.opacity) > 0);
+               })(),
+               startHarnessButtonDisabled: Boolean(document.querySelector('#startHarnessButton')?.disabled),
+               startHarnessTextPainted: (() => {
+                 const style = getComputedStyle(document.querySelector('#startHarnessButton'));
+                 const alpha = (color) => {
+                   if (!color || color === 'transparent') return 0;
+                   return color.endsWith(', 0)') ? 0 : 1;
+                 };
+                 return Number(style.opacity) > 0 && alpha(style.color) > 0 && alpha(style.webkitTextFillColor || style.color) > 0;
+               })(),
+               startHarnessTextWidth: (() => {
+                 const button = document.querySelector('#startHarnessButton');
+                 const range = document.createRange();
+                 range.selectNodeContents(button);
+                 return Math.round(range.getBoundingClientRect().width * 100) / 100;
+               })(),
+               startHarnessButtonRect: (() => {
+                 const rect = document.querySelector('#startHarnessButton').getBoundingClientRect();
+                 return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+               })(),
+               headerStateText: document.querySelector('#avatarState')?.textContent || '',
               scrollLatestVisible: Boolean(document.querySelector('.scroll-latest:not([hidden])')),
               glowControl: document.querySelectorAll('#glowRange').length,
               glowIntensity: getComputedStyle(document.documentElement).getPropertyValue('--chat-glow-intensity').trim(),
@@ -544,8 +576,11 @@ function createWindow() {
               agentError: document.querySelectorAll('.session-card.state-error').length,
               orbUtilityButtons: document.querySelectorAll('#orbMode > button:not(#orbRestore):not(#orbStatus)').length,
               orbNotification: document.body.classList.contains('orb-has-notification'),
+              orbStatusShadow: getComputedStyle(document.querySelector('#orbStatus')).boxShadow,
+              orbReplyShadow: getComputedStyle(document.querySelector('#orbHistoryButton')).boxShadow,
               edgeHitActive: document.querySelector('#edgeMode')?.classList.contains('edge-hit-active') || false,
               edgeLineWidth: Math.round(document.querySelector('.edge-line')?.getBoundingClientRect().width || 0),
+              edgeHaloOpacity: getComputedStyle(document.querySelector('.edge-line'), '::before').opacity,
               brandUserSelect: getComputedStyle(document.querySelector('.brand')).userSelect,
               composerUtilitiesStacked: (() => {
                 const attach = document.querySelector('#attachButton').getBoundingClientRect();
@@ -553,15 +588,29 @@ function createWindow() {
                 return Math.abs((attach.left + attach.right - commands.left - commands.right) / 2) <= 1 && attach.bottom <= commands.top + 1;
               })(),
               contextRingSize: Math.round(document.querySelector('#contextMeter svg').getBoundingClientRect().width),
+              contextUnavailable: document.querySelector('#contextMeter').classList.contains('unavailable'),
+              composerTextareaWidth: Math.round(document.querySelector('#messageInput').getBoundingClientRect().width),
               sendWidth: Math.round(document.querySelector('#sendButton').getBoundingClientRect().width),
               sendHeight: Math.round(document.querySelector('#sendButton').getBoundingClientRect().height),
               modelControlLabel: document.querySelector('.model-button-copy small')?.textContent || '',
               modelControlText: document.querySelector('#modelButtonText')?.textContent || '',
+              closedModelLabel: document.querySelector('#controlsPrimary')?.textContent || '',
+              closedModelVisible: (() => {
+                const label = document.querySelector('#controlsPrimary')?.getBoundingClientRect();
+                const summary = document.querySelector('#agentControls > summary')?.getBoundingClientRect();
+                return Boolean(label && summary && label.width > 0 && label.left >= summary.left && label.right <= summary.right);
+              })(),
+              closedModelUnclipped: (() => {
+                const label = document.querySelector('#controlsPrimary');
+                return Boolean(label && label.clientWidth > 0 && label.scrollWidth <= label.clientWidth + 1);
+              })(),
               modelPickerActions: document.querySelectorAll('.model-picker-actions button').length,
               modelSetupCards: document.querySelectorAll('.model-setup-card').length,
               modelSetupActions: document.querySelectorAll('.model-setup-actions button').length,
               autoStartHydrated: !document.querySelector('#autoStartToggle').disabled,
               autoStartStatus: document.querySelector('#autoStartStatus').textContent,
+              offlineSessionText: document.querySelector('#sessions .empty-state')?.textContent || '',
+              liveCaretDisplay: getComputedStyle(document.querySelector('.live-assistant') || document.body, '::after').display,
               contextCenterDelta: (() => {
                 const meter = document.querySelector('#contextMeter').getBoundingClientRect();
                 const value = document.querySelector('#contextValue').getBoundingClientRect();
@@ -575,10 +624,26 @@ function createWindow() {
           })()`);
           audit.compactDragTrace = compactDragTrace;
           audit.windowBounds = windowRef.getBounds();
+        }
+        const image = await windowRef.webContents.capturePage();
+        if (auditPath) {
+          const rect = audit.semantic.startHarnessButtonRect;
+          let brightPixels = 0;
+          if (rect?.width > 0 && rect?.height > 0) {
+            const size = image.getSize();
+            const x = Math.max(0, Math.min(size.width - 1, Math.floor(rect.x)));
+            const y = Math.max(0, Math.min(size.height - 1, Math.floor(rect.y)));
+            const width = Math.max(1, Math.min(size.width - x, Math.ceil(rect.width)));
+            const height = Math.max(1, Math.min(size.height - y, Math.ceil(rect.height)));
+            const bitmap = image.crop({ x, y, width, height }).toBitmap();
+            for (let offset = 0; offset + 3 < bitmap.length; offset += 4) {
+              if (bitmap[offset] >= 205 && bitmap[offset + 1] >= 205 && bitmap[offset + 2] >= 205 && bitmap[offset + 3] >= 205) brightPixels += 1;
+            }
+          }
+          audit.semantic.startHarnessBrightPixels = brightPixels;
           mkdirSync(path.dirname(auditPath), { recursive: true });
           writeFileSync(auditPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
         }
-        const image = await windowRef.webContents.capturePage();
         mkdirSync(path.dirname(screenshotPath), { recursive: true });
         writeFileSync(screenshotPath, image.toPNG());
         app.isQuitting = true;

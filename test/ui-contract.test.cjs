@@ -63,6 +63,9 @@ test("composer stacks attachment and commands beside a smaller context ring and 
   assert.match(css, /\.composer #sendButton \{[^}]+width:38px[^}]+height:38px/);
   assert.match(css, /\.context-meter svg \{[^}]+top:50%[^}]+left:50%[^}]+translate\(-50%,-50%\)/);
   assert.match(css, /\.context-meter span \{[^}]+position:absolute[^}]+inset:0[^}]+place-items:center/);
+  assert.match(css, /\.composer\.context-unavailable \{[^}]+grid-template-columns:32px 32px minmax\(0,1fr\) 38px/);
+  assert.match(css, /\.context-meter\.unavailable \{ display:none; \}/);
+  assert.match(renderer, /classList\.toggle\("context-unavailable", !pressure\)/);
   assert.match(renderer, /attachment-preview/);
   assert.match(renderer, /thumbnailData/);
 });
@@ -79,6 +82,10 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(renderer, /Load a model in LM Studio or another Harness provider/);
   assert.match(renderer, /\["assistant", "error"\]\.includes\(message\.role\) && isMissingModelError\(message\.text\)/);
   assert.match(renderer, /if \(!modelSetupShown\) root\.append\(createModelSetupCard\(\)\)/);
+  assert.match(html, /id="controlsPrimary">Auto<\/b>/);
+  assert.match(renderer, /\$\("#controlsPrimary"\)\.textContent = shortModel/);
+  assert.match(renderer, /shortModel = "No model"/);
+  assert.doesNotMatch(html, /<b>Model \/ Setup<\/b>/);
 });
 
 test("chat is the first and default page, followed by state-aware agents", () => {
@@ -127,6 +134,7 @@ test("busy-session messages use the authoritative Harness queue with compact edi
 });
 
 test("live assistant deltas grow a bubble instead of leaving a Writing reasoning card", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   assert.match(renderer, /onLiveEvent/);
   assert.match(renderer, /function handleLiveEvent/);
   assert.match(renderer, /chunk\.type === "text-delta"/);
@@ -134,6 +142,8 @@ test("live assistant deltas grow a bubble instead of leaving a Writing reasoning
   assert.match(renderer, /function liveAssistantSnapshot/);
   assert.match(renderer, /activity\?\.active && activity\.kind === "writing" && activity\.text/);
   assert.match(renderer, /hasWritingBubble/);
+  assert.match(css, /\.live-assistant::after \{[^}]+width:4px[^}]+animation:live-caret/);
+  assert.match(css, /prefers-reduced-motion[\s\S]+\.live-assistant::after \{ animation:none !important/);
 });
 
 test("manual chat scrolling is preserved and a jump-to-latest control appears for new output", () => {
@@ -246,7 +256,9 @@ test("edge mode only captures the visible handle and passes transparent glow cli
   assert.match(renderer, /getBoundingClientRect\(\)/);
   assert.match(renderer, /rect\.left - EDGE_HIT_PADDING/);
   assert.match(renderer, /document\.addEventListener\("mousemove", updateEdgePointerHit, true\)/);
-  assert.match(css, /\.edge-hit-active \.edge-line[^}]+scaleY\(1\.035\)/);
+  assert.match(css, /\.edge-line \{ --edge-halo-opacity:\.22/);
+  assert.match(css, /\.edge-hit-active \.edge-line::after, \.edge-mode:focus-visible \.edge-line::after/);
+  assert.doesNotMatch(css, /\.edge-hit-active \.edge-line[^}]+scaleY/);
   assert.doesNotMatch(css, /\.edge-hit-active \.edge-line[^}]+translateX/);
   const endCompactDrag = renderer.match(/async function endCompactDrag\(event\) \{[\s\S]+?\n\}/)?.[0] || "";
   assert.ok(
@@ -265,6 +277,8 @@ test("orb activity glow eases between idle, thinking, writing, tool, waiting, er
   assert.match(css, /\.mode-orb\.state-waiting\s*\{/);
   assert.match(css, /\.mode-orb\.state-error\s*\{/);
   assert.match(css, /\.mode-orb\.state-done\s*\{/);
+  assert.match(css, /\.orb-has-notification \.orb-status \{[^}]+box-shadow:none/);
+  assert.match(css, /\.orb-history-button:hover, \.orb-history-button\.active \{[^}]+box-shadow:none/);
 });
 
 test("the clickable NeoXider brand becomes a full-window drag target after movement", () => {
@@ -352,6 +366,16 @@ test("interactive controls, view transitions, compact modes, and send have reduc
   assert.match(renderer, /classList\.remove\("sending"\)/);
   assert.match(html, /id="sendButton"/);
   assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /send-spring|compact-enter|panel-enter|prefers-reduced-motion/);
+  assert.match(renderer, /matchMedia\?\.\("\(prefers-reduced-motion: reduce\)"\)\.matches/);
+  assert.match(renderer, /behavior: reduceMotion \? "auto" : "smooth"/);
+});
+
+test("settings keeps keyboard focus inside its modal surface", () => {
+  assert.match(renderer, /function trapSettingsFocus/);
+  assert.match(renderer, /event\.key !== "Tab"/);
+  assert.match(renderer, /document\.activeElement === first/);
+  assert.match(renderer, /document\.activeElement === last/);
+  assert.match(renderer, /if \(trapSettingsFocus\(event\)\) return/);
 });
 
 test("sending a message automatically collapses transient setup surfaces", () => {
@@ -373,6 +397,9 @@ test("offline status is shown once with an explicit guarded Start action", () =>
   assert.match(renderer, /await window\.widget\.startHarness\(\)/);
   assert.match(renderer, /setAvatar\("error", ""\)/);
   assert.doesNotMatch(renderer, /setAvatar\("error", "Harness offline"\)/);
+  assert.match(renderer, /Start Harness to load sessions\./);
+  assert.match(renderer, /!dashboard\.harness && state\.focusMode\) setFocusMode\(false\)/);
+  assert.doesNotMatch(renderer, /empty\.textContent = [^\n]+: "Harness is offline\."/);
 });
 
 test("the renderer runs under a strict content security policy", () => {

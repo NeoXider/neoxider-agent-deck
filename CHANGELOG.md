@@ -5,6 +5,34 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-08-26
+
+### Added
+
+- One offline status banner with a guarded **Start** action that prefers the installed
+  official DeepSeek Harness runtime and opens the live Web service without leaving the
+  widget.
+- Real screenshot-based README cover showing the current Full, Avatar and Edge modes.
+- Platform-aware settings presentation and automated Windows, macOS, Linux X11 and
+  Wayland fixtures.
+
+### Changed
+
+- The compact toolbar always names the active model, unavailable context no longer
+  consumes composer width, and the live answer uses a growing bubble with a subtle caret.
+- Avatar and Edge glow are softer and transition without expanding the draggable hit area.
+- Tabs and selected switch groups expose keyboard and screen-reader state; placeholders
+  now meet WCAG AA contrast.
+
+### Fixed
+
+- Offline state is no longer repeated in the title and session list. Agents and Focus
+  modes retain the single actionable banner.
+- Linux and Wayland no longer expose opacity, Game, Edge or positioning controls that the
+  current desktop cannot perform; Linux X11 labels its wider interactive Edge behavior.
+- A timed-out Harness launch is retained and re-probed, so Retry cannot spawn a duplicate
+  owned process. Definite launch failures still use the bounded Windows batch fallback.
+
 ## [0.3.1] - 2026-08-26
 
 ### Fixed
@@ -123,6 +151,7 @@ full audit of the main process, the renderer and the UI.
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.3.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.2
 [0.3.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.1
 [0.3.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.0
 [0.2.4]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.2.4

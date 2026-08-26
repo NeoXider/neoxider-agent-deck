@@ -40,6 +40,8 @@ const state = {
   unseenMessages: 0,
   historySignature: "",
   harnessStarting: false,
+  platformCapabilities: null,
+  platformPresentation: null,
   pollTimer: null,
   pollInterval: 0,
 };
@@ -48,6 +50,14 @@ let confirmedAutoStart = false;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+
+function syncPressed(buttons, selectedValue, dataKey) {
+  buttons.forEach((button) => {
+    const selected = button.dataset[dataKey] === selectedValue;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+}
 const AVATARS = {
   idle: "assets/neoxider-github.png",
   working: "assets/avatar-working.png",
@@ -254,7 +264,9 @@ function applyWindowMode(mode) {
 }
 
 async function setWindowMode(mode) {
+  if (mode === "edge" && state.platformPresentation?.edgeAvailable === false) return state.windowMode;
   applyWindowMode(await window.widget.setWindowMode(mode));
+  return state.windowMode;
 }
 
 function applyCompactSide(side) {
@@ -300,7 +312,7 @@ function suppressBrandClickAfterDrag() {
 }
 
 function beginFullDrag(event) {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || state.platformPresentation?.positionAvailable === false) return;
   fullDrag = {
     target: event.currentTarget,
     // Pointer capture retargets the follow-up click to the capturing element, so a
@@ -348,7 +360,7 @@ function activateBrandTarget(origin) {
 }
 
 function beginCompactDrag(event) {
-  if (event.button !== 0 || event.target.closest("#orbStatus, #orbHistoryButton")) return;
+  if (event.button !== 0 || state.platformPresentation?.positionAvailable === false || event.target.closest("#orbStatus, #orbHistoryButton")) return;
   compactDrag = {
     target: event.currentTarget,
     pointerId: event.pointerId,
@@ -427,6 +439,8 @@ function renderContext() {
   const pressure = contextPressure(session);
   const meter = $("#contextMeter");
   meter.classList.remove("high", "critical");
+  meter.classList.toggle("unavailable", !pressure);
+  $("#chatForm").classList.toggle("context-unavailable", !pressure);
   if (!pressure) {
     meter.style.setProperty("--context", "0");
     $("#contextArc").style.strokeDashoffset = "97.39";
@@ -450,7 +464,7 @@ function renderSessions() {
   if (!sessions.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
-    empty.textContent = state.dashboard?.harness ? "No sessions yet. Start one in chat." : "Harness is offline.";
+    empty.textContent = state.dashboard?.harness ? "No sessions yet. Start one in chat." : "Start Harness to load sessions.";
     root.append(empty);
     return;
   }
@@ -606,8 +620,11 @@ function retryModels() {
 function updateControlsSummary() {
   const selection = state.pendingSelection || state.modelCatalog?.current;
   const model = selectedModelDefinition();
-  const shortModel = model?.name || model?.id || $("#modelButtonText")?.textContent || modelDisplay(selection);
+  let shortModel = model?.name || model?.id || selection?.model || "Auto";
+  if (state.modelLoadState === "loading") shortModel = "Loading…";
+  else if (["error", "ready"].includes(state.modelLoadState) && !modelCount()) shortModel = "No model";
   const effort = $("#reasoningButtonText")?.textContent || "Auto";
+  $("#controlsPrimary").textContent = shortModel;
   $("#controlsSummary").textContent = `${shortModel} · ${effort}`;
   const summary = $("#agentControls > summary");
   const fullLabel = `${modelDisplay(selection)} · ${effort}`;
@@ -1292,6 +1309,27 @@ function setSettingsOpen(open, { restoreFocus = true } = {}) {
   else if (restoreFocus && activeInside) $("#settingsButton").focus();
 }
 
+function trapSettingsFocus(event) {
+  const panel = $("#settingsPanel");
+  if (event.key !== "Tab" || !panel.classList.contains("open")) return false;
+  const focusable = [...panel.querySelectorAll('button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+    .filter((element) => !element.inert && element.getClientRects().length);
+  if (!focusable.length) return false;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && (document.activeElement === first || !panel.contains(document.activeElement))) {
+    event.preventDefault();
+    last.focus();
+    return true;
+  }
+  if (!event.shiftKey && (document.activeElement === last || !panel.contains(document.activeElement))) {
+    event.preventDefault();
+    first.focus();
+    return true;
+  }
+  return false;
+}
+
 function isMissingModelError(value) {
   return /no models? (?:are )?loaded|no model (?:is )?(?:loaded|available)|model provider.*unavailable/i.test(String(value || ""));
 }
@@ -1513,9 +1551,18 @@ async function handleLiveEvent(payload) {
 
 function setTab(tab) {
   state.tab = tab;
-  document.querySelectorAll(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
-  $("#agentsPanel").classList.toggle("active", tab === "agents");
-  $("#chatPanel").classList.toggle("active", tab === "chat");
+  document.querySelectorAll(".tab").forEach((button) => {
+    const selected = button.dataset.tab === tab;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+  const agents = $("#agentsPanel");
+  const chat = $("#chatPanel");
+  agents.classList.toggle("active", tab === "agents");
+  agents.hidden = tab !== "agents";
+  chat.classList.toggle("active", tab === "chat");
+  chat.hidden = tab !== "chat";
   if (tab === "chat") Promise.all([refreshHistory(), loadModels(), loadCommands()]);
 }
 
@@ -1597,6 +1644,7 @@ async function refresh() {
     detectCompletedSessions(dashboard.sessions || []);
     state.dashboard = dashboard;
     syncCompactStatus();
+    if (!dashboard.harness && state.focusMode) setFocusMode(false);
     if (state.selectedSessionId && !dashboard.sessions?.some((session) => session.sessionId === state.selectedSessionId)) state.selectedSessionId = null;
     if (!state.selectedSessionId && dashboard.sessions?.length) {
       state.selectedSessionId = (dashboard.sessions.find((session) => session.running) || dashboard.sessions[0]).sessionId;
@@ -1723,7 +1771,7 @@ async function switchWorkspace(workspaceId) {
 }
 
 function renderMode() {
-  $$(".mode-option").forEach((button) => button.classList.toggle("active", button.dataset.mode === state.currentMode));
+  syncPressed($$(".mode-option"), state.currentMode, "mode");
 }
 
 async function setAgentMode(mode) {
@@ -1778,6 +1826,44 @@ function setAutoStartStatus(text, error = false) {
   status.classList.toggle("error", error);
 }
 
+function applyPlatformCapabilities(capabilities) {
+  state.platformCapabilities = capabilities || {};
+  const presentation = window.platformPresentation.createPlatformPresentation(state.platformCapabilities);
+  state.platformPresentation = presentation;
+  document.body.classList.toggle("position-unavailable", !presentation.positionAvailable);
+  document.body.classList.toggle("edge-interactive-wide", presentation.edgeMode === "interactive-wide");
+
+  $("#autoStartLabel").textContent = presentation.startupLabel;
+  const platformStatus = $("#platformStatus");
+  platformStatus.textContent = presentation.platformHint;
+  platformStatus.hidden = !presentation.platformHint;
+
+  const opacitySetting = $("#opacitySetting");
+  const opacityRange = $("#opacityRange");
+  const opacityStatus = $("#opacityStatus");
+  opacitySetting.classList.toggle("unsupported", !presentation.opacityAvailable);
+  opacityRange.disabled = !presentation.opacityAvailable;
+  opacityRange.setAttribute("aria-disabled", String(!presentation.opacityAvailable));
+  opacityStatus.textContent = presentation.opacityHint;
+  opacityStatus.hidden = !presentation.opacityHint;
+  if (!presentation.opacityAvailable) $("#opacityValue").textContent = "Unavailable";
+
+  const gameButton = $('#windowLayerSwitch [data-layer="game"]');
+  gameButton.disabled = !presentation.gameLayerAvailable;
+  gameButton.setAttribute("aria-disabled", String(!presentation.gameLayerAvailable));
+  gameButton.title = presentation.gameLayerAvailable
+    ? "Maximum layer for fullscreen apps"
+    : "Game layer is unavailable on this platform; Above is used instead";
+
+  const dockButton = $("#dockButton");
+  dockButton.disabled = !presentation.edgeAvailable;
+  dockButton.setAttribute("aria-disabled", String(!presentation.edgeAvailable));
+  dockButton.title = presentation.dockTitle;
+  dockButton.setAttribute("aria-label", presentation.dockTitle);
+  if (presentation.platformHint) dockButton.setAttribute("aria-describedby", "platformStatus");
+  else dockButton.removeAttribute("aria-describedby");
+}
+
 async function updateAutoStartToggle(event) {
   const toggle = event.currentTarget;
   const requested = toggle.checked;
@@ -1801,7 +1887,7 @@ async function hydratePreferences() {
   setAutoStartStatus("Checking…");
   try {
     const preferences = await window.widget.getPreferences();
-    $$('#windowLayerSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.layer === (preferences.windowLayer || "above")));
+    syncPressed($$('#windowLayerSwitch button'), preferences.windowLayer || "above", "layer");
     confirmedAutoStart = Boolean(preferences.autoStart);
     autoStartToggle.checked = confirmedAutoStart;
     autoStartToggle.disabled = preferences.autoStartAvailable === false;
@@ -1812,7 +1898,8 @@ async function hydratePreferences() {
     $("#opacityRange").value = Math.round(preferences.opacity * 100);
     $("#opacityValue").textContent = `${Math.round(preferences.opacity * 100)}%`;
     applyGlowIntensity(preferences.glowIntensity);
-    $$('#sizeSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.size === preferences.size));
+    syncPressed($$('#sizeSwitch button'), preferences.size, "size");
+    applyPlatformCapabilities(preferences.platformCapabilities);
     applyCompactSide(preferences.compactSide || "right");
     applyWindowMode(preferences.windowMode || "full");
   } catch {
@@ -1822,7 +1909,22 @@ async function hydratePreferences() {
   }
 }
 
-document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => setTab(button.dataset.tab)));
+document.querySelectorAll(".tab").forEach((button) => {
+  button.addEventListener("click", () => setTab(button.dataset.tab));
+  button.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = $$(".tab");
+    const current = tabs.indexOf(event.currentTarget);
+    const next = event.key === "Home"
+      ? tabs[0]
+      : event.key === "End"
+        ? tabs[tabs.length - 1]
+        : tabs[(current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+    setTab(next.dataset.tab);
+    next.focus();
+  });
+});
 $("#sessionButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#modelButton").addEventListener("click", (event) => {
   event.stopPropagation();
@@ -1847,6 +1949,7 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest("#commandMenu, #commandsButton, #messageInput")) setCommandMenuOpen(false);
 });
 document.addEventListener("keydown", (event) => {
+  if (trapSettingsFocus(event)) return;
   if (event.key === "Escape") {
     const settingsOpen = $("#settingsPanel").classList.contains("open");
     const pickerOpen = Boolean($(".picker.open"));
@@ -1986,7 +2089,8 @@ $("#messages").addEventListener("scroll", () => {
 $("#scrollLatestButton").addEventListener("click", () => {
   state.messagesStickToBottom = true;
   state.unseenMessages = 0;
-  $("#messages").scrollTo({ top: $("#messages").scrollHeight, behavior: "smooth" });
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  $("#messages").scrollTo({ top: $("#messages").scrollHeight, behavior: reduceMotion ? "auto" : "smooth" });
   updateScrollLatestButton();
 });
 $("#cancelButton").addEventListener("click", async () => state.selectedSessionId && window.widget.cancel(state.selectedSessionId));
@@ -2036,11 +2140,13 @@ $("#projectLink").addEventListener("click", (event) => {
 $("#settingsButton").addEventListener("click", () => setSettingsOpen(!$("#settingsPanel").classList.contains("open")));
 $("#closeSettings").addEventListener("click", () => setSettingsOpen(false));
 $$('#windowLayerSwitch button').forEach((button) => button.addEventListener("click", async () => {
+  if (button.disabled) return;
   const value = await window.widget.setWindowLayer(button.dataset.layer);
-  $$('#windowLayerSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.layer === value));
+  syncPressed($$('#windowLayerSwitch button'), value, "layer");
 }));
 $("#autoStartToggle").addEventListener("change", updateAutoStartToggle);
 $("#opacityRange").addEventListener("input", async (event) => {
+  if (event.currentTarget.disabled) return;
   const percent = Number(event.target.value);
   $("#opacityValue").textContent = `${percent}%`;
   await window.widget.setOpacity(percent / 100);
@@ -2051,7 +2157,7 @@ $("#glowRange").addEventListener("input", async (event) => {
 });
 $$('#sizeSwitch button').forEach((button) => button.addEventListener("click", async () => {
   const value = await window.widget.setSize(button.dataset.size);
-  $$('#sizeSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.size === value));
+  syncPressed($$('#sizeSwitch button'), value, "size");
 }));
 
 let dragDepth = 0;
@@ -2104,6 +2210,8 @@ const launchParams = new URLSearchParams(location.search);
 const requestedTab = launchParams.get("screenshotTab");
 const screenshotFixture = launchParams.get("screenshotFixture");
 if (launchParams.get("screenshotStatic")) document.body.classList.add("screenshot-static");
+const screenshotBackdrop = launchParams.get("screenshotBackdrop");
+if (["black", "white", "checkerboard"].includes(screenshotBackdrop)) document.body.classList.add(`screenshot-backdrop-${screenshotBackdrop}`);
 if (requestedTab === "chat") setTab("chat");
 setAvatar("idle");
 renderNotifications();
@@ -2135,14 +2243,19 @@ if (screenshotFixture) {
   setTimeout(async () => {
     if (screenshotFixture === "edge-hover") {
       $("#edgeMode").classList.add("edge-hit-active");
-    } else if (screenshotFixture === "offline") {
+    } else if (["offline", "offline-agents", "focus-offline"].includes(screenshotFixture)) {
       setTab("chat");
+      if (screenshotFixture === "focus-offline") setFocusMode(true);
       state.dashboard = { harness: false, sessions: [] };
       state.selectedSessionId = null;
+      if (state.focusMode) setFocusMode(false);
       $("#offlineBanner").classList.add("show");
       setAvatar("error", "");
+      renderSessions();
       renderSessionSelect();
+      renderContext();
       renderMessages([]);
+      if (screenshotFixture === "offline-agents") setTab("agents");
     } else if (screenshotFixture === "overview") {
       setTab("agents");
       state.dashboard = {
@@ -2167,7 +2280,7 @@ if (screenshotFixture) {
         { role: "assistant", text: "All checks passed.", html: "<p><strong>All checks passed.</strong></p><ul><li>No clipped controls</li><li>Markdown and tool calls render correctly</li><li>Compact modes snap to screen edges</li></ul>" },
       ]);
       if (screenshotFixture === "focus-chat") setFocusMode(true);
-    } else if (screenshotFixture === "model") {
+    } else if (["model", "model-closed"].includes(screenshotFixture)) {
       setTab("chat");
       state.modelCatalog = {
         current: { provider: "lmstudio", model: "qwen3.5-9b", reasoningEffort: "medium" },
@@ -2180,8 +2293,10 @@ if (screenshotFixture) {
       state.modelLoadState = "ready";
       state.pendingSelection = state.modelCatalog.current;
       renderModels();
-      $("#agentControls").open = true;
-      togglePicker($("#modelButton"));
+      if (screenshotFixture === "model") {
+        $("#agentControls").open = true;
+        togglePicker($("#modelButton"));
+      }
     } else if (screenshotFixture === "model-empty") {
       setTab("chat");
       state.modelCatalog = { current: null, groups: [], failures: [] };
@@ -2191,6 +2306,9 @@ if (screenshotFixture) {
       togglePicker($("#modelButton"));
     } else if (screenshotFixture === "model-error") {
       setTab("chat");
+      state.modelCatalog = { current: null, groups: [], failures: ["No models loaded"] };
+      state.modelLoadState = "error";
+      renderModels();
       renderMessages([
         { role: "assistant", text: "400: No models loaded" },
         { role: "error", text: "400: No models loaded" },

@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.3.1-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.3.1-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.3.2-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.3.2-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -96,29 +96,29 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Live chat aura** — brighter-by-default, distinct inner glows indicate thinking, writing, and tool execution. No activity means no glow, and glow intensity is adjustable in settings.
 - **Focus Chat** — one compact composer button hides all chrome and setup surfaces, leaving only messages, optional attachment previews, the input, context and actions; tap it again to restore everything.
 - **Three window states** — full deck, notification avatar, or an iridescent edge handle.
-- **Draggable compact modes** — drag either the avatar or the edge handle anywhere vertically or across displays; release to magnetize it to the nearest screen edge.
+- **Draggable compact modes** — where the desktop compositor permits window positioning, drag either the avatar or the edge handle across displays and release to magnetize it to the nearest screen edge.
 - **Persistent per-mode placement** — full, avatar and edge modes remember their own monitor, side and vertical position across restarts; missing displays are handled by safely clamping the window into the current work area.
-- **Click-through edge glow** — only the visible 8 px edge line (plus a small 5 px comfort margin) accepts hover, restore, and drag input; the wider transparent glow area no longer blocks clicks in apps underneath. The line gently lifts inward on hover.
+- **Click-through edge glow** — on supported native desktops, only the visible 8 px edge line (plus a small comfort margin) accepts hover, restore, and drag input; the wider transparent glow does not block clicks in apps underneath. Linux X11 exposes an honestly labeled wider interactive edge, while Wayland disables Edge mode.
 - **Smooth pet status glow** — the collapsed avatar now eases between idle, thinking, writing, tool, waiting, error, and done palettes instead of switching its ring abruptly.
 - **Classic NeoXider slimes** — idle, working, waiting, error, and done now use the original soft-bottom mascot shapes from NeoXider Video Studio instead of the round variants.
 - **Click-or-drag brand** — click the full-size avatar to collapse, click the NeoXider title to open the repository, or drag anywhere across the brand area to move the full widget. Brand text is non-selectable, so a drag cannot turn into a text selection.
 - **Exact-session pet reply** — collapsed pet mode keeps one useful reply button instead of create/command/attachment clutter; it opens the agent and session that produced the reply.
 - **Session-aware notifications** — a completed reply slides out for about 2.7 seconds with its session name and answer preview; clicking it restores that exact session. The edge handle still bounces when work finishes.
-- **Three window layers** — choose Normal for an ordinary desktop window, Above for the default always-visible widget, or Game for the strongest overlay level used over fullscreen games and similar apps.
+- **Three window layers** — choose Normal, the default Above layer, or the strongest available Game layer. Game is best-effort: exclusive fullscreen and anti-cheat overlays can still win, and unsupported Linux desktops disable the choice instead of silently pretending it worked.
 - **No close button** — window close gestures dock the widget to the screen edge. Quit remains available from the tray menu.
 - **Single-instance launch** — repeated shortcut clicks focus the existing widget instead of stacking translucent windows.
-- **Personal controls** — opacity, compact/standard/large size, chat glow intensity, window layer and Windows autostart.
+- **Personal controls** — opacity, compact/standard/large size, chat glow intensity, window layer and Start at login where the platform supports them.
 - **Locked-down renderer** — a strict Content Security Policy (`default-src 'none'`, no `unsafe-inline`, no `unsafe-eval`), denied window creation, blocked navigation and protocol-checked external links mean model output can render but never execute or navigate.
 - **Survives a renderer crash** — a frameless transparent window that loses its renderer is reloaded automatically instead of lingering as a dead shape that only the task manager can remove.
 - **Keyboard and screen reader support** — every reachable control draws a visible focus ring, dimmed labels hold WCAG AA contrast, and the conversation is exposed as an ARIA log region.
-- **Reliable portable autostart** — Start with Windows targets the stable portable launcher instead of Electron's temporary extracted child; existing stale startup entries are migrated automatically.
+- **Reliable portable autostart** — Start at login on Windows targets the stable portable launcher instead of Electron's temporary extracted child; existing stale startup entries are migrated automatically.
 
 ## Install
 
 ### Portable release
 
 1. Download the latest `NeoXider-Agent-Deck-*-windows-x64-portable.exe` from [Releases](https://github.com/NeoXider/neoxider-agent-deck/releases/latest).
-2. Start DeepSeek Harness Web on `http://127.0.0.1:3080`.
+2. Start DeepSeek Harness Web on `http://127.0.0.1:3080`, or press **Start** in the offline banner. The widget prefers an installed official runtime and avoids spawning a duplicate while a previous launch is still starting.
 3. Run the portable executable.
 
 To install the latest release under `%LOCALAPPDATA%`, create a desktop shortcut and launch it:
@@ -195,7 +195,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.3.0-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.3.2-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
@@ -213,18 +213,20 @@ Planned screen-region capture, configurable global hotkeys, overlay diagnostics 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.3.0,
-renames the project to NeoXider Agent Deck and closes the findings of a full security,
-accessibility and resilience audit.
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.3.2,
+adds the offline Harness launcher, completes the four-round UI/UX audit, and makes
+platform limitations explicit instead of exposing controls that cannot work.
 
 ## Platform support
 
-Windows 10 and 11 is the supported and continuously verified target: it is what CI builds
+Windows 10 and 11 are the supported and continuously verified target: this is what CI builds
 and what the portable release ships for. The macOS and Linux build targets are configured
 and the code paths are platform-aware, but they are **experimental** — desktop autostart on
-Linux is not implemented yet, and `Start Harness` relies on `npx` being present in the
-launcher environment, which is not guaranteed for an app started from Finder or a desktop
-launcher.
+Linux is not implemented yet. Linux disables native opacity and Game layer controls;
+Wayland also disables window dragging and Edge mode, while X11 labels its wider interactive
+Edge area. When no installed Harness runtime is found, `Start Harness` relies on `npx` being
+present in the launcher environment, which is not guaranteed for an app started from Finder
+or a desktop launcher.
 
 ## Contributing
 

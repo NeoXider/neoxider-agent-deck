@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1672, initial-scale=1" />
+  <title>NeoXider Agent Deck cover</title>
+  <style>
+    * { box-sizing:border-box; }
+    html, body { width:1672px; height:941px; margin:0; overflow:hidden; }
+    body { font-family:Inter,"Segoe UI Variable","Segoe UI",sans-serif; color:#f5f8fc; background:#070b12; }
+    .cover { position:relative; width:100%; height:100%; overflow:hidden; background:
+      radial-gradient(circle at 82% 13%,rgba(133,111,255,.22),transparent 33%),
+      radial-gradient(circle at 62% 84%,rgba(54,232,198,.17),transparent 35%),
+      linear-gradient(135deg,#05080d 0%,#0a101a 46%,#080b13 100%); }
+    .cover::before { content:""; position:absolute; inset:0; opacity:.26; background-image:
+      linear-gradient(rgba(255,255,255,.026) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.026) 1px,transparent 1px); background-size:52px 52px; mask-image:linear-gradient(90deg,black,transparent 74%); }
+    .copy { position:absolute; z-index:3; top:130px; left:116px; width:660px; }
+    .eyebrow { margin-bottom:24px; color:#77ead4; font-size:18px; font-weight:760; letter-spacing:.19em; text-transform:uppercase; }
+    h1 { max-width:660px; margin:0; font-size:80px; line-height:.98; letter-spacing:-.055em; text-wrap:balance; }
+    .lede { max-width:565px; margin:30px 0 0; color:#aeb9ca; font-size:25px; line-height:1.45; }
+    .features { display:flex; flex-wrap:wrap; gap:11px; margin-top:38px; }
+    .feature { padding:10px 15px; border:1px solid rgba(255,255,255,.12); border-radius:999px; background:rgba(255,255,255,.045); color:#d9e2ed; font-size:15px; }
+    .mode-line { display:flex; align-items:center; gap:13px; margin-top:48px; color:#718096; font-size:13px; font-weight:720; letter-spacing:.14em; text-transform:uppercase; }
+    .mode-line i { width:42px; height:1px; background:linear-gradient(90deg,#49e7c6,#8b79ff); box-shadow:0 0 12px rgba(73,231,198,.5); }
+    .visuals { position:absolute; z-index:2; inset:0; }
+    .full { position:absolute; top:62px; right:112px; width:420px; height:640px; overflow:hidden; border:1px solid rgba(255,255,255,.16); border-radius:23px; background:#080c12; box-shadow:0 45px 95px rgba(0,0,0,.52),0 0 58px rgba(116,119,255,.13); }
+    .full img { width:100%; height:100%; object-fit:cover; }
+    .label { position:absolute; z-index:4; display:flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid rgba(255,255,255,.13); border-radius:999px; background:rgba(8,12,19,.86); color:#dce5ef; font-size:12px; font-weight:760; letter-spacing:.12em; text-transform:uppercase; backdrop-filter:blur(12px); }
+    .label::before { content:""; width:7px; height:7px; border-radius:50%; background:#49e7c6; box-shadow:0 0 10px #49e7c6; }
+    .full-label { top:34px; right:425px; }
+    .avatar-card { position:absolute; z-index:5; top:96px; right:430px; width:360px; height:176px; display:grid; place-items:center; border:1px solid rgba(73,231,198,.17); border-radius:28px; background:linear-gradient(145deg,rgba(10,18,25,.91),rgba(18,15,34,.9)); box-shadow:0 28px 58px rgba(0,0,0,.38),0 0 36px rgba(73,231,198,.10); }
+    .avatar-card img { max-width:340px; max-height:150px; object-fit:contain; filter:drop-shadow(0 16px 24px rgba(0,0,0,.42)); }
+    .avatar-label { top:72px; right:695px; }
+    .edge-card { position:absolute; z-index:4; right:24px; top:340px; width:88px; height:250px; display:grid; place-items:center; overflow:hidden; border-radius:28px 0 0 28px; background:rgba(9,13,20,.62); }
+    .edge-card img { width:88px; height:132px; object-fit:contain; }
+    .edge-label { top:294px; right:18px; }
+    .bridge { position:absolute; z-index:1; right:52px; bottom:90px; width:710px; height:230px; border:1px solid rgba(73,231,198,.10); border-radius:50%; transform:rotate(-8deg); box-shadow:inset 0 0 48px rgba(139,121,255,.06); }
+    .bridge::after { content:""; position:absolute; inset:38px; border:1px dashed rgba(139,121,255,.13); border-radius:50%; }
+    .footer { position:absolute; z-index:3; left:116px; bottom:76px; display:flex; align-items:center; gap:14px; color:#607086; font-size:14px; }
+    .mark { width:32px; height:32px; border:1px solid rgba(73,231,198,.22); border-radius:10px; background:linear-gradient(145deg,rgba(73,231,198,.17),rgba(139,121,255,.2)); box-shadow:0 0 20px rgba(73,231,198,.08); }
+  </style>
+</head>
+<body>
+  <main class="cover">
+    <section class="copy">
+      <div class="eyebrow">NeoXider / Harness</div>
+      <h1>NeoXider<br />Agent Deck</h1>
+      <p class="lede">Your agents, alive on the desktop. Chat, observe and reply without losing your flow.</p>
+      <div class="features">
+        <span class="feature">Live sessions</span><span class="feature">Native mini-chat</span><span class="feature">Dynamic model routing</span><span class="feature">Context-aware</span>
+      </div>
+      <div class="mode-line"><span>Full</span><i></i><span>Avatar</span><i></i><span>Edge</span></div>
+    </section>
+    <section class="visuals" aria-label="Real product modes">
+      <div class="bridge"></div>
+      <div class="label full-label">Full chat</div>
+      <div class="full"><img src="screenshots/chat.png" alt="Real full chat mode" /></div>
+      <div class="label avatar-label">Avatar</div>
+      <div class="avatar-card"><img src="screenshots/avatar-mode.png" alt="Real avatar mode" /></div>
+      <div class="label edge-label">Edge</div>
+      <div class="edge-card"><img src="screenshots/edge-mode.png" alt="Real edge mode" /></div>
+    </section>
+    <footer class="footer"><span class="mark"></span><span>Independent desktop companion for DeepSeek Harness</span></footer>
+  </main>
+</body>
+</html>

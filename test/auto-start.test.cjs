@@ -4,6 +4,7 @@ const {
   LEGACY_LOGIN_ITEM_NAMES,
   LOGIN_ITEM_NAME,
   createAutoStartController,
+  deleteWindowsRunItem,
   loginItemEnabled,
   parseWindowsRunItemPath,
   resolveLoginItemTarget,
@@ -102,14 +103,41 @@ test("quoted Windows Run output yields its executable path", () => {
   assert.equal(parseWindowsRunItemPath(output, legacyName), temporaryChild);
 });
 
+test("Windows Run deletion targets one exact whitelisted legacy value", () => {
+  const calls = [];
+  const result = deleteWindowsRunItem(legacyName, (...args) => calls.push(args), { SystemRoot: "C:\\Windows" });
+
+  assert.deepEqual(result, { ok: true, deleted: true, name: legacyName });
+  assert.deepEqual(calls, [[
+    "C:\\Windows\\System32\\reg.exe",
+    ["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", legacyName, "/f"],
+    { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
+  ]]);
+});
+
+test("Windows Run deletion rejects unrelated value names without touching the registry", () => {
+  const calls = [];
+  const result = deleteWindowsRunItem("Unrelated Startup App", (...args) => calls.push(args), {});
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "not-legacy-name");
+  assert.deepEqual(calls, []);
+});
+
 test("enabled legacy item migrates to the new target and is disabled only after verification", () => {
   const app = createFakeApp({ launchItems: [{ name: legacyName, path: temporaryChild, args: [], enabled: true, scope: "user" }] });
+  const deleted = [];
   const controller = createAutoStartController({
     app,
     env: { PORTABLE_EXECUTABLE_FILE: portableLauncher },
     execPath: temporaryChild,
     platform: "win32",
-    readRunItemPath: () => temporaryChild,
+    readRunItemPath: (name) => name === legacyName ? temporaryChild : "",
+    deleteRunItem: (name) => {
+      assert.equal(app.getLoginItemSettings({ path: portableLauncher, args: [] }).openAtLogin, true);
+      deleted.push(name);
+      return { ok: true, deleted: true, name };
+    },
   });
 
   assert.equal(controller.migrateLegacy(), true);
@@ -117,6 +145,8 @@ test("enabled legacy item migrates to the new target and is disabled only after 
     [LOGIN_ITEM_NAME, true],
     [legacyName, false],
   ]);
+  assert.deepEqual(deleted, [legacyName]);
+  assert.equal(controller.getLastMigrationResult().status, "migrated");
 });
 
 test("disabled legacy StartupApproved item stays disabled even when its raw Run value exists", () => {
@@ -126,28 +156,106 @@ test("disabled legacy StartupApproved item stays disabled even when its raw Run 
     env: { PORTABLE_EXECUTABLE_FILE: portableLauncher },
     execPath: temporaryChild,
     platform: "win32",
-    readRunItemPath: () => temporaryChild,
+    readRunItemPath: (name) => name === legacyName ? temporaryChild : "",
   });
 
   assert.equal(controller.migrateLegacy(), false);
   assert.equal(app.calls.set.length, 0);
 });
 
-test("raw Run fallback migrates only when no StartupApproved legacy item is known", () => {
-  const app = createFakeApp();
+test("an already-enabled new target cleans a raw value left by a partial legacy migration", () => {
+  const app = createFakeApp({
+    launchItems: [{ name: legacyName, path: temporaryChild, args: [], enabled: false, scope: "user" }],
+  });
+  app.setLoginItemSettings({
+    openAtLogin: true,
+    enabled: true,
+    name: LOGIN_ITEM_NAME,
+    path: portableLauncher,
+    args: [],
+  });
+  app.calls.set.length = 0;
+  const deleted = [];
   const controller = createAutoStartController({
     app,
     env: { PORTABLE_EXECUTABLE_FILE: portableLauncher },
     execPath: temporaryChild,
     platform: "win32",
     readRunItemPath: (name) => name === legacyName ? temporaryChild : "",
+    deleteRunItem: (name) => {
+      deleted.push(name);
+      return { ok: true, deleted: true, name };
+    },
+  });
+
+  assert.equal(controller.migrateLegacy(), true);
+  assert.deepEqual(deleted, [legacyName]);
+  assert.equal(controller.getLastMigrationResult().status, "recovered-partial-migration");
+  assert.equal(app.calls.set.length, 0);
+});
+
+test("raw Run fallback verifies the new target before deleting the exact legacy value", () => {
+  const app = createFakeApp();
+  const deleted = [];
+  const controller = createAutoStartController({
+    app,
+    env: { PORTABLE_EXECUTABLE_FILE: portableLauncher },
+    execPath: temporaryChild,
+    platform: "win32",
+    readRunItemPath: (name) => name === legacyName ? temporaryChild : "",
+    deleteRunItem: (name) => {
+      assert.equal(app.getLoginItemSettings({ path: portableLauncher, args: [] }).openAtLogin, true);
+      deleted.push(name);
+      return { ok: true, deleted: true, name };
+    },
   });
 
   assert.equal(controller.migrateLegacy(), true);
   assert.deepEqual(app.calls.set.map((value) => [value.name, value.openAtLogin]), [
     [LOGIN_ITEM_NAME, true],
-    [legacyName, false],
   ]);
+  assert.deepEqual(deleted, [legacyName]);
+});
+
+test("a failed target verification leaves the legacy Run value untouched", () => {
+  const app = createFakeApp();
+  app.setLoginItemSettings = (value) => app.calls.set.push(value);
+  const deleted = [];
+  const controller = createAutoStartController({
+    app,
+    env: { PORTABLE_EXECUTABLE_FILE: portableLauncher },
+    execPath: temporaryChild,
+    platform: "win32",
+    readRunItemPath: (name) => name === legacyName ? temporaryChild : "",
+    deleteRunItem: (name) => {
+      deleted.push(name);
+      return { ok: true, deleted: true, name };
+    },
+  });
+
+  assert.equal(controller.migrateLegacy(), false);
+  assert.deepEqual(deleted, []);
+  assert.equal(controller.getLastMigrationResult().status, "target-verification-failed");
+});
+
+test("a registry cleanup failure is observable while the verified new target stays enabled", () => {
+  const app = createFakeApp();
+  const issues = [];
+  const controller = createAutoStartController({
+    app,
+    env: { PORTABLE_EXECUTABLE_FILE: portableLauncher },
+    execPath: temporaryChild,
+    platform: "win32",
+    readRunItemPath: (name) => name === legacyName ? temporaryChild : "",
+    deleteRunItem: (name) => ({ ok: false, deleted: false, name, reason: "delete-failed" }),
+    reportMigrationIssue: (issue) => issues.push(issue),
+  });
+
+  assert.equal(controller.migrateLegacy(), false);
+  assert.equal(controller.getEnabled(), true);
+  assert.equal(controller.getLastMigrationResult().status, "cleanup-failed");
+  assert.equal(issues.length, 1);
+  assert.deepEqual(issues[0].cleanupFailures, [{ ok: false, deleted: false, name: legacyName, reason: "delete-failed" }]);
 });
 
 test("Linux reports autostart unavailable instead of calling an unsupported Electron API", () => {

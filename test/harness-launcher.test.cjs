@@ -50,12 +50,129 @@ test("an installed Harness runtime is preferred over network npx", () => {
     platform: "win32",
     env: {},
     installedEntry: entry,
-    nodeExecutable: "C:\\Program Files\\nodejs\\node.exe",
+    nodeExecutable: "C:\\AI\\apps\\NeoXider Agent Deck\\NeoXider Agent Deck.exe",
   }), {
-    command: "C:\\Program Files\\nodejs\\node.exe",
+    command: "node.exe",
     args: [entry, ...HARNESS_DIRECT_ARGS],
     displayCommand: entry,
   });
+  assert.equal(resolveHarnessLaunchSpec({ platform: "linux", env: {}, installedEntry: "/runtime/dsh/lib/bin.js" }).command, "node");
+});
+
+test("the installed runtime uses explicit external Node and never packaged Electron runAsNode", async () => {
+  const runtime = "C:\\AI\\work\\deepseek-harness-runtime";
+  const entry = path.win32.join(runtime, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+  const widgetExecutable = "C:\\AI\\apps\\NeoXider Agent Deck\\NeoXider Agent Deck.exe";
+  const externalNode = "C:\\Program Files\\nodejs\\node.exe";
+  const env = {
+    ExistingValue: "preserved",
+    SystemDrive: "C:",
+    DSH_WIDGET_NODE_EXECUTABLE: externalNode,
+    ELECTRON_RUN_AS_NODE: "1",
+  };
+  let spawnOptions;
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://127.0.0.1:3080",
+    platform: "win32",
+    env,
+    nodeExecutable: widgetExecutable,
+    workingDirectory: "C:\\Users\\User\\AppData\\Roaming\\NeoXider\\AgentDeck\\harness-workspace",
+    fileSystem: {
+      existsSync: (candidate) => path.win32.normalize(candidate) === path.win32.normalize(entry),
+      mkdirSync: () => {},
+    },
+    spawnProcess(command, args, options) {
+      assert.equal(command, externalNode);
+      assert.notEqual(command, widgetExecutable);
+      assert.deepEqual(args, [entry, ...HARNESS_DIRECT_ARGS]);
+      spawnOptions = options;
+      return fakeChild();
+    },
+    probeReady: (() => {
+      let calls = 0;
+      return async () => { calls += 1; return calls >= 2; };
+    })(),
+    delay: async () => {},
+    readinessAttempts: 2,
+  });
+
+  assert.deepEqual(await launcher.start(), { ok: true, started: true, fallback: null, command: entry });
+  assert.deepEqual(spawnOptions, {
+    cwd: "C:\\Users\\User\\AppData\\Roaming\\NeoXider\\AgentDeck\\harness-workspace",
+    detached: true,
+    env: { ExistingValue: "preserved", SystemDrive: "C:", DSH_WIDGET_NODE_EXECUTABLE: externalNode },
+    shell: false,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+});
+
+test("an external Node process that exits before readiness fails immediately", async () => {
+  const entry = "C:\\runtime\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js";
+  let probeCount = 0;
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://127.0.0.1:3080",
+    platform: "win32",
+    env: {},
+    nodeExecutable: "C:\\apps\\NeoXider Agent Deck.exe",
+    fileSystem: {
+      existsSync: (candidate) => candidate === entry,
+      mkdirSync: () => {},
+    },
+    workingDirectory: "C:\\runtime",
+    spawnProcess() {
+      const child = fakeChild();
+      queueMicrotask(() => child.emit("exit", 0));
+      return child;
+    },
+    probeReady: async () => { probeCount += 1; return false; },
+    delay: async () => {},
+    readinessAttempts: 60,
+  });
+
+  await assert.rejects(
+    launcher.start(),
+    /Harness launcher exited before becoming ready \(code 0\)/,
+  );
+  assert.ok(probeCount < 60, "an exited Node process should not wait for the full readiness timeout");
+});
+
+test("an installed-runtime Node failure can still use the Windows batch fallback", async () => {
+  const runtime = "C:\\runtime";
+  const entry = path.win32.join(runtime, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+  const desktopPath = "C:\\Users\\User\\Desktop";
+  const fallbackPath = path.win32.join(desktopPath, "Запустить DeepSeek Harness.bat");
+  let fallbackOpened = "";
+  let probeCount = 0;
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://127.0.0.1:3080",
+    platform: "win32",
+    env: {},
+    nodeExecutable: "C:\\apps\\NeoXider Agent Deck.exe",
+    desktopPath,
+    workingDirectory: runtime,
+    fileSystem: {
+      existsSync: (candidate) => candidate === entry || candidate === fallbackPath,
+      mkdirSync: () => {},
+    },
+    spawnProcess() {
+      const child = fakeChild();
+      queueMicrotask(() => child.emit("exit", 0));
+      return child;
+    },
+    openPath: async (candidate) => { fallbackOpened = candidate; return ""; },
+    probeReady: async () => { probeCount += 1; return probeCount >= 3; },
+    delay: async () => {},
+    readinessAttempts: 4,
+  });
+
+  assert.deepEqual(await launcher.start(), {
+    ok: true,
+    started: true,
+    fallback: "windows-batch",
+    command: fallbackPath,
+  });
+  assert.equal(fallbackOpened, fallbackPath);
 });
 
 test("a configured dsh executable receives dsh arguments rather than npx package arguments", () => {
@@ -129,6 +246,55 @@ test("concurrent starts share one spawn and one readiness sequence", async () =>
   assert.deepEqual(await first, { ok: true, started: true, fallback: null, command: "npx.cmd" });
   assert.equal(spawnCount, 1);
   assert.deepEqual(createdDirectories, ["C:\\Users\\User\\AppData\\Roaming\\NeoXider\\AgentDeck\\harness-workspace"]);
+});
+
+test("a delayed live launcher is retained across Retry instead of spawning a duplicate", async () => {
+  let spawnCount = 0;
+  let probeCount = 0;
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://127.0.0.1:3080",
+    platform: "linux",
+    env: {},
+    spawnProcess() {
+      spawnCount += 1;
+      return fakeChild();
+    },
+    probeReady: async () => {
+      probeCount += 1;
+      return probeCount >= 4;
+    },
+    delay: async () => {},
+    readinessAttempts: 1,
+  });
+
+  await assert.rejects(launcher.start(), /startup timeout/);
+  assert.deepEqual(await launcher.start(), {
+    ok: true,
+    started: true,
+    fallback: null,
+    command: "npx",
+  });
+  assert.equal(spawnCount, 1);
+});
+
+test("a never-ready live launcher stays single-owned across repeated retries", async () => {
+  let spawnCount = 0;
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://127.0.0.1:3080",
+    platform: "linux",
+    env: {},
+    spawnProcess() {
+      spawnCount += 1;
+      return fakeChild();
+    },
+    probeReady: async () => false,
+    delay: async () => {},
+    readinessAttempts: 1,
+  });
+
+  await assert.rejects(launcher.start(), /startup timeout/);
+  await assert.rejects(launcher.start(), /startup timeout/);
+  assert.equal(spawnCount, 1);
 });
 
 test("an already-ready Harness instance is reused", async () => {

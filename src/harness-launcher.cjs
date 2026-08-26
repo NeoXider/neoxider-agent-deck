@@ -48,14 +48,25 @@ function appendHarnessAddressArgs(args, harnessUrl) {
   return next;
 }
 
-function resolveHarnessLaunchSpec({ platform = process.platform, env = process.env, harnessUrl = "http://127.0.0.1:3080", installedEntry = "", nodeExecutable = process.execPath } = {}) {
+function resolveDshNodeExecutable({ platform = process.platform, env = process.env } = {}) {
+  const configured = typeof env.DSH_WIDGET_NODE_EXECUTABLE === "string"
+    ? env.DSH_WIDGET_NODE_EXECUTABLE.trim()
+    : "";
+  return configured || (platform === "win32" ? "node.exe" : "node");
+}
+
+function resolveHarnessLaunchSpec({ platform = process.platform, env = process.env, harnessUrl = "http://127.0.0.1:3080", installedEntry = "" } = {}) {
   const configured = typeof env.DSH_WIDGET_HARNESS_EXECUTABLE === "string"
     ? env.DSH_WIDGET_HARNESS_EXECUTABLE.trim()
     : "";
   const directArgs = appendHarnessAddressArgs(HARNESS_DIRECT_ARGS, harnessUrl);
   if (configured) return { command: configured, args: directArgs, displayCommand: configured };
   if (installedEntry) {
-    return { command: nodeExecutable, args: [installedEntry, ...directArgs], displayCommand: installedEntry };
+    return {
+      command: resolveDshNodeExecutable({ platform, env }),
+      args: [installedEntry, ...directArgs],
+      displayCommand: installedEntry,
+    };
   }
   const args = appendHarnessAddressArgs(HARNESS_NPX_ARGS, harnessUrl);
   if (platform === "win32") {
@@ -105,6 +116,7 @@ function createHarnessLauncher({
     ? path.join(desktopPath, "Запустить DeepSeek Harness.bat")
     : "";
   let startPromise = null;
+  let ownedLaunch = null;
 
   async function waitUntilReady(getLaunchError) {
     for (let attempt = 0; attempt < readinessAttempts; attempt += 1) {
@@ -125,38 +137,61 @@ function createHarnessLauncher({
     return { ok: true, started: true, fallback: "windows-batch", command: legacyBatchPath };
   }
 
+  function spawnOwnedLaunch() {
+    if (workingDirectory) fileSystem.mkdirSync(workingDirectory, { recursive: true });
+    const launch = { child: null, error: null, exited: false, ready: false };
+    const childEnv = { ...env };
+    delete childEnv.ELECTRON_RUN_AS_NODE;
+    const child = spawnProcess(launchSpec.command, launchSpec.args, {
+      ...(workingDirectory ? { cwd: workingDirectory } : {}),
+      detached: true,
+      env: childEnv,
+      shell: false,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    launch.child = child;
+    child.once?.("error", (error) => {
+      launch.error = error;
+      launch.exited = true;
+    });
+    child.once?.("exit", (code) => {
+      launch.exited = true;
+      if (launch.ready) return;
+      launch.error = new Error(`Harness launcher exited before becoming ready (code ${code})`);
+    });
+    child.unref?.();
+    ownedLaunch = launch;
+    return launch;
+  }
+
   async function startInternal() {
     if (!isLocalHarnessUrl(harnessUrl)) {
       return { ok: false, started: false, reason: "remote-url" };
     }
     if (await probeReady()) {
+      if (ownedLaunch) ownedLaunch.ready = true;
       return { ok: true, started: false, alreadyRunning: true };
     }
     if (new URL(harnessUrl).protocol !== "http:") {
       return { ok: false, started: false, reason: "unsupported-local-protocol" };
     }
 
-    let launchError = null;
+    if (ownedLaunch?.exited) ownedLaunch = null;
+    let launch = ownedLaunch;
     try {
-      if (workingDirectory) fileSystem.mkdirSync(workingDirectory, { recursive: true });
-      const child = spawnProcess(launchSpec.command, launchSpec.args, {
-        ...(workingDirectory ? { cwd: workingDirectory } : {}),
-        detached: true,
-        shell: false,
-        stdio: "ignore",
-        windowsHide: true,
-      });
-      child.once?.("error", (error) => { launchError = error; });
-      child.once?.("exit", (code) => {
-        if (code !== null && code !== 0) launchError = new Error(`Harness launcher exited with code ${code}`);
-      });
-      child.unref?.();
-      const ready = await waitUntilReady(() => launchError);
+      if (!launch) launch = spawnOwnedLaunch();
+      const ready = await waitUntilReady(() => launch.error);
       if (!ready) throw new Error("DeepSeek Harness did not become ready before the startup timeout");
+      launch.ready = true;
       return { ok: true, started: true, fallback: null, command: launchSpec.displayCommand };
     } catch (error) {
-      const fallback = await startLegacyFallback();
-      if (fallback) return fallback;
+      const definiteFailure = Boolean(launch?.error || launch?.exited || !launch);
+      if (definiteFailure) {
+        if (ownedLaunch === launch) ownedLaunch = null;
+        const fallback = await startLegacyFallback();
+        if (fallback) return fallback;
+      }
       throw error;
     }
   }
@@ -179,6 +214,7 @@ module.exports = {
   createHarnessLauncher,
   defaultProbeReady,
   isLocalHarnessUrl,
+  resolveDshNodeExecutable,
   resolveInstalledDshEntry,
   resolveHarnessLaunchSpec,
 };
