@@ -17,9 +17,25 @@ const scratch = mkdtempSync(path.join(os.tmpdir(), "agent-deck-platform-"));
 let failed = false;
 for (const platform of PLATFORMS) {
   const hook = path.join(scratch, `as-${platform}.cjs`);
+  // Faking process.platform alone is NOT enough and gives false confidence: the path
+  // module picks win32 or posix rules when it is first loaded, from the real OS. A
+  // simulated POSIX run that still resolves Windows-style paths passes tests that fail
+  // on a real Linux runner — which is exactly how a CI failure once stayed hidden here.
+  const flavour = platform === "win32" ? "win32" : "posix";
   writeFileSync(
     hook,
-    `Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)}, configurable: true });\n`,
+    [
+      `Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)}, configurable: true });`,
+      'const Module = require("node:module");',
+      'const nodePath = require("node:path");',
+      `const simulated = nodePath[${JSON.stringify(flavour)}];`,
+      'const load = Module._load;',
+      'Module._load = function (request, ...rest) {',
+      '  if (request === "path" || request === "node:path") return simulated;',
+      '  return load.call(this, request, ...rest);',
+      '};',
+      '',
+    ].join("\n"),
     "utf8",
   );
   // Enumerate exactly like `npm test` does: the fixtures directory is not a test.
@@ -39,7 +55,10 @@ for (const platform of PLATFORMS) {
     failed = true;
     console.log(`\n--- ${platform} failures ---`);
     for (const line of output.split(/\r?\n/)) {
-      if (/^not ok |^\s+error:|^\s+expected:|^\s+actual:/.test(line)) console.log(line);
+      // The default reporter marks a failure with a cross; TAP output uses "not ok".
+      if (/^\s*(?:✖|not ok )/.test(line) || /^\s+(?:error|expected|actual):/.test(line)) {
+        console.log(`  ${line.trim()}`);
+      }
     }
   }
   console.log(`${ok ? "✓" : "✗"} ${platform}: ${pass} passed, ${fail} failed`);

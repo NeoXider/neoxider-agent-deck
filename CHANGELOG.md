@@ -5,6 +5,21 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-08-26
+
+### Fixed
+
+- **The Windows batch fallback path was built with the running platform's rules.**
+  `legacyBatchPath` describes a Windows desktop but used the native path module, so
+  resolving it from POSIX produced a path that never matched and two launcher tests
+  failed on every macOS and Linux runner.
+- **`npm run test:platforms` was giving false confidence.** It overrode
+  `process.platform` only, but the path module chooses its win32 or posix rules from
+  the real OS when it is first loaded — so a simulated Linux run still resolved
+  Windows-style paths and passed tests that fail on a real Linux runner. The hook now
+  substitutes the path module as well. Verified by reintroducing the defect: the
+  simulation reports exactly the two failures CI reported, and goes green once fixed.
+
 ## [0.4.2] - 2026-08-26
 
 ### Fixed
@@ -233,6 +248,7 @@ full audit of the main process, the renderer and the UI.
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.4.3]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.3
 [0.4.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.2
 [0.4.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.1
 [0.4.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.0
