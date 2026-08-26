@@ -519,3 +519,63 @@ test("releasing a compact drag arms the click guard before any await", () => {
     "the click fires synchronously after pointerup, so the guard must be set before awaiting IPC",
   );
 });
+
+test("every bridged IPC channel has a handler and no handler is orphaned", () => {
+  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  const bridged = [...preload.matchAll(/ipcRenderer\.(?:invoke|send)\("([^"]+)"/g)].map((match) => match[1]);
+  const handled = new Set([...main.matchAll(/ipcMain\.(?:handle|on)\("([^"]+)"/g)].map((match) => match[1]));
+  const missing = bridged.filter((channel) => !handled.has(channel));
+  assert.deepEqual(missing, [], `preload exposes channels the main process does not handle: ${missing.join(", ")}`);
+  // A handler nothing can reach is dead weight and drifts out of sync with reality.
+  const orphaned = [...handled].filter((channel) => !bridged.includes(channel));
+  assert.deepEqual(orphaned, [], `main process handles channels no caller uses: ${orphaned.join(", ")}`);
+});
+
+test("the live event socket detects a half-open connection", () => {
+  assert.match(main, /MUX_SILENCE_TIMEOUT = 60000/);
+  assert.match(main, /socket\.onopen = \(\) => \{/);
+  assert.match(main, /muxSilenceTimer = setTimeout\(\(\) => \{\s*\n\s*if \(muxSocket === socket\) socket\.close\(\);/);
+  // Reconnect must back off instead of retrying an offline Harness forever at 1.5s.
+  assert.match(main, /muxReconnectDelay = Math\.min\(muxReconnectDelay \* 2, MUX_RECONNECT_MAX\)/);
+});
+
+test("attachment preparation is asynchronous and reports failures per file", () => {
+  assert.doesNotMatch(main, /readFileSync\(resolved\)|statSync\(resolved\)/);
+  assert.match(main, /await fsPromises\.stat\(resolved\)/);
+  assert.match(main, /await fsPromises\.readFile\(resolved\)/);
+  assert.match(main, /Promise\.allSettled\(resolved\.map\(prepareFile\)\)/);
+  assert.match(main, /return \{ attachments, failures \}/);
+  assert.match(renderer, /prepared\.failures \|\| \[\]/);
+});
+
+test("full access is negotiated once per session, not on every send", () => {
+  assert.match(harnessApi, /this\.fullAccessSessions = new Set\(\)/);
+  assert.match(harnessApi, /if \(this\.fullAccessSessions\.has\(key\)\) return null;/);
+  assert.match(harnessApi, /this\.fullAccessSessions\.add\(key\)/);
+});
+
+test("a renderer payload cannot retarget a call at another session", () => {
+  // The spread has to come first, otherwise selection.sessionId overwrites the real id.
+  assert.match(harnessApi, /"session\.selectModel", \{ \.\.\.\(selection \|\| \{\}\), sessionId \}/);
+  assert.match(main, /function requireSessionId\(value\)/);
+  assert.match(main, /requireSessionId\(payload\?\.sessionId\)/);
+});
+
+test("settings written by a newer build are preserved, not overwritten", () => {
+  const store = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
+  assert.match(store, /const SCHEMA_VERSION = 1;/);
+  assert.match(store, /version > SCHEMA_VERSION/);
+  assert.match(store, /SETTINGS_TOO_NEW/);
+});
+
+test("the window is re-clamped when the display layout changes", () => {
+  assert.match(main, /screen\.on\("display-metrics-changed", reclampToCurrentDisplays\)/);
+  assert.match(main, /screen\.on\("display-removed", reclampToCurrentDisplays\)/);
+});
+
+test("harness launch survives a minimal PATH on macOS and Linux", () => {
+  const launcher = readFileSync(path.join(root, "src", "harness-launcher.cjs"), "utf8");
+  assert.match(launcher, /const loginShell = typeof env\.SHELL === "string"/);
+  assert.match(launcher, /args: \["-lc", \["npx", \.\.\.args\]\.map\(shellQuote\)\.join\(" "\)\]/);
+  assert.match(launcher, /function shellQuote\(value\)/);
+});

@@ -1036,15 +1036,23 @@ function renderAttachments() {
   $("#attachmentCount").textContent = `${count} file${count === 1 ? "" : "s"}`;
 }
 
-function addAttachments(attachments) {
+// The main process reports each file separately, so one unreadable or oversized
+// file no longer discards the whole selection — the rest still attach and the
+// user is told exactly which file failed and why.
+function addAttachments(result) {
+  const prepared = Array.isArray(result) ? { attachments: result, failures: [] } : (result || {});
   const known = new Set(state.pendingAttachments.map((item) => item.path));
-  for (const attachment of attachments || []) {
+  for (const attachment of prepared.attachments || []) {
     if (!known.has(attachment.path) && state.pendingAttachments.length < 12) {
       state.pendingAttachments.push(attachment);
       known.add(attachment.path);
     }
   }
   renderAttachments();
+  const failures = prepared.failures || [];
+  if (failures.length) {
+    showError(new Error(failures.map((failure) => `${failure.name}: ${failure.error}`).join("; ")));
+  }
 }
 
 async function loadCommands() {

@@ -284,6 +284,7 @@ class HarnessApi {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.fetch = fetchImpl;
     this.sessionStateCache = new Map();
+    this.fullAccessSessions = new Set();
   }
 
   async rpc(method, payload = {}, timeoutMs = 8000) {
@@ -378,8 +379,10 @@ class HarnessApi {
     return { current: null, routable: true, groups: value.groups || [], failures: value.failures || [] };
   }
 
+  // The spread used to come last, so a renderer-supplied selection.sessionId would
+  // silently overwrite the real one and retarget the call at another session.
   async selectModel(sessionId, selection) {
-    return this.rpc("session.selectModel", { sessionId, ...selection }, 20000);
+    return this.rpc("session.selectModel", { ...(selection || {}), sessionId }, 20000);
   }
 
   async prompt(sessionId, text, timeZone, images = []) {
@@ -414,12 +417,24 @@ class HarnessApi {
     }, 30000);
   }
 
+  // The permission is a property of the session, not of a single turn. Running it
+  // before every prompt added a second 30s-timeout RPC to each send, doubling the
+  // latency the user feels, and Harness itself has to be told only once.
   async ensureFullAccess(sessionId) {
-    const response = await this.executeCommand(sessionId, "/permission danger-full-access");
+    const key = String(sessionId || "");
+    if (!key) throw new Error("A session id is required to enable Full access");
+    if (this.fullAccessSessions.has(key)) return null;
+    const response = await this.executeCommand(key, "/permission danger-full-access");
     if (response?.result?.kind !== "success") {
       throw new Error(response?.result?.text || "Harness did not enable Full access");
     }
+    this.fullAccessSessions.add(key);
     return response;
+  }
+
+  forgetSession(sessionId) {
+    this.fullAccessSessions.delete(String(sessionId || ""));
+    this.sessionStateCache.delete(String(sessionId || ""));
   }
 }
 

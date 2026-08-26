@@ -1,5 +1,6 @@
 const path = require("node:path");
-const { mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
+const { mkdirSync, writeFileSync } = require("node:fs");
+const fsPromises = require("node:fs/promises");
 const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { HarnessApi } = require("./harness-api.cjs");
 const { createAutoStartController } = require("./auto-start.cjs");
@@ -56,6 +57,14 @@ function openExternalUrl(value) {
   return Boolean(url);
 }
 
+// Every channel that takes a session id gets it from the renderer, so it is checked
+// once here instead of reaching Harness as undefined and surfacing as a TypeError.
+function requireSessionId(value) {
+  const sessionId = String(value ?? "").trim();
+  if (!sessionId) throw new Error("A session id is required");
+  return sessionId;
+}
+
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const IMAGE_TYPES = new Map([
   [".png", "image/png"],
@@ -83,6 +92,13 @@ const queueSnapshots = new Map();
 let muxSocket = null;
 let muxReconnectTimer = null;
 let muxStopped = false;
+let muxSilenceTimer = null;
+let muxReconnectDelay = 1500;
+const MUX_RECONNECT_MIN = 1500;
+const MUX_RECONNECT_MAX = 30000;
+// Harness pushes frames continuously while a session is live; a full minute of
+// silence means the socket is dead even if the OS never told us.
+const MUX_SILENCE_TIMEOUT = 60000;
 let rendererRecoveryCount = 0;
 const MAX_RENDERER_RECOVERIES = 3;
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -205,7 +221,24 @@ function connectQueueMux() {
   if (muxStopped || process.env.WIDGET_SCREENSHOT_PATH || muxSocket) return;
   const socket = new WebSocket(muxUrl());
   muxSocket = socket;
+
+  // A half-open TCP connection (laptop sleep, VPN or Wi-Fi switch) never delivers
+  // onclose, so without this watchdog the socket stays truthy forever, the guard
+  // above returns early on every retry, and live events stop arriving for good —
+  // while HTTP polling keeps the rest of the UI looking perfectly healthy.
+  const noteTraffic = () => {
+    clearTimeout(muxSilenceTimer);
+    muxSilenceTimer = setTimeout(() => {
+      if (muxSocket === socket) socket.close();
+    }, MUX_SILENCE_TIMEOUT);
+  };
+
+  socket.onopen = () => {
+    muxReconnectDelay = MUX_RECONNECT_MIN;
+    noteTraffic();
+  };
   socket.onmessage = (event) => {
+    noteTraffic();
     try {
       const envelope = JSON.parse(String(event.data));
       const frame = envelope?.payload;
@@ -215,16 +248,25 @@ function connectQueueMux() {
     } catch {}
   };
   const reconnect = () => {
+    clearTimeout(muxSilenceTimer);
+    muxSilenceTimer = null;
     if (muxSocket === socket) muxSocket = null;
     if (!muxStopped && !muxReconnectTimer) {
+      const delay = muxReconnectDelay;
+      // Back off so an offline Harness is not hammered every 1.5s indefinitely.
+      muxReconnectDelay = Math.min(muxReconnectDelay * 2, MUX_RECONNECT_MAX);
       muxReconnectTimer = setTimeout(() => {
         muxReconnectTimer = null;
         connectQueueMux();
-      }, 1500);
+      }, delay);
     }
   };
   socket.onclose = reconnect;
-  socket.onerror = () => {};
+  socket.onerror = () => {
+    // onerror does not always imply onclose; force the socket through one path.
+    if (muxSocket === socket && socket.readyState !== WebSocket.CLOSED) socket.close();
+  };
+  noteTraffic();
 }
 
 function captureWindowBounds(mode, bounds, side = preferences.compactSide, setLastMode = true) {
@@ -291,7 +333,10 @@ function snapCurrentCompactWindow({ traceEnd = false } = {}) {
 
 async function prepareFile(filePath) {
   const resolved = path.resolve(String(filePath));
-  const info = statSync(resolved);
+  // Asynchronous on purpose: the main process is single-threaded, and reading plus
+  // base64-encoding up to twelve 8 MB files synchronously froze the window, the tray
+  // and every IPC handler for seconds while Windows painted "Not responding".
+  const info = await fsPromises.stat(resolved);
   if (!info.isFile()) throw new Error(`Not a file: ${resolved}`);
   const extension = path.extname(resolved).toLowerCase();
   const mediaType = IMAGE_TYPES.get(extension);
@@ -317,7 +362,7 @@ async function prepareFile(filePath) {
   return {
     kind: "image",
     mediaType,
-    data: readFileSync(resolved).toString("base64"),
+    data: (await fsPromises.readFile(resolved)).toString("base64"),
     name: path.basename(resolved),
     path: resolved,
     bytes: info.size,
@@ -325,9 +370,22 @@ async function prepareFile(filePath) {
 }
 
 async function prepareFiles(filePaths) {
-  return Promise.all([...new Set((filePaths || []).map((value) => path.resolve(String(value))))]
-    .slice(0, 12)
-    .map(prepareFile));
+  const resolved = [...new Set((filePaths || []).map((value) => path.resolve(String(value))))].slice(0, 12);
+  const settled = await Promise.allSettled(resolved.map(prepareFile));
+  // One unreadable or oversized file used to reject the whole batch, so the user got
+  // nothing back and no way to tell which file was at fault. Report per file instead.
+  const attachments = [];
+  const failures = [];
+  settled.forEach((entry, index) => {
+    if (entry.status === "fulfilled") attachments.push(entry.value);
+    else {
+      failures.push({
+        name: path.basename(resolved[index]),
+        error: entry.reason instanceof Error ? entry.reason.message : String(entry.reason),
+      });
+    }
+  });
+  return { attachments, failures };
 }
 
 function applyWindowMode(nextMode, { captureCurrent = true, persist = true } = {}) {
@@ -681,7 +739,7 @@ ipcMain.handle("pick-workspace", async () => {
 });
 ipcMain.handle("pick-files", async () => {
   const result = await dialog.showOpenDialog(windowRef, { properties: ["openFile", "multiSelections"] });
-  return result.canceled ? [] : prepareFiles(result.filePaths);
+  return result.canceled ? { attachments: [], failures: [] } : prepareFiles(result.filePaths);
 });
 ipcMain.handle("prepare-files", async (_event, filePaths) => prepareFiles(filePaths));
 ipcMain.handle("create-session", async (_event, options) => {
@@ -689,7 +747,9 @@ ipcMain.handle("create-session", async (_event, options) => {
   await api.ensureFullAccess(sessionId);
   return { sessionId };
 });
-ipcMain.handle("select-model", async (_event, payload) => api.selectModel(payload.sessionId, payload.selection));
+ipcMain.handle("select-model", async (_event, payload) => {
+  return api.selectModel(requireSessionId(payload?.sessionId), payload?.selection);
+});
 ipcMain.handle("send", async (_event, payload) => {
   const text = String(payload && payload.text || "").trim();
   const attachments = Array.isArray(payload && payload.attachments) ? payload.attachments : [];
@@ -725,9 +785,6 @@ ipcMain.handle("open-external", async (_event, value) => {
   return shell.openExternal(url);
 });
 ipcMain.handle("start-harness", async () => harnessLauncher.start());
-ipcMain.handle("set-always-on-top", (_event, enabled) => {
-  return setWindowLayerPreference(enabled ? "above" : "normal") !== "normal";
-});
 ipcMain.handle("set-window-layer", (_event, value) => {
   return setWindowLayerPreference(value);
 });
@@ -791,14 +848,6 @@ ipcMain.on("set-edge-pointer-active", (event, active) => {
   if (!windowRef || windowRef.isDestroyed() || event.sender !== windowRef.webContents) return;
   applyEdgePointerHit(Boolean(active));
 });
-ipcMain.handle("window-bounds", () => windowRef.getBounds());
-ipcMain.on("begin-full-drag", (event, value) => {
-  if (!windowRef || windowMode !== "full" || event.sender !== windowRef.webContents) return;
-  const screenX = Number(value?.x);
-  const screenY = Number(value?.y);
-  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
-  fullDragOrigin = { screenX, screenY, bounds: windowRef.getBounds() };
-});
 ipcMain.on("move-full-drag", (event, value) => {
   if (!windowRef || windowMode !== "full" || !fullDragOrigin || event.sender !== windowRef.webContents) return;
   const screenX = Number(value?.x);
@@ -826,6 +875,17 @@ ipcMain.on("begin-compact-drag", (event, value) => {
   compactDragOrigin = { screenX, screenY, bounds: windowRef.getBounds() };
   traceCompactDrag("begin", { screenX, screenY, bounds: compactDragOrigin.bounds });
 });
+ipcMain.on("begin-full-drag", (event, value) => {
+  if (!windowRef || windowMode !== "full" || event.sender !== windowRef.webContents) return;
+  const screenX = Number(value?.x);
+  const screenY = Number(value?.y);
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+  fullDragOrigin = { screenX, screenY, bounds: windowRef.getBounds() };
+});
+ipcMain.handle("end-compact-drag", () => {
+  compactDragOrigin = null;
+  return snapCurrentCompactWindow({ traceEnd: true });
+});
 ipcMain.on("move-compact-drag", (event, value) => {
   if (!windowRef || windowMode === "full" || !compactDragOrigin || event.sender !== windowRef.webContents) return;
   const screenX = Number(value?.x);
@@ -837,21 +897,6 @@ ipcMain.on("move-compact-drag", (event, value) => {
   };
   const moved = moveWindowWithinNearestDisplay(compactDragOrigin.bounds, candidate);
   traceCompactDrag("move", { screenX, screenY, x: moved.x, y: moved.y });
-});
-ipcMain.handle("move-compact-window", (_event, value) => {
-  if (!windowRef || windowMode === "full") return windowRef?.getBounds();
-  const bounds = windowRef.getBounds();
-  const requestedX = Number(value?.x);
-  const requestedY = Number(value?.y);
-  const candidateX = Number.isFinite(requestedX) ? requestedX : bounds.x;
-  const candidateY = Number.isFinite(requestedY) ? requestedY : bounds.y;
-  moveWindowWithinNearestDisplay(bounds, { x: candidateX, y: candidateY });
-  return windowRef.getBounds();
-});
-ipcMain.handle("snap-compact-window", () => snapCurrentCompactWindow());
-ipcMain.handle("end-compact-drag", () => {
-  compactDragOrigin = null;
-  return snapCurrentCompactWindow({ traceEnd: true });
 });
 ipcMain.on("agent-complete", () => {
   if (windowMode !== "edge" || !windowRef || windowRef.isDestroyed()) return;
@@ -867,6 +912,11 @@ app.on("second-instance", () => {
 
 app.whenReady().then(() => {
   if (process.platform === "win32") app.setAppUserModelId(APP_ID);
+  // The screen module is unavailable until the app is ready, so these are attached
+  // here rather than at module scope.
+  screen.on("display-metrics-changed", reclampToCurrentDisplays);
+  screen.on("display-removed", reclampToCurrentDisplays);
+  screen.on("display-added", reclampToCurrentDisplays);
   loadPreferences();
   autoStartController = createAutoStartController({ app });
   autoStartController.migrateLegacy();
@@ -898,6 +948,8 @@ app.on("before-quit", () => {
   muxStopped = true;
   clearTimeout(muxReconnectTimer);
   muxReconnectTimer = null;
+  clearTimeout(muxSilenceTimer);
+  muxSilenceTimer = null;
   muxSocket?.close();
   muxSocket = null;
   // An undestroyed tray icon can survive as a ghost in the Windows notification area.
@@ -905,5 +957,12 @@ app.on("before-quit", () => {
   tray = null;
 });
 
+// Unplugging a monitor or changing resolution can leave the widget off-screen, and
+// nothing re-clamped it until the next mode switch. Re-apply the current mode so the
+// existing bounds are fitted into the work area that actually exists now.
+function reclampToCurrentDisplays() {
+  if (!windowRef || windowRef.isDestroyed()) return;
+  applyWindowMode(windowMode, { captureCurrent: false, persist: false });
+}
 app.on("activate", () => (windowRef && !windowRef.isDestroyed() ? applyWindowMode("full") : createWindow()));
 app.on("window-all-closed", (event) => event.preventDefault());

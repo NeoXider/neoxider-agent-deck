@@ -10,6 +10,11 @@ const DEFAULT_PREFERENCES = Object.freeze({
   windowState: Object.freeze({ version: 1, mode: "full", full: null, orb: null, edge: null }),
 });
 
+// The schema version this build writes. normalizePreferences discards keys it does
+// not know, so opening a file written by a NEWER build would silently destroy that
+// build's settings on the next save. Such a file is preserved instead.
+const SCHEMA_VERSION = 1;
+
 function boundedNumber(value, fallback, min, max) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.max(min, Math.min(max, numeric)) : fallback;
@@ -52,7 +57,7 @@ function normalizePreferences(raw = {}) {
     windowLayer,
     compactSide,
     windowState: {
-      version: 1,
+      version: SCHEMA_VERSION,
       mode: ["full", "orb", "edge"].includes(windowStateSource.mode) ? windowStateSource.mode : "full",
       full: normalizeFullBounds(windowStateSource.full),
       orb: normalizeCompactBounds(windowStateSource.orb, compactSide),
@@ -66,12 +71,27 @@ function createSettingsStore({ filePath, fileSystem = fs } = {}) {
   const backupPath = `${filePath}.bak`;
 
   function read(candidate) {
-    return normalizePreferences(JSON.parse(fileSystem.readFileSync(candidate, "utf8")));
+    const raw = JSON.parse(fileSystem.readFileSync(candidate, "utf8"));
+    const version = Number(raw?.windowState?.version);
+    if (Number.isFinite(version) && version > SCHEMA_VERSION) {
+      const error = new Error(`Settings schema v${version} is newer than v${SCHEMA_VERSION}`);
+      error.code = "SETTINGS_TOO_NEW";
+      throw error;
+    }
+    return normalizePreferences(raw);
   }
 
   return {
     load() {
-      try { return read(filePath); } catch {}
+      try {
+        return read(filePath);
+      } catch (error) {
+        // A downgrade must not quietly overwrite a newer file: keep a copy first so
+        // reinstalling the newer build restores the user's settings.
+        if (error?.code === "SETTINGS_TOO_NEW") {
+          try { fileSystem.copyFileSync(filePath, `${filePath}.v${Number(JSON.parse(fileSystem.readFileSync(filePath, "utf8"))?.windowState?.version)}`); } catch {}
+        }
+      }
       try { return read(backupPath); } catch {}
       return normalizePreferences();
     },

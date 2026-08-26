@@ -17,23 +17,27 @@ function fakeChild() {
   return child;
 }
 
-test("official Harness web command is resolved without a shell", () => {
+test("official Harness web command is resolved for each platform", () => {
   assert.deepEqual(resolveHarnessLaunchSpec({ platform: "win32", env: {} }), {
     command: "cmd.exe",
     args: ["/d", "/s", "/c", "npx.cmd", ...HARNESS_NPX_ARGS],
     displayCommand: "npx.cmd",
   });
+  // An app started from Finder or a desktop launcher inherits a minimal PATH with no
+  // nvm/homebrew npx, so the fallback goes through a login shell exactly like the
+  // Windows branch goes through cmd.exe.
   assert.deepEqual(resolveHarnessLaunchSpec({ platform: "darwin", env: {} }), {
-    command: "npx",
-    args: [...HARNESS_NPX_ARGS],
+    command: "/bin/sh",
+    args: ["-lc", ["npx", ...HARNESS_NPX_ARGS].join(" ")],
     displayCommand: "npx",
   });
+  assert.deepEqual(resolveHarnessLaunchSpec({ platform: "darwin", env: { SHELL: "/bin/zsh" } }).command, "/bin/zsh");
   assert.deepEqual(HARNESS_NPX_ARGS, ["--yes", "@deepseek-ai/dsh@latest", "web", "--no-open"]);
   assert.deepEqual(resolveHarnessLaunchSpec({
     platform: "linux",
     env: {},
     harnessUrl: "http://localhost:4123",
-  }).args, [...HARNESS_NPX_ARGS, "--port", "4123"]);
+  }).args, ["-lc", ["npx", ...HARNESS_NPX_ARGS, "--port", "4123"].join(" ")]);
 });
 
 test("an installed Harness runtime is preferred over network npx", () => {

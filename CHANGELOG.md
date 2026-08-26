@@ -5,6 +5,50 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-26
+
+A reliability pass over the main process. Every item below was verified against the
+running code before it was changed, and the whole set is covered by new tests.
+
+### Fixed
+
+- **Live events died silently on a half-open connection.** The queue/event socket had
+  no liveness detection, so a laptop sleep or a VPN switch left a socket that never
+  fires `onclose`. It stayed non-null forever, the reconnect guard returned early on
+  every retry, and queue and streaming updates stopped for the rest of the session —
+  while HTTP polling kept the rest of the interface looking healthy. A silence
+  watchdog now closes a mute socket, and reconnects back off from 1.5s to 30s instead
+  of hammering an offline Harness forever.
+- **Attachments froze the whole application.** Files were read and base64-encoded
+  synchronously on the single-threaded main process: up to twelve 8 MB files stalled
+  the window, tray and every IPC handler for seconds. Preparation is now asynchronous.
+- **One bad file discarded the whole selection.** Attachment preparation used
+  `Promise.all`, so a single unreadable or oversized file rejected the entire batch and
+  the user got nothing back with no indication of which file failed. Each file is now
+  reported separately: the good ones attach and the failures are named.
+- **`Start with Windows` aside, launching Harness could not work on macOS or Linux.**
+  The fallback spawned bare `npx`, but an app started from Finder, a `.desktop`
+  launcher or systemd inherits a minimal PATH without nvm or homebrew. The fallback now
+  goes through a login shell, mirroring what the Windows branch already did with `cmd.exe`.
+- **Full access was renegotiated on every message.** An extra command RPC with a 30s
+  timeout ran before each prompt, doubling perceived send latency, even though the
+  permission is a property of the session. It is now negotiated once per session.
+- **A renderer payload could retarget a call at another session.** `session.selectModel`
+  spread the renderer-supplied selection after the session id, so `selection.sessionId`
+  silently overwrote the real one. The id is now authoritative and validated.
+- **Settings written by a newer build were silently destroyed.** The schema version was
+  written but never read, and unknown keys are discarded on normalisation, so running an
+  older build once wiped the newer build's settings. A newer file is now detected and
+  copied aside instead of being overwritten.
+- **The widget was never re-clamped when the display layout changed.** Unplugging a
+  monitor or changing resolution could leave it off-screen until the next mode switch.
+
+### Removed
+
+- Four IPC channels that nothing called (`set-always-on-top`, `window-bounds`,
+  `move-compact-window`, `snap-compact-window`) along with their preload bridges. A test
+  now fails if a bridged channel loses its handler, or if a handler loses every caller.
+
 ## [0.3.2] - 2026-08-26
 
 ### Added
@@ -151,6 +195,7 @@ full audit of the main process, the renderer and the UI.
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.4.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.0
 [0.3.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.2
 [0.3.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.1
 [0.3.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.0

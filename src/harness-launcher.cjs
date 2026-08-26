@@ -79,11 +79,21 @@ function resolveHarnessLaunchSpec({ platform = process.platform, env = process.e
       displayCommand: "npx.cmd",
     };
   }
+  // An app started from Finder, a .desktop launcher or systemd inherits a minimal
+  // PATH that has no nvm/homebrew npx, so spawning "npx" directly fails with ENOENT.
+  // The Windows branch above already goes through a command processor; do the same
+  // here with a login shell so the user's real PATH is loaded first.
+  const loginShell = typeof env.SHELL === "string" && env.SHELL.trim() ? env.SHELL.trim() : "/bin/sh";
   return {
-    command: "npx",
-    args,
+    command: loginShell,
+    args: ["-lc", ["npx", ...args].map(shellQuote).join(" ")],
     displayCommand: "npx",
   };
+}
+
+function shellQuote(value) {
+  const text = String(value);
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(text) ? text : "'" + text.split("'").join("'\''") + "'";
 }
 
 async function defaultProbeReady(harnessUrl, fetchImpl = globalThis.fetch) {
