@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Windows-style paths and passed tests that fail on a real Linux runner. The hook now
   substitutes the path module as well. Verified by reintroducing the defect: the
   simulation reports exactly the two failures CI reported, and goes green once fixed.
+- **macOS packaging tried to publish during the build.** Every platform build now uses
+  `--publish never`; CI creates deterministic artifacts and the release step owns all
+  GitHub publication.
+- **Linux `.deb` packaging lacked maintainer metadata.** The public NeoXider GitHub
+  noreply address is now supplied as the package maintainer, so both AppImage and `.deb`
+  artifacts can be produced in CI.
 
 ## [0.4.2] - 2026-08-26
 
