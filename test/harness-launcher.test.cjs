@@ -3,9 +3,11 @@ const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const path = require("node:path");
 const {
+  HARNESS_DIRECT_ARGS,
   HARNESS_NPX_ARGS,
   createHarnessLauncher,
   isLocalHarnessUrl,
+  resolveInstalledDshEntry,
   resolveHarnessLaunchSpec,
 } = require("../src/harness-launcher.cjs");
 
@@ -32,6 +34,39 @@ test("official Harness web command is resolved without a shell", () => {
     env: {},
     harnessUrl: "http://localhost:4123",
   }).args, [...HARNESS_NPX_ARGS, "--port", "4123"]);
+});
+
+test("an installed Harness runtime is preferred over network npx", () => {
+  const runtime = "C:\\AI\\work\\deepseek-harness-runtime";
+  const entry = path.win32.join(runtime, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+  const fileSystem = { existsSync: (candidate) => path.win32.normalize(candidate) === path.win32.normalize(entry) };
+  assert.equal(resolveInstalledDshEntry({
+    platform: "win32",
+    env: { SystemDrive: "C:" },
+    workingDirectory: "C:\\other",
+    fileSystem,
+  }), entry);
+  assert.deepEqual(resolveHarnessLaunchSpec({
+    platform: "win32",
+    env: {},
+    installedEntry: entry,
+    nodeExecutable: "C:\\Program Files\\nodejs\\node.exe",
+  }), {
+    command: "C:\\Program Files\\nodejs\\node.exe",
+    args: [entry, ...HARNESS_DIRECT_ARGS],
+    displayCommand: entry,
+  });
+});
+
+test("a configured dsh executable receives dsh arguments rather than npx package arguments", () => {
+  assert.deepEqual(resolveHarnessLaunchSpec({
+    platform: "linux",
+    env: { DSH_WIDGET_HARNESS_EXECUTABLE: "/usr/local/bin/dsh" },
+  }), {
+    command: "/usr/local/bin/dsh",
+    args: [...HARNESS_DIRECT_ARGS],
+    displayCommand: "/usr/local/bin/dsh",
+  });
 });
 
 test("only loopback Harness endpoints are eligible for a local spawn", () => {

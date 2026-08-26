@@ -465,3 +465,30 @@ test("the settings swap never deletes the destination first", () => {
   assert.match(save, /fileSystem\.renameSync\(temporaryPath, filePath\)/);
   assert.doesNotMatch(save, /rmSync\(filePath/);
 });
+
+test("a tap on the brand is resolved by the drag handler, not by a stolen click", () => {
+  // Pointer capture on .brand retargets the click away from the child button, so the
+  // gesture end must act on the element the pointer went down on.
+  assert.match(renderer, /origin: event\.target/);
+  assert.match(renderer, /function activateBrandTarget\(origin\)/);
+  assert.match(renderer, /origin\.closest\("#avatarButton"\)\) setWindowMode\("orb"\)/);
+  assert.match(renderer, /origin\.closest\("#projectLink"\)\) window\.widget\.openProject\(\)/);
+  const endFull = renderer.slice(renderer.indexOf("function endFullDrag"), renderer.indexOf("function activateBrandTarget"));
+  assert.match(endFull, /\} else \{\s*\n\s*activateBrandTarget\(origin\);/);
+  // Keyboard activation must still work, and must not double-fire with the tap path.
+  assert.match(renderer, /if \(event\.detail !== 0 \|\| suppressProjectClick\) return;\s*\n\s*setWindowMode\("orb"\);/);
+});
+
+test("releasing a compact drag arms the click guard before any await", () => {
+  const endCompact = renderer.slice(
+    renderer.indexOf("async function endCompactDrag"),
+    renderer.indexOf("function initials"),
+  );
+  const guardAt = endCompact.indexOf("suppressCompactClick = true");
+  const awaitAt = endCompact.indexOf("await window.widget.endCompactDrag()");
+  assert.ok(guardAt > 0 && awaitAt > 0, "both the guard and the IPC call must be present");
+  assert.ok(
+    guardAt < awaitAt,
+    "the click fires synchronously after pointerup, so the guard must be set before awaiting IPC",
+  );
+});

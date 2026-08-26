@@ -3,6 +3,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 
 const HARNESS_NPX_ARGS = Object.freeze(["--yes", "@deepseek-ai/dsh@latest", "web", "--no-open"]);
+const HARNESS_DIRECT_ARGS = Object.freeze(["web", "--no-open"]);
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 
 function isLocalHarnessUrl(value) {
@@ -14,17 +15,49 @@ function isLocalHarnessUrl(value) {
   }
 }
 
-function resolveHarnessLaunchSpec({ platform = process.platform, env = process.env, harnessUrl = "http://127.0.0.1:3080" } = {}) {
+function resolveInstalledDshEntry({ platform = process.platform, env = process.env, workingDirectory = "", fileSystem = fs } = {}) {
+  const systemDrive = typeof env.SystemDrive === "string" && /^[A-Za-z]:$/.test(env.SystemDrive)
+    ? env.SystemDrive
+    : "C:";
+  const roots = [
+    env.DSH_WIDGET_HARNESS_RUNTIME,
+    workingDirectory,
+    env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, "NeoXider", "DeepSeek Harness Runtime"),
+    env.APPDATA && path.join(env.APPDATA, "npm"),
+    platform === "win32" ? path.win32.join(systemDrive, "AI", "work", "deepseek-harness-runtime") : "",
+  ].filter((value) => typeof value === "string" && value.trim());
+  for (const root of roots) {
+    const candidates = [
+      path.join(root, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
+      path.join(root, "node_modules", "@deepseek-ai", "dsh", "dist", "bin.js"),
+    ];
+    for (const candidate of candidates) {
+      if (fileSystem.existsSync(candidate)) return candidate;
+    }
+  }
+  return "";
+}
+
+function appendHarnessAddressArgs(args, harnessUrl) {
+  const next = [...args];
+  try {
+    const url = new URL(harnessUrl);
+    if (url.port && url.port !== "3080") next.push("--port", url.port);
+    if (["::1", "[::1]"].includes(url.hostname.toLowerCase())) next.push("--host", "::1");
+  } catch {}
+  return next;
+}
+
+function resolveHarnessLaunchSpec({ platform = process.platform, env = process.env, harnessUrl = "http://127.0.0.1:3080", installedEntry = "", nodeExecutable = process.execPath } = {}) {
   const configured = typeof env.DSH_WIDGET_HARNESS_EXECUTABLE === "string"
     ? env.DSH_WIDGET_HARNESS_EXECUTABLE.trim()
     : "";
-  const args = [...HARNESS_NPX_ARGS];
-  try {
-    const url = new URL(harnessUrl);
-    if (url.port && url.port !== "3080") args.push("--port", url.port);
-    if (["::1", "[::1]"].includes(url.hostname.toLowerCase())) args.push("--host", "::1");
-  } catch {}
-  if (configured) return { command: configured, args, displayCommand: configured };
+  const directArgs = appendHarnessAddressArgs(HARNESS_DIRECT_ARGS, harnessUrl);
+  if (configured) return { command: configured, args: directArgs, displayCommand: configured };
+  if (installedEntry) {
+    return { command: nodeExecutable, args: [installedEntry, ...directArgs], displayCommand: installedEntry };
+  }
+  const args = appendHarnessAddressArgs(HARNESS_NPX_ARGS, harnessUrl);
   if (platform === "win32") {
     const commandProcessor = env.ComSpec || (env.SystemRoot
       ? path.win32.join(env.SystemRoot, "System32", "cmd.exe")
@@ -66,7 +99,8 @@ function createHarnessLauncher({
   readinessAttempts = 60,
   readinessInterval = 500,
 } = {}) {
-  const launchSpec = resolveHarnessLaunchSpec({ platform, env, harnessUrl });
+  const installedEntry = resolveInstalledDshEntry({ platform, env, workingDirectory, fileSystem });
+  const launchSpec = resolveHarnessLaunchSpec({ platform, env, harnessUrl, installedEntry });
   const legacyBatchPath = platform === "win32" && desktopPath
     ? path.join(desktopPath, "Запустить DeepSeek Harness.bat")
     : "";
@@ -140,9 +174,11 @@ function createHarnessLauncher({
 }
 
 module.exports = {
+  HARNESS_DIRECT_ARGS,
   HARNESS_NPX_ARGS,
   createHarnessLauncher,
   defaultProbeReady,
   isLocalHarnessUrl,
+  resolveInstalledDshEntry,
   resolveHarnessLaunchSpec,
 };

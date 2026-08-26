@@ -5,6 +5,27 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-08-26
+
+### Fixed
+
+- **Clicking the avatar did not collapse the widget to the orb.** The brand area
+  captures the pointer so it can be dragged, and pointer capture retargets the
+  follow-up click to the capturing element — so the click never reached the avatar
+  button's own handler. Taps are now resolved where the gesture started, and
+  keyboard activation still works. Reproduced and verified with real mouse input
+  through `npm run test:input`.
+- **Releasing the collapsed edge handle after a drag reopened the widget.** The
+  guard that suppresses the click after a drag was armed only after awaiting an IPC
+  round trip, while the click event fires synchronously right after `pointerup` —
+  so every drag release fell through and restored the full window. The guard is now
+  set before any await.
+
+### Added
+
+- `npm run test:input` — a physical-input regression that drives real mouse events
+  against the compact-mode gestures, which synthetic `click()` calls cannot reproduce.
+
 ## [0.3.0] - 2026-08-26
 
 The project is renamed from **DeepSeek Harness Widget** to **NeoXider Agent Deck**,
@@ -102,6 +123,7 @@ full audit of the main process, the renderer and the UI.
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.3.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.1
 [0.3.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.0
 [0.2.4]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.2.4
 [0.2.3]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.2.3

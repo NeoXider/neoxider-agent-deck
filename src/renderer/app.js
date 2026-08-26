@@ -303,6 +303,10 @@ function beginFullDrag(event) {
   if (event.button !== 0) return;
   fullDrag = {
     target: event.currentTarget,
+    // Pointer capture retargets the follow-up click to the capturing element, so a
+    // tap on a child button never reaches that button's own click handler. Remember
+    // where the gesture started and resolve the tap in endFullDrag instead.
+    origin: event.target,
     pointerId: event.pointerId,
     startX: event.screenX,
     startY: event.screenY,
@@ -324,13 +328,23 @@ function moveFullDrag(event) {
 function endFullDrag(event) {
   if (!fullDrag || fullDrag.pointerId !== event.pointerId) return;
   const moved = fullDrag.moved;
+  const origin = fullDrag.origin;
   fullDrag.target.releasePointerCapture?.(event.pointerId);
   fullDrag = null;
   if (moved) {
     event.preventDefault();
     suppressBrandClickAfterDrag();
+  } else {
+    activateBrandTarget(origin);
   }
   window.widget.endFullDrag().catch(() => null);
+}
+
+// A tap that never turned into a drag still has to do what the button says.
+function activateBrandTarget(origin) {
+  if (!origin || typeof origin.closest !== "function") return;
+  if (origin.closest("#avatarButton")) setWindowMode("orb");
+  else if (origin.closest("#projectLink")) window.widget.openProject();
 }
 
 function beginCompactDrag(event) {
@@ -361,10 +375,15 @@ async function endCompactDrag(event) {
   const moved = compactDrag.moved;
   compactDrag.target.releasePointerCapture?.(event.pointerId);
   compactDrag = null;
+  // The click event fires synchronously right after pointerup, long before this IPC
+  // round trip resolves. Arming the guard after the await let every drag release
+  // fall through to the click handler and restore the full widget.
+  if (moved) {
+    event.preventDefault();
+    suppressCompactClick = true;
+  }
   const result = await window.widget.endCompactDrag().catch(() => null);
   if (!moved) return;
-  event.preventDefault();
-  suppressCompactClick = true;
   if (result?.side) applyCompactSide(result.side);
   if (state.windowMode === "edge") setEdgePointerActive(false);
   setTimeout(() => { suppressCompactClick = false; }, 0);
@@ -1583,6 +1602,11 @@ async function refresh() {
       state.selectedSessionId = (dashboard.sessions.find((session) => session.running) || dashboard.sessions[0]).sessionId;
     }
     $("#offlineBanner").classList.toggle("show", !dashboard.harness);
+    if (dashboard.harness && !state.harnessStarting) {
+      $("#offlineBannerText").textContent = "Harness is offline";
+      $("#startHarnessButton").textContent = "Start";
+      $("#startHarnessButton").disabled = false;
+    }
     const selectedSession = dashboard.sessions?.find((session) => session.sessionId === state.selectedSessionId);
     const selectedRunning = Boolean(selectedSession?.running);
     $("#chatForm").classList.toggle("has-running", selectedRunning);
@@ -1999,13 +2023,15 @@ for (const target of [$(".brand")]) {
   target.addEventListener("pointerup", endFullDrag);
   target.addEventListener("pointercancel", endFullDrag);
 }
+// Pointer taps are resolved in endFullDrag, because pointer capture on the brand
+// steals the click. Keyboard activation reports detail 0 and still arrives here.
 $("#avatarButton").addEventListener("click", (event) => {
-  if (suppressProjectClick) event.preventDefault();
-  else setWindowMode("orb");
+  if (event.detail !== 0 || suppressProjectClick) return;
+  setWindowMode("orb");
 });
 $("#projectLink").addEventListener("click", (event) => {
-  if (suppressProjectClick) event.preventDefault();
-  else window.widget.openProject();
+  if (event.detail !== 0 || suppressProjectClick) return;
+  window.widget.openProject();
 });
 $("#settingsButton").addEventListener("click", () => setSettingsOpen(!$("#settingsPanel").classList.contains("open")));
 $("#closeSettings").addEventListener("click", () => setSettingsOpen(false));

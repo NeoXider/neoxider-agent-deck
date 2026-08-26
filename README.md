@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.3.0-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.3.0-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.3.1-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.3.1-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
