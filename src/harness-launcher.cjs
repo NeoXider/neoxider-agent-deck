@@ -129,8 +129,10 @@ function createHarnessLauncher({
 } = {}) {
   const installedEntry = resolveInstalledDshEntry({ platform, env, workingDirectory, fileSystem });
   const launchSpec = resolveHarnessLaunchSpec({ platform, env, harnessUrl, installedEntry });
+  // This path only ever describes a Windows desktop, so it must be built with the
+  // win32 rules even when the process resolving it runs on POSIX.
   const legacyBatchPath = platform === "win32" && desktopPath
-    ? path.join(desktopPath, "Запустить DeepSeek Harness.bat")
+    ? path.win32.join(desktopPath, "Запустить DeepSeek Harness.bat")
     : "";
   let startPromise = null;
   let ownedLaunch = null;
