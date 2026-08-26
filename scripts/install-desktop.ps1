@@ -2,8 +2,17 @@ $ErrorActionPreference = "Stop"
 
 $repository = "NeoXider/neoxider-agent-deck"
 $release = Invoke-RestMethod -Headers @{ "User-Agent" = "NeoXider-Agent-Deck-Installer" } -Uri "https://api.github.com/repos/$repository/releases/latest"
-$asset = $release.assets | Where-Object { $_.name -like "NeoXider-Agent-Deck-*-windows-*-portable.exe" } | Select-Object -First 1
+$tag = [string]$release.tag_name
+if ($release.draft -or $release.prerelease -or $tag -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw "The latest GitHub release is not a stable published version." }
+$version = $tag.Substring(1)
+$assetName = "NeoXider-Agent-Deck-$version-windows-x64-portable.exe"
+$asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
 if (-not $asset) { throw "The latest release does not contain a portable Windows executable." }
+if ([string]$asset.state -ne "uploaded") { throw "The portable Windows executable is not ready." }
+$assetSize = [long]$asset.size
+if ($assetSize -le 0 -or $assetSize -gt 268435456) { throw "The portable Windows executable has an invalid size." }
+$expectedUrl = "https://github.com/$repository/releases/download/$tag/$assetName"
+if ([string]$asset.browser_download_url -ne $expectedUrl) { throw "The portable Windows executable has an unexpected download address." }
 $digest = [string]$asset.digest
 if ($digest -notmatch '^sha256:[0-9a-fA-F]{64}$') { throw "The release asset does not include a valid SHA-256 digest." }
 $expectedHash = $digest.Substring(7).ToLowerInvariant()

@@ -175,7 +175,16 @@ function createAutoStartController({
     },
     setEnabled(enabled) {
       writeItem(LOGIN_ITEM_NAME, target, enabled);
-      if (!enabled) disableLegacy(legacyItems().filter((item) => item.enabled !== false));
+      if (!enabled) {
+        const knownLegacy = legacyItems();
+        disableLegacy(knownLegacy.filter((item) => item.enabled !== false));
+        for (const name of LEGACY_LOGIN_ITEM_NAMES) {
+          const rawPath = readRunItemPath(name);
+          if (!rawPath) continue;
+          if (!knownLegacy.some((item) => item.name === name)) writeItem(name, { path: rawPath, args: [] }, false);
+          deleteRunItem(name);
+        }
+      }
       return this.getEnabled();
     },
     getLastMigrationResult() {

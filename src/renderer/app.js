@@ -6,8 +6,11 @@ const state = {
   focusReturnTab: "chat",
   refreshing: false,
   historyBusy: false,
+  historyRequestSequence: 0,
   modelsBusy: false,
+  modelsRequestSequence: 0,
   commandsBusy: false,
+  commandsRequestSequence: 0,
   modelCatalog: null,
   modelLoadState: "idle",
   commandCatalog: [],
@@ -58,6 +61,7 @@ const state = {
   hotkeys: {},
   updateState: null,
   appVersion: "",
+  transientActivityTimer: null,
   pollTimer: null,
   pollInterval: 0,
 };
@@ -154,13 +158,14 @@ function togglePicker(button) {
   picker.querySelector(".picker-menu")?.setAttribute("aria-hidden", String(!open));
 }
 
-function pickerOption(label, { selected = false, meta = "", title = "", onSelect } = {}) {
+function pickerOption(label, { selected = false, meta = "", title = "", key = "", onSelect } = {}) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = `picker-option${selected ? " selected" : ""}`;
   button.title = title || label;
   button.setAttribute("role", "option");
   button.setAttribute("aria-selected", String(selected));
+  if (key) button.dataset.optionKey = key;
   const mark = document.createElement("i");
   mark.className = "picker-check";
   if (selected) mark.append(createIcon("check"));
@@ -190,7 +195,7 @@ function renderCompactSessions() {
   const sessions = recentCompactSessions();
   const signature = JSON.stringify([
     state.compactReplySessionId,
-    ...sessions.map((session) => [session.sessionId, session.title, session.preview, session.updatedAt, session.running]),
+    ...sessions.map((session) => [session.sessionId, session.title, session.preview]),
   ]);
   if (signature === state.compactSessionSignature && root.childElementCount) return sessions;
   state.compactSessionSignature = signature;
@@ -323,6 +328,14 @@ function acknowledgeSessionError(sessionId) {
   syncUnacknowledgedErrors();
 }
 
+function clearAcknowledgedErrorPresentation() {
+  if (state.compactErrorUnread || state.harnessOffline || state.avatarMode !== "error" || state.currentActivity?.kind !== "error") return false;
+  state.currentActivity = null;
+  syncActivityCard();
+  setAvatar("idle");
+  return true;
+}
+
 function signalSessionError(session, label = "model error", text = "The current Harness turn ended with an error.") {
   const sessionId = session?.sessionId || null;
   if (sessionId && state.errorSignalSessionIds.has(sessionId)) return false;
@@ -451,6 +464,7 @@ function applyWindowMode(mode) {
   if (mode !== "edge") window.widget.setEdgePointerActive(true);
   if (mode === "full") {
     acknowledgeSessionError(state.selectedSessionId);
+    clearAcknowledgedErrorPresentation();
     state.unread = 0;
     renderNotifications();
   } else if (state.compactErrorUnread && !state.harnessOffline) {
@@ -467,6 +481,7 @@ function applyWindowMode(mode) {
 
 async function setWindowMode(mode) {
   if (mode === "edge" && state.platformPresentation?.edgeAvailable === false) return state.windowMode;
+  if (mode !== "full") clearAcknowledgedErrorPresentation();
   const requestSequence = ++modeRequestSequence;
   if (!await animateModeExit(mode, requestSequence) || requestSequence !== modeRequestSequence) return state.windowMode;
   const appliedMode = await window.widget.setWindowMode(mode);
@@ -693,6 +708,28 @@ function renderSessions() {
   ]);
   if (signature === state.sessionListSignature && root.childElementCount) return false;
   state.sessionListSignature = signature;
+  const currentCards = [...root.children].filter((element) => element.classList.contains("session-card"));
+  const canPatch = currentCards.length === sessions.length
+    && sessions.every((session, index) => currentCards[index]?.dataset.sessionId === session.sessionId);
+  if (canPatch && sessions.length) {
+    sessions.forEach((session, index) => {
+      const card = currentCards[index];
+      const agentState = ["working", "error"].includes(session.state)
+        ? session.state
+        : (session.running ? "working" : "idle");
+      const childCount = (session.subagents || []).filter((item) => item.kind === "child").length;
+      const pressure = contextPressure(session);
+      card.className = `session-card state-${agentState}${session.sessionId === state.selectedSessionId ? " selected" : ""}`;
+      card.querySelector(".agent-avatar").className = `agent-avatar ${agentState}`;
+      card.querySelector(".agent-avatar img").src = AVATARS[agentState] || AVATARS.idle;
+      card.querySelector(".session-name").textContent = session.title || "New session";
+      card.querySelector(".session-meta").textContent = `${agentState}${childCount ? ` · ${childCount} subagent${childCount === 1 ? "" : "s"}` : ""}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}`;
+      const status = card.querySelector(".session-state");
+      status.className = `session-state ${agentState}`;
+      status.textContent = agentState;
+    });
+    return true;
+  }
   root.replaceChildren();
   if (!sessions.length) {
     const empty = document.createElement("div");
@@ -706,6 +743,7 @@ function renderSessions() {
       ? session.state
       : (session.running ? "working" : "idle");
     const card = document.createElement("div");
+    card.dataset.sessionId = session.sessionId;
     card.className = `session-card state-${agentState}${session.sessionId === state.selectedSessionId ? " selected" : ""}`;
     const avatar = document.createElement("div");
     avatar.className = `agent-avatar ${agentState}`;
@@ -728,7 +766,7 @@ function renderSessions() {
     status.className = `session-state ${agentState}`;
     status.textContent = agentState;
     card.append(avatar, main, status);
-    card.addEventListener("click", () => selectSession(session.sessionId, true));
+    card.addEventListener("click", () => selectSession(card.dataset.sessionId, true));
     root.append(card);
   }
   return true;
@@ -758,9 +796,30 @@ function renderSessionSelect() {
   ]);
   if (signature === state.sessionSelectSignature && root.childElementCount) return false;
   state.sessionSelectSignature = signature;
+  const currentOptions = [...root.children].filter((element) => element.classList.contains("picker-option"));
+  const optionKeys = ["__new__", ...sessions.map((session) => session.sessionId)];
+  const canPatch = currentOptions.length === optionKeys.length
+    && optionKeys.every((key, index) => currentOptions[index]?.dataset.optionKey === key);
+  if (canPatch) {
+    sessions.forEach((session, index) => {
+      const option = currentOptions[index + 1];
+      const pressure = contextPressure(session);
+      const selectedOption = session.sessionId === state.selectedSessionId;
+      option.classList.toggle("selected", selectedOption);
+      option.setAttribute("aria-selected", String(selectedOption));
+      option.title = session.cwd || session.title;
+      option.querySelector("span").textContent = session.title || "New session";
+      option.querySelector("small").textContent = session.running ? "working" : pressure ? `${Math.round(pressure.percent)}%` : "idle";
+      const mark = option.querySelector(".picker-check");
+      mark.replaceChildren();
+      if (selectedOption) mark.append(createIcon("check"));
+    });
+    return true;
+  }
   root.replaceChildren();
   root.append(pickerOption("New session", {
     meta: "new",
+    key: "__new__",
     onSelect: async () => {
       closePickers();
       await createNewSession();
@@ -772,6 +831,7 @@ function renderSessionSelect() {
       selected: session.sessionId === state.selectedSessionId,
       meta: session.running ? "working" : pressure ? `${Math.round(pressure.percent)}%` : "idle",
       title: session.cwd || session.title,
+      key: session.sessionId,
       onSelect: async () => {
         closePickers();
         await selectSession(session.sessionId);
@@ -968,7 +1028,8 @@ function renderModels() {
 }
 
 async function loadModels({ force = false } = {}) {
-  if (state.modelsBusy) return;
+  const requestSequence = ++state.modelsRequestSequence;
+  const sessionId = state.selectedSessionId;
   if (!state.dashboard?.harness) {
     if (force) {
       state.modelLoadState = "error";
@@ -980,15 +1041,20 @@ async function loadModels({ force = false } = {}) {
   state.modelLoadState = "loading";
   renderModels();
   try {
-    state.modelCatalog = await window.widget.models(state.selectedSessionId);
-    state.pendingSelection = state.modelCatalog.current || state.pendingSelection;
+    const catalog = await window.widget.models(sessionId);
+    if (requestSequence !== state.modelsRequestSequence || sessionId !== state.selectedSessionId) return;
+    state.modelCatalog = catalog;
+    state.pendingSelection = catalog.current || state.pendingSelection;
     state.modelLoadState = "ready";
   } catch {
+    if (requestSequence !== state.modelsRequestSequence || sessionId !== state.selectedSessionId) return;
     state.modelLoadState = "error";
     setAvatar("error", "models unavailable");
   } finally {
-    state.modelsBusy = false;
-    renderModels();
+    if (requestSequence === state.modelsRequestSequence) {
+      state.modelsBusy = false;
+      renderModels();
+    }
   }
 }
 
@@ -1307,7 +1373,9 @@ function addAttachments(result) {
 }
 
 async function loadCommands() {
-  if (state.commandsBusy || !state.selectedSessionId || !state.dashboard?.harness) {
+  const requestSequence = ++state.commandsRequestSequence;
+  const sessionId = state.selectedSessionId;
+  if (!sessionId || !state.dashboard?.harness) {
     if (!state.selectedSessionId) {
       state.commandCatalog = [];
       renderCommands();
@@ -1316,13 +1384,16 @@ async function loadCommands() {
   }
   state.commandsBusy = true;
   try {
-    state.commandCatalog = await window.widget.commands(state.selectedSessionId);
+    const commands = await window.widget.commands(sessionId);
+    if (requestSequence !== state.commandsRequestSequence || sessionId !== state.selectedSessionId) return;
+    state.commandCatalog = commands;
     renderCommands();
   } catch {
+    if (requestSequence !== state.commandsRequestSequence || sessionId !== state.selectedSessionId) return;
     state.commandCatalog = [];
     renderCommands();
   } finally {
-    state.commandsBusy = false;
+    if (requestSequence === state.commandsRequestSequence) state.commandsBusy = false;
   }
 }
 
@@ -1564,6 +1635,9 @@ function setSettingsOpen(open, { restoreFocus = true } = {}) {
   panel.classList.toggle("open", next);
   panel.inert = !next;
   panel.setAttribute("aria-hidden", String(!next));
+  [...panel.parentElement.children].forEach((element) => {
+    if (element !== panel) element.inert = next;
+  });
   $("#settingsButton").setAttribute("aria-expanded", String(next));
   if (next) requestAnimationFrame(() => $("#closeSettings").focus());
   else if (restoreFocus && activeInside) $("#settingsButton").focus();
@@ -1631,15 +1705,35 @@ function renderMessages(messages) {
     message.text || "",
     message.arguments || "",
     message.result || "",
-  ])).join("|")}::${liveAssistant?.text || ""}`;
+  ])).join("|")}`;
   const previousSignature = state.historySignature;
   const changed = Boolean(previousSignature && signature !== previousSignature);
   const unchanged = root.dataset.rendered === "true" && signature === previousSignature;
   state.historySignature = signature;
   if (unchanged) {
+    const liveBubble = root.querySelector(".live-assistant");
+    const liveText = liveAssistant?.text || "";
+    const liveChanged = Boolean(liveBubble) !== Boolean(liveText) || (liveBubble?.textContent || "") !== liveText;
+    if (liveText && liveBubble) {
+      liveBubble.dataset.liveSeq = String(liveAssistant.lastSeq || "");
+      if (liveBubble.textContent !== liveText) liveBubble.textContent = liveText;
+    } else if (liveText) {
+      root.querySelector(".empty-state")?.remove();
+      appendLiveAssistant(root);
+    } else if (liveBubble) {
+      liveBubble.remove();
+      if (!state.currentMessages.length) root.innerHTML = '<div class="empty-state">Write a message — the widget will create a session.</div>';
+    }
+    if (wasPinned) {
+      root.scrollTop = root.scrollHeight;
+      state.unseenMessages = 0;
+    } else {
+      root.scrollTop = Math.min(previousTop, Math.max(0, root.scrollHeight - root.clientHeight));
+      if (liveChanged) state.unseenMessages = 1;
+    }
     syncActivityCard();
     updateScrollLatestButton();
-    return false;
+    return liveChanged;
   }
   const expandedTools = openToolKeys(root);
   const selection = captureMessageSelection(root);
@@ -1696,25 +1790,42 @@ function showError(error) {
   renderMessages([{ role: "error", text: String(error?.message || error) }]);
 }
 
+function showTransientActivityError(error, label) {
+  clearTimeout(state.transientActivityTimer);
+  const activity = { active: true, kind: "error", label, text: String(error?.message || error) };
+  setActivity(activity);
+  setAvatar("error", label.toLowerCase());
+  state.transientActivityTimer = setTimeout(() => {
+    if (state.currentActivity !== activity) return;
+    setActivity(null);
+    if (state.avatarMode === "error" && !state.compactErrorUnread && !state.harnessOffline) setAvatar("idle");
+    state.transientActivityTimer = null;
+  }, 3200);
+}
+
 async function refreshHistory() {
-  if (state.historyBusy) return;
-  if (!state.selectedSessionId) {
+  const requestSequence = ++state.historyRequestSequence;
+  const sessionId = state.selectedSessionId;
+  if (!sessionId) {
+    state.historyBusy = false;
     renderMessages([]);
     return;
   }
   state.historyBusy = true;
   try {
-    const view = await window.widget.history(state.selectedSessionId);
+    const view = await window.widget.history(sessionId);
+    if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return;
     const messages = view.messages || [];
     setActivity(view.activity || null);
     renderMessages(messages);
     const latest = messages[messages.length - 1];
     if (latest?.role === "error" && state.windowMode === "full") setAvatar("error", "model error");
   } catch (error) {
+    if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return;
     showError(error);
     if (state.windowMode === "full") setAvatar("error", "history error");
   } finally {
-    state.historyBusy = false;
+    if (requestSequence === state.historyRequestSequence) state.historyBusy = false;
   }
 }
 
@@ -1963,6 +2074,10 @@ async function sendCompactReply() {
 
 function detectCompletedSessions(nextSessions) {
   const currentRunning = new Set(nextSessions.filter((session) => session.running).map((session) => session.sessionId));
+  const existing = new Set(nextSessions.map((session) => session.sessionId));
+  for (const tracked of [state.completedSignalSessionIds, state.errorSignalSessionIds, state.unacknowledgedErrorSessionIds]) {
+    for (const sessionId of tracked) if (!existing.has(sessionId)) tracked.delete(sessionId);
+  }
   for (const sessionId of currentRunning) {
     state.completedSignalSessionIds.delete(sessionId);
     state.errorSignalSessionIds.delete(sessionId);
@@ -1970,7 +2085,6 @@ function detectCompletedSessions(nextSessions) {
   }
   syncUnacknowledgedErrors();
   if (state.dashboardInitialized) {
-    const existing = new Set(nextSessions.map((session) => session.sessionId));
     for (const sessionId of state.runningSessionIds) {
       if (!currentRunning.has(sessionId) && existing.has(sessionId)) {
         const session = nextSessions.find((item) => item.sessionId === sessionId);
@@ -1978,6 +2092,8 @@ function detectCompletedSessions(nextSessions) {
         else notifyCompletion(session);
       }
     }
+  } else {
+    for (const session of nextSessions) if (!session.running && session.state === "error") signalSessionError(session);
   }
   state.runningSessionIds = currentRunning;
   state.dashboardInitialized = true;
@@ -1991,18 +2107,24 @@ async function refresh() {
     const wasOffline = state.harnessOffline;
     state.harnessOffline = !dashboard.harness;
     document.body.classList.toggle("harness-offline", state.harnessOffline);
-    if (dashboard.harness) detectCompletedSessions(dashboard.sessions || []);
-    else {
-      state.runningSessionIds = new Set();
-      state.dashboardInitialized = false;
-    }
     state.dashboard = dashboard;
-    syncCompactStatus();
     if (!dashboard.harness && state.focusMode) setFocusMode(false);
     if (state.selectedSessionId && !dashboard.sessions?.some((session) => session.sessionId === state.selectedSessionId)) state.selectedSessionId = null;
     if (!state.selectedSessionId && dashboard.sessions?.length) {
       state.selectedSessionId = (dashboard.sessions.find((session) => session.running) || dashboard.sessions[0]).sessionId;
     }
+    if (dashboard.harness) {
+      detectCompletedSessions(dashboard.sessions || []);
+      if (state.windowMode === "full") acknowledgeSessionError(state.selectedSessionId);
+    } else {
+      state.runningSessionIds = new Set();
+      state.completedSignalSessionIds.clear();
+      state.errorSignalSessionIds.clear();
+      state.unacknowledgedErrorSessionIds.clear();
+      syncUnacknowledgedErrors();
+      state.dashboardInitialized = false;
+    }
+    syncCompactStatus();
     $("#offlineBanner").classList.toggle("show", !dashboard.harness);
     if (dashboard.harness && !state.harnessStarting) {
       $("#offlineBannerText").textContent = "Harness is offline";
@@ -2014,11 +2136,15 @@ async function refresh() {
     $("#chatForm").classList.toggle("has-running", selectedRunning);
     $("#cancelButton").hidden = !selectedRunning;
     if (!dashboard.harness) setAvatar("error", "");
-    else if (dashboard.sessions?.some((session) => session.running)) {
+    else if (dashboard.sessions?.some((session) => session.running) && (state.windowMode !== "full" || selectedRunning)) {
       const running = selectedSession?.running ? selectedSession : dashboard.sessions.find((session) => session.running);
       if (running?.activity) setActivity(running.activity);
       else setActivity({ active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" });
       setAvatar("working", running?.activity?.label || "working");
+    }
+    else if (dashboard.sessions?.some((session) => session.running) && state.windowMode === "full") {
+      if (state.currentActivity?.active) setActivity(null);
+      if (["working", "waiting"].includes(state.avatarMode)) setAvatar("idle");
     }
     else if ((wasOffline && state.avatarMode === "error" && !state.compactErrorUnread) || !["done", "error"].includes(state.avatarMode)) setAvatar("idle");
     renderSessions();
@@ -2149,8 +2275,7 @@ async function pickAttachments() {
       setActivity({ active: true, kind: "files", label: "Files ready", text: `${state.pendingAttachments.length} attachment${state.pendingAttachments.length === 1 ? "" : "s"} ready to send.` });
     }
   } catch (error) {
-    showError(error);
-    setAvatar("error", "attachment error");
+    showTransientActivityError(error, "Attachment failed");
   }
 }
 
@@ -2179,8 +2304,7 @@ async function captureScreenshot(kind) {
   try {
     return handleScreenshotResult(await window.widget.captureScreenshot(kind));
   } catch (error) {
-    showError(error);
-    setAvatar("error", "capture error");
+    showTransientActivityError(error, "Capture failed");
     return false;
   }
 }

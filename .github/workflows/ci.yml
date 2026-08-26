@@ -32,7 +32,10 @@ jobs:
           - os: windows-latest
             script: build:win
             artifact: neoxider-agent-deck-windows-x64
-            path: release/*.exe
+            path: |-
+              release/*.exe
+              release/*.blockmap
+              release/latest.yml
             uiSmoke: true
           - os: macos-15
             script: build:mac
@@ -54,6 +57,8 @@ jobs:
             path: |-
               release/*.AppImage
               release/*.deb
+              release/*.blockmap
+              release/latest-linux.yml
             uiSmoke: false
     runs-on: ${{ matrix.os }}
     steps:

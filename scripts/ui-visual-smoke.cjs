@@ -9,10 +9,10 @@ const output = path.join(root, "tmp", "ui-smoke");
 const cases = [
   { name: "overview", fixture: "overview", expect: { agentWorking: 1, agentIdle: 1, agentError: 1 } },
   { name: "offline", tab: "chat", fixture: "offline", expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", contextUnavailable: true }, min: { composerTextareaWidth: 220, startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
-  { name: "empty-chat", tab: "chat", fixture: "empty-chat", width: 380, height: 400, expect: { contextUnavailable: true, contextValue: "0%", contextVisible: true, conversationBubbles: 0 } },
+  { name: "empty-chat", tab: "chat", fixture: "empty-chat", width: 380, height: 400, expect: { contextUnavailable: true, contextValue: "0%", contextVisible: true, conversationBubbles: 0, titlebarOverlap: false } },
   { name: "offline-agents", tab: "agents", fixture: "offline-agents", expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", offlineSessionText: "Start Harness to load sessions." }, min: { startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
   { name: "focus-offline", tab: "chat", fixture: "focus-offline", width: 360, height: 500, expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", focusMode: false }, min: { startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
-  { name: "chat", tab: "chat", fixture: "chat", expect: { historicalReasoning: 0, markdownLists: 1, footer: 0, titlebarTabs: 1, setupInToolbar: true, brandUserSelect: "none", composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 18, sendWidth: 38, sendHeight: 38, contextCenterDelta: 0 } },
+  { name: "chat", tab: "chat", fixture: "chat", expect: { historicalReasoning: 0, markdownLists: 1, footer: 0, titlebarTabs: 1, titlebarOverlap: false, setupInToolbar: true, brandUserSelect: "none", composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 18, sendWidth: 38, sendHeight: 38, contextCenterDelta: 0 } },
   { name: "focus-chat", tab: "chat", fixture: "focus-chat", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, historicalReasoning: 0, composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 18, sendWidth: 36, sendHeight: 36, contextCenterDelta: 0 } },
   { name: "commands", tab: "chat", fixture: "commands", expect: { commandRows: 6, commandAboveComposer: true, commandFitsWidth: true } },
   { name: "focus-commands", tab: "chat", fixture: "focus-commands", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, commandRows: 6, commandAboveComposer: true, commandFitsWidth: true } },
@@ -42,7 +42,7 @@ const cases = [
   { name: "composer-multiline-max", tab: "chat", fixture: "composer-multiline", width: 380, height: 400, expect: { composerInputScrollable: true, conversationBubbles: 1, shortMessageVisible: true }, max: { composerInputMaxDelta: 1 } },
   { name: "small-chat-400", tab: "chat", fixture: "small-chat", width: 400, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 38, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 50 } },
   { name: "small-chat-380", tab: "chat", fixture: "small-chat", width: 380, height: 380, expect: { composerInputHeight: 34, composerUtilityHeight: 38, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 50 } },
-  { name: "small-chat-360", tab: "chat", fixture: "small-chat", width: 360, height: 360, expect: { composerInputHeight: 34, composerUtilityHeight: 38, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 50 } },
+  { name: "small-chat-360", tab: "chat", fixture: "small-chat", width: 360, height: 360, expect: { composerInputHeight: 34, composerUtilityHeight: 38, conversationBubbles: 1, shortMessageVisible: true, titlebarOverlap: false }, max: { composerHeight: 50 } },
   { name: "thinking-orb", tab: "chat", fixture: "thinking", mode: "orb", expect: { orbUtilityButtons: 1 } },
   { name: "notification-orb", tab: "chat", fixture: "orb-notification", mode: "orb", expect: { orbUtilityButtons: 1, orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
   { name: "notification-orb-black", tab: "chat", fixture: "orb-notification", mode: "orb", backdrop: "black", expect: { orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
@@ -51,16 +51,16 @@ const cases = [
   { name: "recent-sessions-orb", tab: "chat", fixture: "orb-recent-three", mode: "orb", expect: { orbRecentRows: 3, orbRecentUniqueSessions: 3, orbHistoryOpen: true, orbQuickReplyOpen: false, orbPanelClipped: false, compactSide: "right" } },
   { name: "recent-sessions-orb-left", tab: "chat", fixture: "orb-recent-three-left", mode: "orb", side: "left", expect: { orbRecentRows: 3, orbRecentUniqueSessions: 3, orbHistoryOpen: true, orbQuickReplyOpen: false, orbPanelClipped: false, compactSide: "left" } },
   { name: "quick-reply-orb", tab: "chat", fixture: "orb-quick-reply", mode: "orb", expect: { orbRecentRows: 3, orbQuickReplyOpen: true, orbReplyTarget: "Build review", orbReplyInputVisible: true, orbPanelClipped: false } },
-  { name: "edge", fixture: "edge-idle", mode: "edge", expect: { edgeLineWidth: 8, edgeState: "idle", edgePrimary: "#49e7c6" } },
-  { name: "edge-hover", fixture: "edge-hover", mode: "edge", expect: { edgeHitActive: true, edgeLineWidth: 8, edgeState: "idle", edgePrimary: "#49e7c6" } },
-  { name: "edge-thinking", fixture: "thinking", mode: "edge", expect: { edgeState: "thinking", edgePrimary: "#9b8cff" } },
-  { name: "edge-writing", fixture: "writing", mode: "edge", expect: { edgeState: "writing", edgePrimary: "#49e7c6" } },
-  { name: "edge-tool", fixture: "tool", mode: "edge", expect: { edgeState: "tool", edgePrimary: "#a88cff" } },
-  { name: "edge-done", fixture: "edge-done", mode: "edge", expect: { edgeState: "done", edgePrimary: "#ffe36e", completionCelebration: true } },
-  { name: "edge-done-cleanup", fixture: "edge-done-cleanup", mode: "edge", delay: 4000, expect: { edgeState: "idle", edgePrimary: "#49e7c6", completionCelebration: false } },
-  { name: "edge-error", fixture: "edge-error", mode: "edge", expect: { edgeState: "error", edgePrimary: "#ff738f", compactErrorUnread: true, completionCelebration: false } },
-  { name: "edge-error-ack", fixture: "edge-error-ack", mode: "edge", expect: { edgeState: "idle", edgePrimary: "#49e7c6", compactErrorUnread: false, completionCelebration: false } },
-  { name: "edge-error-interrupts-done", fixture: "edge-error-interrupts-done", mode: "edge", expect: { edgeState: "error", edgePrimary: "#ff738f", compactErrorUnread: true, completionCelebration: false } },
+  { name: "edge", fixture: "edge-idle", mode: "edge", expect: { edgeLineWidth: 8, edgeState: "idle", edgePrimary: "rgb(73, 231, 198)" } },
+  { name: "edge-hover", fixture: "edge-hover", mode: "edge", expect: { edgeHitActive: true, edgeLineWidth: 8, edgeState: "idle", edgePrimary: "rgb(73, 231, 198)" } },
+  { name: "edge-thinking", fixture: "thinking", mode: "edge", expect: { edgeState: "thinking", edgePrimary: "rgb(155, 140, 255)" } },
+  { name: "edge-writing", fixture: "writing", mode: "edge", expect: { edgeState: "writing", edgePrimary: "rgb(73, 231, 198)" } },
+  { name: "edge-tool", fixture: "tool", mode: "edge", expect: { edgeState: "tool", edgePrimary: "rgb(168, 140, 255)" } },
+  { name: "edge-done", fixture: "edge-done", mode: "edge", expect: { edgeState: "done", edgePrimary: "rgb(255, 227, 110)", completionCelebration: true } },
+  { name: "edge-done-cleanup", fixture: "edge-done-cleanup", mode: "edge", delay: 4000, expect: { edgeState: "idle", edgePrimary: "rgb(73, 231, 198)", completionCelebration: false } },
+  { name: "edge-error", fixture: "edge-error", mode: "edge", expect: { edgeState: "error", edgePrimary: "rgb(255, 115, 143)", compactErrorUnread: true, completionCelebration: false } },
+  { name: "edge-error-ack", fixture: "edge-error-ack", mode: "edge", expect: { edgeState: "idle", edgePrimary: "rgb(73, 231, 198)", compactErrorUnread: false, completionCelebration: false } },
+  { name: "edge-error-interrupts-done", fixture: "edge-error-interrupts-done", mode: "edge", expect: { edgeState: "error", edgePrimary: "rgb(255, 115, 143)", compactErrorUnread: true, completionCelebration: false } },
 ];
 
 function runElectron(testCase) {
@@ -114,6 +114,7 @@ function runElectron(testCase) {
 }
 
 async function main() {
+  rmSync(output, { recursive: true, force: true });
   mkdirSync(output, { recursive: true });
   const requested = new Set(process.argv.slice(2));
   const selectedCases = requested.size ? cases.filter(({ name }) => requested.has(name)) : cases;

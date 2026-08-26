@@ -291,6 +291,8 @@ test("compact modes preserve short clicks and start native drag only after the m
   assert.match(main, /move-compact-drag/);
   assert.match(main, /end-compact-drag/);
   assert.match(main, /wasActive !== compactStatus\.active \|\| wasExpanded !== compactStatus\.expanded/);
+  assert.match(main, /compactStatusResizePending = true/);
+  assert.match(main, /windowMode === "orb" && compactStatusResizePending[\s\S]+?applyWindowMode\("orb"/);
   assert.match(html, /data-avatar[^>]+draggable="false"/);
 });
 
@@ -326,6 +328,8 @@ test("edge line mirrors thinking, writing, tool, waiting, done, and error states
   assert.match(css, /\.mode-edge\.state-waiting\s*\{/);
   assert.match(css, /\.mode-edge\.state-done\s*\{/);
   assert.match(css, /\.mode-edge\.state-error\s*\{/);
+  assert.match(css, /@property --edge-primary/);
+  assert.match(css, /transition:--edge-primary \.58s ease,--edge-secondary \.58s ease/);
   assert.match(css, /\.edge-mode\.bounce \.edge-line/);
   assert.match(css, /@keyframes edge-done-pulse/);
   assert.match(css, /@media \(prefers-reduced-motion:reduce\)/);
@@ -538,6 +542,7 @@ test("settings keeps keyboard focus inside its modal surface", () => {
   assert.match(renderer, /document\.activeElement === first/);
   assert.match(renderer, /document\.activeElement === last/);
   assert.match(renderer, /if \(trapSettingsFocus\(event\)\) return/);
+  assert.match(renderer, /if \(element !== panel\) element\.inert = next/);
 });
 
 test("sending a message automatically collapses transient setup surfaces", () => {

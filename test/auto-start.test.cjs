@@ -81,6 +81,27 @@ test("enable, query, and disable use the identical target", () => {
   assert.ok(app.calls.get.filter((value) => value?.path).every((value) => value.path === portableLauncher && sameArgs(value.args, [])));
 });
 
+test("disabling autostart removes a raw legacy Run fallback so restart cannot re-enable it", () => {
+  const app = createFakeApp();
+  const rawEntries = new Map([[legacyName, temporaryChild]]);
+  const options = {
+    app,
+    env: { PORTABLE_EXECUTABLE_FILE: portableLauncher },
+    execPath: temporaryChild,
+    platform: "win32",
+    readRunItemPath: (name) => rawEntries.get(name) || "",
+    deleteRunItem: (name) => {
+      rawEntries.delete(name);
+      return { ok: true, deleted: true, name };
+    },
+  };
+
+  assert.equal(createAutoStartController(options).setEnabled(false), false);
+  assert.equal(rawEntries.size, 0);
+  assert.equal(createAutoStartController(options).migrateLegacy(), false);
+  assert.equal(app.getLoginItemSettings({ path: portableLauncher, args: [] }).openAtLogin, false);
+});
+
 test("an unpackaged run uses Electron plus the app path", () => {
   assert.deepEqual(resolveLoginItemTarget({
     env: {},

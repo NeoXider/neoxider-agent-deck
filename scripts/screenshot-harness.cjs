@@ -50,6 +50,12 @@ function attachScreenshotHarness({
             markdownLists: document.querySelectorAll('#messages ul, #messages ol').length,
             footer: document.querySelectorAll('footer').length,
             titlebarTabs: document.querySelectorAll('.titlebar > .tabs').length,
+            titlebarOverlap: (() => {
+              const brand = document.querySelector('.titlebar > .brand')?.getBoundingClientRect();
+              const tabs = document.querySelector('.titlebar > .tabs')?.getBoundingClientRect();
+              const actions = document.querySelector('.titlebar > .window-actions')?.getBoundingClientRect();
+              return Boolean(brand && tabs && actions && (brand.right > tabs.left + 1 || tabs.right > actions.left + 1));
+            })(),
             setupInToolbar: document.querySelector('#agentControls')?.parentElement?.classList.contains('chat-heading') || false,
             focusMode: document.body.classList.contains('focus-chat'),
             focusChromeHidden: ['.titlebar','.chat-heading','.activity-card','.settings-panel'].every((selector) => getComputedStyle(document.querySelector(selector)).display === 'none'),

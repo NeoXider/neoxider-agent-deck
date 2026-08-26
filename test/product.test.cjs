@@ -67,10 +67,25 @@ test("platform packaging creates artifacts without implicit publishing", () => {
   }
 });
 
+test("tag releases retain updater metadata and publish it with platform artifacts", () => {
+  const workflow = readFileSync(path.join(__dirname, "..", ".github", "workflows", "release.yml"), "utf8");
+  assert.match(workflow, /tags:[\s\S]+"v\*\.\*\.\*"/);
+  for (const artifact of ["latest.yml", "latest-linux.yml", "*.blockmap", "*.AppImage", "*-setup.exe"]) {
+    if (artifact === "*-setup.exe") assert.match(packageJson.build.nsis.artifactName, /setup\.\$\{ext\}/);
+    else assert.match(workflow, new RegExp(artifact.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(workflow, /softprops\/action-gh-release@v2/);
+  assert.match(workflow, /SHA256SUMS\.txt/);
+});
+
 test("the Windows installer follows the canonical repository, artifact, and product name", () => {
   const installer = readFileSync(path.join(__dirname, "..", "scripts", "install-desktop.ps1"), "utf8");
   assert.match(installer, /NeoXider\/neoxider-agent-deck/);
-  assert.match(installer, /NeoXider-Agent-Deck-\*-windows-\*-portable\.exe/);
+  assert.match(installer, /NeoXider-Agent-Deck-\$version-windows-x64-portable\.exe/);
+  assert.match(installer, /\$tag -notmatch '\^v/);
+  assert.match(installer, /\$asset\.state/);
+  assert.match(installer, /268435456/);
+  assert.match(installer, /\$expectedUrl/);
   assert.match(installer, /NeoXider Agent Deck\.exe/);
   assert.match(installer, /NeoXider Agent Deck\.lnk/);
   assert.match(installer, /Get-FileHash -LiteralPath \$temporary -Algorithm SHA256/);

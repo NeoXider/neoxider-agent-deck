@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: build:win
+            artifact: windows-x64
+            files: |-
+              release/*.exe
+              release/*.blockmap
+              release/latest.yml
+          - os: ubuntu-24.04
+            script: build:linux
+            artifact: linux-x64
+            files: |-
+              release/*.AppImage
+              release/*.deb
+              release/*.blockmap
+              release/latest-linux.yml
+          - os: macos-15
+            script: build:mac
+            artifact: macos-arm64
+            files: |-
+              release/*.dmg
+              release/*.zip
+          - os: macos-15-intel
+            script: build:mac
+            artifact: macos-x64
+            files: |-
+              release/*.dmg
+              release/*.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run ${{ matrix.script }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+      - name: Create checksums
+        working-directory: artifacts
+        run: find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: artifacts/**/*

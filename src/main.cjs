@@ -108,6 +108,7 @@ let hotkeyRegistrationError = null;
 let preferenceSaveTimer = null;
 let compactStatus = { active: false, expanded: false, label: "Ready", text: "" };
 let compactDragOrigin = null;
+let compactStatusResizePending = false;
 let fullDragOrigin = null;
 let compactDragTrace = [];
 const queueSnapshots = new Map();
@@ -796,6 +797,8 @@ ipcMain.handle("set-compact-status", (_event, value) => {
   };
   if (windowMode === "orb" && (wasActive !== compactStatus.active || wasExpanded !== compactStatus.expanded) && !compactDragOrigin) {
     applyWindowMode("orb", { captureCurrent: false, persist: false, preserveCompactPosition: true });
+  } else if (windowMode === "orb" && (wasActive !== compactStatus.active || wasExpanded !== compactStatus.expanded)) {
+    compactStatusResizePending = true;
   }
   return compactStatus;
 });
@@ -841,7 +844,12 @@ ipcMain.on("begin-full-drag", (event, value) => {
 });
 ipcMain.handle("end-compact-drag", () => {
   compactDragOrigin = null;
-  const result = snapCurrentCompactWindow({ traceEnd: true });
+  let result = snapCurrentCompactWindow({ traceEnd: true });
+  if (windowMode === "orb" && compactStatusResizePending) {
+    compactStatusResizePending = false;
+    applyWindowMode("orb", { captureCurrent: false, persist: false, preserveCompactPosition: true });
+    result = { ...windowRef.getBounds(), side: preferences.compactSide };
+  }
   edgeHitTracker?.sync();
   return result;
 });

@@ -17,6 +17,17 @@ const openedSessionIds = [];
 const modeRequests = [];
 const modeResponseDelays = new Map();
 const compactDragEvents = [];
+let dashboardValue = { harness: true, sessions: [
+  { sessionId: "demo-build", title: "Build review", updatedAt: 3, running: false, preview: "Windows package passed." },
+  { sessionId: "demo-unity", title: "Unity gameplay", updatedAt: 2, running: false, preview: "Play Mode passed." },
+  { sessionId: "demo-mcp", title: "Capability Hub", updatedAt: 1, running: false, preview: "Dynamic routing passed." },
+] };
+const deferredSessionRequests = { history: new Map(), models: new Map(), commands: new Map() };
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
 function registerStubs() {
   ipcMain.handle("set-window-mode", (_event, mode) => {
     modeRequests.push(mode);
@@ -40,17 +51,13 @@ function registerStubs() {
     sentPayloads.push(payload);
     return { sessionId: payload.sessionId };
   });
-  ipcMain.handle("dashboard", () => ({ harness: true, sessions: [
-    { sessionId: "demo-build", title: "Build review", updatedAt: 3, running: false, preview: "Windows package passed." },
-    { sessionId: "demo-unity", title: "Unity gameplay", updatedAt: 2, running: false, preview: "Play Mode passed." },
-    { sessionId: "demo-mcp", title: "Capability Hub", updatedAt: 1, running: false, preview: "Dynamic routing passed." },
-  ] }));
+  ipcMain.handle("dashboard", () => dashboardValue);
   ipcMain.handle("history", (_event, sessionId) => {
     openedSessionIds.push(sessionId);
-    return [];
+    return deferredSessionRequests.history.get(sessionId)?.promise || { messages: [], activity: null };
   });
-  ipcMain.handle("models", () => ({ providers: [] }));
-  ipcMain.handle("commands", () => []);
+  ipcMain.handle("models", (_event, sessionId) => deferredSessionRequests.models.get(sessionId)?.promise || ({ current: null, groups: [] }));
+  ipcMain.handle("commands", (_event, sessionId) => deferredSessionRequests.commands.get(sessionId)?.promise || []);
   ipcMain.handle("workspaces", () => []);
   ipcMain.handle("get-queue", () => []);
   for (const channel of ["begin-compact-drag", "move-compact-drag", "begin-full-drag", "move-full-drag", "set-edge-pointer-active", "agent-complete"]) {
@@ -243,12 +250,15 @@ async function main() {
   // --- 6. unchanged dashboard renders preserve nodes, focus, and scroll ---
   const stableRender = await contents.executeJavaScript(`(() => {
     setTab("agents");
+    const changing = state.dashboard.sessions[0];
+    changing.projections = { values: { contextPressure: { projectedTokens: 1000, contextWindow: 10000 } } };
     renderSessions();
     const list = document.querySelector("#sessions");
     const card = list.querySelector(".session-card");
     list.style.height = "18px";
     list.scrollTop = 9;
     const scrollTop = list.scrollTop;
+    changing.projections.values.contextPressure.projectedTokens = 1100;
     renderSessions();
     const sameCard = card === list.querySelector(".session-card");
     const scrollPreserved = list.scrollTop === scrollTop;
@@ -258,6 +268,7 @@ async function main() {
     const option = document.querySelector("#sessionOptions .picker-option:last-child");
     option.focus();
     const focusedBefore = document.activeElement === option;
+    changing.projections.values.contextPressure.projectedTokens = 1200;
     renderSessionSelect();
     const result = {
       sameCard,
@@ -286,6 +297,100 @@ async function main() {
   })()`);
   if (emptyContext.value !== "0%" || !emptyContext.unavailable) {
     failures.push(`empty context meter was not retained at 0%: ${JSON.stringify(emptyContext)}`);
+  }
+
+  const stableLiveBubble = await contents.executeJavaScript(`(() => {
+    state.selectedSessionId = "demo-build";
+    state.currentMessages = [{ role: "user", text: "Stream the answer." }];
+    state.historySignature = "";
+    state.liveStreamsBySession.set("demo-build", { text: "First", reasoning: "", lastSeq: 1 });
+    renderMessages(state.currentMessages);
+    const first = document.querySelector(".live-assistant");
+    state.liveStreamsBySession.set("demo-build", { text: "First and second", reasoning: "", lastSeq: 2 });
+    renderMessages(state.currentMessages);
+    const second = document.querySelector(".live-assistant");
+    return { sameNode: first === second, text: second?.textContent || "", seq: second?.dataset.liveSeq || "" };
+  })()`);
+  if (!stableLiveBubble.sameNode || stableLiveBubble.text !== "First and second" || stableLiveBubble.seq !== "2") {
+    failures.push(`streaming rebuilt or failed to update the live bubble: ${JSON.stringify(stableLiveBubble)}`);
+  }
+
+  for (const kind of Object.keys(deferredSessionRequests)) {
+    deferredSessionRequests[kind].set("race-a", deferred());
+    deferredSessionRequests[kind].set("race-b", deferred());
+  }
+  const sessionRacePromise = contents.executeJavaScript(`(async () => {
+    state.dashboard = { harness: true, sessions: [
+      { sessionId: "race-a", title: "Race A", running: false, projections: { values: {} }, subagents: [] },
+      { sessionId: "race-b", title: "Race B", running: false, projections: { values: {} }, subagents: [] },
+    ] };
+    const first = selectSession("race-a", true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const second = selectSession("race-b", true);
+    await Promise.all([first, second]);
+    return {
+      selected: state.selectedSessionId,
+      text: document.querySelector("#messages")?.textContent || "",
+      model: state.modelCatalog?.current?.model || "",
+      commands: state.commandCatalog.map((command) => command.name),
+    };
+  })()`);
+  await wait(80);
+  deferredSessionRequests.history.get("race-a").resolve({ messages: [{ role: "assistant", text: "History A" }], activity: null });
+  deferredSessionRequests.models.get("race-a").resolve({ current: { provider: "test", model: "model-a" }, groups: [{ id: "test", name: "Test", models: [{ id: "model-a", name: "Model A" }] }] });
+  deferredSessionRequests.commands.get("race-a").resolve([{ name: "command-a", description: "A" }]);
+  await wait(40);
+  deferredSessionRequests.history.get("race-b").resolve({ messages: [{ role: "assistant", text: "History B" }], activity: null });
+  deferredSessionRequests.models.get("race-b").resolve({ current: { provider: "test", model: "model-b" }, groups: [{ id: "test", name: "Test", models: [{ id: "model-b", name: "Model B" }] }] });
+  deferredSessionRequests.commands.get("race-b").resolve([{ name: "command-b", description: "B" }]);
+  const sessionRace = await sessionRacePromise;
+  if (sessionRace.selected !== "race-b" || !sessionRace.text.includes("History B") || sessionRace.text.includes("History A") || sessionRace.model !== "model-b" || sessionRace.commands.join() !== "command-b") {
+    failures.push(`stale session requests replaced the selected session UI: ${JSON.stringify(sessionRace)}`);
+  }
+
+  dashboardValue = { harness: true, sessions: [
+    { sessionId: "error-a", title: "Selected", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    { sessionId: "error-b", title: "Background failure", running: false, state: "error", preview: "Needs attention", projections: { values: {} }, subagents: [] },
+  ] };
+  const initialBackgroundError = await contents.executeJavaScript(`(async () => {
+    state.windowMode = "orb";
+    state.dashboardInitialized = false;
+    state.selectedSessionId = "error-a";
+    state.runningSessionIds.clear();
+    state.errorSignalSessionIds.clear();
+    state.unacknowledgedErrorSessionIds.clear();
+    await refresh();
+    return { pending: [...state.unacknowledgedErrorSessionIds], unread: state.compactErrorUnread, avatar: state.avatarMode };
+  })()`);
+  if (initialBackgroundError.pending.join() !== "error-b" || !initialBackgroundError.unread || initialBackgroundError.avatar !== "error") {
+    failures.push(`initial compact error snapshot was not surfaced: ${JSON.stringify(initialBackgroundError)}`);
+  }
+
+  dashboardValue = { harness: true, sessions: [dashboardValue.sessions[0]] };
+  const prunedBackgroundError = await contents.executeJavaScript(`(async () => {
+    await refresh();
+    return { pending: [...state.unacknowledgedErrorSessionIds], unread: state.compactErrorUnread };
+  })()`);
+  if (prunedBackgroundError.pending.length || prunedBackgroundError.unread) {
+    failures.push(`removed session left a permanent compact error: ${JSON.stringify(prunedBackgroundError)}`);
+  }
+
+  dashboardValue = { harness: true, sessions: [
+    { sessionId: "background-a", title: "Selected idle", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    { sessionId: "background-b", title: "Background running", running: true, state: "working", activity: { active: true, kind: "thinking", label: "Thinking", text: "Background work" }, projections: { values: {} }, subagents: [] },
+  ] };
+  const backgroundGlow = await contents.executeJavaScript(`(async () => {
+    state.windowMode = "full";
+    state.selectedSessionId = "background-a";
+    state.dashboardInitialized = true;
+    state.runningSessionIds = new Set(["background-b"]);
+    setAvatar("idle");
+    setActivity(null);
+    await refresh();
+    return { avatar: state.avatarMode, activity: state.currentActivity, classes: document.body.className };
+  })()`);
+  if (backgroundGlow.avatar === "working" || backgroundGlow.activity?.active || /activity-(?:thinking|writing|tool)/.test(backgroundGlow.classes)) {
+    failures.push(`background work leaked glow into the selected idle chat: ${JSON.stringify(backgroundGlow)}`);
   }
 
   for (const failure of failures) console.error(`FAIL ${failure}`);
