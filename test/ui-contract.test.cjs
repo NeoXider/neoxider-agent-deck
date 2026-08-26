@@ -7,6 +7,8 @@ const root = path.resolve(__dirname, "..");
 const html = readFileSync(path.join(root, "src", "renderer", "index.html"), "utf8");
 const renderer = readFileSync(path.join(root, "src", "renderer", "app.js"), "utf8");
 const main = readFileSync(path.join(root, "src", "main.cjs"), "utf8");
+const platformCapabilities = readFileSync(path.join(root, "src", "platform-capabilities.cjs"), "utf8");
+const settingsStore = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
 const harnessApi = readFileSync(path.join(root, "src", "harness-api.cjs"), "utf8");
 
 test("visible widget copy is English and required controls are present", () => {
@@ -44,19 +46,39 @@ test("compact layout uses custom pickers, expandable controls, and no useless co
   assert.match(renderer, /localRank/);
 });
 
-test("composer keeps attachment, stop, send and context controls in the requested order", () => {
+test("composer stacks attachment and commands beside a smaller context ring and Send", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   const context = html.indexOf('id="contextMeter"');
   const attach = html.indexOf('id="attachButton"');
+  const commands = html.indexOf('id="commandsButton"');
   const focus = html.indexOf('id="focusChatButton"');
   const input = html.indexOf('id="messageInput"');
   const stop = html.indexOf('id="cancelButton"');
   const send = html.indexOf('id="sendButton"');
-  assert.ok(context > 0 && context < attach && attach < focus && focus < input && input < stop && stop < send);
+  assert.ok(context > 0 && context < attach && attach < commands && commands < focus && focus < input && input < stop && stop < send);
+  assert.match(html, /class="composer-utility-stack"[\s\S]+id="attachButton"[\s\S]+id="commandsButton"/);
+  assert.match(css, /\.composer-utility-stack \{[^}]+grid-template-rows:repeat\(2,32px\)/);
+  assert.doesNotMatch(css, /\.composer-utility-stack \.composer-action \{[^}]+(?:width|height):(?:1[0-9]|2[0-9])px/);
+  assert.match(css, /\.context-meter \{[^}]+width:36px[^}]+height:38px/);
+  assert.match(css, /\.composer #sendButton \{[^}]+width:38px[^}]+height:38px/);
   assert.match(css, /\.context-meter svg \{[^}]+top:50%[^}]+left:50%[^}]+translate\(-50%,-50%\)/);
   assert.match(css, /\.context-meter span \{[^}]+position:absolute[^}]+inset:0[^}]+place-items:center/);
   assert.match(renderer, /attachment-preview/);
   assert.match(renderer, /thumbnailData/);
+});
+
+test("model picker names the control and provides loading, empty, error, retry, and model-recovery UI", () => {
+  assert.match(html, /class="model-button-copy"><small>MODEL<\/small><b id="modelButtonText">Loading providers…<\/b>/);
+  assert.match(renderer, /modelLoadState === "loading"/);
+  assert.match(renderer, /No models loaded/);
+  assert.match(renderer, /Models unavailable/);
+  assert.match(renderer, /function retryModels/);
+  assert.match(renderer, /function createModelSetupCard/);
+  assert.match(renderer, /Choose model/);
+  assert.match(renderer, /Retry models/);
+  assert.match(renderer, /Load a model in LM Studio or another Harness provider/);
+  assert.match(renderer, /\["assistant", "error"\]\.includes\(message\.role\) && isMissingModelError\(message\.text\)/);
+  assert.match(renderer, /if \(!modelSetupShown\) root\.append\(createModelSetupCard\(\)\)/);
 });
 
 test("chat is the first and default page, followed by state-aware agents", () => {
@@ -109,7 +131,9 @@ test("live assistant deltas grow a bubble instead of leaving a Writing reasoning
   assert.match(renderer, /function handleLiveEvent/);
   assert.match(renderer, /chunk\.type === "text-delta"/);
   assert.match(renderer, /live-assistant/);
-  assert.match(renderer, /activity\?\.kind !== "writing"/);
+  assert.match(renderer, /function liveAssistantSnapshot/);
+  assert.match(renderer, /activity\?\.active && activity\.kind === "writing" && activity\.text/);
+  assert.match(renderer, /hasWritingBubble/);
 });
 
 test("manual chat scrolling is preserved and a jump-to-latest control appears for new output", () => {
@@ -127,7 +151,7 @@ test("activity glow intensity is brighter by default, adjustable, and persisted"
   assert.match(css, /opacity:var\(--chat-glow-intensity\)/);
   assert.match(renderer, /applyGlowIntensity/);
   assert.match(renderer, /setGlowIntensity/);
-  assert.match(main, /glowIntensity: 0\.82/);
+  assert.match(settingsStore, /glowIntensity: 0\.82/);
   assert.match(main, /set-glow-intensity/);
 });
 
@@ -148,11 +172,47 @@ test("window layer has normal, above-by-default, and fullscreen-game modes", () 
   assert.match(html, /data-layer="normal"/);
   assert.match(html, /data-layer="above"/);
   assert.match(html, /data-layer="game"/);
-  assert.match(main, /windowLayer: "above"/);
-  assert.match(main, /"screen-saver"/);
-  assert.match(main, /"floating"/);
+  assert.match(settingsStore, /windowLayer: "above"/);
+  assert.match(main, /applyPlatformWindowLayer/);
+  assert.match(main, /preferences\.windowLayer = normalizeWindowLayer\(preferences\.windowLayer, PLATFORM_CAPABILITIES\)/);
+  assert.match(platformCapabilities, /"screen-saver"/);
+  assert.match(platformCapabilities, /"floating"/);
   assert.match(main, /set-window-layer/);
   assert.match(renderer, /setWindowLayer/);
+});
+
+test("production autostart uses the stable portable launcher controller", () => {
+  assert.match(main, /createAutoStartController/);
+  assert.match(main, /autoStartController\.migrateLegacy\(\)/);
+  assert.match(main, /autoStartController\.setEnabled\(enabled\)/);
+  assert.match(main, /autoStartController\?\.getEnabled\(\)/);
+  assert.doesNotMatch(main, /setLoginItemSettings\(\{ openAtLogin: Boolean\(enabled\), path: process\.execPath/);
+});
+
+test("autostart stays disabled until hydration and rolls back to the last confirmed state on failure", () => {
+  assert.match(html, /id="autoStartStatus"[^>]+role="status"/);
+  assert.match(html, /id="autoStartToggle"[^>]+disabled/);
+  assert.match(renderer, /async function hydratePreferences/);
+  assert.match(renderer, /autoStartToggle\.disabled = true/);
+  assert.match(renderer, /confirmedAutoStart = Boolean\(preferences\.autoStart\)/);
+  assert.match(renderer, /toggle\.checked = confirmedAutoStart/);
+  assert.match(renderer, /Could not update startup/);
+  assert.match(renderer, /Could not read startup setting/);
+  assert.match(main, /autoStartAvailable: autoStart\.available/);
+});
+
+test("saved native mode and side are authoritative before renderer startup", () => {
+  const loadPreferences = main.slice(main.indexOf("function loadPreferences"), main.indexOf("function savePreferences"));
+  const readyToShow = main.slice(main.indexOf('windowRef.once("ready-to-show"'), main.indexOf('windowRef.on("close"'));
+  const getPreferences = main.slice(main.indexOf('ipcMain.handle("get-preferences"'), main.indexOf('ipcMain.handle("app-info"'));
+
+  assert.match(loadPreferences, /windowMode = preferences\.windowState\.mode/);
+  assert.match(loadPreferences, /preferences\.windowState\[windowMode\]\?\.side \|\| preferences\.compactSide/);
+  assert.match(readyToShow, /applyWindowMode\(preferences\.windowState\.mode, \{ captureCurrent: false, persist: false \}\)/);
+  assert.match(getPreferences, /windowMode/);
+  assert.match(getPreferences, /compactSide: preferences\.compactSide/);
+  assert.match(renderer, /applyCompactSide\(preferences\.compactSide \|\| "right"\)/);
+  assert.match(renderer, /applyWindowMode\(preferences\.windowMode \|\| "full"\)/);
 });
 
 test("window contract has no close control and supports avatar and edge modes", () => {
@@ -186,8 +246,8 @@ test("edge mode only captures the visible handle and passes transparent glow cli
   assert.match(renderer, /getBoundingClientRect\(\)/);
   assert.match(renderer, /rect\.left - EDGE_HIT_PADDING/);
   assert.match(renderer, /document\.addEventListener\("mousemove", updateEdgePointerHit, true\)/);
-  assert.match(css, /\.edge-hit-active \.edge-line[^}]+translateX\(-4px\)/);
-  assert.match(css, /\.side-left \.edge-hit-active \.edge-line[^}]+translateX\(4px\)/);
+  assert.match(css, /\.edge-hit-active \.edge-line[^}]+scaleY\(1\.035\)/);
+  assert.doesNotMatch(css, /\.edge-hit-active \.edge-line[^}]+translateX/);
   const endCompactDrag = renderer.match(/async function endCompactDrag\(event\) \{[\s\S]+?\n\}/)?.[0] || "";
   assert.ok(
     endCompactDrag.indexOf("window.widget.endCompactDrag()") < endCompactDrag.indexOf("if (!moved) return"),
@@ -299,7 +359,109 @@ test("sending a message automatically collapses transient setup surfaces", () =>
   const submitEnd = renderer.indexOf('$("#messageInput").addEventListener("keydown"', submitStart);
   const submit = renderer.slice(submitStart, submitEnd);
   assert.match(submit, /\$\("#agentControls"\)\.open = false/);
-  assert.match(submit, /\$\("#settingsPanel"\)\.classList\.remove\("open"\)/);
+  assert.match(submit, /setSettingsOpen\(false, \{ restoreFocus: false \}\)/);
   assert.match(submit, /setCommandMenuOpen\(false\)/);
   assert.match(submit, /closePickers\(\)/);
+});
+
+test("offline status is shown once with an explicit guarded Start action", () => {
+  assert.match(html, /id="offlineBanner"[^>]+role="status"/);
+  assert.match(html, /id="offlineBannerText">Harness is offline/);
+  assert.match(html, /id="startHarnessButton"[^>]*>Start<\/button>/);
+  assert.match(renderer, /async function startHarnessFromBanner/);
+  assert.match(renderer, /state\.harnessStarting/);
+  assert.match(renderer, /await window\.widget\.startHarness\(\)/);
+  assert.match(renderer, /setAvatar\("error", ""\)/);
+  assert.doesNotMatch(renderer, /setAvatar\("error", "Harness offline"\)/);
+});
+
+test("the renderer runs under a strict content security policy", () => {
+  const policy = html.match(/http-equiv="Content-Security-Policy"[\s\S]*?content="([^"]+)"/);
+  assert.ok(policy, "index.html must declare a Content-Security-Policy");
+  const directives = new Map(
+    policy[1].split(";").map((entry) => entry.trim()).filter(Boolean)
+      .map((entry) => [entry.split(/\s+/)[0], entry]),
+  );
+  assert.equal(directives.get("default-src"), "default-src 'none'");
+  assert.equal(directives.get("script-src"), "script-src 'self'");
+  assert.equal(directives.get("object-src"), "object-src 'none'");
+  assert.equal(directives.get("base-uri"), "base-uri 'none'");
+  // Attachment thumbnails are inlined as base64, everything else stays local.
+  assert.equal(directives.get("img-src"), "img-src 'self' data:");
+  assert.doesNotMatch(policy[1], /unsafe-inline|unsafe-eval/);
+});
+
+test("remote content can never replace the widget or open its own window", () => {
+  assert.match(main, /setWindowOpenHandler\(\(\{ url \}\) => \{[\s\S]*?action: "deny"/);
+  assert.match(main, /on\("will-navigate", \(event, url\) => \{[\s\S]*?event\.preventDefault\(\)/);
+  assert.match(main, /on\("will-attach-webview", \(event\) => event\.preventDefault\(\)\)/);
+  assert.match(main, /EXTERNAL_LINK_PROTOCOLS = new Set\(\["http:", "https:", "mailto:"\]\)/);
+  assert.match(main, /function parseExternalUrl/);
+});
+
+test("every dimmed label and focus ring keeps a readable contrast token", () => {
+  const styles = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(styles, /--dim: #8b97a9;/);
+  assert.match(styles, /--focus-ring: #7defd2;/);
+  assert.match(styles, /:focus-visible \{ outline:2px solid var\(--focus-ring\); outline-offset:2px; \}/);
+  // The low-contrast greys these replaced must not come back.
+  for (const retired of ["#6f7b8d", "#697487", "#6f7b8e", "#657387"]) {
+    assert.doesNotMatch(styles, new RegExp(retired), `${retired} fails WCAG AA on the widget surface`);
+  }
+  // Focus must stay visible on controls that only tinted their background before.
+  assert.doesNotMatch(styles, /:focus-visible \{[^}]*outline:none/);
+});
+
+test("the conversation is announced to assistive technology", () => {
+  assert.match(html, /id="messages"[^>]+role="log"/);
+  assert.match(html, /id="messages"[^>]+aria-live="polite"/);
+});
+
+test("polling backs off while the widget is hidden", () => {
+  assert.match(renderer, /POLL_INTERVAL_VISIBLE = 2500/);
+  assert.match(renderer, /POLL_INTERVAL_HIDDEN = 10000/);
+  assert.match(renderer, /document\.hidden \? POLL_INTERVAL_HIDDEN : POLL_INTERVAL_VISIBLE/);
+  assert.match(renderer, /addEventListener\("visibilitychange"/);
+  assert.doesNotMatch(renderer, /setInterval\(refresh, 2500\)/);
+});
+
+test("the shipped product name is used everywhere the user can see it", () => {
+  assert.match(html, /<title>NeoXider Agent Deck<\/title>/);
+  assert.doesNotMatch(`${html}\n${renderer}`, /deepseek-harness-widget/);
+  assert.doesNotMatch(html, /DeepSeek Harness Widget/);
+});
+
+test("a losing second instance stops before it can build a window", () => {
+  assert.match(main, /if \(!hasSingleInstanceLock\) \{\s*\n\s*app\.quit\(\);\s*\n\s*return;\s*\n\}/);
+});
+
+test("a failed settings write can never crash the main process", () => {
+  assert.match(main, /function writePreferences\(\) \{\s*\n\s*try \{[\s\S]*?\} catch \(error\) \{/);
+  // Both the immediate and the debounced path must go through the guarded writer.
+  assert.doesNotMatch(main, /preferenceSaveTimer = setTimeout\(\(\) => \{\s*\n\s*preferenceSaveTimer = null;\s*\n\s*preferences = settingsStore\.save/);
+});
+
+test("continuous slider input is debounced instead of rewritten per tick", () => {
+  const opacity = main.slice(main.indexOf('ipcMain.handle("set-opacity"'), main.indexOf('ipcMain.handle("set-size"'));
+  assert.match(opacity, /schedulePreferenceSave\(\)/);
+  assert.doesNotMatch(opacity, /\n\s*savePreferences\(\);/);
+});
+
+test("a dead renderer is recovered instead of left on screen", () => {
+  assert.match(main, /on\("render-process-gone"/);
+  assert.match(main, /MAX_RENDERER_RECOVERIES = 3/);
+  assert.match(main, /windowRef\.webContents\.reload\(\)/);
+});
+
+test("shutdown releases the tray and guards a destroyed window", () => {
+  assert.match(main, /tray\?\.destroy\(\)/);
+  assert.match(main, /app\.on\("activate", \(\) => \(windowRef && !windowRef\.isDestroyed\(\)/);
+  assert.match(main, /ipcMain\.on\("agent-complete"[\s\S]*?!windowRef \|\| windowRef\.isDestroyed\(\)/);
+});
+
+test("the settings swap never deletes the destination first", () => {
+  const store = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
+  const save = store.slice(store.indexOf("save(value)"));
+  assert.match(save, /fileSystem\.renameSync\(temporaryPath, filePath\)/);
+  assert.doesNotMatch(save, /rmSync\(filePath/);
 });

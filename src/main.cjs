@@ -2,16 +2,28 @@ const path = require("node:path");
 const { mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs");
 const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { HarnessApi } = require("./harness-api.cjs");
+const { createAutoStartController } = require("./auto-start.cjs");
+const { createHarnessLauncher } = require("./harness-launcher.cjs");
 const { harnessSessionUrl } = require("./harness-url.cjs");
+const {
+  applyPlatformOpacity,
+  applyPlatformWindowLayer,
+  detectPlatformCapabilities,
+  normalizeWindowLayer,
+  setPlatformBounds,
+  setPlatformSkipTaskbar,
+} = require("./platform-capabilities.cjs");
+const { APP_ID, PRODUCT_NAME, REPOSITORY_URL } = require("./product.cjs");
 const { renderMarkdown } = require("./markdown.cjs");
-const { clamp, moveCompactBounds, snapCompactBounds } = require("./window-geometry.cjs");
+const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
+const { configureProductUserData } = require("./user-data-migration.cjs");
+const { moveCompactBounds, snapCompactBounds } = require("./window-geometry.cjs");
+const { captureModeBounds, fitFullBounds, restoreCompactBounds } = require("./window-state.cjs");
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
-if (process.env.WIDGET_SCREENSHOT_PATH) {
-  const smokeRoot = path.join(app.getPath("temp"), "deepseek-harness-widget-smoke", String(process.pid));
-  app.setPath("sessionData", path.join(smokeRoot, "session"));
-  app.setPath("userData", path.join(smokeRoot, "user-data"));
-}
+const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
+app.setName(PRODUCT_NAME);
+configureProductUserData({ app });
 const api = new HarnessApi(HARNESS_URL);
 const SIZE_PRESETS = {
   compact: [380, 520],
@@ -26,6 +38,24 @@ const ORB_STATUS_WIDTH = 400;
 // The visible handle is still flush with the screen edge.
 const EDGE_WIDTH = 88;
 const EDGE_HEIGHT = 132;
+const EXTERNAL_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+// Model output can contain arbitrary links, so every URL that leaves the widget is
+// re-parsed and protocol-checked instead of being trusted as a string.
+function parseExternalUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return EXTERNAL_LINK_PROTOCOLS.has(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function openExternalUrl(value) {
+  const url = parseExternalUrl(value);
+  if (url) shell.openExternal(url);
+  return Boolean(url);
+}
+
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const IMAGE_TYPES = new Map([
   [".png", "image/png"],
@@ -40,7 +70,11 @@ let windowRef;
 let tray;
 let windowMode = "full";
 let fullBounds;
-let preferences = { opacity: 0.96, glowIntensity: 0.82, size: "standard", windowLayer: "above", compactSide: "right" };
+let preferences = DEFAULT_PREFERENCES;
+let settingsStore;
+let autoStartController;
+let harnessLauncher;
+let preferenceSaveTimer = null;
 let compactStatus = { active: false, label: "Ready", text: "" };
 let compactDragOrigin = null;
 let fullDragOrigin = null;
@@ -49,9 +83,17 @@ const queueSnapshots = new Map();
 let muxSocket = null;
 let muxReconnectTimer = null;
 let muxStopped = false;
+let rendererRecoveryCount = 0;
+const MAX_RENDERER_RECOVERIES = 3;
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
-if (!hasSingleInstanceLock) app.quit();
+// Without the return the losing instance keeps running the whole module: it would
+// register all IPC handlers and could still build a window, tray and mux socket
+// before the queued quit actually lands.
+if (!hasSingleInstanceLock) {
+  app.quit();
+  return;
+}
 
 function traceCompactDrag(stage, details = {}) {
   compactDragTrace.push({ stage, at: Date.now(), ...details });
@@ -63,21 +105,49 @@ function settingsPath() {
 }
 
 function loadPreferences() {
+  settingsStore = createSettingsStore({ filePath: settingsPath() });
+  preferences = settingsStore.load();
+  preferences.windowLayer = normalizeWindowLayer(preferences.windowLayer, PLATFORM_CAPABILITIES);
+  windowMode = preferences.windowState.mode;
+  if (windowMode === "edge" && PLATFORM_CAPABILITIES.edgeMode === "unavailable") {
+    windowMode = "orb";
+    preferences.windowState.mode = "orb";
+  }
+  preferences.compactSide = preferences.windowState[windowMode]?.side || preferences.compactSide;
+  fullBounds = preferences.windowState.full;
+}
+
+// Settings live in AppData, where a virus scanner or sync client can hold the file
+// for a moment. A transient EPERM must never reach the top level: an exception from
+// the save timer would be an uncaught exception in main and Electron would kill the app.
+function writePreferences() {
   try {
-    const stored = JSON.parse(readFileSync(settingsPath(), "utf8"));
-    const windowLayer = ["normal", "above", "game"].includes(stored?.windowLayer)
-      ? stored.windowLayer
-      : (Object.prototype.hasOwnProperty.call(stored || {}, "alwaysOnTop")
-        ? (stored.alwaysOnTop ? "above" : "normal")
-        : preferences.windowLayer);
-    if (stored && typeof stored === "object") delete stored.alwaysOnTop;
-    preferences = { ...preferences, ...stored, windowLayer };
-  } catch {}
+    preferences = settingsStore.save(preferences);
+  } catch (error) {
+    console.error("Failed to persist preferences", error);
+  }
 }
 
 function savePreferences() {
-  mkdirSync(path.dirname(settingsPath()), { recursive: true });
-  writeFileSync(settingsPath(), `${JSON.stringify(preferences, null, 2)}\n`, "utf8");
+  clearTimeout(preferenceSaveTimer);
+  preferenceSaveTimer = null;
+  writePreferences();
+}
+
+function schedulePreferenceSave() {
+  clearTimeout(preferenceSaveTimer);
+  preferenceSaveTimer = setTimeout(() => {
+    preferenceSaveTimer = null;
+    writePreferences();
+  }, 180);
+}
+
+function autoStartPreference() {
+  try {
+    return { enabled: Boolean(autoStartController?.getEnabled()), available: Boolean(autoStartController?.available) };
+  } catch {
+    return { enabled: false, available: false };
+  }
 }
 
 function queueItemView(item) {
@@ -157,29 +227,66 @@ function connectQueueMux() {
   socket.onerror = () => {};
 }
 
+function captureWindowBounds(mode, bounds, side = preferences.compactSide, setLastMode = true) {
+  const previousMode = preferences.windowState.mode;
+  const windowState = captureModeBounds(preferences.windowState, mode, bounds, side);
+  if (!setLastMode) windowState.mode = previousMode;
+  preferences = { ...preferences, windowState };
+  if (mode === "full") fullBounds = windowState.full;
+}
+
 function captureFullBounds() {
-  if (windowRef && windowMode === "full") fullBounds = windowRef.getBounds();
+  if (!windowRef || windowRef.isDestroyed() || windowMode !== "full") return;
+  captureWindowBounds("full", windowRef.getBounds());
 }
 
 function applyWindowLayer(mode = windowMode) {
-  if (!windowRef || windowRef.isDestroyed()) return;
-  // Pet/edge modes must remain reachable even if the full widget is configured as a normal window.
-  if (mode !== "full") {
-    windowRef.setAlwaysOnTop(true, "screen-saver");
-    return;
-  }
-  if (preferences.windowLayer === "normal") {
-    windowRef.setAlwaysOnTop(false);
-    return;
-  }
-  windowRef.setAlwaysOnTop(true, preferences.windowLayer === "game" ? "screen-saver" : "floating");
+  return applyPlatformWindowLayer(windowRef, {
+    layer: preferences.windowLayer,
+    mode,
+    capabilities: PLATFORM_CAPABILITIES,
+  });
+}
+
+function setWindowLayerPreference(value) {
+  preferences.windowLayer = normalizeWindowLayer(value, PLATFORM_CAPABILITIES);
+  applyWindowLayer();
+  savePreferences();
+  return preferences.windowLayer;
 }
 
 function applyEdgePointerHit(active = false) {
   if (!windowRef || windowRef.isDestroyed()) return;
+  if (!PLATFORM_CAPABILITIES.edgeMouseForwarding) {
+    windowRef.setIgnoreMouseEvents(false);
+    return;
+  }
   const ignore = windowMode === "edge" && !active && !compactDragOrigin;
   if (ignore) windowRef.setIgnoreMouseEvents(true, { forward: true });
   else windowRef.setIgnoreMouseEvents(false);
+}
+
+function moveWindowWithinNearestDisplay(bounds, candidate) {
+  if (!PLATFORM_CAPABILITIES.programmaticPosition) return bounds;
+  const display = screen.getDisplayNearestPoint({ x: Math.round(candidate.x), y: Math.round(candidate.y) }).workArea;
+  const moved = moveCompactBounds(bounds, candidate, display);
+  windowRef.setPosition(moved.x, moved.y, false);
+  return moved;
+}
+
+function snapCurrentCompactWindow({ traceEnd = false } = {}) {
+  if (!windowRef || windowMode === "full") return windowRef?.getBounds();
+  const bounds = windowRef.getBounds();
+  if (!PLATFORM_CAPABILITIES.programmaticPosition) return { ...bounds, side: preferences.compactSide };
+  const display = screen.getDisplayMatching(bounds).workArea;
+  const snapped = snapCompactBounds(bounds, display, windowMode);
+  if (traceEnd) traceCompactDrag("end", { before: bounds, snapped });
+  preferences.compactSide = snapped.side;
+  setPlatformBounds(windowRef, { x: snapped.x, y: snapped.y, width: snapped.width, height: snapped.height }, true, PLATFORM_CAPABILITIES);
+  captureWindowBounds(windowMode, snapped, snapped.side);
+  savePreferences();
+  windowRef.webContents.send("compact-side", preferences.compactSide);
+  return { ...windowRef.getBounds(), side: preferences.compactSide };
 }
 
 async function prepareFile(filePath) {
@@ -223,55 +330,67 @@ async function prepareFiles(filePaths) {
     .map(prepareFile));
 }
 
-function applyWindowMode(nextMode) {
+function applyWindowMode(nextMode, { captureCurrent = true, persist = true } = {}) {
   if (!windowRef || windowRef.isDestroyed() || !["full", "orb", "edge"].includes(nextMode)) return;
-  if (windowMode === "full" && nextMode !== "full") captureFullBounds();
+  if (nextMode === "edge" && PLATFORM_CAPABILITIES.edgeMode === "unavailable") nextMode = "orb";
+  if (captureCurrent) captureWindowBounds(windowMode, windowRef.getBounds());
   windowMode = nextMode;
+  preferences.windowState.mode = nextMode;
   windowRef.setMinimumSize(1, 1);
 
   if (nextMode === "full") {
     const fallbackSize = SIZE_PRESETS[preferences.size] || SIZE_PRESETS.standard;
-    const target = fullBounds || { ...windowRef.getBounds(), width: fallbackSize[0], height: fallbackSize[1] };
+    const fallback = { ...windowRef.getBounds(), width: fallbackSize[0], height: fallbackSize[1] };
+    const target = preferences.windowState.full || fullBounds || fallback;
     const display = screen.getDisplayMatching(target).workArea;
-    const width = Math.max(360, target.width);
-    const height = Math.max(500, target.height);
+    const restored = fitFullBounds(target, fallback, display, { minWidth: 360, minHeight: 500 });
     windowRef.setResizable(true);
-    windowRef.setSkipTaskbar(false);
-    windowRef.setBounds({
-      width,
-      height,
-      x: clamp(target.x, display.x, display.x + display.width - width),
-      y: clamp(target.y, display.y, display.y + display.height - height),
-    }, true);
-    windowRef.setMinimumSize(360, 500);
+    setPlatformSkipTaskbar(windowRef, false, PLATFORM_CAPABILITIES);
+    setPlatformBounds(windowRef, restored, true, PLATFORM_CAPABILITIES);
+    windowRef.setMinimumSize(Math.min(360, display.width), Math.min(500, display.height));
+    captureWindowBounds("full", restored);
   } else if (nextMode === "orb") {
     const source = fullBounds || windowRef.getBounds();
-    const display = screen.getDisplayMatching(source).workArea;
     const orbWidth = compactStatus.active ? ORB_STATUS_WIDTH : ORB_QUICK_WIDTH;
-    windowRef.setResizable(false);
-    windowRef.setSkipTaskbar(true);
-    const preferredX = preferences.compactSide === "left"
-      ? display.x + 8
-      : display.x + display.width - orbWidth - 8;
-    windowRef.setBounds({
-      x: preferredX,
-      y: clamp(source.y, display.y, display.y + display.height - ORB_SIZE),
+    const saved = preferences.windowState.orb;
+    const fallback = { x: source.x, y: source.y, width: orbWidth, height: ORB_SIZE, side: preferences.compactSide };
+    const display = screen.getDisplayMatching(saved ? { ...fallback, x: saved.x, y: saved.y } : source).workArea;
+    const restored = restoreCompactBounds(saved, fallback, display, {
+      mode: "orb",
       width: orbWidth,
       height: ORB_SIZE,
-    }, true);
+      side: preferences.compactSide,
+    });
+    windowRef.setResizable(false);
+    setPlatformSkipTaskbar(windowRef, true, PLATFORM_CAPABILITIES);
+    preferences.compactSide = restored.side;
+    setPlatformBounds(windowRef, { x: restored.x, y: restored.y, width: restored.width, height: restored.height }, true, PLATFORM_CAPABILITIES);
+    captureWindowBounds("orb", restored, restored.side);
   } else {
     const source = fullBounds || windowRef.getBounds();
-    const display = screen.getDisplayMatching(source).workArea;
-    windowRef.setResizable(false);
-    windowRef.setSkipTaskbar(true);
-    windowRef.setBounds({
-      x: preferences.compactSide === "left" ? display.x : display.x + display.width - EDGE_WIDTH,
-      y: clamp(source.y + Math.round((source.height - EDGE_HEIGHT) / 2), display.y, display.y + display.height - EDGE_HEIGHT),
+    const saved = preferences.windowState.edge;
+    const fallback = {
+      x: source.x,
+      y: source.y + Math.round((source.height - EDGE_HEIGHT) / 2),
       width: EDGE_WIDTH,
       height: EDGE_HEIGHT,
-    }, true);
+      side: preferences.compactSide,
+    };
+    const display = screen.getDisplayMatching(saved ? { ...fallback, x: saved.x, y: saved.y } : source).workArea;
+    const restored = restoreCompactBounds(saved, fallback, display, {
+      mode: "edge",
+      width: EDGE_WIDTH,
+      height: EDGE_HEIGHT,
+      side: preferences.compactSide,
+    });
+    windowRef.setResizable(false);
+    setPlatformSkipTaskbar(windowRef, true, PLATFORM_CAPABILITIES);
+    preferences.compactSide = restored.side;
+    setPlatformBounds(windowRef, { x: restored.x, y: restored.y, width: restored.width, height: restored.height }, true, PLATFORM_CAPABILITIES);
+    captureWindowBounds("edge", restored, restored.side);
   }
 
+  if (persist) savePreferences();
   applyWindowLayer(nextMode);
   applyEdgePointerHit(false);
   if (nextMode === "full") windowRef.show();
@@ -306,8 +425,14 @@ function createWindow() {
       sandbox: true,
     },
   });
+  const initialFallback = windowRef.getBounds();
+  const initialTarget = preferences.windowState.full || initialFallback;
+  const initialDisplay = screen.getDisplayMatching(initialTarget).workArea;
+  fullBounds = fitFullBounds(initialTarget, initialFallback, initialDisplay, { minWidth: 360, minHeight: 500 });
+  setPlatformBounds(windowRef, fullBounds, false, PLATFORM_CAPABILITIES);
+  captureWindowBounds("full", fullBounds, preferences.compactSide, false);
   applyWindowLayer("full");
-  windowRef.setOpacity(Math.max(0.65, Math.min(1, Number(preferences.opacity) || 0.96)));
+  applyPlatformOpacity(windowRef, preferences.opacity, PLATFORM_CAPABILITIES);
   const screenshotTab = process.env.WIDGET_SCREENSHOT_TAB || "";
   const screenshotFixture = process.env.WIDGET_SCREENSHOT_FIXTURE || "";
   const screenshotFiles = process.env.WIDGET_SCREENSHOT_FILES || "";
@@ -319,9 +444,35 @@ function createWindow() {
       ...(process.env.WIDGET_SCREENSHOT_PATH ? { screenshotStatic: "1" } : {}),
     },
   });
+  // The renderer only ever shows local files. Anything that tries to replace the
+  // widget with remote content, or to spawn a second Electron window, is a bug or
+  // an injection attempt: refuse it and hand safe links to the real browser.
+  windowRef.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalUrl(url);
+    return { action: "deny" };
+  });
+  windowRef.webContents.on("will-navigate", (event, url) => {
+    if (url === windowRef.webContents.getURL()) return;
+    event.preventDefault();
+    openExternalUrl(url);
+  });
+  windowRef.webContents.on("will-attach-webview", (event) => event.preventDefault());
+  // A frameless transparent window that loses its renderer stays on screen as a dead
+  // click-through shape the user cannot close except from the task manager. Reload it,
+  // but give up after a few attempts so a reproducible crash cannot become a loop.
+  windowRef.webContents.on("render-process-gone", (_event, details) => {
+    console.error("Renderer gone", details.reason);
+    if (app.isQuitting || details.reason === "clean-exit") return;
+    if (rendererRecoveryCount >= MAX_RENDERER_RECOVERIES) {
+      app.isQuitting = true;
+      app.quit();
+      return;
+    }
+    rendererRecoveryCount += 1;
+    windowRef.webContents.reload();
+  });
   windowRef.once("ready-to-show", () => {
-    fullBounds = windowRef.getBounds();
-    windowRef.show();
+    applyWindowMode(preferences.windowState.mode, { captureCurrent: false, persist: false });
   });
   windowRef.on("close", (event) => {
     if (!app.isQuitting) {
@@ -329,8 +480,16 @@ function createWindow() {
       applyWindowMode("edge");
     }
   });
-  windowRef.on("resize", () => captureFullBounds());
-  windowRef.on("move", () => captureFullBounds());
+  windowRef.on("resize", () => {
+    if (windowMode !== "full") return;
+    captureFullBounds();
+    schedulePreferenceSave();
+  });
+  windowRef.on("move", () => {
+    if (windowMode !== "full") return;
+    captureFullBounds();
+    schedulePreferenceSave();
+  });
 
   const screenshotPath = process.env.WIDGET_SCREENSHOT_PATH;
   if (screenshotPath) {
@@ -345,7 +504,7 @@ function createWindow() {
         const auditPath = process.env.WIDGET_UI_AUDIT_PATH;
         if (auditPath) {
           const audit = await windowRef.webContents.executeJavaScript(`(() => {
-            const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.tool-group','.tool-call','.queue-dock.has-items','.attachment-bar.has-items','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-history-button','.edge-mode'];
+            const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.queue-dock.has-items','.attachment-bar.has-items','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-history-button','.edge-mode'];
             const boxes = selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((element) => {
               const rect = element.getBoundingClientRect();
               const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).display !== 'none';
@@ -370,7 +529,12 @@ function createWindow() {
               queueActions: document.querySelectorAll('.queue-action').length,
               queueSingleLine: [...document.querySelectorAll('.queue-row')].every((row) => row.getBoundingClientRect().height <= 40),
               queueAboveComposer: !document.querySelector('.queue-dock.has-items') || document.querySelector('.queue-dock.has-items').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
+              attachmentChips: document.querySelectorAll('.attachment-chip').length,
+              attachmentsAboveComposer: !document.querySelector('.attachment-bar.has-items') || document.querySelector('.attachment-bar.has-items').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
               liveBubbles: document.querySelectorAll('.live-assistant').length,
+              offlineBanners: document.querySelectorAll('.offline-banner.show').length,
+              startHarnessButtons: document.querySelectorAll('#offlineBanner.show #startHarnessButton').length,
+              headerStateText: document.querySelector('#avatarState')?.textContent || '',
               scrollLatestVisible: Boolean(document.querySelector('.scroll-latest:not([hidden])')),
               glowControl: document.querySelectorAll('#glowRange').length,
               glowIntensity: getComputedStyle(document.documentElement).getPropertyValue('--chat-glow-intensity').trim(),
@@ -383,6 +547,21 @@ function createWindow() {
               edgeHitActive: document.querySelector('#edgeMode')?.classList.contains('edge-hit-active') || false,
               edgeLineWidth: Math.round(document.querySelector('.edge-line')?.getBoundingClientRect().width || 0),
               brandUserSelect: getComputedStyle(document.querySelector('.brand')).userSelect,
+              composerUtilitiesStacked: (() => {
+                const attach = document.querySelector('#attachButton').getBoundingClientRect();
+                const commands = document.querySelector('#commandsButton').getBoundingClientRect();
+                return Math.abs((attach.left + attach.right - commands.left - commands.right) / 2) <= 1 && attach.bottom <= commands.top + 1;
+              })(),
+              contextRingSize: Math.round(document.querySelector('#contextMeter svg').getBoundingClientRect().width),
+              sendWidth: Math.round(document.querySelector('#sendButton').getBoundingClientRect().width),
+              sendHeight: Math.round(document.querySelector('#sendButton').getBoundingClientRect().height),
+              modelControlLabel: document.querySelector('.model-button-copy small')?.textContent || '',
+              modelControlText: document.querySelector('#modelButtonText')?.textContent || '',
+              modelPickerActions: document.querySelectorAll('.model-picker-actions button').length,
+              modelSetupCards: document.querySelectorAll('.model-setup-card').length,
+              modelSetupActions: document.querySelectorAll('.model-setup-actions button').length,
+              autoStartHydrated: !document.querySelector('#autoStartToggle').disabled,
+              autoStartStatus: document.querySelector('#autoStartStatus').textContent,
               contextCenterDelta: (() => {
                 const meter = document.querySelector('#contextMeter').getBoundingClientRect();
                 const value = document.querySelector('#contextValue').getBoundingClientRect();
@@ -474,35 +653,31 @@ ipcMain.handle("update-queue", async (_event, payload) => {
 });
 ipcMain.handle("open-harness", async () => shell.openExternal(HARNESS_URL));
 ipcMain.handle("open-harness-session", async (_event, sessionId) => shell.openExternal(harnessSessionUrl(HARNESS_URL, sessionId)));
-ipcMain.handle("open-project", async () => shell.openExternal("https://github.com/NeoXider/deepseek-harness-widget"));
+ipcMain.handle("open-project", async () => shell.openExternal(REPOSITORY_URL));
 ipcMain.handle("open-external", async (_event, value) => {
-  const url = new URL(String(value));
-  if (!new Set(["http:", "https:", "mailto:"]).has(url.protocol)) throw new Error("Unsupported external link protocol");
-  return shell.openExternal(url.href);
+  const url = parseExternalUrl(value);
+  if (!url) throw new Error("Unsupported external link protocol");
+  return shell.openExternal(url);
 });
-ipcMain.handle("start-harness", async () => shell.openPath(path.join(app.getPath("desktop"), "Запустить DeepSeek Harness.bat")));
+ipcMain.handle("start-harness", async () => harnessLauncher.start());
 ipcMain.handle("set-always-on-top", (_event, enabled) => {
-  preferences.windowLayer = enabled ? "above" : "normal";
-  applyWindowLayer();
-  savePreferences();
-  return preferences.windowLayer !== "normal";
+  return setWindowLayerPreference(enabled ? "above" : "normal") !== "normal";
 });
 ipcMain.handle("set-window-layer", (_event, value) => {
-  preferences.windowLayer = ["normal", "above", "game"].includes(value) ? value : "above";
-  applyWindowLayer();
-  savePreferences();
-  return preferences.windowLayer;
+  return setWindowLayerPreference(value);
 });
 ipcMain.handle("set-opacity", (_event, value) => {
   preferences.opacity = Math.max(0.65, Math.min(1, Number(value) || 0.96));
-  windowRef.setOpacity(preferences.opacity);
-  savePreferences();
+  applyPlatformOpacity(windowRef, preferences.opacity, PLATFORM_CAPABILITIES);
+  // Dragging a slider fires continuously; a full synchronous rewrite per tick would
+  // stall the main process, so the write is debounced like resize and move already are.
+  schedulePreferenceSave();
   return preferences.opacity;
 });
 ipcMain.handle("set-glow-intensity", (_event, value) => {
   const numeric = Number(value);
   preferences.glowIntensity = Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 0.82;
-  savePreferences();
+  schedulePreferenceSave();
   return preferences.glowIntensity;
 });
 ipcMain.handle("set-size", (_event, preset) => {
@@ -510,24 +685,29 @@ ipcMain.handle("set-size", (_event, preset) => {
   preferences.size = SIZE_PRESETS[preset] ? preset : "standard";
   if (windowMode === "full") windowRef.setSize(size[0], size[1], true);
   fullBounds = { ...(fullBounds || windowRef.getBounds()), width: size[0], height: size[1] };
+  captureWindowBounds("full", fullBounds, preferences.compactSide, windowMode === "full");
   savePreferences();
   return preferences.size;
 });
 ipcMain.handle("set-auto-start", (_event, enabled) => {
-  app.setLoginItemSettings({ openAtLogin: Boolean(enabled), path: process.execPath });
-  return app.getLoginItemSettings().openAtLogin;
+  return autoStartController.setEnabled(enabled);
 });
-ipcMain.handle("get-preferences", () => ({
-  alwaysOnTop: preferences.windowLayer !== "normal",
-  windowLayer: preferences.windowLayer,
-  autoStart: app.getLoginItemSettings().openAtLogin,
-  opacity: preferences.opacity,
-  glowIntensity: preferences.glowIntensity,
-  size: preferences.size,
-  windowMode,
-  compactSide: preferences.compactSide,
-}));
-ipcMain.handle("app-info", () => ({ version: app.getVersion(), repository: "https://github.com/NeoXider/deepseek-harness-widget" }));
+ipcMain.handle("get-preferences", () => {
+  const autoStart = autoStartPreference();
+  return {
+    alwaysOnTop: preferences.windowLayer !== "normal",
+    windowLayer: preferences.windowLayer,
+    autoStart: autoStart.enabled,
+    autoStartAvailable: autoStart.available,
+    opacity: preferences.opacity,
+    glowIntensity: preferences.glowIntensity,
+    size: preferences.size,
+    windowMode,
+    compactSide: preferences.compactSide,
+    platformCapabilities: PLATFORM_CAPABILITIES,
+  };
+});
+ipcMain.handle("app-info", () => ({ version: app.getVersion(), repository: REPOSITORY_URL, productName: PRODUCT_NAME }));
 ipcMain.handle("set-window-mode", (_event, mode) => {
   applyWindowMode(mode);
   return windowMode;
@@ -563,14 +743,13 @@ ipcMain.on("move-full-drag", (event, value) => {
     x: fullDragOrigin.bounds.x + screenX - fullDragOrigin.screenX,
     y: fullDragOrigin.bounds.y + screenY - fullDragOrigin.screenY,
   };
-  const display = screen.getDisplayNearestPoint({ x: Math.round(candidate.x), y: Math.round(candidate.y) }).workArea;
-  const moved = moveCompactBounds(fullDragOrigin.bounds, candidate, display);
-  windowRef.setPosition(moved.x, moved.y, false);
+  moveWindowWithinNearestDisplay(fullDragOrigin.bounds, candidate);
   fullBounds = { ...windowRef.getBounds() };
 });
 ipcMain.handle("end-full-drag", () => {
   fullDragOrigin = null;
   captureFullBounds();
+  savePreferences();
   return windowRef?.getBounds();
 });
 ipcMain.on("begin-compact-drag", (event, value) => {
@@ -591,9 +770,7 @@ ipcMain.on("move-compact-drag", (event, value) => {
     x: compactDragOrigin.bounds.x + screenX - compactDragOrigin.screenX,
     y: compactDragOrigin.bounds.y + screenY - compactDragOrigin.screenY,
   };
-  const display = screen.getDisplayNearestPoint({ x: Math.round(candidate.x), y: Math.round(candidate.y) }).workArea;
-  const moved = moveCompactBounds(compactDragOrigin.bounds, candidate, display);
-  windowRef.setPosition(moved.x, moved.y, false);
+  const moved = moveWindowWithinNearestDisplay(compactDragOrigin.bounds, candidate);
   traceCompactDrag("move", { screenX, screenY, x: moved.x, y: moved.y });
 });
 ipcMain.handle("move-compact-window", (_event, value) => {
@@ -603,42 +780,17 @@ ipcMain.handle("move-compact-window", (_event, value) => {
   const requestedY = Number(value?.y);
   const candidateX = Number.isFinite(requestedX) ? requestedX : bounds.x;
   const candidateY = Number.isFinite(requestedY) ? requestedY : bounds.y;
-  const display = screen.getDisplayNearestPoint({ x: Math.round(candidateX), y: Math.round(candidateY) }).workArea;
-  const moved = moveCompactBounds(bounds, { x: candidateX, y: candidateY }, display);
-  windowRef.setPosition(moved.x, moved.y, false);
-  if (fullBounds) {
-    fullBounds.y = moved.y;
-    fullBounds.x = clamp(moved.x + bounds.width - fullBounds.width, display.x, display.x + display.width - fullBounds.width);
-  }
+  moveWindowWithinNearestDisplay(bounds, { x: candidateX, y: candidateY });
   return windowRef.getBounds();
 });
-ipcMain.handle("snap-compact-window", () => {
-  if (!windowRef || windowMode === "full") return windowRef?.getBounds();
-  const bounds = windowRef.getBounds();
-  const display = screen.getDisplayMatching(bounds).workArea;
-  const snapped = snapCompactBounds(bounds, display, windowMode);
-  preferences.compactSide = snapped.side;
-  windowRef.setBounds({ x: snapped.x, y: snapped.y, width: snapped.width, height: snapped.height }, true);
-  savePreferences();
-  windowRef.webContents.send("compact-side", preferences.compactSide);
-  return { ...windowRef.getBounds(), side: preferences.compactSide };
-});
+ipcMain.handle("snap-compact-window", () => snapCurrentCompactWindow());
 ipcMain.handle("end-compact-drag", () => {
   compactDragOrigin = null;
-  if (!windowRef || windowMode === "full") return windowRef?.getBounds();
-  const bounds = windowRef.getBounds();
-  const display = screen.getDisplayMatching(bounds).workArea;
-  const snapped = snapCompactBounds(bounds, display, windowMode);
-  traceCompactDrag("end", { before: bounds, snapped });
-  preferences.compactSide = snapped.side;
-  windowRef.setBounds({ x: snapped.x, y: snapped.y, width: snapped.width, height: snapped.height }, true);
-  savePreferences();
-  windowRef.webContents.send("compact-side", preferences.compactSide);
-  if (fullBounds) fullBounds.y = snapped.y;
-  return { ...windowRef.getBounds(), side: preferences.compactSide };
+  return snapCurrentCompactWindow({ traceEnd: true });
 });
 ipcMain.on("agent-complete", () => {
-  if (windowMode === "edge") windowRef.webContents.send("edge-bounce");
+  if (windowMode !== "edge" || !windowRef || windowRef.isDestroyed()) return;
+  windowRef.webContents.send("edge-bounce");
 });
 
 app.on("second-instance", () => {
@@ -649,13 +801,22 @@ app.on("second-instance", () => {
 });
 
 app.whenReady().then(() => {
+  if (process.platform === "win32") app.setAppUserModelId(APP_ID);
   loadPreferences();
+  autoStartController = createAutoStartController({ app });
+  autoStartController.migrateLegacy();
+  harnessLauncher = createHarnessLauncher({
+    harnessUrl: HARNESS_URL,
+    desktopPath: app.getPath("desktop"),
+    workingDirectory: path.join(app.getPath("userData"), "harness-workspace"),
+    openPath: (filePath) => shell.openPath(filePath),
+  });
   createWindow();
   connectQueueMux();
   const iconPath = path.join(__dirname, "renderer", "assets", "neoxider-github.png");
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 32, height: 32 });
   tray = new Tray(icon);
-  tray.setToolTip("DeepSeek Harness Widget");
+  tray.setToolTip(PRODUCT_NAME);
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "Show widget", click: () => applyWindowMode("full") },
     { label: "Open Harness", click: () => shell.openExternal(HARNESS_URL) },
@@ -666,12 +827,18 @@ app.whenReady().then(() => {
 });
 
 app.on("before-quit", () => {
+  app.isQuitting = true;
+  if (windowRef && !windowRef.isDestroyed()) captureWindowBounds(windowMode, windowRef.getBounds());
+  if (settingsStore) savePreferences();
   muxStopped = true;
   clearTimeout(muxReconnectTimer);
   muxReconnectTimer = null;
   muxSocket?.close();
   muxSocket = null;
+  // An undestroyed tray icon can survive as a ghost in the Windows notification area.
+  tray?.destroy();
+  tray = null;
 });
 
-app.on("activate", () => windowRef ? applyWindowMode("full") : createWindow());
+app.on("activate", () => (windowRef && !windowRef.isDestroyed() ? applyWindowMode("full") : createWindow()));
 app.on("window-all-closed", (event) => event.preventDefault());

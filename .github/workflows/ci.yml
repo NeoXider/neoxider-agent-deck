@@ -11,7 +11,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -23,8 +23,38 @@ jobs:
       - run: npm test
       - run: npm audit --audit-level=high
 
-  portable:
-    runs-on: windows-latest
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: build:win
+            artifact: neoxider-agent-deck-windows-x64
+            path: release/*.exe
+            uiSmoke: true
+          - os: macos-15
+            script: build:mac
+            artifact: neoxider-agent-deck-macos-arm64
+            path: |-
+              release/*.dmg
+              release/*.zip
+            uiSmoke: false
+          - os: macos-15-intel
+            script: build:mac
+            artifact: neoxider-agent-deck-macos-x64
+            path: |-
+              release/*.dmg
+              release/*.zip
+            uiSmoke: false
+          - os: ubuntu-24.04
+            script: build:linux
+            artifact: neoxider-agent-deck-linux-x64
+            path: |-
+              release/*.AppImage
+              release/*.deb
+            uiSmoke: false
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,13 +62,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build
-      - run: npm run test:ui
+      - run: npm run ${{ matrix.script }}
+      - if: matrix.uiSmoke
+        run: npm run test:ui
       - uses: actions/upload-artifact@v4
+        if: matrix.uiSmoke
         with:
           name: widget-ui-smoke
           path: tmp/ui-smoke/*
       - uses: actions/upload-artifact@v4
         with:
-          name: deepseek-harness-widget-portable
-          path: release/*.exe
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}

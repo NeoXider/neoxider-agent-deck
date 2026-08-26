@@ -3,7 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DeepSeek Harness Widget</title>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'"
+    />
+    <title>NeoXider Agent Deck</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body class="mode-full">
@@ -44,8 +48,8 @@
               <span data-notification class="avatar-count">0</span>
             </span>
           </button>
-          <button id="projectLink" class="brand-copy-button" type="button" title="Open NeoXider/deepseek-harness-widget on GitHub" aria-label="Open this plugin on GitHub">
-            <span class="eyebrow">NEOXIDER / HARNESS</span>
+          <button id="projectLink" class="brand-copy-button" type="button" title="Open NeoXider/neoxider-agent-deck on GitHub" aria-label="Open this project on GitHub">
+            <span class="eyebrow">NEOXIDER / AGENT DECK</span>
             <span class="title">Agent Deck <span id="versionLabel" class="version-badge">v…</span><small id="avatarState">ready</small></span>
           </button>
         </div>
@@ -54,14 +58,15 @@
           <button class="tab" data-tab="agents" type="button" title="Agents" aria-label="Agents"><svg class="ui-icon"><use href="#icon-agents"/></svg></button>
         </nav>
         <div class="window-actions no-drag">
-          <button id="settingsButton" class="icon-button" type="button" title="Settings" aria-label="Settings"><svg class="ui-icon"><use href="#icon-settings"/></svg></button>
+          <button id="settingsButton" class="icon-button" type="button" title="Settings" aria-label="Settings" aria-haspopup="dialog" aria-controls="settingsPanel" aria-expanded="false"><svg class="ui-icon"><use href="#icon-settings"/></svg></button>
           <button id="dockButton" class="icon-button" type="button" title="Dock to screen edge" aria-label="Dock to screen edge"><svg class="ui-icon"><use href="#icon-dock"/></svg></button>
         </div>
       </header>
 
-      <button id="offlineBanner" class="offline-banner no-drag" type="button">
-        Harness is offline · start it
-      </button>
+      <div id="offlineBanner" class="offline-banner no-drag" role="status" aria-live="polite">
+        <span id="offlineBannerText">Harness is offline</span>
+        <button id="startHarnessButton" type="button">Start</button>
+      </div>
 
       <section id="agentsPanel" class="panel">
         <div id="sessions" class="session-list">
@@ -72,7 +77,7 @@
       <section id="chatPanel" class="panel chat-panel active">
         <div class="chat-heading no-drag">
           <div class="picker session-picker">
-            <button id="sessionButton" class="picker-button" type="button" aria-haspopup="listbox" aria-expanded="false" title="Session">
+            <button id="sessionButton" class="picker-button" type="button" aria-haspopup="listbox" aria-controls="sessionMenu" aria-expanded="false" title="Session">
               <svg class="ui-icon"><use href="#icon-session"/></svg><span id="sessionButtonText">New session</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
             </button>
             <div id="sessionMenu" class="picker-menu" role="listbox"><div id="sessionOptions" class="picker-options"></div></div>
@@ -80,30 +85,31 @@
           <button id="openSessionButton" class="ghost-button icon-only harness-button" type="button" title="Open current session in DeepSeek Harness" aria-label="Open current session in DeepSeek Harness" disabled><img src="assets/deepseek.svg" alt="" /></button>
           <button id="newSessionButton" class="ghost-button icon-only" type="button" title="New session" aria-label="New session"><svg class="ui-icon"><use href="#icon-plus"/></svg></button>
           <details id="agentControls" class="agent-controls no-drag">
-            <summary title="Agent setup">
-              <span class="controls-label"><svg class="ui-icon"><use href="#icon-controls"/></svg><b>Setup</b></span>
+            <summary title="Model and agent setup" aria-label="Model and agent setup">
+              <span class="controls-label"><svg class="ui-icon"><use href="#icon-controls"/></svg><b>Model / Setup</b></span>
               <span id="controlsSummary" class="controls-summary">Default · Auto</span>
               <svg class="ui-icon controls-chevron"><use href="#icon-chevron"/></svg>
             </summary>
             <div class="control-grid">
             <div class="picker model-picker">
-              <button id="modelButton" class="picker-button" type="button" aria-haspopup="listbox" aria-expanded="false" title="Model">
-                <svg class="ui-icon"><use href="#icon-model"/></svg><span id="modelButtonText">Harness default</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
+              <button id="modelButton" class="picker-button" type="button" aria-haspopup="dialog" aria-controls="modelMenu" aria-expanded="false" title="Model">
+                <svg class="ui-icon"><use href="#icon-model"/></svg><span class="model-button-copy"><small>MODEL</small><b id="modelButtonText">Loading providers…</b></span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
               </button>
-              <div id="modelMenu" class="picker-menu model-menu" role="listbox">
+              <div id="modelMenu" class="picker-menu model-menu" role="dialog" aria-label="Model picker">
                 <label class="picker-search"><svg class="ui-icon"><use href="#icon-model"/></svg><input id="modelSearch" type="search" placeholder="Search models or providers" autocomplete="off" /></label>
-                <div id="modelOptions" class="picker-options model-options"></div>
+                <div id="modelStatus" aria-live="polite"></div>
+                <div id="modelOptions" class="picker-options model-options" role="listbox" aria-label="Models"></div>
               </div>
             </div>
             <div class="picker reasoning-picker">
-              <button id="reasoningButton" class="picker-button" type="button" aria-haspopup="listbox" aria-expanded="false" title="Reasoning effort">
+              <button id="reasoningButton" class="picker-button" type="button" aria-haspopup="listbox" aria-controls="reasoningMenu" aria-expanded="false" title="Reasoning effort">
                 <svg class="ui-icon"><use href="#icon-reasoning"/></svg><span id="reasoningButtonText">Auto</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
               </button>
               <div id="reasoningMenu" class="picker-menu align-right" role="listbox"><div id="reasoningOptions" class="picker-options"></div></div>
             </div>
             <div class="workspace-control">
               <div class="picker workspace-picker">
-                <button id="workspaceButton" class="picker-button" type="button" aria-haspopup="listbox" aria-expanded="false" title="Workspace for a new session">
+                <button id="workspaceButton" class="picker-button" type="button" aria-haspopup="listbox" aria-controls="workspaceMenu" aria-expanded="false" title="Workspace for a new session">
                   <svg class="ui-icon"><use href="#icon-folder"/></svg><span id="workspaceButtonText">Current workspace</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
                 </button>
                 <div id="workspaceMenu" class="picker-menu wide-menu" role="listbox"><div id="workspaceOptions" class="picker-options"></div></div>
@@ -126,7 +132,7 @@
           </summary>
           <div id="activityBody" class="activity-body"></div>
         </details>
-        <div id="messages" class="messages"><div class="empty-state">Select a session or start a new one.</div></div>
+        <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions"><div class="empty-state">Select a session or start a new one.</div></div>
         <button id="scrollLatestButton" class="scroll-latest no-drag" type="button" title="Jump to latest message" aria-label="Jump to latest message" hidden><svg class="ui-icon"><use href="#icon-down"/></svg><span id="scrollLatestCount">New</span></button>
 
         <div id="queueDock" class="queue-dock no-drag" aria-live="polite" aria-label="Queued messages">
@@ -148,8 +154,10 @@
             </svg>
             <span id="contextValue">—</span>
           </div>
-          <button id="attachButton" class="composer-action" type="button" title="Attach files" aria-label="Attach files"><svg class="ui-icon"><use href="#icon-paperclip"/></svg></button>
-          <button id="commandsButton" class="composer-action" type="button" title="Harness commands" aria-label="Harness commands" aria-haspopup="listbox" aria-expanded="false"><svg class="ui-icon"><use href="#icon-command"/></svg></button>
+          <div class="composer-utility-stack">
+            <button id="attachButton" class="composer-action" type="button" title="Attach files" aria-label="Attach files"><svg class="ui-icon"><use href="#icon-paperclip"/></svg></button>
+            <button id="commandsButton" class="composer-action" type="button" title="Harness commands" aria-label="Harness commands" aria-haspopup="listbox" aria-expanded="false"><svg class="ui-icon"><use href="#icon-command"/></svg></button>
+          </div>
           <button id="focusChatButton" class="composer-action focus-chat-button" type="button" title="Focus chat" aria-label="Focus chat" aria-pressed="false"><svg class="ui-icon focus-enter"><use href="#icon-focus"/></svg><svg class="ui-icon focus-exit"><use href="#icon-focus-exit"/></svg></button>
           <textarea id="messageInput" rows="1" placeholder="Message the agent…" aria-label="Message"></textarea>
           <button id="cancelButton" class="composer-stop" type="button" title="Stop current turn" aria-label="Stop current turn" hidden><svg class="ui-icon"><use href="#icon-stop"/></svg></button>
@@ -158,10 +166,10 @@
         <div id="dropOverlay" class="drop-overlay no-drag"><svg class="drop-icon"><use href="#icon-paperclip"/></svg><span>Drop files here</span></div>
       </section>
 
-      <section id="settingsPanel" class="settings-panel no-drag">
-        <div class="settings-head"><b>Settings</b><button id="closeSettings" class="icon-button" type="button" title="Close settings" aria-label="Close settings"><svg class="ui-icon"><use href="#icon-close"/></svg></button></div>
+      <section id="settingsPanel" class="settings-panel no-drag" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" aria-hidden="true" inert>
+        <div class="settings-head"><b id="settingsTitle">Settings</b><button id="closeSettings" class="icon-button" type="button" title="Close settings" aria-label="Close settings"><svg class="ui-icon"><use href="#icon-close"/></svg></button></div>
         <div class="setting-block layer-setting"><span>Window layer</span><div id="windowLayerSwitch" class="layer-switch" role="group" aria-label="Window layer"><button data-layer="normal" type="button" title="Behave like a normal window">Normal</button><button data-layer="above" type="button" title="Stay above ordinary windows">Above</button><button data-layer="game" type="button" title="Maximum layer for fullscreen apps">Game</button></div></div>
-        <label><span>Start with Windows</span><input id="autoStartToggle" type="checkbox" /></label>
+        <label class="autostart-setting"><span>Start with Windows<small id="autoStartStatus" role="status" aria-live="polite">Checking…</small></span><input id="autoStartToggle" type="checkbox" disabled /></label>
         <label class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /></label>
         <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>
         <div class="setting-block"><span>Size</span><div id="sizeSwitch" class="size-switch" role="group" aria-label="Widget size"><button data-size="compact" type="button">S</button><button data-size="standard" type="button">M</button><button data-size="large" type="button">L</button></div></div>

@@ -2,6 +2,10 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function compactMargin(mode) {
+  return mode === "orb" ? 8 : 0;
+}
+
 function moveCompactBounds(bounds, requested, workArea) {
   const requestedX = Number(requested?.x);
   const requestedY = Number(requested?.y);
@@ -16,7 +20,7 @@ function moveCompactBounds(bounds, requested, workArea) {
 
 function snapCompactBounds(bounds, workArea, mode) {
   const side = bounds.x + bounds.width / 2 < workArea.x + workArea.width / 2 ? "left" : "right";
-  const margin = mode === "orb" ? 8 : 0;
+  const margin = compactMargin(mode);
   return {
     ...bounds,
     side,
@@ -25,4 +29,4 @@ function snapCompactBounds(bounds, workArea, mode) {
   };
 }
 
-module.exports = { clamp, moveCompactBounds, snapCompactBounds };
+module.exports = { clamp, compactMargin, moveCompactBounds, snapCompactBounds };

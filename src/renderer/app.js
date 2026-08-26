@@ -9,6 +9,7 @@ const state = {
   modelsBusy: false,
   commandsBusy: false,
   modelCatalog: null,
+  modelLoadState: "idle",
   commandCatalog: [],
   workspaces: [],
   workspacesBusy: false,
@@ -38,7 +39,12 @@ const state = {
   messagesStickToBottom: true,
   unseenMessages: 0,
   historySignature: "",
+  harnessStarting: false,
+  pollTimer: null,
+  pollInterval: 0,
 };
+
+let confirmedAutoStart = false;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -71,11 +77,15 @@ function compactText(value, limit = 120) {
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}…` : normalized;
 }
 
-function closePickers(except = null) {
+function closePickers(except = null, { restoreFocus = false } = {}) {
   $$(".picker.open").forEach((picker) => {
     if (picker === except) return;
+    const activeInside = picker.contains(document.activeElement);
     picker.classList.remove("open");
-    picker.querySelector(".picker-button")?.setAttribute("aria-expanded", "false");
+    const button = picker.querySelector(".picker-button");
+    button?.setAttribute("aria-expanded", "false");
+    picker.querySelector(".picker-menu")?.setAttribute("aria-hidden", "true");
+    if (restoreFocus || activeInside) button?.focus();
   });
 }
 
@@ -86,6 +96,7 @@ function togglePicker(button) {
   closePickers(open ? picker : null);
   picker.classList.toggle("open", open);
   button.setAttribute("aria-expanded", String(open));
+  picker.querySelector(".picker-menu")?.setAttribute("aria-hidden", String(!open));
 }
 
 function pickerOption(label, { selected = false, meta = "", title = "", onSelect } = {}) {
@@ -93,6 +104,8 @@ function pickerOption(label, { selected = false, meta = "", title = "", onSelect
   button.type = "button";
   button.className = `picker-option${selected ? " selected" : ""}`;
   button.title = title || label;
+  button.setAttribute("role", "option");
+  button.setAttribute("aria-selected", String(selected));
   const mark = document.createElement("i");
   mark.className = "picker-check";
   if (selected) mark.append(createIcon("check"));
@@ -151,21 +164,27 @@ function syncCompactStatus() {
   window.widget.setCompactStatus({ active, label, text }).catch(() => {});
 }
 
-function setActivity(activity) {
-  state.currentActivity = activity || null;
-  document.body.classList.remove("activity-thinking", "activity-writing", "activity-tool");
-  if (activity?.active && ["thinking", "writing", "tool"].includes(activity.kind)) {
-    document.body.classList.add(`activity-${activity.kind}`);
-  }
+function syncActivityCard() {
+  const activity = state.currentActivity;
   const card = $("#activityCard");
   const hasActivity = Boolean(activity?.text);
-  const showCard = hasActivity && activity?.kind !== "writing";
+  const hasWritingBubble = activity?.kind === "writing" && Boolean($("#messages .live-assistant"));
+  const showCard = hasActivity && !hasWritingBubble;
   card.classList.toggle("has-activity", showCard);
   if (hasActivity) {
     $("#activityLabel").textContent = activity.label || "Activity";
     $("#activityPreview").textContent = compactText(activity.text, 110);
     $("#activityBody").textContent = activity.text;
   }
+}
+
+function setActivity(activity) {
+  state.currentActivity = activity || null;
+  document.body.classList.remove("activity-thinking", "activity-writing", "activity-tool");
+  if (activity?.active && ["thinking", "writing", "tool"].includes(activity.kind)) {
+    document.body.classList.add(`activity-${activity.kind}`);
+  }
+  syncActivityCard();
   syncCompactStatus();
 }
 
@@ -174,7 +193,7 @@ function setAvatar(mode, label) {
   const shell = $("#avatarShell");
   shell.className = `avatar-shell ${mode}`;
   document.querySelectorAll("[data-avatar]").forEach((image) => { image.src = AVATARS[mode] || AVATARS.idle; });
-  $("#avatarState").textContent = label || AVATAR_LABELS[mode] || "ready";
+  $("#avatarState").textContent = label === "" ? "" : (label || AVATAR_LABELS[mode] || "ready");
   document.body.classList.remove("state-idle", "state-working", "state-waiting", "state-error", "state-done");
   document.body.classList.add(`state-${mode}`);
   syncCompactStatus();
@@ -528,34 +547,90 @@ function renderReasoning() {
 }
 
 function modelDisplay(selection) {
-  if (!selection) return "Harness default";
+  if (!selection) return "Automatic route";
   const group = state.modelCatalog?.groups?.find((item) => item.id === selection.provider);
   const model = group?.models?.find((item) => item.id === selection.model);
   return `${group?.name || selection.provider} · ${model?.name || selection.model}`;
 }
 
+function modelCount(catalog = state.modelCatalog) {
+  return (catalog?.groups || []).reduce((total, group) => total + (group.models || []).length, 0);
+}
+
+function appendModelPickerStatus(root, kind, title, text, actions = []) {
+  const status = document.createElement("div");
+  status.className = `model-picker-status ${kind}`;
+  const heading = document.createElement("b");
+  heading.textContent = title;
+  const detail = document.createElement("small");
+  detail.textContent = text;
+  status.append(heading, detail);
+  if (actions.length) {
+    const buttons = document.createElement("div");
+    buttons.className = "model-picker-actions";
+    for (const action of actions) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = action.label;
+      button.addEventListener("click", action.onClick);
+      buttons.append(button);
+    }
+    status.append(buttons);
+  }
+  root.append(status);
+}
+
+function retryModels() {
+  return loadModels({ force: true });
+}
+
 function updateControlsSummary() {
-  const model = modelDisplay(state.pendingSelection || state.modelCatalog?.current);
+  const selection = state.pendingSelection || state.modelCatalog?.current;
+  const model = selectedModelDefinition();
+  const shortModel = model?.name || model?.id || $("#modelButtonText")?.textContent || modelDisplay(selection);
   const effort = $("#reasoningButtonText")?.textContent || "Auto";
-  $("#controlsSummary").textContent = `${model} · ${effort}`;
+  $("#controlsSummary").textContent = `${shortModel} · ${effort}`;
+  const summary = $("#agentControls > summary");
+  const fullLabel = `${modelDisplay(selection)} · ${effort}`;
+  summary.title = `Model / Setup: ${fullLabel}`;
+  summary.setAttribute("aria-label", `Model and agent setup: ${fullLabel}`);
 }
 
 function renderModelOptions(query = "") {
   const root = $("#modelOptions");
+  const statusRoot = $("#modelStatus");
   root.replaceChildren();
+  statusRoot.replaceChildren();
   const catalog = state.modelCatalog;
   const selected = state.pendingSelection || catalog?.current;
   const normalized = query.trim().toLowerCase();
-  root.append(pickerOption("Harness default", {
+  if (state.modelLoadState === "loading") {
+    appendModelPickerStatus(statusRoot, "loading", "Loading model providers", "Reading the routes exposed by Harness…");
+    return;
+  }
+  if (state.modelLoadState === "error") {
+    appendModelPickerStatus(statusRoot, "error", "Models unavailable", "Check Harness and your provider, then retry.", [
+      { label: "Retry", onClick: retryModels },
+      { label: "Open Harness", onClick: () => window.widget.openHarness() },
+    ]);
+    if (!modelCount(catalog)) return;
+  }
+  if (!modelCount(catalog)) {
+    appendModelPickerStatus(statusRoot, "empty", "No models loaded", "Load a model in LM Studio or another Harness provider, then retry.", [
+      { label: "Retry", onClick: retryModels },
+      { label: "Open Harness", onClick: () => window.widget.openHarness() },
+    ]);
+    return;
+  }
+  root.append(pickerOption("Automatic route", {
     selected: !selected,
-    meta: "auto",
+    meta: "Harness",
     onSelect: () => {
       state.pendingSelection = null;
       closePickers();
       renderModels();
     },
   }));
-  if (!catalog) return;
   const currentProvider = selected?.provider || catalog.current?.provider;
   const localRank = (id) => id === currentProvider ? 0 : ["lmstudio", "ollama", "local"].includes(String(id).toLowerCase()) ? 1 : 2;
   const groups = [...(catalog.groups || [])].sort((left, right) => localRank(left.id) - localRank(right.id) || String(left.name || left.id).localeCompare(String(right.name || right.id)));
@@ -594,23 +669,40 @@ function renderModelOptions(query = "") {
 function renderModels() {
   const catalog = state.modelCatalog;
   const selected = state.pendingSelection || catalog?.current;
-  $("#modelButtonText").textContent = modelDisplay(selected);
+  let label = modelDisplay(selected);
+  if (state.modelLoadState === "loading") label = "Loading providers…";
+  else if (state.modelLoadState === "error" && !modelCount(catalog)) label = "Models unavailable";
+  else if (!modelCount(catalog)) label = "No models loaded";
+  $("#modelButtonText").textContent = label;
+  $("#modelButton").title = `Model: ${label}`;
+  $("#modelButton").setAttribute("aria-label", `Model: ${label}`);
   renderModelOptions($("#modelSearch").value || "");
   renderReasoning();
   updateControlsSummary();
 }
 
-async function loadModels() {
-  if (state.modelsBusy || !state.dashboard?.harness) return;
+async function loadModels({ force = false } = {}) {
+  if (state.modelsBusy) return;
+  if (!state.dashboard?.harness) {
+    if (force) {
+      state.modelLoadState = "error";
+      renderModels();
+    }
+    return;
+  }
   state.modelsBusy = true;
+  state.modelLoadState = "loading";
+  renderModels();
   try {
     state.modelCatalog = await window.widget.models(state.selectedSessionId);
     state.pendingSelection = state.modelCatalog.current || state.pendingSelection;
-    renderModels();
-  } catch (error) {
+    state.modelLoadState = "ready";
+  } catch {
+    state.modelLoadState = "error";
     setAvatar("error", "models unavailable");
   } finally {
     state.modelsBusy = false;
+    renderModels();
   }
 }
 
@@ -958,6 +1050,7 @@ async function selectSession(sessionId, openChat = false) {
   state.historySignature = "";
   state.pendingSelection = null;
   state.modelCatalog = null;
+  state.modelLoadState = "idle";
   state.commandCatalog = [];
   state.selectedWorkspaceId = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId)?.workspaceId || null;
   renderSessions();
@@ -972,6 +1065,7 @@ async function selectSession(sessionId, openChat = false) {
 function createToolCard(message) {
   const details = document.createElement("details");
   details.className = `tool-call${message.isError ? " failed" : ""}${message.nested ? " nested" : ""}`;
+  details.dataset.toolKey = `tool:${message.callId || message.seq || `${message.name || "tool"}:${message.arguments || ""}`}`;
   const summary = document.createElement("summary");
   summary.append(createIcon("command"));
   const identity = document.createElement("span");
@@ -1022,6 +1116,7 @@ function appendActivityRun(root, run) {
   const running = run.some((message) => message.status === "running");
   const group = document.createElement("details");
   group.className = `tool-group${failed ? " failed" : ""}${running ? " running" : ""}`;
+  group.dataset.toolKey = `group:${run.map((message) => message.callId || message.seq || message.name || "tool").join("|")}`;
   const summary = document.createElement("summary");
   summary.append(createIcon("command"));
   const identity = document.createElement("span");
@@ -1043,6 +1138,82 @@ function messagesNearBottom(root = $("#messages")) {
   return root.scrollHeight - root.scrollTop - root.clientHeight < 44;
 }
 
+function liveAssistantSnapshot() {
+  const stream = state.liveStreamsBySession.get(state.selectedSessionId);
+  if (stream?.text) return { text: stream.text, lastSeq: stream.lastSeq || "" };
+  const activity = state.currentActivity;
+  if (activity?.active && activity.kind === "writing" && activity.text) {
+    return { text: activity.text, lastSeq: "activity" };
+  }
+  return null;
+}
+
+function messageTextOffset(root, node, offset) {
+  if (!node || !root.contains(node)) return null;
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  try {
+    range.setEnd(node, offset);
+  } catch {
+    return null;
+  }
+  return range.toString().length;
+}
+
+function captureMessageSelection(root) {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount || selection.isCollapsed) return null;
+  const anchor = messageTextOffset(root, selection.anchorNode, selection.anchorOffset);
+  const focus = messageTextOffset(root, selection.focusNode, selection.focusOffset);
+  return anchor === null || focus === null ? null : { anchor, focus };
+}
+
+function messageTextPoint(root, requestedOffset) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = Math.max(0, Number(requestedOffset) || 0);
+  let node = walker.nextNode();
+  let last = null;
+  while (node) {
+    last = node;
+    if (remaining <= node.data.length) return { node, offset: remaining };
+    remaining -= node.data.length;
+    node = walker.nextNode();
+  }
+  return last ? { node: last, offset: last.data.length } : null;
+}
+
+function restoreMessageSelection(root, snapshot) {
+  if (!snapshot) return;
+  const anchor = messageTextPoint(root, snapshot.anchor);
+  const focus = messageTextPoint(root, snapshot.focus);
+  if (!anchor || !focus) return;
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  if (typeof selection.setBaseAndExtent === "function") {
+    selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
+    return;
+  }
+  const range = document.createRange();
+  const [start, end] = snapshot.anchor <= snapshot.focus ? [anchor, focus] : [focus, anchor];
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  selection.addRange(range);
+}
+
+function openToolKeys(root) {
+  return new Set($$("details.tool-group[open], details.tool-call[open]")
+    .filter((details) => root.contains(details))
+    .map((details) => details.dataset.toolKey)
+    .filter(Boolean));
+}
+
+function restoreOpenToolKeys(root, keys) {
+  if (!keys.size) return;
+  root.querySelectorAll("details.tool-group, details.tool-call").forEach((details) => {
+    if (keys.has(details.dataset.toolKey)) details.open = true;
+  });
+}
+
 function updateScrollLatestButton() {
   const button = $("#scrollLatestButton");
   const visible = !state.messagesStickToBottom && state.unseenMessages > 0;
@@ -1051,7 +1222,7 @@ function updateScrollLatestButton() {
 }
 
 function appendLiveAssistant(root) {
-  const stream = state.liveStreamsBySession.get(state.selectedSessionId);
+  const stream = liveAssistantSnapshot();
   if (!stream?.text) return;
   const bubble = document.createElement("div");
   bubble.className = "bubble assistant plain live-assistant";
@@ -1060,21 +1231,110 @@ function appendLiveAssistant(root) {
   root.append(bubble);
 }
 
+function openModelPicker({ retry = false } = {}) {
+  setTab("chat");
+  $("#agentControls").open = true;
+  const button = $("#modelButton");
+  const picker = button.closest(".picker");
+  closePickers(picker);
+  picker.classList.add("open");
+  button.setAttribute("aria-expanded", "true");
+  if (retry) retryModels();
+  setTimeout(() => $("#modelSearch").focus(), 0);
+}
+
+function modelOptionButtons() {
+  return $$("#modelOptions .picker-option:not(:disabled)");
+}
+
+function moveModelOptionFocus(key) {
+  const options = modelOptionButtons();
+  if (!options.length) return false;
+  const current = options.indexOf(document.activeElement);
+  const selected = options.findIndex((option) => option.getAttribute("aria-selected") === "true");
+  let index;
+  if (key === "Home") index = 0;
+  else if (key === "End") index = options.length - 1;
+  else if (key === "ArrowUp") index = current >= 0 ? Math.max(0, current - 1) : Math.max(0, selected);
+  else index = current >= 0 ? Math.min(options.length - 1, current + 1) : Math.max(0, selected);
+  options[index].focus();
+  return true;
+}
+
+function setSettingsOpen(open, { restoreFocus = true } = {}) {
+  const panel = $("#settingsPanel");
+  const next = Boolean(open);
+  const activeInside = panel.contains(document.activeElement);
+  panel.classList.toggle("open", next);
+  panel.inert = !next;
+  panel.setAttribute("aria-hidden", String(!next));
+  $("#settingsButton").setAttribute("aria-expanded", String(next));
+  if (next) requestAnimationFrame(() => $("#closeSettings").focus());
+  else if (restoreFocus && activeInside) $("#settingsButton").focus();
+}
+
+function isMissingModelError(value) {
+  return /no models? (?:are )?loaded|no model (?:is )?(?:loaded|available)|model provider.*unavailable/i.test(String(value || ""));
+}
+
+function createModelSetupCard() {
+  const card = document.createElement("div");
+  card.className = "bubble error model-setup-card";
+  const heading = document.createElement("b");
+  heading.textContent = "No model is ready";
+  const detail = document.createElement("span");
+  detail.textContent = "Load a model in LM Studio or another Harness provider, then choose it or retry.";
+  const actions = document.createElement("div");
+  actions.className = "model-setup-actions";
+  const choose = document.createElement("button");
+  choose.type = "button";
+  choose.textContent = "Choose model";
+  choose.addEventListener("click", () => openModelPicker());
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.textContent = "Retry models";
+  retry.addEventListener("click", () => openModelPicker({ retry: true }));
+  actions.append(choose, retry);
+  card.append(heading, detail, actions);
+  return card;
+}
+
 function renderMessages(messages) {
   const root = $("#messages");
   const previousTop = root.scrollTop;
   const wasPinned = state.messagesStickToBottom;
   state.currentMessages = Array.isArray(messages) ? messages : [];
-  const stream = state.liveStreamsBySession.get(state.selectedSessionId);
-  const signature = `${state.currentMessages.map((message) => `${message.role}:${message.seq || ""}:${message.text || ""}`).join("|")}::${stream?.text || ""}`;
-  const changed = Boolean(state.historySignature && signature !== state.historySignature);
+  const liveAssistant = liveAssistantSnapshot();
+  const signature = `${state.selectedSessionId || "new"}::${state.currentMessages.map((message) => JSON.stringify([
+    message.role,
+    message.seq || "",
+    message.callId || "",
+    message.status || "",
+    Boolean(message.isError),
+    message.text || "",
+    message.arguments || "",
+    message.result || "",
+  ])).join("|")}::${liveAssistant?.text || ""}`;
+  const previousSignature = state.historySignature;
+  const changed = Boolean(previousSignature && signature !== previousSignature);
+  const unchanged = root.dataset.rendered === "true" && signature === previousSignature;
   state.historySignature = signature;
-  root.replaceChildren();
-  if (!state.currentMessages.length && !stream?.text) {
-    root.innerHTML = '<div class="empty-state">Write a message — the widget will create a session.</div>';
+  if (unchanged) {
+    syncActivityCard();
     updateScrollLatestButton();
-    return;
+    return false;
   }
+  const expandedTools = openToolKeys(root);
+  const selection = captureMessageSelection(root);
+  root.replaceChildren();
+  root.dataset.rendered = "true";
+  if (!state.currentMessages.length && !liveAssistant?.text) {
+    root.innerHTML = '<div class="empty-state">Write a message — the widget will create a session.</div>';
+    syncActivityCard();
+    updateScrollLatestButton();
+    return true;
+  }
+  let modelSetupShown = false;
   for (let index = 0; index < state.currentMessages.length;) {
     const message = state.currentMessages[index];
     if (message.role === "reasoning") {
@@ -1087,6 +1347,12 @@ function renderMessages(messages) {
       appendActivityRun(root, run);
       continue;
     }
+    if (["assistant", "error"].includes(message.role) && isMissingModelError(message.text)) {
+      if (!modelSetupShown) root.append(createModelSetupCard());
+      modelSetupShown = true;
+      index += 1;
+      continue;
+    }
     const bubble = document.createElement("div");
     bubble.className = `bubble ${message.role}`;
     if (message.html) bubble.innerHTML = message.html;
@@ -1095,6 +1361,7 @@ function renderMessages(messages) {
     index += 1;
   }
   appendLiveAssistant(root);
+  restoreOpenToolKeys(root, expandedTools);
   if (wasPinned) {
     root.scrollTop = root.scrollHeight;
     state.unseenMessages = 0;
@@ -1102,7 +1369,10 @@ function renderMessages(messages) {
     root.scrollTop = Math.min(previousTop, Math.max(0, root.scrollHeight - root.clientHeight));
     if (changed) state.unseenMessages = 1;
   }
+  restoreMessageSelection(root, selection);
+  syncActivityCard();
   updateScrollLatestButton();
+  return true;
 }
 
 function showError(error) {
@@ -1119,8 +1389,8 @@ async function refreshHistory() {
   try {
     const view = await window.widget.history(state.selectedSessionId);
     const messages = view.messages || [];
-    renderMessages(messages);
     setActivity(view.activity || null);
+    renderMessages(messages);
     const latest = messages[messages.length - 1];
     if (latest?.role === "error") setAvatar("error", "model error");
   } catch (error) {
@@ -1237,7 +1507,7 @@ function setFocusMode(enabled) {
   if (next) {
     if (state.tab !== "chat") setTab("chat");
     $("#agentControls").open = false;
-    $("#settingsPanel").classList.remove("open");
+    setSettingsOpen(false, { restoreFocus: false });
     $("#commandMenu").classList.remove("open");
     closePickers();
   } else if (state.focusReturnTab !== "chat") {
@@ -1317,7 +1587,7 @@ async function refresh() {
     const selectedRunning = Boolean(selectedSession?.running);
     $("#chatForm").classList.toggle("has-running", selectedRunning);
     $("#cancelButton").hidden = !selectedRunning;
-    if (!dashboard.harness) setAvatar("error", "Harness offline");
+    if (!dashboard.harness) setAvatar("error", "");
     else if (dashboard.sessions?.some((session) => session.running)) {
       const running = selectedSession?.running ? selectedSession : dashboard.sessions.find((session) => session.running);
       if (running?.activity) setActivity(running.activity);
@@ -1336,6 +1606,41 @@ async function refresh() {
     if (state.tab === "chat") await refreshHistory();
   } finally {
     state.refreshing = false;
+  }
+}
+
+async function startHarnessFromBanner() {
+  if (state.harnessStarting) return;
+  state.harnessStarting = true;
+  const button = $("#startHarnessButton");
+  const label = $("#offlineBannerText");
+  button.disabled = true;
+  button.textContent = "Starting…";
+  label.textContent = "Launching Harness";
+  try {
+    const result = await window.widget.startHarness();
+    if (!result?.ok) {
+      const reason = result?.reason === "remote-url"
+        ? "Remote Harness cannot be started here"
+        : "Harness could not be started";
+      throw new Error(reason);
+    }
+    label.textContent = "Connecting…";
+    await refresh();
+    if (!state.dashboard?.harness) throw new Error("Harness started but is not responding yet");
+  } catch (error) {
+    label.textContent = String(error?.message || "Harness could not be started");
+    button.textContent = "Retry";
+  } finally {
+    state.harnessStarting = false;
+    button.disabled = false;
+    if (state.dashboard?.harness) {
+      label.textContent = "Harness is offline";
+      button.textContent = "Start";
+      $("#offlineBanner").classList.remove("show");
+    } else if (button.textContent !== "Retry") {
+      button.textContent = "Start";
+    }
   }
 }
 
@@ -1360,6 +1665,7 @@ async function createNewSession({ restore = true } = {}) {
     state.selectedSessionId = result.sessionId;
     state.pendingSelection = null;
     state.modelCatalog = null;
+    state.modelLoadState = "idle";
     state.commandCatalog = [];
     await refresh();
     await Promise.all([loadModels(), loadCommands(), loadWorkspaces()]);
@@ -1442,6 +1748,56 @@ function applyGlowIntensity(value) {
   return intensity;
 }
 
+function setAutoStartStatus(text, error = false) {
+  const status = $("#autoStartStatus");
+  status.textContent = text;
+  status.classList.toggle("error", error);
+}
+
+async function updateAutoStartToggle(event) {
+  const toggle = event.currentTarget;
+  const requested = toggle.checked;
+  toggle.disabled = true;
+  setAutoStartStatus("Saving…");
+  try {
+    confirmedAutoStart = Boolean(await window.widget.setAutoStart(requested));
+    toggle.checked = confirmedAutoStart;
+    setAutoStartStatus(confirmedAutoStart ? "Enabled" : "Disabled");
+  } catch {
+    toggle.checked = confirmedAutoStart;
+    setAutoStartStatus("Could not update startup", true);
+  } finally {
+    toggle.disabled = false;
+  }
+}
+
+async function hydratePreferences() {
+  const autoStartToggle = $("#autoStartToggle");
+  autoStartToggle.disabled = true;
+  setAutoStartStatus("Checking…");
+  try {
+    const preferences = await window.widget.getPreferences();
+    $$('#windowLayerSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.layer === (preferences.windowLayer || "above")));
+    confirmedAutoStart = Boolean(preferences.autoStart);
+    autoStartToggle.checked = confirmedAutoStart;
+    autoStartToggle.disabled = preferences.autoStartAvailable === false;
+    setAutoStartStatus(
+      preferences.autoStartAvailable === false ? "Startup setting unavailable" : (confirmedAutoStart ? "Enabled" : "Disabled"),
+      preferences.autoStartAvailable === false,
+    );
+    $("#opacityRange").value = Math.round(preferences.opacity * 100);
+    $("#opacityValue").textContent = `${Math.round(preferences.opacity * 100)}%`;
+    applyGlowIntensity(preferences.glowIntensity);
+    $$('#sizeSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.size === preferences.size));
+    applyCompactSide(preferences.compactSide || "right");
+    applyWindowMode(preferences.windowMode || "full");
+  } catch {
+    autoStartToggle.checked = confirmedAutoStart;
+    autoStartToggle.disabled = true;
+    setAutoStartStatus("Could not read startup setting", true);
+  }
+}
+
 document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => setTab(button.dataset.tab)));
 $("#sessionButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#modelButton").addEventListener("click", (event) => {
@@ -1452,14 +1808,31 @@ $("#modelButton").addEventListener("click", (event) => {
 $("#reasoningButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#workspaceButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#modelSearch").addEventListener("input", (event) => renderModelOptions(event.target.value));
+$("#modelMenu").addEventListener("keydown", (event) => {
+  if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && moveModelOptionFocus(event.key)) {
+    event.preventDefault();
+    return;
+  }
+  if (event.key === "Enter" && document.activeElement?.matches("#modelOptions .picker-option")) {
+    event.preventDefault();
+    document.activeElement.click();
+  }
+});
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".picker")) closePickers();
   if (!event.target.closest("#commandMenu, #commandsButton, #messageInput")) setCommandMenuOpen(false);
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
-    closePickers();
+    const settingsOpen = $("#settingsPanel").classList.contains("open");
+    const pickerOpen = Boolean($(".picker.open"));
+    if (settingsOpen) setSettingsOpen(false);
+    else if (pickerOpen) closePickers(null, { restoreFocus: true });
     setCommandMenuOpen(false);
+    if (settingsOpen || pickerOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
   }
 });
 $("#newSessionButton").addEventListener("click", () => createNewSession());
@@ -1498,7 +1871,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
   const queueingBehindTurn = Boolean(targetSessionId && state.runningSessionIds.has(targetSessionId));
   const attachmentCount = state.pendingAttachments.length;
   $("#agentControls").open = false;
-  $("#settingsPanel").classList.remove("open");
+  setSettingsOpen(false, { restoreFocus: false });
   setCommandMenuOpen(false);
   closePickers();
   $("#sendButton").disabled = true;
@@ -1594,7 +1967,7 @@ $("#scrollLatestButton").addEventListener("click", () => {
 });
 $("#cancelButton").addEventListener("click", async () => state.selectedSessionId && window.widget.cancel(state.selectedSessionId));
 $("#focusChatButton").addEventListener("click", () => setFocusMode(!state.focusMode));
-$("#offlineBanner").addEventListener("click", () => window.widget.startHarness());
+$("#startHarnessButton").addEventListener("click", startHarnessFromBanner);
 $("#openHarnessButton").addEventListener("click", () => window.widget.openHarness());
 $("#openSessionButton").addEventListener("click", () => {
   if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId);
@@ -1634,13 +2007,13 @@ $("#projectLink").addEventListener("click", (event) => {
   if (suppressProjectClick) event.preventDefault();
   else window.widget.openProject();
 });
-$("#settingsButton").addEventListener("click", () => $("#settingsPanel").classList.toggle("open"));
-$("#closeSettings").addEventListener("click", () => $("#settingsPanel").classList.remove("open"));
+$("#settingsButton").addEventListener("click", () => setSettingsOpen(!$("#settingsPanel").classList.contains("open")));
+$("#closeSettings").addEventListener("click", () => setSettingsOpen(false));
 $$('#windowLayerSwitch button').forEach((button) => button.addEventListener("click", async () => {
   const value = await window.widget.setWindowLayer(button.dataset.layer);
   $$('#windowLayerSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.layer === value));
 }));
-$("#autoStartToggle").addEventListener("change", async (event) => { event.target.checked = await window.widget.setAutoStart(event.target.checked); });
+$("#autoStartToggle").addEventListener("change", updateAutoStartToggle);
 $("#opacityRange").addEventListener("input", async (event) => {
   const percent = Number(event.target.value);
   $("#opacityValue").textContent = `${percent}%`;
@@ -1695,19 +2068,10 @@ window.widget.onEdgeBounce(() => {
   void edge.offsetWidth;
   edge.classList.add("bounce");
 });
-window.widget.getPreferences().then((preferences) => {
-  $$('#windowLayerSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.layer === (preferences.windowLayer || "above")));
-  $("#autoStartToggle").checked = preferences.autoStart;
-  $("#opacityRange").value = Math.round(preferences.opacity * 100);
-  $("#opacityValue").textContent = `${Math.round(preferences.opacity * 100)}%`;
-  applyGlowIntensity(preferences.glowIntensity);
-  $$('#sizeSwitch button').forEach((item) => item.classList.toggle("active", item.dataset.size === preferences.size));
-  applyCompactSide(preferences.compactSide || "right");
-  applyWindowMode(preferences.windowMode || "full");
-});
+hydratePreferences();
 window.widget.getAppInfo().then((info) => {
   $("#versionLabel").textContent = `v${info.version}`;
-  $("#projectLink").title = `Open NeoXider/deepseek-harness-widget v${info.version} on GitHub`;
+  $("#projectLink").title = `Open NeoXider/neoxider-agent-deck v${info.version} on GitHub`;
 });
 
 const launchParams = new URLSearchParams(location.search);
@@ -1720,15 +2084,39 @@ renderNotifications();
 renderAttachments();
 renderQueuedPrompts();
 renderMode();
+// A hidden widget still has to notice a finished turn, so polling never stops —
+// it just slows down instead of hitting Harness every 2.5s behind a minimized window.
+const POLL_INTERVAL_VISIBLE = 2500;
+const POLL_INTERVAL_HIDDEN = 10000;
+
+function schedulePolling() {
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  const interval = document.hidden ? POLL_INTERVAL_HIDDEN : POLL_INTERVAL_VISIBLE;
+  state.pollInterval = interval;
+  state.pollTimer = setInterval(refresh, interval);
+}
+
 if (!screenshotFixture) {
   refresh();
-  setInterval(refresh, 2500);
+  schedulePolling();
+  document.addEventListener("visibilitychange", () => {
+    schedulePolling();
+    if (!document.hidden) refresh();
+  });
 }
 
 if (screenshotFixture) {
   setTimeout(async () => {
     if (screenshotFixture === "edge-hover") {
       $("#edgeMode").classList.add("edge-hit-active");
+    } else if (screenshotFixture === "offline") {
+      setTab("chat");
+      state.dashboard = { harness: false, sessions: [] };
+      state.selectedSessionId = null;
+      $("#offlineBanner").classList.add("show");
+      setAvatar("error", "");
+      renderSessionSelect();
+      renderMessages([]);
     } else if (screenshotFixture === "overview") {
       setTab("agents");
       state.dashboard = {
@@ -1763,10 +2151,24 @@ if (screenshotFixture) {
           { id: "openai", name: "OpenAI", models: [{ id: "gpt-5.6", name: "GPT-5.6" }, { id: "gpt-5.6-codex", name: "GPT-5.6 Codex" }] },
         ],
       };
+      state.modelLoadState = "ready";
       state.pendingSelection = state.modelCatalog.current;
       renderModels();
       $("#agentControls").open = true;
       togglePicker($("#modelButton"));
+    } else if (screenshotFixture === "model-empty") {
+      setTab("chat");
+      state.modelCatalog = { current: null, groups: [], failures: [] };
+      state.modelLoadState = "ready";
+      renderModels();
+      $("#agentControls").open = true;
+      togglePicker($("#modelButton"));
+    } else if (screenshotFixture === "model-error") {
+      setTab("chat");
+      renderMessages([
+        { role: "assistant", text: "400: No models loaded" },
+        { role: "error", text: "400: No models loaded" },
+      ]);
     } else if (["commands", "focus-commands"].includes(screenshotFixture)) {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-commands", title: "Command palette", running: false, projections: { values: { contextPressure: { projectedTokens: 22000, contextWindow: 131072 } } }, subagents: [] }] };
@@ -1819,11 +2221,15 @@ if (screenshotFixture) {
       setTab("chat");
       applyGlowIntensity(0.82);
       setActivity({ active: true, kind: "writing", label: "Writing", text: "Composing the answer in the mini-chat…" });
-      $("#settingsPanel").classList.add("open");
+      setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "attachments") {
       setTab("chat");
       const paths = (launchParams.get("screenshotFiles") || "").split("|").filter(Boolean);
       if (paths.length) addAttachments(await window.widget.prepareFiles(paths));
+      else addAttachments([
+        { kind: "reference", previewKind: "file", path: "C:\\demo\\release-notes.md", name: "release-notes.md" },
+        { kind: "reference", previewKind: "video", path: "C:\\demo\\widget-preview.mp4", name: "widget-preview.mp4" },
+      ]);
     } else if (screenshotFixture === "orb-notification") {
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-notification", title: "Unity gameplay pass", updatedAt: Date.now(), running: false, state: "idle", preview: "The Play Mode verification finished successfully.", projections: { values: {} }, subagents: [] }] };
       state.selectedSessionId = "demo-notification";
@@ -1839,6 +2245,7 @@ if (screenshotFixture) {
       setTab("chat");
       setAvatar("working", "writing");
       setActivity({ active: true, kind: "writing", label: "Writing", text: "Composing the answer in the mini-chat…" });
+      renderMessages([]);
     } else if (screenshotFixture === "tool") {
       setTab("chat");
       setAvatar("working", "using tool");

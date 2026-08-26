@@ -1,16 +1,17 @@
 <p align="center">
-  <img src="docs/cover.png" alt="DeepSeek Harness Widget — Agent Deck" width="100%" />
+  <img src="docs/cover.png" alt="NeoXider Agent Deck" width="100%" />
 </p>
 
-<h1 align="center">DeepSeek Harness Widget</h1>
+<h1 align="center">NeoXider Agent Deck</h1>
 
-<p align="center"><strong>An animated Windows desktop companion for agents, context and chat.</strong></p>
+<p align="center"><strong>Your agents, alive on the desktop — a glowing companion for DeepSeek Harness sessions, context and chat.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/NeoXider/deepseek-harness-widget/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/deepseek-harness-widget/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.2.3-8b79ff" />
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.3.0-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.3.0-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -96,6 +97,7 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Focus Chat** — one compact composer button hides all chrome and setup surfaces, leaving only messages, optional attachment previews, the input, context and actions; tap it again to restore everything.
 - **Three window states** — full deck, notification avatar, or an iridescent edge handle.
 - **Draggable compact modes** — drag either the avatar or the edge handle anywhere vertically or across displays; release to magnetize it to the nearest screen edge.
+- **Persistent per-mode placement** — full, avatar and edge modes remember their own monitor, side and vertical position across restarts; missing displays are handled by safely clamping the window into the current work area.
 - **Click-through edge glow** — only the visible 8 px edge line (plus a small 5 px comfort margin) accepts hover, restore, and drag input; the wider transparent glow area no longer blocks clicks in apps underneath. The line gently lifts inward on hover.
 - **Smooth pet status glow** — the collapsed avatar now eases between idle, thinking, writing, tool, waiting, error, and done palettes instead of switching its ring abruptly.
 - **Classic NeoXider slimes** — idle, working, waiting, error, and done now use the original soft-bottom mascot shapes from NeoXider Video Studio instead of the round variants.
@@ -106,20 +108,24 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **No close button** — window close gestures dock the widget to the screen edge. Quit remains available from the tray menu.
 - **Single-instance launch** — repeated shortcut clicks focus the existing widget instead of stacking translucent windows.
 - **Personal controls** — opacity, compact/standard/large size, chat glow intensity, window layer and Windows autostart.
+- **Locked-down renderer** — a strict Content Security Policy (`default-src 'none'`, no `unsafe-inline`, no `unsafe-eval`), denied window creation, blocked navigation and protocol-checked external links mean model output can render but never execute or navigate.
+- **Survives a renderer crash** — a frameless transparent window that loses its renderer is reloaded automatically instead of lingering as a dead shape that only the task manager can remove.
+- **Keyboard and screen reader support** — every reachable control draws a visible focus ring, dimmed labels hold WCAG AA contrast, and the conversation is exposed as an ARIA log region.
+- **Reliable portable autostart** — Start with Windows targets the stable portable launcher instead of Electron's temporary extracted child; existing stale startup entries are migrated automatically.
 
 ## Install
 
 ### Portable release
 
-1. Download the latest `DeepSeek-Harness-Widget-*-portable.exe` from [Releases](https://github.com/NeoXider/deepseek-harness-widget/releases/latest).
+1. Download the latest `NeoXider-Agent-Deck-*-windows-x64-portable.exe` from [Releases](https://github.com/NeoXider/neoxider-agent-deck/releases/latest).
 2. Start DeepSeek Harness Web on `http://127.0.0.1:3080`.
 3. Run the portable executable.
 
 To install the latest release under `%LOCALAPPDATA%`, create a desktop shortcut and launch it:
 
 ```powershell
-git clone https://github.com/NeoXider/deepseek-harness-widget.git
-cd deepseek-harness-widget
+git clone https://github.com/NeoXider/neoxider-agent-deck.git
+cd neoxider-agent-deck
 powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop.ps1
 ```
 
@@ -128,8 +134,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop.ps1
 Requirements: Node.js 22+ and a running DeepSeek Harness Web profile.
 
 ```powershell
-git clone https://github.com/NeoXider/deepseek-harness-widget.git
-cd deepseek-harness-widget
+git clone https://github.com/NeoXider/neoxider-agent-deck.git
+cd neoxider-agent-deck
 npm ci
 npm test
 npm run test:ui
@@ -189,7 +195,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/DeepSeek-Harness-Widget-0.2.3-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.3.0-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
@@ -200,6 +206,25 @@ The renderer is sandboxed with `contextIsolation` enabled and Node.js integratio
 ## Companion project
 
 Reduce MCP schema overhead with one lazy tool: [DeepSeek Capability Hub](https://github.com/NeoXider/deepseek-capability-hub).
+
+## Roadmap
+
+Planned screen-region capture, configurable global hotkeys, overlay diagnostics and compact-session improvements are tracked in [TODO.md](TODO.md).
+
+## Changelog
+
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.3.0,
+renames the project to NeoXider Agent Deck and closes the findings of a full security,
+accessibility and resilience audit.
+
+## Platform support
+
+Windows 10 and 11 is the supported and continuously verified target: it is what CI builds
+and what the portable release ships for. The macOS and Linux build targets are configured
+and the code paths are platform-aware, but they are **experimental** — desktop autostart on
+Linux is not implemented yet, and `Start Harness` relies on `npx` being present in the
+launcher environment, which is not guaranteed for an app started from Finder or a desktop
+launcher.
 
 ## Contributing
 
