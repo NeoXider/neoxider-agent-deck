@@ -69,6 +69,9 @@ test("composer stacks attachment and commands beside a smaller context ring and 
   assert.match(css, /\.context-meter\.unavailable \{ display:grid; opacity:\.64; \}/);
   assert.match(renderer, /classList\.toggle\("context-unavailable", !pressure\)/);
   assert.match(renderer, /\$\("#contextValue"\)\.textContent = "0%"/);
+  assert.match(html, /id="contextMeter"[^>]+role="progressbar"[^>]+aria-valuemin="0"[^>]+aria-valuemax="100"[^>]+aria-valuenow="0"/);
+  assert.match(renderer, /meter\.setAttribute\("aria-valuenow", "0"\)/);
+  assert.match(renderer, /meter\.setAttribute\("aria-valuetext", `Context usage \$\{rounded\}%/);
   assert.match(renderer, /attachment-preview/);
   assert.match(renderer, /thumbnailData/);
 });
@@ -101,6 +104,7 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(renderer, /No models loaded/);
   assert.match(renderer, /Models unavailable/);
   assert.match(renderer, /function retryModels/);
+  assert.match(renderer, /function positionPickerMenu/);
   assert.match(renderer, /function createModelSetupCard/);
   assert.match(renderer, /Choose model/);
   assert.match(renderer, /Retry models/);
@@ -525,7 +529,7 @@ test("compact errors are acknowledged in full chat and completion feedback is fi
   assert.match(renderer, /state\.selectedSessionId = sessionId;[\s\S]+?await setWindowMode\("full"\)/);
   assert.match(renderer, /state\.avatarMode === "error" && !state\.compactErrorUnread && !state\.harnessOffline/);
   assert.match(renderer, /session\?\.state === "error"\) signalSessionError\(session\)/);
-  assert.match(renderer, /latest\?\.role === "error" && state\.windowMode === "full"/);
+  assert.match(renderer, /if \(state\.windowMode === "full"\) \{[\s\S]+?if \(latest\?\.role === "error"\) setAvatar\("error", "model error"\)/);
   assert.match(renderer, /function clearCompletionSignal\(\)/);
   assert.match(renderer, /document\.body\.classList\.add\("completion-celebration"\)/);
   assert.match(renderer, /state\.completionSignalTimer = setTimeout[\s\S]+?\}, 2600\)/);

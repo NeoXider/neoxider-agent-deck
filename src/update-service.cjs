@@ -5,6 +5,9 @@ const { spawn } = require("node:child_process");
 const { REPOSITORY_SLUG } = require("./product.cjs");
 
 const DEFAULT_MAX_UPDATE_BYTES = 256 * 1024 * 1024;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
+const DEFAULT_DOWNLOAD_IDLE_TIMEOUT_MS = 30_000;
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const SHA256_DIGEST = /^sha256:([a-f\d]{64})$/i;
 const STATUSES = Object.freeze([
@@ -209,6 +212,30 @@ async function writeAll(fileHandle, value, position) {
   }
 }
 
+function timedOperation(operation, timeoutMs, controller, error) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      try { controller?.abort(); } catch {}
+      reject(error);
+    }, timeoutMs);
+  });
+  return Promise.race([operation, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function removeStaleUpdateFiles(fileSystem, directory, targetName) {
+  const prefix = `.${targetName}.`;
+  let entries;
+  try {
+    entries = await fileSystem.readdir(directory, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  await Promise.all(entries
+    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix) && (entry.name.endsWith(".update") || entry.name.endsWith(".update.ps1")))
+    .map((entry) => fileSystem.rm(path.join(directory, entry.name), { force: true }).catch(() => {})));
+}
+
 function childSpawned(child) {
   if (!child || typeof child.once !== "function") {
     child?.unref?.();
@@ -281,12 +308,22 @@ function createUpdateService({
   openExternal = null,
   onState = () => {},
   maxBytes = DEFAULT_MAX_UPDATE_BYTES,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  downloadTimeoutMs = DEFAULT_DOWNLOAD_TIMEOUT_MS,
+  downloadIdleTimeoutMs = DEFAULT_DOWNLOAD_IDLE_TIMEOUT_MS,
+  abortControllerFactory = () => new AbortController(),
+  now = () => Date.now(),
   parentPid = process.pid,
 } = {}) {
   if (!parseStableVersion(currentVersion)) throw new TypeError("currentVersion must be a stable semantic version");
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new TypeError("repository must be owner/name");
   if (typeof fetchImpl !== "function") throw new TypeError("fetchImpl must be a function");
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new TypeError("maxBytes must be a positive safe integer");
+  for (const [name, value] of Object.entries({ requestTimeoutMs, downloadTimeoutMs, downloadIdleTimeoutMs })) {
+    if (!Number.isSafeInteger(value) || value < 1) throw new TypeError(`${name} must be a positive safe integer`);
+  }
+  if (typeof abortControllerFactory !== "function") throw new TypeError("abortControllerFactory must be a function");
+  if (typeof now !== "function") throw new TypeError("now must be a function");
 
   let state = Object.freeze({
     status: "idle",
@@ -361,13 +398,15 @@ function createUpdateService({
       manualReason: null,
     });
     try {
-      const response = await fetchImpl(`https://api.github.com/repos/${repository}/releases/latest`, {
+      const controller = abortControllerFactory();
+      const response = await timedOperation(fetchImpl(`https://api.github.com/repos/${repository}/releases/latest`, {
         headers: {
           Accept: "application/vnd.github+json",
           "User-Agent": "NeoXider-Agent-Deck-Updater",
           "X-GitHub-Api-Version": "2022-11-28",
         },
-      });
+        signal: controller.signal,
+      }), requestTimeoutMs, controller, updateError("UPDATE_TIMEOUT", "The update check timed out"));
       if (!response?.ok) throw updateError("UPDATE_CHECK_HTTP", "GitHub could not be reached for updates");
       const release = await response.json();
       const latestVersion = releaseVersion(release);
@@ -438,6 +477,7 @@ function createUpdateService({
     });
 
     const targetDirectory = path.dirname(installContext.target);
+    await removeStaleUpdateFiles(fileSystem, targetDirectory, path.basename(installContext.target));
     const token = String(randomId()).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 48) || String(process.pid);
     const stageName = `.${path.basename(installContext.target)}.${candidate.version}.${token}.update`;
     const pendingPath = path.join(targetDirectory, stageName);
@@ -455,10 +495,13 @@ function createUpdateService({
     }
 
     try {
-      const response = await fetchImpl(candidate.asset.url, {
+      const controller = abortControllerFactory();
+      const startedAt = now();
+      const response = await timedOperation(fetchImpl(candidate.asset.url, {
         headers: { "User-Agent": "NeoXider-Agent-Deck-Updater" },
         redirect: "follow",
-      });
+        signal: controller.signal,
+      }), requestTimeoutMs, controller, updateError("UPDATE_TIMEOUT", "The update download could not start in time"));
       if (!response?.ok || !response.body) throw updateError("UPDATE_DOWNLOAD_HTTP", "The update download failed");
       const announcedLength = Number(response.headers?.get?.("content-length"));
       if (Number.isFinite(announcedLength) && announcedLength > maxBytes) {
@@ -468,7 +511,18 @@ function createUpdateService({
       const hash = hashFactory();
       let received = 0;
       let lastProgress = 0;
-      for await (const value of response.body) {
+      const iterator = response.body[Symbol.asyncIterator]();
+      while (true) {
+        const remaining = downloadTimeoutMs - (now() - startedAt);
+        if (remaining <= 0) throw updateError("UPDATE_TIMEOUT", "The update download timed out");
+        const next = await timedOperation(
+          iterator.next(),
+          Math.min(downloadIdleTimeoutMs, remaining),
+          controller,
+          updateError("UPDATE_TIMEOUT", "The update download stalled"),
+        );
+        if (next.done) break;
+        const value = next.value;
         const chunk = Buffer.from(value);
         if (received + chunk.length > maxBytes || received + chunk.length > candidate.asset.size) {
           throw updateError("UPDATE_TOO_LARGE", "The update exceeds its declared size");
@@ -567,7 +621,10 @@ function createUpdateService({
 }
 
 module.exports = {
+  DEFAULT_DOWNLOAD_IDLE_TIMEOUT_MS,
+  DEFAULT_DOWNLOAD_TIMEOUT_MS,
   DEFAULT_MAX_UPDATE_BYTES,
+  DEFAULT_REQUEST_TIMEOUT_MS,
   POWERSHELL_REPLACEMENT_HELPER,
   UpdateError,
   compareStableVersions,
@@ -577,5 +634,6 @@ module.exports = {
   parseStableVersion,
   releaseVersion,
   resolvePortableInstallTarget,
+  removeStaleUpdateFiles,
   selectWindowsPortableAsset,
 };

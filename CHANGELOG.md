@@ -5,6 +5,32 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-27
+
+### Added
+
+- Region and full-display screenshot capture with reviewable chat attachments.
+- Six configurable global hotkeys with conflict validation, disable/reset controls, and persistence.
+- Managed installer/AppImage updates plus a digest-verified atomic updater for Windows portable builds.
+- A Start Harness action in the single offline banner and exact-session Harness deep links.
+- Empty-session context now remains as a calm accessible `0%` ring instead of leaving a visual hole.
+
+### Changed
+
+- Chat is the first surface; compact Avatar mode exposes the three latest session replies and inline reply actions.
+- Header, composer, model picker, settings, Markdown palette, tool groups, attachment previews, and Edge/Avatar glow were tightened for 360–420 px layouts.
+- Full, Avatar, and Edge positions, opacity, glow, size, layer, hotkeys, and autostart are restored independently across restarts.
+- Release publication now uses a least-privilege draft gate and verifies the complete cross-platform artifact set before making a release public.
+
+### Fixed
+
+- Session switching can no longer apply stale history, model, command, queue, send, or streaming results to another chat.
+- A completed turn can no longer delete the first streamed fragment of the next queued turn.
+- Background work and errors no longer leak glow or status into the selected idle session.
+- Auxiliary capture/attachment errors no longer replace visible chat history.
+- Manual scroll position, live-bubble identity, autostart opt-out, compact drag resize, and tray quit remain stable.
+- Portable update requests are bounded, partial staging files are cleaned safely, and installer downloads enforce exact size and SHA-256.
+
 ## [0.4.3] - 2026-08-26
 
 ### Fixed
@@ -254,6 +280,7 @@ full audit of the main process, the renderer and the UI.
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.5.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.5.0
 [0.4.3]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.3
 [0.4.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.2
 [0.4.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.1

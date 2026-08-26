@@ -26,6 +26,7 @@ const state = {
   unread: 0,
   dashboardInitialized: false,
   runningSessionIds: new Set(),
+  sessionSnapshotsById: new Map(),
   completedSignalSessionIds: new Set(),
   errorSignalSessionIds: new Set(),
   unacknowledgedErrorSessionIds: new Set(),
@@ -49,6 +50,7 @@ const state = {
   nextQueuedPromptId: 1,
   queueEditingId: null,
   queueBusyId: null,
+  queueBusySessionId: null,
   liveStreamsBySession: new Map(),
   currentMessages: [],
   messagesStickToBottom: true,
@@ -156,6 +158,19 @@ function togglePicker(button) {
   picker.classList.toggle("open", open);
   button.setAttribute("aria-expanded", String(open));
   picker.querySelector(".picker-menu")?.setAttribute("aria-hidden", String(!open));
+  if (open) positionPickerMenu(picker);
+}
+
+function positionPickerMenu(picker) {
+  const button = picker?.querySelector(".picker-button");
+  const menu = picker?.querySelector(".picker-menu");
+  if (!button || !menu) return;
+  const rect = button.getBoundingClientRect();
+  const below = Math.max(88, window.innerHeight - rect.bottom - 12);
+  const above = Math.max(88, rect.top - 12);
+  const opensUp = below < 176 && above > below;
+  picker.classList.toggle("open-up", opensUp);
+  menu.style.setProperty("--picker-max-height", `${Math.floor(opensUp ? above : below)}px`);
 }
 
 function pickerOption(label, { selected = false, meta = "", title = "", key = "", onSelect } = {}) {
@@ -680,6 +695,8 @@ function renderContext() {
     $("#contextArc").style.strokeDashoffset = "97.39";
     $("#contextValue").textContent = "0%";
     meter.title = "Context usage unavailable";
+    meter.setAttribute("aria-valuenow", "0");
+    meter.setAttribute("aria-valuetext", "Context usage unavailable, 0%");
     return;
   }
   const rounded = Math.round(pressure.percent);
@@ -687,6 +704,8 @@ function renderContext() {
   $("#contextArc").style.strokeDashoffset = String(97.39 * (1 - rounded / 100));
   $("#contextValue").textContent = `${rounded}%`;
   meter.title = `Context: ${formatTokens(pressure.used)} / ${formatTokens(pressure.total)} tokens`;
+  meter.setAttribute("aria-valuenow", String(rounded));
+  meter.setAttribute("aria-valuetext", `Context usage ${rounded}%, ${formatTokens(pressure.used)} of ${formatTokens(pressure.total)} tokens`);
   meter.classList.toggle("high", rounded >= 70 && rounded < 90);
   meter.classList.toggle("critical", rounded >= 90);
 }
@@ -1164,26 +1183,30 @@ function queueActionButton(icon, title, className, onClick, disabled = false) {
 }
 
 async function updateQueuedPrompt(item, action) {
-  if (!state.selectedSessionId || !item?.id || item.optimistic) return;
+  const sessionId = state.selectedSessionId;
+  if (!sessionId || !item?.id || item.optimistic) return;
   state.queueBusyId = item.id;
+  state.queueBusySessionId = sessionId;
   renderQueuedPrompts();
   try {
-    await window.widget.updateQueue({ sessionId: state.selectedSessionId, itemId: item.id, action });
-    const items = queuedPromptsFor();
+    await window.widget.updateQueue({ sessionId, itemId: item.id, action });
+    const items = queuedPromptsFor(sessionId);
     if (["remove", "steer"].includes(action.kind)) {
-      state.queuedPromptsBySession.set(state.selectedSessionId, items.filter((entry) => entry.id !== item.id));
+      state.queuedPromptsBySession.set(sessionId, items.filter((entry) => entry.id !== item.id));
     } else if (action.kind === "edit") {
-      state.queuedPromptsBySession.set(state.selectedSessionId, items.map((entry) => entry.id === item.id
+      state.queuedPromptsBySession.set(sessionId, items.map((entry) => entry.id === item.id
         ? { ...entry, text: action.text, preview: action.text }
         : entry));
     }
-    state.queueEditingId = null;
+    if (sessionId === state.selectedSessionId) state.queueEditingId = null;
   } catch (error) {
-    showError(error);
-    setAvatar("error", "queue error");
+    if (sessionId === state.selectedSessionId) showTransientActivityError(error, "Queue update failed");
   } finally {
-    state.queueBusyId = null;
-    renderQueuedPrompts();
+    if (state.queueBusyId === item.id && state.queueBusySessionId === sessionId) {
+      state.queueBusyId = null;
+      state.queueBusySessionId = null;
+    }
+    if (sessionId === state.selectedSessionId) renderQueuedPrompts();
   }
 }
 
@@ -1204,7 +1227,7 @@ function renderQueuedPrompts() {
     position.title = "Queued in Harness";
     row.append(position);
     const editing = state.queueEditingId === item.id;
-    const busy = state.queueBusyId === item.id;
+    const busy = state.queueBusySessionId === state.selectedSessionId && state.queueBusyId === item.id;
     const actions = document.createElement("span");
     actions.className = "queue-actions";
     if (editing) {
@@ -1410,8 +1433,13 @@ async function applyModelSelection() {
 }
 
 async function selectSession(sessionId, openChat = false) {
+  const previousSessionId = state.selectedSessionId;
   state.selectedSessionId = sessionId || null;
   if (state.windowMode === "full") acknowledgeSessionError(state.selectedSessionId);
+  if (previousSessionId !== state.selectedSessionId && state.avatarMode === "error" && !state.harnessOffline) {
+    if (state.currentActivity?.kind === "error") setActivity(null);
+    setAvatar("idle");
+  }
   state.messagesStickToBottom = true;
   state.unseenMessages = 0;
   state.historySignature = "";
@@ -1605,6 +1633,7 @@ function openModelPicker({ retry = false } = {}) {
   const picker = button.closest(".picker");
   closePickers(picker);
   picker.classList.add("open");
+  positionPickerMenu(picker);
   button.setAttribute("aria-expanded", "true");
   if (retry) retryModels();
   setTimeout(() => $("#modelSearch").focus(), 0);
@@ -1787,7 +1816,7 @@ function renderMessages(messages) {
 }
 
 function showError(error) {
-  renderMessages([{ role: "error", text: String(error?.message || error) }]);
+  showTransientActivityError(error, "Something went wrong");
 }
 
 function showTransientActivityError(error, label) {
@@ -1819,7 +1848,10 @@ async function refreshHistory() {
     setActivity(view.activity || null);
     renderMessages(messages);
     const latest = messages[messages.length - 1];
-    if (latest?.role === "error" && state.windowMode === "full") setAvatar("error", "model error");
+    if (state.windowMode === "full") {
+      if (latest?.role === "error") setAvatar("error", "model error");
+      else if (state.avatarMode === "error" && !state.harnessOffline) setAvatar("idle");
+    }
   } catch (error) {
     if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return;
     showError(error);
@@ -1905,6 +1937,7 @@ async function handleLiveEvent(payload) {
   }
 
   if (event.type === "turn/end") {
+    const completedStream = stream;
     const failed = event.data?.reason?.kind === "error";
     updateLiveSessionState(sessionId, false, null, failed ? "error" : "idle");
     const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId) || { sessionId };
@@ -1913,8 +1946,10 @@ async function handleLiveEvent(payload) {
     if (sessionId === state.selectedSessionId) {
       setTimeout(async () => {
         await refreshHistory();
-        state.liveStreamsBySession.delete(sessionId);
-        renderMessages(state.currentMessages);
+        if (state.liveStreamsBySession.get(sessionId) === completedStream) {
+          state.liveStreamsBySession.delete(sessionId);
+        }
+        if (sessionId === state.selectedSessionId) renderMessages(state.currentMessages);
       }, 90);
     } else {
       state.liveStreamsBySession.delete(sessionId);
@@ -2092,10 +2127,25 @@ function detectCompletedSessions(nextSessions) {
         else notifyCompletion(session);
       }
     }
+    for (const session of nextSessions) {
+      if (session.running) continue;
+      const previous = state.sessionSnapshotsById.get(session.sessionId);
+      if (!previous || previous.running) continue;
+      const changed = session.updatedAt !== previous.updatedAt || session.preview !== previous.preview;
+      if (!changed) continue;
+      if (session.state === "error" && previous.state !== "error") signalSessionError(session);
+      else if (session.preview && session.preview !== previous.preview) notifyCompletion(session);
+    }
   } else {
     for (const session of nextSessions) if (!session.running && session.state === "error") signalSessionError(session);
   }
   state.runningSessionIds = currentRunning;
+  state.sessionSnapshotsById = new Map(nextSessions.map((session) => [session.sessionId, {
+    running: Boolean(session.running),
+    state: session.state || "idle",
+    updatedAt: session.updatedAt,
+    preview: session.preview || "",
+  }]));
   state.dashboardInitialized = true;
 }
 
@@ -2121,6 +2171,7 @@ async function refresh() {
       state.completedSignalSessionIds.clear();
       state.errorSignalSessionIds.clear();
       state.unacknowledgedErrorSessionIds.clear();
+      state.sessionSnapshotsById.clear();
       syncUnacknowledgedErrors();
       state.dashboardInitialized = false;
     }
@@ -2196,17 +2247,19 @@ async function startHarnessFromBanner() {
   }
 }
 
-async function executeHarnessCommand(line) {
-  if (!state.selectedSessionId) throw new Error("Select or create a session first");
+async function executeHarnessCommand(line, sessionId = state.selectedSessionId) {
+  if (!sessionId) throw new Error("Select or create a session first");
   setAvatar("working", "running command");
-  const value = await window.widget.executeCommand({ sessionId: state.selectedSessionId, line });
+  const value = await window.widget.executeCommand({ sessionId, line });
   const result = value?.result;
+  if (sessionId !== state.selectedSessionId) return result;
   renderMessages([
     { role: "user", text: line },
     { role: result?.kind === "error" ? "error" : "command", text: result?.text || "Command completed" },
   ]);
   setAvatar(result?.kind === "error" ? "error" : "done", result?.kind === "error" ? "command error" : "command done");
   await refreshHistory();
+  return result;
 }
 
 async function createNewSession({ restore = true } = {}) {
@@ -2653,8 +2706,10 @@ $("#chatForm").addEventListener("submit", async (event) => {
   const text = input.value.trim();
   if (!text && !state.pendingAttachments.length) return;
   const targetSessionId = state.selectedSessionId;
+  const submittedSelection = state.pendingSelection;
+  const submittedAttachments = [...state.pendingAttachments];
   const queueingBehindTurn = Boolean(targetSessionId && state.runningSessionIds.has(targetSessionId));
-  const attachmentCount = state.pendingAttachments.length;
+  const attachmentCount = submittedAttachments.length;
   $("#agentControls").open = false;
   setSettingsOpen(false, { restoreFocus: false });
   setCommandMenuOpen(false);
@@ -2667,28 +2722,33 @@ $("#chatForm").addEventListener("submit", async (event) => {
   try {
     const commandName = /^\/(\S+)/.exec(text)?.[1];
     if (commandName && state.commandCatalog.some((command) => command.name === commandName)) {
-      await executeHarnessCommand(text);
+      await executeHarnessCommand(text, targetSessionId);
     } else {
       setAvatar("working", "sending");
       const result = await window.widget.send({
-        sessionId: state.selectedSessionId,
+        sessionId: targetSessionId,
         text,
-        selection: state.pendingSelection,
-        attachments: state.pendingAttachments,
+        selection: submittedSelection,
+        attachments: submittedAttachments,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
-      state.selectedSessionId = result.sessionId;
+      const stillOwnsVisibleSession = state.selectedSessionId === targetSessionId;
+      if (!targetSessionId || stillOwnsVisibleSession) state.selectedSessionId = result.sessionId;
       if (queueingBehindTurn) trackQueuedPrompt(result.sessionId, { text, attachmentCount });
-      state.pendingAttachments = [];
+      const submittedPaths = new Set(submittedAttachments.map((attachment) => attachment.path));
+      state.pendingAttachments = state.pendingAttachments.filter((attachment) => !submittedPaths.has(attachment.path));
       renderAttachments();
-      setAvatar("waiting", "waiting for reply");
-      await refresh();
+      if (!targetSessionId || stillOwnsVisibleSession) {
+        setAvatar("waiting", "waiting for reply");
+        await refresh();
+      }
     }
   } catch (error) {
-    input.value = text;
+    if (!input.value.trim()) input.value = text;
     resizeMessageInput();
-    showError(error);
-    setAvatar("error", "not sent");
+    if (!targetSessionId || state.selectedSessionId === targetSessionId) {
+      showTransientActivityError(error, "Message not sent");
+    }
   } finally {
     $("#sendButton").disabled = false;
     $("#sendButton").classList.remove("sending");

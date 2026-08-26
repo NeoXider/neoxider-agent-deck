@@ -25,6 +25,8 @@ const cases = [
   { name: "hotkey-settings", tab: "chat", fixture: "hotkey-settings", width: 420, height: 640, expect: { settingsOpen: true, hotkeySettingsOpen: true, hotkeyRows: 6 } },
   { name: "capture-menu", tab: "chat", fixture: "capture-menu", expect: { captureMenuOpen: true, captureRows: 2 } },
   { name: "model", tab: "chat", fixture: "model", expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B" } },
+  { name: "model-360", tab: "chat", fixture: "model", width: 360, height: 360, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false } },
+  { name: "model-380", tab: "chat", fixture: "model", width: 380, height: 400, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false } },
   { name: "model-closed", tab: "chat", fixture: "model-closed", expect: { closedModelLabel: "Qwen 3.5 9B", closedModelVisible: true, closedModelUnclipped: true } },
   { name: "compact-model-closed", tab: "chat", fixture: "model-closed", width: 360, height: 500, expect: { closedModelLabel: "Qwen 3.5 9B", closedModelVisible: true, closedModelUnclipped: true } },
   { name: "model-empty", tab: "chat", fixture: "model-empty", expect: { modelControlLabel: "MODEL", modelControlText: "No models loaded", modelPickerActions: 2 } },

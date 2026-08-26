@@ -74,7 +74,13 @@ test("tag releases retain updater metadata and publish it with platform artifact
     if (artifact === "*-setup.exe") assert.match(packageJson.build.nsis.artifactName, /setup\.\$\{ext\}/);
     else assert.match(workflow, new RegExp(artifact.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
-  assert.match(workflow, /softprops\/action-gh-release@v2/);
+  assert.match(workflow, /verify-release-version\.cjs/);
+  assert.match(workflow, /permissions:\s+contents: read/);
+  assert.match(workflow, /publish:[\s\S]+permissions:\s+contents: write/);
+  assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /merge-multiple: true/);
+  assert.match(workflow, /gh release create[^\n]+--draft/);
+  assert.match(workflow, /gh release edit[^\n]+--draft=false --latest/);
   assert.match(workflow, /SHA256SUMS\.txt/);
 });
 
@@ -85,6 +91,9 @@ test("the Windows installer follows the canonical repository, artifact, and prod
   assert.match(installer, /\$tag -notmatch '\^v/);
   assert.match(installer, /\$asset\.state/);
   assert.match(installer, /268435456/);
+  assert.match(installer, /-TimeoutSec 30/);
+  assert.match(installer, /ResponseHeadersRead/);
+  assert.match(installer, /\$received -ne \$assetSize/);
   assert.match(installer, /\$expectedUrl/);
   assert.match(installer, /NeoXider Agent Deck\.exe/);
   assert.match(installer, /NeoXider Agent Deck\.lnk/);

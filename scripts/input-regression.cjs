@@ -23,6 +23,9 @@ let dashboardValue = { harness: true, sessions: [
   { sessionId: "demo-mcp", title: "Capability Hub", updatedAt: 1, running: false, preview: "Dynamic routing passed." },
 ] };
 const deferredSessionRequests = { history: new Map(), models: new Map(), commands: new Map() };
+let deferredSend = null;
+let deferredCommand = null;
+let deferredQueueUpdate = null;
 function deferred() {
   let resolve;
   const promise = new Promise((done) => { resolve = done; });
@@ -49,8 +52,10 @@ function registerStubs() {
   ipcMain.handle("get-preferences", () => ({}));
   ipcMain.handle("send", (_event, payload) => {
     sentPayloads.push(payload);
-    return { sessionId: payload.sessionId };
+    return deferredSend?.promise || { sessionId: payload.sessionId };
   });
+  ipcMain.handle("execute-command", (_event, payload) => deferredCommand?.promise || ({ result: { kind: "text", text: payload.line } }));
+  ipcMain.handle("update-queue", () => deferredQueueUpdate?.promise || ({ ok: true }));
   ipcMain.handle("dashboard", () => dashboardValue);
   ipcMain.handle("history", (_event, sessionId) => {
     openedSessionIds.push(sessionId);
@@ -391,6 +396,110 @@ async function main() {
   })()`);
   if (backgroundGlow.avatar === "working" || backgroundGlow.activity?.active || /activity-(?:thinking|writing|tool)/.test(backgroundGlow.classes)) {
     failures.push(`background work leaked glow into the selected idle chat: ${JSON.stringify(backgroundGlow)}`);
+  }
+
+  const consecutiveTurns = await contents.executeJavaScript(`(async () => {
+    state.selectedSessionId = "stream-owner";
+    state.dashboard = { harness: true, sessions: [{ sessionId: "stream-owner", title: "Stream", running: true, state: "working", projections: { values: {} }, subagents: [] }] };
+    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "turn/start", seq: 10 } });
+    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "assistant/chunk", seq: 11, data: { chunk: { type: "text-delta", text: "old" } } } });
+    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "turn/end", seq: 12, data: {} } });
+    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "turn/start", seq: 13 } });
+    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "assistant/chunk", seq: 14, data: { chunk: { type: "text-delta", text: "first" } } } });
+    await new Promise((resolve) => setTimeout(resolve, 240));
+    return state.liveStreamsBySession.get("stream-owner")?.text || "";
+  })()`);
+  if (consecutiveTurns !== "first") failures.push(`turn-end cleanup deleted the next turn stream: ${JSON.stringify(consecutiveTurns)}`);
+
+  const switchedError = await contents.executeJavaScript(`(async () => {
+    state.windowMode = "full";
+    state.harnessOffline = false;
+    state.dashboard = { harness: true, sessions: [
+      { sessionId: "status-error", title: "Failed", running: false, state: "error", projections: { values: {} }, subagents: [] },
+      { sessionId: "status-idle", title: "Healthy", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    ] };
+    state.selectedSessionId = "status-error";
+    setActivity({ active: true, kind: "error", label: "Turn failed", text: "failed" });
+    setAvatar("error", "model error");
+    await selectSession("status-idle", true);
+    return { selected: state.selectedSessionId, avatar: state.avatarMode, activity: state.currentActivity };
+  })()`);
+  if (switchedError.selected !== "status-idle" || switchedError.avatar === "error" || switchedError.activity?.kind === "error") {
+    failures.push(`error presentation leaked into a healthy selected session: ${JSON.stringify(switchedError)}`);
+  }
+
+  const transientError = await contents.executeJavaScript(`(() => {
+    state.selectedSessionId = "status-idle";
+    renderMessages([{ role: "assistant", text: "history stays" }]);
+    showError(new Error("attachment failed"));
+    return { messages: state.currentMessages.map((item) => item.text), text: document.querySelector("#messages")?.textContent || "", activity: state.currentActivity };
+  })()`);
+  if (transientError.messages.join() !== "history stays" || !transientError.text.includes("history stays") || transientError.activity?.kind !== "error") {
+    failures.push(`auxiliary error replaced chat history: ${JSON.stringify(transientError)}`);
+  }
+
+  const fastPollError = await contents.executeJavaScript(`(() => {
+    state.dashboardInitialized = true;
+    state.windowMode = "orb";
+    state.runningSessionIds.clear();
+    state.errorSignalSessionIds.clear();
+    state.unacknowledgedErrorSessionIds.clear();
+    state.sessionSnapshotsById = new Map([["fast-error", { running: false, state: "idle", updatedAt: 1, preview: "before" }]]);
+    detectCompletedSessions([{ sessionId: "fast-error", title: "Tiny model", running: false, state: "error", updatedAt: 2, preview: "failed", projections: { values: {} }, subagents: [] }]);
+    return { signaled: state.errorSignalSessionIds.has("fast-error"), unread: state.unacknowledgedErrorSessionIds.has("fast-error") };
+  })()`);
+  if (!fastPollError.signaled || !fastPollError.unread) failures.push(`fast polling error transition was missed: ${JSON.stringify(fastPollError)}`);
+
+  deferredQueueUpdate = deferred();
+  await contents.executeJavaScript(`(() => {
+    state.selectedSessionId = "queue-a";
+    state.queuedPromptsBySession.set("queue-a", [{ id: "same-id", text: "A" }]);
+    state.queuedPromptsBySession.set("queue-b", [{ id: "same-id", text: "B" }]);
+    window.__queueRace = updateQueuedPrompt({ id: "same-id", text: "A" }, { kind: "remove" });
+    state.selectedSessionId = "queue-b";
+  })()`);
+  deferredQueueUpdate.resolve({ ok: true });
+  const queueRace = await contents.executeJavaScript(`(async () => {
+    await window.__queueRace;
+    return { a: queuedPromptsFor("queue-a").map((item) => item.text), b: queuedPromptsFor("queue-b").map((item) => item.text) };
+  })()`);
+  deferredQueueUpdate = null;
+  if (queueRace.a.length || queueRace.b.join() !== "B") failures.push(`queue completion mutated the newly selected session: ${JSON.stringify(queueRace)}`);
+
+  deferredCommand = deferred();
+  await contents.executeJavaScript(`(() => {
+    state.selectedSessionId = "command-a";
+    window.__commandRace = executeHarnessCommand("/test", "command-a");
+    state.selectedSessionId = "command-b";
+    renderMessages([{ role: "assistant", text: "History B remains" }]);
+  })()`);
+  deferredCommand.resolve({ result: { kind: "text", text: "Command A result" } });
+  const commandRace = await contents.executeJavaScript(`(async () => {
+    await window.__commandRace;
+    return { selected: state.selectedSessionId, messages: state.currentMessages.map((item) => item.text), text: document.querySelector("#messages")?.textContent || "" };
+  })()`);
+  deferredCommand = null;
+  if (commandRace.selected !== "command-b" || commandRace.messages.join() !== "History B remains" || commandRace.text.includes("Command A result")) {
+    failures.push(`command completion rendered into the newly selected session: ${JSON.stringify(commandRace)}`);
+  }
+
+  deferredSend = deferred();
+  await contents.executeJavaScript(`(() => {
+    state.selectedSessionId = "send-a";
+    state.pendingAttachments = [];
+    const input = document.querySelector("#messageInput");
+    input.value = "message for A";
+    document.querySelector("#chatForm").requestSubmit();
+    state.selectedSessionId = "send-b";
+    renderMessages([{ role: "assistant", text: "Selected B" }]);
+  })()`);
+  await wait(40);
+  deferredSend.resolve({ sessionId: "send-a" });
+  await wait(180);
+  const sendRace = await contents.executeJavaScript(`({ selected: state.selectedSessionId, text: document.querySelector("#messages")?.textContent || "" })`);
+  deferredSend = null;
+  if (sendRace.selected !== "send-b" || !sendRace.text.includes("Selected B")) {
+    failures.push(`send completion forced the UI back to its original session: ${JSON.stringify(sendRace)}`);
   }
 
   for (const failure of failures) console.error(`FAIL ${failure}`);

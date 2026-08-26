@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $repository = "NeoXider/neoxider-agent-deck"
-$release = Invoke-RestMethod -Headers @{ "User-Agent" = "NeoXider-Agent-Deck-Installer" } -Uri "https://api.github.com/repos/$repository/releases/latest"
+$release = Invoke-RestMethod -TimeoutSec 30 -Headers @{ "User-Agent" = "NeoXider-Agent-Deck-Installer" } -Uri "https://api.github.com/repos/$repository/releases/latest"
 $tag = [string]$release.tag_name
 if ($release.draft -or $release.prerelease -or $tag -notmatch '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') { throw "The latest GitHub release is not a stable published version." }
 $version = $tag.Substring(1)
@@ -24,7 +24,34 @@ $temporary = Join-Path $installDirectory (".agent-deck-download-" + [Guid]::NewG
 $rollback = Join-Path $installDirectory "NeoXider Agent Deck.rollback.exe"
 
 try {
-  Invoke-WebRequest -UseBasicParsing -Uri $asset.browser_download_url -OutFile $temporary
+  $handler = New-Object System.Net.Http.HttpClientHandler
+  $handler.AllowAutoRedirect = $true
+  $client = New-Object System.Net.Http.HttpClient($handler)
+  $client.Timeout = [TimeSpan]::FromMinutes(5)
+  $client.DefaultRequestHeaders.UserAgent.ParseAdd("NeoXider-Agent-Deck-Installer")
+  $response = $client.GetAsync([string]$asset.browser_download_url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+  $response.EnsureSuccessStatusCode()
+  if ($response.Content.Headers.ContentLength.HasValue -and $response.Content.Headers.ContentLength.Value -ne $assetSize) {
+    throw "The server reported an unexpected executable size."
+  }
+  $inputStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+  $outputStream = [System.IO.File]::Open($temporary, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+  $buffer = New-Object byte[] (1024 * 1024)
+  $received = [long]0
+  try {
+    while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+      $received += $read
+      if ($received -gt $assetSize -or $received -gt 268435456) { throw "The executable exceeded its verified release size." }
+      $outputStream.Write($buffer, 0, $read)
+    }
+  } finally {
+    $outputStream.Dispose()
+    $inputStream.Dispose()
+    $response.Dispose()
+    $client.Dispose()
+    $handler.Dispose()
+  }
+  if ($received -ne $assetSize) { throw "The downloaded executable size does not match the release metadata." }
   $actualHash = (Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actualHash -ne $expectedHash) { throw "Downloaded executable failed SHA-256 verification." }
 

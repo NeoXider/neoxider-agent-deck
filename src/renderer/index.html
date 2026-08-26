@@ -158,7 +158,7 @@
         <form id="chatForm" class="composer no-drag">
           <div class="composer-view-stack">
             <button id="focusChatButton" class="composer-action focus-chat-button" type="button" title="Focus chat" aria-label="Focus chat" aria-pressed="false"><svg class="ui-icon focus-enter"><use href="#icon-focus"/></svg><svg class="ui-icon focus-exit"><use href="#icon-focus-exit"/></svg></button>
-            <div id="contextMeter" class="context-meter" title="Context usage unavailable">
+            <div id="contextMeter" class="context-meter" role="progressbar" aria-label="Context usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="Context usage unavailable, 0%" title="Context usage unavailable">
               <svg viewBox="0 0 36 36" aria-hidden="true">
                 <circle class="context-track" cx="18" cy="18" r="15.5"></circle>
                 <circle id="contextArc" class="context-arc" cx="18" cy="18" r="15.5"></circle>

@@ -77,6 +77,9 @@ function portableService({
   requestQuit = () => {},
   launchReplacement,
   maxBytes,
+  requestTimeoutMs,
+  downloadTimeoutMs,
+  downloadIdleTimeoutMs,
 } = {}) {
   const temporary = temporaryDirectory();
   const target = path.join(temporary.directory, "NeoXider Agent Deck.exe");
@@ -102,6 +105,9 @@ function portableService({
     launchReplacement: launchReplacement || (async () => {}),
     onState,
     ...(maxBytes === undefined ? {} : { maxBytes }),
+    ...(requestTimeoutMs === undefined ? {} : { requestTimeoutMs }),
+    ...(downloadTimeoutMs === undefined ? {} : { downloadTimeoutMs }),
+    ...(downloadIdleTimeoutMs === undefined ? {} : { downloadIdleTimeoutMs }),
   });
   return { body, calls, service, target, temporary };
 }
@@ -272,6 +278,64 @@ test("concurrent downloads perform one transfer", async (t) => {
   releaseDownload(downloadResponse([body], body.length));
   assert.equal((await first).status, "ready");
   assert.equal(downloadCalls, 1);
+});
+
+test("a hanging update check fails with a bounded retryable error", async () => {
+  const service = createUpdateService({
+    currentVersion: "1.0.0",
+    repository: REPOSITORY,
+    fetchImpl: () => new Promise(() => {}),
+    requestTimeoutMs: 20,
+  });
+  const result = await service.check();
+  assert.equal(result.status, "error");
+  assert.equal(result.error.code, "UPDATE_TIMEOUT");
+  assert.equal((await service.check()).status, "error");
+});
+
+test("a stalled update stream closes and deletes its partial file", async (t) => {
+  const body = Buffer.from("new portable binary");
+  const fixture = portableService({
+    body,
+    requestTimeoutMs: 50,
+    downloadTimeoutMs: 80,
+    downloadIdleTimeoutMs: 20,
+    fetchImpl: (() => {
+      let call = 0;
+      return async () => {
+        call += 1;
+        if (call === 1) return jsonResponse(release("1.1.0", body));
+        return {
+          ok: true,
+          headers: { get: () => String(body.length) },
+          body: { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) },
+        };
+      };
+    })(),
+  });
+  t.after(fixture.temporary.cleanup);
+  await fixture.service.check();
+  const result = await fixture.service.download();
+  assert.equal(result.status, "error");
+  assert.equal(result.error.code, "UPDATE_TIMEOUT");
+  assert.equal(fs.readdirSync(fixture.temporary.directory).some((name) => name.endsWith(".update")), false);
+});
+
+test("a new download removes only stale files owned by this portable target", async (t) => {
+  const fixture = portableService();
+  t.after(fixture.temporary.cleanup);
+  const base = path.basename(fixture.target);
+  const stale = path.join(fixture.temporary.directory, `.${base}.old.update`);
+  const staleHelper = path.join(fixture.temporary.directory, `.${base}.old.update.ps1`);
+  const unrelated = path.join(fixture.temporary.directory, ".Another App.exe.old.update");
+  fs.writeFileSync(stale, "partial");
+  fs.writeFileSync(staleHelper, "helper");
+  fs.writeFileSync(unrelated, "keep");
+  await fixture.service.check();
+  assert.equal((await fixture.service.download()).status, "ready");
+  assert.equal(fs.existsSync(stale), false);
+  assert.equal(fs.existsSync(staleHelper), false);
+  assert.equal(fs.existsSync(unrelated), true);
 });
 
 test("digest and size mismatches delete the staged file", async (t) => {

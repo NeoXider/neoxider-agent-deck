@@ -6,10 +6,28 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm test
+      - run: node scripts/verify-release-version.cjs "$GITHUB_REF_NAME"
+
   build:
+    needs: validate
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -21,36 +39,45 @@ jobs:
               release/*.exe
               release/*.blockmap
               release/latest.yml
+            interactionSmoke: true
           - os: ubuntu-24.04
             script: build:linux
             artifact: linux-x64
             files: |-
               release/*.AppImage
               release/*.deb
-              release/*.blockmap
               release/latest-linux.yml
+            interactionSmoke: false
           - os: macos-15
             script: build:mac
             artifact: macos-arm64
             files: |-
               release/*.dmg
               release/*.zip
+            interactionSmoke: false
           - os: macos-15-intel
             script: build:mac
             artifact: macos-x64
             files: |-
               release/*.dmg
               release/*.zip
+            interactionSmoke: false
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          node-version: 22
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
           cache: npm
       - run: npm ci
+      - if: matrix.interactionSmoke
+        run: npm run test:input
+      - if: matrix.interactionSmoke
+        run: npm run test:ui
       - run: npm run ${{ matrix.script }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release-${{ matrix.artifact }}
           path: ${{ matrix.files }}
@@ -59,16 +86,54 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           pattern: release-*
           path: artifacts
+          merge-multiple: true
+      - name: Verify release payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          expected=(
+            "NeoXider-Agent-Deck-${version}-windows-x64-setup.exe"
+            "NeoXider-Agent-Deck-${version}-windows-x64-setup.exe.blockmap"
+            "NeoXider-Agent-Deck-${version}-windows-x64-portable.exe"
+            "latest.yml"
+            "NeoXider-Agent-Deck-${version}-linux-x86_64.AppImage"
+            "NeoXider-Agent-Deck-${version}-linux-amd64.deb"
+            "latest-linux.yml"
+            "NeoXider-Agent-Deck-${version}-macos-arm64.dmg"
+            "NeoXider-Agent-Deck-${version}-macos-arm64.zip"
+            "NeoXider-Agent-Deck-${version}-macos-x64.dmg"
+            "NeoXider-Agent-Deck-${version}-macos-x64.zip"
+          )
+          mapfile -t actual < <(find artifacts -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
+          mapfile -t wanted < <(printf '%s\n' "${expected[@]}" | sort)
+          diff -u <(printf '%s\n' "${wanted[@]}") <(printf '%s\n' "${actual[@]}")
+          find artifacts -mindepth 1 -maxdepth 1 -type f -size 0 -print -quit | grep -q . && exit 1 || true
       - name: Create checksums
         working-directory: artifacts
-        run: find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          files: artifacts/**/*
+        shell: bash
+        run: find . -mindepth 1 -maxdepth 1 -type f -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+      - name: Publish verified draft atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = "true"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "NeoXider Agent Deck ${TAG}"
+          fi
+          gh release upload "$TAG" artifacts/* --repo "$GITHUB_REPOSITORY" --clobber
+          expected_count=$(find artifacts -mindepth 1 -maxdepth 1 -type f | wc -l)
+          actual_count=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')
+          test "$actual_count" -eq "$expected_count"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

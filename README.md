@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.4.3-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.4.3-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.5.0-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.5.0-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -93,6 +93,8 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Authoritative Harness queue** — messages sent during a running turn appear as compact one-line queued items from Harness itself, with Edit, Delete and Send now actions.
 - **Respectful scrolling** — reading older messages is never interrupted by forced auto-scroll; a compact jump-to-latest control appears when new content arrives below.
 - **Files and drag-and-drop** — PNG, JPEG, WebP and GIF files use official image content blocks. Image and video attachments get visible previews without shifting the composer; other files become explicit local `@path` references.
+- **Instant screenshots** — capture a selected region or the current display from the header or a global shortcut, inspect the PNG preview above the composer, then decide whether to send it.
+- **Rebindable global shortcuts** — show/collapse the deck, create a session, capture a region or display, focus chat, and open Harness; every binding can be disabled, changed, reset, and survives restart.
 - **Live chat aura** — brighter-by-default, distinct inner glows indicate thinking, writing, and tool execution. No activity means no glow, and glow intensity is adjustable in settings.
 - **Focus Chat** — one compact composer button hides all chrome and setup surfaces, leaving only messages, optional attachment previews, the input, context and actions; tap it again to restore everything.
 - **Three window states** — full deck, notification avatar, or an iridescent edge handle.
@@ -112,6 +114,7 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Survives a renderer crash** — a frameless transparent window that loses its renderer is reloaded automatically instead of lingering as a dead shape that only the task manager can remove.
 - **Keyboard and screen reader support** — every reachable control draws a visible focus ring, dimmed labels hold WCAG AA contrast, and the conversation is exposed as an ARIA log region.
 - **Reliable portable autostart** — Start at login on Windows targets the stable portable launcher instead of Electron's temporary extracted child; existing stale startup entries are migrated automatically.
+- **In-app updates** — installer/AppImage builds use managed updates, while the Windows portable build downloads the exact versioned asset, bounds time and size, verifies GitHub's SHA-256 digest, stages beside the executable, and keeps rollback recovery.
 
 ## Install
 
@@ -195,13 +198,13 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.4.3-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.5.0-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
 ## Security
 
-The renderer is sandboxed with `contextIsolation` enabled and Node.js integration disabled. Local file preparation and Harness requests stay in the main process behind a narrow IPC bridge. See [SECURITY.md](SECURITY.md).
+The renderer is sandboxed with `contextIsolation` enabled and Node.js integration disabled. Local file preparation and Harness requests stay in the main process behind a narrow IPC bridge. Release downloads are bounded and digest-verified before replacement. Current Windows and macOS artifacts are not code-signed, so SmartScreen/Gatekeeper can warn until a signing certificate is configured. See [SECURITY.md](SECURITY.md).
 
 ## Companion project
 
@@ -209,25 +212,26 @@ Reduce MCP schema overhead with one lazy tool: [DeepSeek Capability Hub](https:/
 
 ## Roadmap
 
-Planned screen-region capture, configurable global hotkeys, overlay diagnostics and compact-session improvements are tracked in [TODO.md](TODO.md).
+Screen capture, configurable global hotkeys, and the three-session pet switcher ship in 0.5.0. Remaining overlay diagnostics, clipboard capture, per-game profiles, and quiet-notification work is tracked in [TODO.md](TODO.md).
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.4.3,
-is a reliability pass over the main process: live events now survive a half-open
-connection, attachments no longer freeze the window, launching Harness works on macOS
-and Linux, and settings written by a newer build are preserved rather than destroyed.
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.5.0,
+adds screenshots, configurable hotkeys, secure updates, session-safe async rendering,
+stable compact placement, and a denser responsive UI that keeps context visible even
+before the first session exists.
 
 ## Platform support
 
-Windows 10 and 11 are the supported and continuously verified target: this is what CI builds
-and what the portable release ships for. The macOS and Linux build targets are configured
-and the code paths are platform-aware, but they are **experimental** — desktop autostart on
-Linux is not implemented yet. Linux disables native opacity and Game layer controls;
+Windows 10 and 11 are the primary supported target. CI also packages Intel/Apple Silicon
+macOS builds and Linux AppImage/deb builds, but those remain **experimental**. Linux uses
+a freedesktop autostart entry; it disables native opacity and Game layer controls;
 Wayland also disables window dragging and Edge mode, while X11 labels its wider interactive
 Edge area. When no installed Harness runtime is found, `Start Harness` relies on `npx` being
 present in the launcher environment, which is not guaranteed for an app started from Finder
-or a desktop launcher.
+or a desktop launcher. The Electron Game layer works over ordinary and borderless windows;
+true exclusive fullscreen can outrank desktop windows, so the repository keeps the native
+Xbox Game Bar companion path explicit rather than claiming a guarantee the OS does not give.
 
 ## Contributing
 
