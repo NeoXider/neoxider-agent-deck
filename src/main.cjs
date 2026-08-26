@@ -1,6 +1,5 @@
 const path = require("node:path");
 const { mkdirSync, writeFileSync } = require("node:fs");
-const fsPromises = require("node:fs/promises");
 const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { HarnessApi } = require("./harness-api.cjs");
 const { createAutoStartController } = require("./auto-start.cjs");
@@ -16,6 +15,7 @@ const {
 } = require("./platform-capabilities.cjs");
 const { APP_ID, PRODUCT_NAME, REPOSITORY_URL } = require("./product.cjs");
 const { renderMarkdown } = require("./markdown.cjs");
+const { createAttachmentReader } = require("./attachments.cjs");
 const { createMuxClient } = require("./mux-client.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
 const { configureProductUserData } = require("./user-data-migration.cjs");
@@ -27,6 +27,14 @@ const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
 app.setName(PRODUCT_NAME);
 configureProductUserData({ app });
 const api = new HarnessApi(HARNESS_URL);
+// nativeImage is the only Electron dependency attachment reading has, so it is passed
+// in rather than reached for, which keeps the rules unit-testable.
+const { prepareFiles } = createAttachmentReader({
+  async makeThumbnail(filePath) {
+    const thumbnail = await nativeImage.createThumbnailFromPath(filePath, { width: 160, height: 100 });
+    return thumbnail.isEmpty() ? "" : thumbnail.toPNG().toString("base64");
+  },
+});
 const SIZE_PRESETS = {
   compact: [380, 520],
   standard: [420, 640],
@@ -66,15 +74,6 @@ function requireSessionId(value) {
   return sessionId;
 }
 
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-const IMAGE_TYPES = new Map([
-  [".png", "image/png"],
-  [".jpg", "image/jpeg"],
-  [".jpeg", "image/jpeg"],
-  [".webp", "image/webp"],
-  [".gif", "image/gif"],
-]);
-const VIDEO_TYPES = new Set([".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".wmv"]);
 
 let windowRef;
 let tray;
@@ -276,63 +275,6 @@ function snapCurrentCompactWindow({ traceEnd = false } = {}) {
   savePreferences();
   windowRef.webContents.send("compact-side", preferences.compactSide);
   return { ...windowRef.getBounds(), side: preferences.compactSide };
-}
-
-async function prepareFile(filePath) {
-  const resolved = path.resolve(String(filePath));
-  // Asynchronous on purpose: the main process is single-threaded, and reading plus
-  // base64-encoding up to twelve 8 MB files synchronously froze the window, the tray
-  // and every IPC handler for seconds while Windows painted "Not responding".
-  const info = await fsPromises.stat(resolved);
-  if (!info.isFile()) throw new Error(`Not a file: ${resolved}`);
-  const extension = path.extname(resolved).toLowerCase();
-  const mediaType = IMAGE_TYPES.get(extension);
-  if (!mediaType) {
-    if (VIDEO_TYPES.has(extension)) {
-      let thumbnailData = "";
-      try {
-        const thumbnail = await nativeImage.createThumbnailFromPath(resolved, { width: 160, height: 100 });
-        if (!thumbnail.isEmpty()) thumbnailData = thumbnail.toPNG().toString("base64");
-      } catch {}
-      return {
-        kind: "reference",
-        previewKind: "video",
-        thumbnailData,
-        thumbnailMediaType: thumbnailData ? "image/png" : "",
-        path: resolved,
-        name: path.basename(resolved),
-      };
-    }
-    return { kind: "reference", previewKind: "file", path: resolved, name: path.basename(resolved) };
-  }
-  if (info.size > MAX_IMAGE_BYTES) throw new Error(`${path.basename(resolved)} exceeds the 8 MB image limit`);
-  return {
-    kind: "image",
-    mediaType,
-    data: (await fsPromises.readFile(resolved)).toString("base64"),
-    name: path.basename(resolved),
-    path: resolved,
-    bytes: info.size,
-  };
-}
-
-async function prepareFiles(filePaths) {
-  const resolved = [...new Set((filePaths || []).map((value) => path.resolve(String(value))))].slice(0, 12);
-  const settled = await Promise.allSettled(resolved.map(prepareFile));
-  // One unreadable or oversized file used to reject the whole batch, so the user got
-  // nothing back and no way to tell which file was at fault. Report per file instead.
-  const attachments = [];
-  const failures = [];
-  settled.forEach((entry, index) => {
-    if (entry.status === "fulfilled") attachments.push(entry.value);
-    else {
-      failures.push({
-        name: path.basename(resolved[index]),
-        error: entry.reason instanceof Error ? entry.reason.message : String(entry.reason),
-      });
-    }
-  });
-  return { attachments, failures };
 }
 
 function applyWindowMode(nextMode, { captureCurrent = true, persist = true } = {}) {

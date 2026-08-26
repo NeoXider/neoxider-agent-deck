@@ -544,11 +544,12 @@ test("the live event socket detects a half-open connection", () => {
 });
 
 test("attachment preparation is asynchronous and reports failures per file", () => {
-  assert.doesNotMatch(main, /readFileSync\(resolved\)|statSync\(resolved\)/);
-  assert.match(main, /await fsPromises\.stat\(resolved\)/);
-  assert.match(main, /await fsPromises\.readFile\(resolved\)/);
-  assert.match(main, /Promise\.allSettled\(resolved\.map\(prepareFile\)\)/);
-  assert.match(main, /return \{ attachments, failures \}/);
+  const attachments = readFileSync(path.join(root, "src", "attachments.cjs"), "utf8");
+  assert.doesNotMatch(attachments, /readFileSync\(resolved\)|statSync\(resolved\)/);
+  assert.match(attachments, /await fileSystem\.stat\(resolved\)/);
+  assert.match(attachments, /await fileSystem\.readFile\(resolved\)/);
+  assert.match(attachments, /Promise\.allSettled\(resolved\.map\(prepareFile\)\)/);
+  assert.match(attachments, /return \{ attachments, failures \}/);
   assert.match(renderer, /prepared\.failures \|\| \[\]/);
 });
 
