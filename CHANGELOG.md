@@ -5,6 +5,24 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-08-26
+
+### Fixed
+
+- **The test suite could never pass on macOS or Linux, so CI was red on those
+  platforms for every release so far.** `resolveInstalledDshEntry` takes the target
+  platform as an argument and branched on it when choosing a Windows root, but then
+  built the candidate paths with the *native* path module. Resolving a Windows layout
+  from POSIX produced mixed separators and never matched. Paths are now built for the
+  platform that was asked for.
+
+### Added
+
+- `npm run test:platforms` runs the whole suite three times, once pretending to be each
+  supported platform. The launcher takes its platform as an argument, so a bug there is
+  invisible on the developer's own OS — which is exactly how this one survived several
+  releases while CI was failing.
+
 ## [0.4.1] - 2026-08-26
 
 Closes the remaining findings from the reliability audit.
@@ -215,6 +233,7 @@ full audit of the main process, the renderer and the UI.
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.4.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.2
 [0.4.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.1
 [0.4.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.0
 [0.3.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.2

@@ -19,17 +19,23 @@ function resolveInstalledDshEntry({ platform = process.platform, env = process.e
   const systemDrive = typeof env.SystemDrive === "string" && /^[A-Za-z]:$/.test(env.SystemDrive)
     ? env.SystemDrive
     : "C:";
+  // This function is parameterised by platform, so it must build paths for THAT
+  // platform rather than for whichever one happens to be running it. Using the native
+  // path module here produced mixed separators when a win32 layout was resolved from
+  // POSIX, which is why the launcher suite could never pass on macOS or Linux.
+  const platformPath = platform === "win32" ? path.win32 : path.posix;
   const roots = [
     env.DSH_WIDGET_HARNESS_RUNTIME,
     workingDirectory,
-    env.LOCALAPPDATA && path.join(env.LOCALAPPDATA, "NeoXider", "DeepSeek Harness Runtime"),
-    env.APPDATA && path.join(env.APPDATA, "npm"),
+    // LOCALAPPDATA and APPDATA only ever describe a Windows layout.
+    env.LOCALAPPDATA && path.win32.join(env.LOCALAPPDATA, "NeoXider", "DeepSeek Harness Runtime"),
+    env.APPDATA && path.win32.join(env.APPDATA, "npm"),
     platform === "win32" ? path.win32.join(systemDrive, "AI", "work", "deepseek-harness-runtime") : "",
   ].filter((value) => typeof value === "string" && value.trim());
   for (const root of roots) {
     const candidates = [
-      path.join(root, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
-      path.join(root, "node_modules", "@deepseek-ai", "dsh", "dist", "bin.js"),
+      platformPath.join(root, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
+      platformPath.join(root, "node_modules", "@deepseek-ai", "dsh", "dist", "bin.js"),
     ];
     for (const candidate of candidates) {
       if (fileSystem.existsSync(candidate)) return candidate;
