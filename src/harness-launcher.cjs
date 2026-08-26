@@ -119,6 +119,7 @@ function createHarnessLauncher({
   delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   readinessAttempts = 60,
   readinessInterval = 500,
+  now = () => Date.now(),
 } = {}) {
   const installedEntry = resolveInstalledDshEntry({ platform, env, workingDirectory, fileSystem });
   const launchSpec = resolveHarnessLaunchSpec({ platform, env, harnessUrl, installedEntry });
@@ -128,21 +129,25 @@ function createHarnessLauncher({
   let startPromise = null;
   let ownedLaunch = null;
 
-  async function waitUntilReady(getLaunchError) {
+  // One deadline covers the whole start, including the legacy fallback. Each wait used
+  // to get its own full budget, so a failed launch held the start-harness IPC call for
+  // twice the advertised timeout with no answer and no progress for the renderer.
+  async function waitUntilReady(getLaunchError, deadline = Number.POSITIVE_INFINITY) {
     for (let attempt = 0; attempt < readinessAttempts; attempt += 1) {
       const launchError = getLaunchError?.();
       if (launchError) throw launchError;
       if (await probeReady()) return true;
+      if (now() >= deadline) return false;
       if (attempt + 1 < readinessAttempts) await delay(readinessInterval);
     }
     return false;
   }
 
-  async function startLegacyFallback() {
+  async function startLegacyFallback(deadline) {
     if (!legacyBatchPath || typeof openPath !== "function" || !fileSystem.existsSync(legacyBatchPath)) return null;
     const errorMessage = await openPath(legacyBatchPath);
     if (errorMessage) throw new Error(errorMessage);
-    const ready = await waitUntilReady();
+    const ready = await waitUntilReady(undefined, deadline);
     if (!ready) throw new Error("DeepSeek Harness did not become ready after the legacy launcher opened");
     return { ok: true, started: true, fallback: "windows-batch", command: legacyBatchPath };
   }
@@ -188,10 +193,11 @@ function createHarnessLauncher({
     }
 
     if (ownedLaunch?.exited) ownedLaunch = null;
+    const deadline = now() + readinessAttempts * readinessInterval;
     let launch = ownedLaunch;
     try {
       if (!launch) launch = spawnOwnedLaunch();
-      const ready = await waitUntilReady(() => launch.error);
+      const ready = await waitUntilReady(() => launch.error, deadline);
       if (!ready) throw new Error("DeepSeek Harness did not become ready before the startup timeout");
       launch.ready = true;
       return { ok: true, started: true, fallback: null, command: launchSpec.displayCommand };
@@ -199,7 +205,7 @@ function createHarnessLauncher({
       const definiteFailure = Boolean(launch?.error || launch?.exited || !launch);
       if (definiteFailure) {
         if (ownedLaunch === launch) ownedLaunch = null;
-        const fallback = await startLegacyFallback();
+        const fallback = await startLegacyFallback(deadline);
         if (fallback) return fallback;
       }
       throw error;

@@ -258,13 +258,32 @@ test("a registry cleanup failure is observable while the verified new target sta
   assert.deepEqual(issues[0].cleanupFailures, [{ ok: false, deleted: false, name: legacyName, reason: "delete-failed" }]);
 });
 
-test("Linux reports autostart unavailable instead of calling an unsupported Electron API", () => {
-  const app = { isPackaged: true, getAppPath: () => "/app" };
-  const controller = createAutoStartController({ app, env: {}, execPath: "/app/neoxider-agent-deck", platform: "linux" });
+test("Linux never calls the Electron login-item API, which is a no-op there", () => {
+  const calls = [];
+  const app = {
+    isPackaged: true,
+    getAppPath: () => "/app",
+    getLoginItemSettings: (...args) => { calls.push(["get", args]); return {}; },
+    setLoginItemSettings: (...args) => { calls.push(["set", args]); },
+  };
+  const files = new Map();
+  const controller = createAutoStartController({
+    app,
+    env: { HOME: "/home/user" },
+    execPath: "/app/neoxider-agent-deck",
+    platform: "linux",
+    fileSystem: {
+      existsSync: (candidate) => files.has(candidate),
+      mkdirSync: () => {},
+      writeFileSync: (candidate, contents) => files.set(candidate, contents),
+      rmSync: (candidate) => files.delete(candidate),
+    },
+  });
 
-  assert.equal(controller.available, false);
-  assert.equal(controller.getEnabled(), false);
-  assert.equal(controller.setEnabled(true), false);
+  controller.setEnabled(true);
+  controller.getEnabled();
+  controller.setEnabled(false);
+  assert.deepEqual(calls, [], "Linux autostart must go through the desktop entry, not Electron");
 });
 
 test("macOS uses the signed main-app login service contract", () => {
@@ -273,4 +292,60 @@ test("macOS uses the signed main-app login service contract", () => {
 
   assert.equal(controller.setEnabled(true), true);
   assert.deepEqual(app.calls.set[0], { type: "mainAppService", openAtLogin: true, args: [] });
+});
+
+test("Linux autostart writes a freedesktop entry instead of reporting itself unavailable", () => {
+  const files = new Map();
+  const fileSystem = {
+    existsSync: (candidate) => files.has(candidate),
+    mkdirSync: () => {},
+    writeFileSync: (candidate, contents) => files.set(candidate, contents),
+    rmSync: (candidate) => files.delete(candidate),
+  };
+  const app = {
+    isPackaged: true,
+    getAppPath: () => "/opt/agent-deck",
+    getLoginItemSettings: () => ({}),
+    setLoginItemSettings: () => {},
+  };
+  const controller = createAutoStartController({
+    app,
+    platform: "linux",
+    env: { HOME: "/home/user", XDG_CONFIG_HOME: "/home/user/.config" },
+    execPath: "/opt/agent-deck/neoxider-agent-deck",
+    fileSystem,
+  });
+
+  assert.equal(controller.available, true);
+  assert.equal(controller.getEnabled(), false);
+  assert.equal(controller.setEnabled(true), true);
+
+  const entryPath = "/home/user/.config/autostart/dev.neoxider.agentdeck.desktop";
+  assert.deepEqual([...files.keys()], [entryPath]);
+  const entry = files.get(entryPath);
+  assert.match(entry, /^\[Desktop Entry\]$/m);
+  assert.match(entry, /^Type=Application$/m);
+  assert.match(entry, /^Name=NeoXider Agent Deck$/m);
+  assert.match(entry, /^Exec=\/opt\/agent-deck\/neoxider-agent-deck$/m);
+
+  assert.equal(controller.setEnabled(false), false);
+  assert.equal(files.size, 0);
+});
+
+test("Linux autostart falls back to ~/.config when XDG_CONFIG_HOME is unset", () => {
+  const files = new Map();
+  const controller = createAutoStartController({
+    app: { isPackaged: true, getAppPath: () => "/opt/a", getLoginItemSettings: () => ({}), setLoginItemSettings: () => {} },
+    platform: "linux",
+    env: { HOME: "/home/user" },
+    execPath: "/opt/a/deck",
+    fileSystem: {
+      existsSync: (candidate) => files.has(candidate),
+      mkdirSync: () => {},
+      writeFileSync: (candidate, contents) => files.set(candidate, contents),
+      rmSync: (candidate) => files.delete(candidate),
+    },
+  });
+  controller.setEnabled(true);
+  assert.deepEqual([...files.keys()], ["/home/user/.config/autostart/dev.neoxider.agentdeck.desktop"]);
 });

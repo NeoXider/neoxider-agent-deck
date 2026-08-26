@@ -5,6 +5,26 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-08-26
+
+Closes the remaining findings from the reliability audit.
+
+### Fixed
+
+- **The dashboard refetched the subagent roster for every session on every poll.**
+  Session history was already cached against `updatedAt`, but `subagent.list` was not,
+  so an eighteen-session deck issued eighteen extra requests every 2.5 seconds with
+  nothing to show for them. The roster is now cached alongside history, and a failed
+  lookup sets a `degraded` flag instead of being silently swallowed.
+- **Starting Harness could hold the IPC call for twice the advertised timeout.** The
+  readiness wait and the legacy fallback each got their own full 30 second budget, so a
+  failed launch blocked `start-harness` for up to a minute with no answer. One deadline
+  now covers the whole operation.
+- **Autostart on Linux did nothing and said so.** Electron's login-item API is a no-op
+  there, so the control reported itself unavailable even though Linux builds ship. It
+  now writes a freedesktop `.desktop` entry under `$XDG_CONFIG_HOME/autostart`, falling
+  back to `~/.config`, and never calls the unsupported Electron API.
+
 ## [0.4.0] - 2026-08-26
 
 A reliability pass over the main process. Every item below was verified against the
@@ -195,6 +215,7 @@ full audit of the main process, the renderer and the UI.
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.4.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.1
 [0.4.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.0
 [0.3.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.2
 [0.3.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.1

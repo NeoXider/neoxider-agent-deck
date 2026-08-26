@@ -320,12 +320,25 @@ class HarnessApi {
     const enriched = await Promise.all(sessions.map(async (session) => {
       const cachedState = this.sessionStateCache.get(session.sessionId);
       const shouldReadState = session.running || !cachedState || cachedState.updatedAt !== session.updatedAt;
+      // The subagent roster only changes with the session itself, so it is reused from
+      // the cache exactly like history is. Refetching it for every session on every
+      // 2.5s poll was one request per session per tick with nothing to show for it.
+      let degraded = false;
       const [catalog, historyValue] = await Promise.all([
-        this.rpc("subagent.list", { parentSessionId: session.sessionId }, 4000).catch(() => ({ entries: [] })),
         shouldReadState
-          ? this.rpc("session.history", { sessionId: session.sessionId, maxMessages: session.running ? 120 : 12 }, 6000).catch(() => null)
+          ? this.rpc("subagent.list", { parentSessionId: session.sessionId }, 4000).catch(() => {
+              degraded = true;
+              return null;
+            })
+          : Promise.resolve(null),
+        shouldReadState
+          ? this.rpc("session.history", { sessionId: session.sessionId, maxMessages: session.running ? 120 : 12 }, 6000).catch(() => {
+              degraded = true;
+              return null;
+            })
           : Promise.resolve(null),
       ]);
+      const subagents = catalog ? (catalog.entries || []) : (cachedState?.subagents ?? []);
       const events = historyValue?.events || [];
       // session.list may remain running=true briefly after the turn has ended.
       // When history is available, only a genuinely open turn is authoritative.
@@ -340,12 +353,13 @@ class HarnessApi {
         ? messagesFromHistory(events).findLast((message) => message.role === "assistant")
         : null;
       const preview = latestAssistant?.text || cachedState?.preview || "";
-      this.sessionStateCache.set(session.sessionId, { updatedAt: session.updatedAt, state: agentState, preview });
+      this.sessionStateCache.set(session.sessionId, { updatedAt: session.updatedAt, state: agentState, preview, subagents });
       return {
         ...session,
         running: effectiveRunning,
         title: titleFromSession(session),
-        subagents: catalog.entries || [],
+        subagents,
+        degraded,
         activity,
         state: agentState,
         preview,

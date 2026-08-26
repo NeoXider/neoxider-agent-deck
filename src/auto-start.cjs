@@ -1,6 +1,7 @@
 const path = require("node:path");
+const fs = require("node:fs");
 const { execFileSync } = require("node:child_process");
-const { APP_ID, LEGACY } = require("./product.cjs");
+const { APP_ID, LEGACY, PRODUCT_NAME } = require("./product.cjs");
 
 const LOGIN_ITEM_NAME = APP_ID;
 const LEGACY_LOGIN_ITEM_NAMES = LEGACY.loginItemNames;
@@ -70,6 +71,33 @@ function deleteWindowsRunItem(name, run = execFileSync, env = process.env) {
   }
 }
 
+// Linux has no login-item API, so autostart is the freedesktop.org convention: a
+// .desktop file under $XDG_CONFIG_HOME/autostart. Electron's setLoginItemSettings is
+// a no-op there, which is why this used to report itself as simply unavailable.
+function linuxAutostartPath(env) {
+  // Explicitly posix: this branch describes a Linux filesystem even when the test
+  // process itself runs on Windows.
+  const configHome = typeof env.XDG_CONFIG_HOME === "string" && env.XDG_CONFIG_HOME.trim()
+    ? env.XDG_CONFIG_HOME.trim()
+    : path.posix.join(env.HOME || "", ".config");
+  return path.posix.join(configHome, "autostart", `${APP_ID}.desktop`);
+}
+
+function desktopEntry(target) {
+  const exec = [target.path, ...target.args]
+    .map((part) => (/[\s"']/.test(part) ? `"${String(part).replaceAll('"', '\\"')}"` : part))
+    .join(" ");
+  return [
+    "[Desktop Entry]",
+    "Type=Application",
+    `Name=${PRODUCT_NAME}`,
+    `Exec=${exec}`,
+    "X-GNOME-Autostart-enabled=true",
+    "Terminal=false",
+    "",
+  ].join("\n");
+}
+
 function createAutoStartController({
   app,
   env = process.env,
@@ -78,16 +106,32 @@ function createAutoStartController({
   readRunItemPath = (name) => readWindowsRunItemPath(name, execFileSync, env),
   deleteRunItem = (name) => deleteWindowsRunItem(name, execFileSync, env),
   reportMigrationIssue = (issue) => console.warn("Auto-start migration cleanup failed", issue),
+  fileSystem = fs,
 } = {}) {
   const target = resolveLoginItemTarget({ env, execPath, platform, isPackaged: app.isPackaged, appPath: app.getAppPath() });
 
   if (platform === "linux") {
+    const entryPath = linuxAutostartPath(env);
     return {
-      available: false,
+      available: true,
       target,
-      getEnabled: () => false,
-      setEnabled: () => false,
-      migrateLegacy: () => false,
+      getEnabled() {
+        try { return fileSystem.existsSync(entryPath); } catch { return false; }
+      },
+      setEnabled(enabled) {
+        try {
+          if (enabled) {
+            fileSystem.mkdirSync(path.posix.dirname(entryPath), { recursive: true });
+            fileSystem.writeFileSync(entryPath, desktopEntry(target), { encoding: "utf8", mode: 0o644 });
+          } else {
+            fileSystem.rmSync(entryPath, { force: true });
+          }
+        } catch (error) {
+          reportMigrationIssue({ step: "linux-autostart", error: error instanceof Error ? error.message : String(error) });
+        }
+        return this.getEnabled();
+      },
+      migrateLegacy() { return this.getEnabled(); },
     };
   }
 
