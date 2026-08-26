@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const {
   captureModeBounds,
   fitFullBounds,
+  resizeCompactAnchor,
   restoreCompactBounds,
 } = require("../src/window-state.cjs");
 
@@ -82,3 +83,21 @@ test("orb and edge restore their own vertical positions and margins", () => {
   assert.equal(edge.y, 740);
 });
 
+test("expanded orb keeps the visible pet anchored and round-trips canonical left and right positions", () => {
+  const workArea = { x: 0, y: 40, width: 1920, height: 1040 };
+  for (const side of ["left", "right"]) {
+    const canonical = { x: side === "left" ? 8 : 1740, y: 510, side };
+    const base = restoreCompactBounds(canonical, null, workArea, { mode: "orb", width: 172, height: 128, side });
+    const expandedAnchor = resizeCompactAnchor(canonical, 128, 158);
+    const expanded = restoreCompactBounds(expandedAnchor, null, workArea, { mode: "orb", width: 460, height: 158, side });
+    const capturedCanonical = resizeCompactAnchor(expanded, 158, 128);
+    const restored = restoreCompactBounds(capturedCanonical, null, workArea, { mode: "orb", width: 172, height: 128, side });
+    const petCenterX = (bounds) => side === "left" ? bounds.x + 64 : bounds.x + bounds.width - 64;
+
+    assert.equal(expanded.y + 79, base.y + 64);
+    assert.equal(petCenterX(expanded), petCenterX(base));
+    assert.equal(restored.y, base.y);
+    assert.equal(restored.x, base.x);
+    assert.equal(restored.side, side);
+  }
+});

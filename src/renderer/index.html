@@ -179,7 +179,15 @@
     </main>
 
     <section id="orbMode" class="orb-mode no-drag" aria-label="Collapsed agent controls">
-      <button id="orbStatus" class="orb-status" type="button" title="Open this session" aria-label="Open this session"><b id="orbStatusLabel">Working</b><small id="orbStatusText">Waiting for the model…</small></button>
+      <div id="orbStatus" class="orb-status" aria-live="polite">
+        <button id="orbStatusCard" class="orb-status-card" type="button" title="Open this session" aria-label="Open this session"><b id="orbStatusLabel">Working</b><small id="orbStatusText">Waiting for the model…</small></button>
+        <div id="orbSessionList" class="orb-session-list" role="list" aria-label="Recent session replies"></div>
+        <form id="orbReplyForm" class="orb-reply-form" aria-label="Quick reply" hidden>
+          <div class="orb-reply-heading"><b id="orbReplyTitle">Quick reply</b><button id="orbReplyClose" type="button" title="Back to recent replies" aria-label="Back to recent replies"><svg class="ui-icon"><use href="#icon-close"/></svg></button></div>
+          <div class="orb-reply-compose"><textarea id="orbReplyInput" rows="1" maxlength="12000" aria-label="Quick reply message" placeholder="Reply to this session…"></textarea><button id="orbReplySend" type="submit" title="Send reply" aria-label="Send reply"><svg class="ui-icon"><use href="#icon-send"/></svg></button></div>
+          <small id="orbReplyFeedback" class="orb-reply-feedback" role="status"></small>
+        </form>
+      </div>
       <button id="orbHistoryButton" class="orb-history-button" type="button" title="Recent messages" aria-label="Recent messages" aria-pressed="false"><svg class="ui-icon"><use href="#icon-chat"/></svg></button>
       <button id="orbRestore" class="orb-avatar" type="button" title="Restore widget" aria-label="Restore widget">
         <span class="orb-glow"></span>
@@ -193,6 +201,7 @@
       <span data-notification class="edge-count">0</span>
     </button>
 
+    <script src="compact-sessions.js"></script>
     <script src="platform-presentation.js"></script>
     <script src="app.js"></script>
   </body>

@@ -19,22 +19,27 @@ const { renderMarkdown } = require("./markdown.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
 const { configureProductUserData } = require("./user-data-migration.cjs");
 const { moveCompactBounds, snapCompactBounds } = require("./window-geometry.cjs");
-const { captureModeBounds, fitFullBounds, restoreCompactBounds } = require("./window-state.cjs");
+const { captureModeBounds, fitFullBounds, resizeCompactAnchor, restoreCompactBounds } = require("./window-state.cjs");
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
+const SCREENSHOT_MODE = Boolean(process.env.WIDGET_SCREENSHOT_PATH);
 const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
 app.setName(PRODUCT_NAME);
 configureProductUserData({ app });
 const api = new HarnessApi(HARNESS_URL);
 const SIZE_PRESETS = {
-  compact: [380, 520],
+  compact: [380, 400],
   standard: [420, 640],
   large: [500, 760],
 };
+const FULL_MIN_WIDTH = 360;
+const FULL_MIN_HEIGHT = 360;
 // The transparent margin prevents the animated bloom around the pet from being clipped.
 const ORB_SIZE = 128;
+const ORB_EXPANDED_HEIGHT = 158;
 const ORB_QUICK_WIDTH = 172;
 const ORB_STATUS_WIDTH = 400;
+const ORB_EXPANDED_WIDTH = 460;
 // Keep enough transparent space for the edge glow to fade out naturally.
 // The visible handle is still flush with the screen edge.
 const EDGE_WIDTH = 88;
@@ -84,7 +89,7 @@ let settingsStore;
 let autoStartController;
 let harnessLauncher;
 let preferenceSaveTimer = null;
-let compactStatus = { active: false, label: "Ready", text: "" };
+let compactStatus = { active: false, expanded: false, label: "Ready", text: "" };
 let compactDragOrigin = null;
 let fullDragOrigin = null;
 let compactDragTrace = [];
@@ -271,7 +276,10 @@ function connectQueueMux() {
 
 function captureWindowBounds(mode, bounds, side = preferences.compactSide, setLastMode = true) {
   const previousMode = preferences.windowState.mode;
-  const windowState = captureModeBounds(preferences.windowState, mode, bounds, side);
+  const canonicalBounds = mode === "orb" && compactStatus.expanded
+    ? resizeCompactAnchor(bounds, ORB_EXPANDED_HEIGHT, ORB_SIZE)
+    : bounds;
+  const windowState = captureModeBounds(preferences.windowState, mode, canonicalBounds, side);
   if (!setLastMode) windowState.mode = previousMode;
   preferences = { ...preferences, windowState };
   if (mode === "full") fullBounds = windowState.full;
@@ -388,9 +396,10 @@ async function prepareFiles(filePaths) {
   return { attachments, failures };
 }
 
-function applyWindowMode(nextMode, { captureCurrent = true, persist = true } = {}) {
+function applyWindowMode(nextMode, { captureCurrent = true, persist = true, preserveCompactPosition = false } = {}) {
   if (!windowRef || windowRef.isDestroyed() || !["full", "orb", "edge"].includes(nextMode)) return;
   if (nextMode === "edge" && PLATFORM_CAPABILITIES.edgeMode === "unavailable") nextMode = "orb";
+  const preservedOrbPosition = preserveCompactPosition && nextMode === "orb" ? preferences.windowState.orb : null;
   if (captureCurrent) captureWindowBounds(windowMode, windowRef.getBounds());
   windowMode = nextMode;
   preferences.windowState.mode = nextMode;
@@ -401,22 +410,35 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true } = {
     const fallback = { ...windowRef.getBounds(), width: fallbackSize[0], height: fallbackSize[1] };
     const target = preferences.windowState.full || fullBounds || fallback;
     const display = screen.getDisplayMatching(target).workArea;
-    const restored = fitFullBounds(target, fallback, display, { minWidth: 360, minHeight: 500 });
+    const restored = fitFullBounds(target, fallback, display, {
+      minWidth: SCREENSHOT_MODE ? 1 : FULL_MIN_WIDTH,
+      minHeight: SCREENSHOT_MODE ? 1 : FULL_MIN_HEIGHT,
+    });
     windowRef.setResizable(true);
     setPlatformSkipTaskbar(windowRef, false, PLATFORM_CAPABILITIES);
     setPlatformBounds(windowRef, restored, true, PLATFORM_CAPABILITIES);
-    windowRef.setMinimumSize(Math.min(360, display.width), Math.min(500, display.height));
+    windowRef.setMinimumSize(
+      SCREENSHOT_MODE ? 1 : Math.min(FULL_MIN_WIDTH, display.width),
+      SCREENSHOT_MODE ? 1 : Math.min(FULL_MIN_HEIGHT, display.height),
+    );
     captureWindowBounds("full", restored);
   } else if (nextMode === "orb") {
     const source = fullBounds || windowRef.getBounds();
-    const orbWidth = compactStatus.active ? ORB_STATUS_WIDTH : ORB_QUICK_WIDTH;
-    const saved = preferences.windowState.orb;
-    const fallback = { x: source.x, y: source.y, width: orbWidth, height: ORB_SIZE, side: preferences.compactSide };
+    const orbWidth = compactStatus.expanded ? ORB_EXPANDED_WIDTH : compactStatus.active ? ORB_STATUS_WIDTH : ORB_QUICK_WIDTH;
+    const orbHeight = compactStatus.expanded ? ORB_EXPANDED_HEIGHT : ORB_SIZE;
+    const saved = compactStatus.expanded
+      ? resizeCompactAnchor(preferences.windowState.orb, ORB_SIZE, ORB_EXPANDED_HEIGHT)
+      : preferences.windowState.orb;
+    const fallbackAnchor = { x: source.x, y: source.y, side: preferences.compactSide };
+    const runtimeFallback = compactStatus.expanded
+      ? resizeCompactAnchor(fallbackAnchor, ORB_SIZE, ORB_EXPANDED_HEIGHT)
+      : fallbackAnchor;
+    const fallback = { ...runtimeFallback, width: orbWidth, height: orbHeight };
     const display = screen.getDisplayMatching(saved ? { ...fallback, x: saved.x, y: saved.y } : source).workArea;
     const restored = restoreCompactBounds(saved, fallback, display, {
       mode: "orb",
       width: orbWidth,
-      height: ORB_SIZE,
+      height: orbHeight,
       side: preferences.compactSide,
     });
     windowRef.setResizable(false);
@@ -424,6 +446,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true } = {
     preferences.compactSide = restored.side;
     setPlatformBounds(windowRef, { x: restored.x, y: restored.y, width: restored.width, height: restored.height }, true, PLATFORM_CAPABILITIES);
     captureWindowBounds("orb", restored, restored.side);
+    if (preservedOrbPosition) preferences.windowState.orb = preservedOrbPosition;
   } else {
     const source = fullBounds || windowRef.getBounds();
     const saved = preferences.windowState.edge;
@@ -462,13 +485,13 @@ function createWindow() {
   const [presetWidth, presetHeight] = SIZE_PRESETS[preferences.size] || SIZE_PRESETS.standard;
   const requestedWidth = Number(process.env.WIDGET_SCREENSHOT_WIDTH);
   const requestedHeight = Number(process.env.WIDGET_SCREENSHOT_HEIGHT);
-  const width = Number.isFinite(requestedWidth) && requestedWidth >= 360 ? requestedWidth : presetWidth;
-  const height = Number.isFinite(requestedHeight) && requestedHeight >= 500 ? requestedHeight : presetHeight;
+  const width = Number.isFinite(requestedWidth) && requestedWidth >= 280 ? requestedWidth : presetWidth;
+  const height = Number.isFinite(requestedHeight) && requestedHeight >= 280 ? requestedHeight : presetHeight;
   windowRef = new BrowserWindow({
     width,
     height,
-    minWidth: 360,
-    minHeight: 500,
+    minWidth: screenshotPath ? 1 : FULL_MIN_WIDTH,
+    minHeight: screenshotPath ? 1 : FULL_MIN_HEIGHT,
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",
@@ -489,7 +512,10 @@ function createWindow() {
   // different full-window size saved in user preferences.
   const initialTarget = screenshotPath ? initialFallback : (preferences.windowState.full || initialFallback);
   const initialDisplay = screen.getDisplayMatching(initialTarget).workArea;
-  fullBounds = fitFullBounds(initialTarget, initialFallback, initialDisplay, { minWidth: 360, minHeight: 500 });
+  fullBounds = fitFullBounds(initialTarget, initialFallback, initialDisplay, {
+    minWidth: screenshotPath ? 1 : FULL_MIN_WIDTH,
+    minHeight: screenshotPath ? 1 : FULL_MIN_HEIGHT,
+  });
   setPlatformBounds(windowRef, fullBounds, false, PLATFORM_CAPABILITIES);
   captureWindowBounds("full", fullBounds, preferences.compactSide, false);
   applyWindowLayer("full");
@@ -560,15 +586,19 @@ function createWindow() {
       const requestedDelay = Number(process.env.WIDGET_SCREENSHOT_DELAY);
       const captureDelay = Number.isFinite(requestedDelay) && requestedDelay >= 1200 ? requestedDelay : 5000;
       const requestedMode = process.env.WIDGET_SCREENSHOT_MODE;
+      const requestedSide = process.env.WIDGET_SCREENSHOT_SIDE;
       if (["orb", "edge"].includes(requestedMode)) {
-        setTimeout(() => applyWindowMode(requestedMode), Math.min(3500, captureDelay - 650));
+        setTimeout(() => {
+          if (["left", "right"].includes(requestedSide)) preferences.compactSide = requestedSide;
+          applyWindowMode(requestedMode);
+        }, Math.min(3500, captureDelay - 650));
       }
       setTimeout(async () => {
         const auditPath = process.env.WIDGET_UI_AUDIT_PATH;
         let audit = null;
         if (auditPath) {
           audit = await windowRef.webContents.executeJavaScript(`(() => {
-            const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.queue-dock.has-items','.attachment-bar.has-items','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-history-button','.edge-mode'];
+            const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.queue-dock.has-items','.attachment-bar.has-items','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-session-row','.orb-reply-form','.orb-history-button','.edge-mode'];
             const boxes = selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((element) => {
               const rect = element.getBoundingClientRect();
               const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).display !== 'none';
@@ -636,9 +666,32 @@ function createWindow() {
               orbNotification: document.body.classList.contains('orb-has-notification'),
               orbStatusShadow: getComputedStyle(document.querySelector('#orbStatus')).boxShadow,
               orbReplyShadow: getComputedStyle(document.querySelector('#orbHistoryButton')).boxShadow,
+              orbRecentRows: document.querySelectorAll('.orb-session-row').length,
+              orbRecentUniqueSessions: new Set([...document.querySelectorAll('.orb-session-row .orb-session-open')].map((button) => button.getAttribute('aria-label'))).size,
+              orbHistoryOpen: document.body.classList.contains('orb-history-open'),
+              orbQuickReplyOpen: document.body.classList.contains('orb-reply-open'),
+              orbReplyTarget: document.querySelector('#orbReplyTitle')?.textContent || '',
+              orbReplyInputVisible: (() => {
+                const input = document.querySelector('#orbReplyInput');
+                const rect = input?.getBoundingClientRect();
+                return Boolean(rect && rect.width > 0 && rect.height > 0 && !input.closest('[hidden]'));
+              })(),
+              orbPanelClipped: (() => {
+                const panel = document.querySelector('#orbStatus');
+                const rect = panel?.getBoundingClientRect();
+                return Boolean(rect && (rect.left < -1 || rect.top < -1 || rect.right > innerWidth + 1 || rect.bottom > innerHeight + 1));
+              })(),
+              compactSide: document.body.classList.contains('side-left') ? 'left' : 'right',
               edgeHitActive: document.querySelector('#edgeMode')?.classList.contains('edge-hit-active') || false,
               edgeLineWidth: Math.round(document.querySelector('.edge-line')?.getBoundingClientRect().width || 0),
               edgeHaloOpacity: getComputedStyle(document.querySelector('.edge-line'), '::before').opacity,
+              edgePrimary: getComputedStyle(document.body).getPropertyValue('--edge-primary').trim(),
+              edgeState: document.body.classList.contains('activity-thinking') ? 'thinking'
+                : document.body.classList.contains('activity-writing') ? 'writing'
+                  : document.body.classList.contains('activity-tool') ? 'tool'
+                    : document.body.classList.contains('state-error') ? 'error'
+                      : document.body.classList.contains('state-done') ? 'done'
+                        : document.body.classList.contains('state-waiting') ? 'waiting' : 'idle',
               brandUserSelect: getComputedStyle(document.querySelector('.brand')).userSelect,
               composerUtilitiesStacked: (() => {
                 const attach = document.querySelector('#attachButton').getBoundingClientRect();
@@ -648,6 +701,20 @@ function createWindow() {
               contextRingSize: Math.round(document.querySelector('#contextMeter svg').getBoundingClientRect().width),
               contextUnavailable: document.querySelector('#contextMeter').classList.contains('unavailable'),
               composerTextareaWidth: Math.round(document.querySelector('#messageInput').getBoundingClientRect().width),
+              composerInputHeight: Math.round(document.querySelector('#messageInput').getBoundingClientRect().height),
+              composerHeight: Math.round(document.querySelector('#chatForm').getBoundingClientRect().height),
+              composerUtilityHeight: Math.round(document.querySelector('.composer-utility-stack').getBoundingClientRect().height),
+              composerInputScrollable: document.querySelector('#messageInput').scrollHeight > document.querySelector('#messageInput').clientHeight + 1,
+              composerInputMaxDelta: Math.round(Math.abs(document.querySelector('#messageInput').getBoundingClientRect().height - innerHeight / 3) * 100) / 100,
+              conversationBubbles: document.querySelectorAll('#messages .bubble').length,
+              shortMessageVisible: (() => {
+                const bubble = document.querySelector('#messages .bubble');
+                const viewport = document.querySelector('#messages');
+                if (!bubble || !viewport) return false;
+                const bubbleRect = bubble.getBoundingClientRect();
+                const viewportRect = viewport.getBoundingClientRect();
+                return bubbleRect.width > 0 && bubbleRect.height > 0 && bubbleRect.top >= viewportRect.top - 1 && bubbleRect.bottom <= viewportRect.bottom + 1;
+              })(),
               sendWidth: Math.round(document.querySelector('#sendButton').getBoundingClientRect().width),
               sendHeight: Math.round(document.querySelector('#sendButton').getBoundingClientRect().height),
               modelControlLabel: document.querySelector('.model-button-copy small')?.textContent || '',
@@ -836,12 +903,16 @@ ipcMain.handle("set-window-mode", (_event, mode) => {
 });
 ipcMain.handle("set-compact-status", (_event, value) => {
   const wasActive = compactStatus.active;
+  const wasExpanded = compactStatus.expanded;
   compactStatus = {
     active: Boolean(value && value.active),
+    expanded: Boolean(value && value.expanded),
     label: String(value && value.label || "Ready").slice(0, 80),
     text: String(value && value.text || "").slice(0, 180),
   };
-  if (windowMode === "orb" && wasActive !== compactStatus.active && !compactDragOrigin) applyWindowMode("orb");
+  if (windowMode === "orb" && (wasActive !== compactStatus.active || wasExpanded !== compactStatus.expanded) && !compactDragOrigin) {
+    applyWindowMode("orb", { captureCurrent: false, persist: false, preserveCompactPosition: true });
+  }
   return compactStatus;
 });
 ipcMain.on("set-edge-pointer-active", (event, active) => {

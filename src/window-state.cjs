@@ -72,4 +72,14 @@ function captureModeBounds(state, mode, bounds, side) {
   return next;
 }
 
-module.exports = { captureModeBounds, fitFullBounds, restoreCompactBounds };
+function resizeCompactAnchor(position, fromHeight, toHeight) {
+  if (!position || typeof position !== "object") return position;
+  const sourceHeight = Math.max(1, finite(fromHeight, 1));
+  const targetHeight = Math.max(1, finite(toHeight, sourceHeight));
+  return {
+    ...position,
+    y: finite(position.y, 0) + Math.round((sourceHeight - targetHeight) / 2),
+  };
+}
+
+module.exports = { captureModeBounds, fitFullBounds, resizeCompactAnchor, restoreCompactBounds };

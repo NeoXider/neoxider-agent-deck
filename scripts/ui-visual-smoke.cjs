@@ -32,13 +32,26 @@ const cases = [
   { name: "tool-chat", tab: "chat", fixture: "tool" },
   { name: "compact-chat", tab: "chat", fixture: "chat", width: 360, height: 500, expect: { historicalReasoning: 0, footer: 0, titlebarTabs: 1, setupInToolbar: true, composerUtilitiesStacked: true, contextRingSize: 30, sendWidth: 36, sendHeight: 36 } },
   { name: "compact-tools", tab: "chat", fixture: "markdown-tools", width: 360, height: 500, expect: { toolGroups: 1, toolCalls: 2 } },
+  { name: "composer-single-line", tab: "chat", fixture: "composer-single-line", width: 380, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 38, composerInputScrollable: false, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 50 } },
+  { name: "composer-multiline-max", tab: "chat", fixture: "composer-multiline", width: 380, height: 400, expect: { composerInputScrollable: true, conversationBubbles: 1, shortMessageVisible: true }, max: { composerInputMaxDelta: 1 } },
+  { name: "small-chat-400", tab: "chat", fixture: "small-chat", width: 400, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 38, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 50 } },
+  { name: "small-chat-380", tab: "chat", fixture: "small-chat", width: 380, height: 380, expect: { composerInputHeight: 34, composerUtilityHeight: 38, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 50 } },
+  { name: "small-chat-360", tab: "chat", fixture: "small-chat", width: 360, height: 360, expect: { composerInputHeight: 34, composerUtilityHeight: 38, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 50 } },
   { name: "thinking-orb", tab: "chat", fixture: "thinking", mode: "orb", expect: { orbUtilityButtons: 1 } },
   { name: "notification-orb", tab: "chat", fixture: "orb-notification", mode: "orb", expect: { orbUtilityButtons: 1, orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
   { name: "notification-orb-black", tab: "chat", fixture: "orb-notification", mode: "orb", backdrop: "black", expect: { orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
   { name: "notification-orb-white", tab: "chat", fixture: "orb-notification", mode: "orb", backdrop: "white", expect: { orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
   { name: "notification-orb-checkerboard", tab: "chat", fixture: "orb-notification", mode: "orb", backdrop: "checkerboard", expect: { orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
-  { name: "edge", mode: "edge", expect: { edgeLineWidth: 8, edgeHaloOpacity: "0.22" } },
-  { name: "edge-hover", fixture: "edge-hover", mode: "edge", expect: { edgeHitActive: true, edgeLineWidth: 8, edgeHaloOpacity: "0.22" } },
+  { name: "recent-sessions-orb", tab: "chat", fixture: "orb-recent-three", mode: "orb", expect: { orbRecentRows: 3, orbRecentUniqueSessions: 3, orbHistoryOpen: true, orbQuickReplyOpen: false, orbPanelClipped: false, compactSide: "right" } },
+  { name: "recent-sessions-orb-left", tab: "chat", fixture: "orb-recent-three-left", mode: "orb", side: "left", expect: { orbRecentRows: 3, orbRecentUniqueSessions: 3, orbHistoryOpen: true, orbQuickReplyOpen: false, orbPanelClipped: false, compactSide: "left" } },
+  { name: "quick-reply-orb", tab: "chat", fixture: "orb-quick-reply", mode: "orb", expect: { orbRecentRows: 3, orbQuickReplyOpen: true, orbReplyTarget: "Build review", orbReplyInputVisible: true, orbPanelClipped: false } },
+  { name: "edge", mode: "edge", expect: { edgeLineWidth: 8, edgeState: "idle", edgePrimary: "#556273" } },
+  { name: "edge-hover", fixture: "edge-hover", mode: "edge", expect: { edgeHitActive: true, edgeLineWidth: 8, edgeState: "idle", edgePrimary: "#556273" } },
+  { name: "edge-thinking", fixture: "thinking", mode: "edge", expect: { edgeState: "thinking", edgePrimary: "#9b8cff" } },
+  { name: "edge-writing", fixture: "writing", mode: "edge", expect: { edgeState: "writing", edgePrimary: "#49e7c6" } },
+  { name: "edge-tool", fixture: "tool", mode: "edge", expect: { edgeState: "tool", edgePrimary: "#ffbd69" } },
+  { name: "edge-done", fixture: "edge-done", mode: "edge", expect: { edgeState: "done", edgePrimary: "#79f0b7" } },
+  { name: "edge-error", fixture: "edge-error", mode: "edge", expect: { edgeState: "error", edgePrimary: "#ff738f" } },
 ];
 
 function runElectron(testCase) {
@@ -57,6 +70,7 @@ function runElectron(testCase) {
         ...(testCase.tab ? { WIDGET_SCREENSHOT_TAB: testCase.tab } : {}),
         ...(testCase.fixture ? { WIDGET_SCREENSHOT_FIXTURE: testCase.fixture } : {}),
         ...(testCase.mode ? { WIDGET_SCREENSHOT_MODE: testCase.mode } : {}),
+        ...(testCase.side ? { WIDGET_SCREENSHOT_SIDE: testCase.side } : {}),
         ...(testCase.backdrop ? { WIDGET_SCREENSHOT_BACKDROP: testCase.backdrop } : {}),
         ...(testCase.width ? { WIDGET_SCREENSHOT_WIDTH: String(testCase.width) } : {}),
         ...(testCase.height ? { WIDGET_SCREENSHOT_HEIGHT: String(testCase.height) } : {}),
@@ -111,6 +125,9 @@ async function main() {
     }
     for (const [key, minimum] of Object.entries(testCase.min || {})) {
       if (!(audit.semantic?.[key] >= minimum)) throw new Error(`${testCase.name} expected ${key}>=${minimum}, got ${JSON.stringify(audit.semantic?.[key])}`);
+    }
+    for (const [key, maximum] of Object.entries(testCase.max || {})) {
+      if (!(audit.semantic?.[key] <= maximum)) throw new Error(`${testCase.name} expected ${key}<=${maximum}, got ${JSON.stringify(audit.semantic?.[key])}`);
     }
     process.stdout.write(`✓ ${testCase.name} ${audit.viewport.width}x${audit.viewport.height}\n`);
   }

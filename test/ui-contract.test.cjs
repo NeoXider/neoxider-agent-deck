@@ -57,8 +57,8 @@ test("composer stacks attachment and commands beside a smaller context ring and 
   const send = html.indexOf('id="sendButton"');
   assert.ok(context > 0 && context < attach && attach < commands && commands < focus && focus < input && input < stop && stop < send);
   assert.match(html, /class="composer-utility-stack"[\s\S]+id="attachButton"[\s\S]+id="commandsButton"/);
-  assert.match(css, /\.composer-utility-stack \{[^}]+grid-template-rows:repeat\(2,32px\)/);
-  assert.doesNotMatch(css, /\.composer-utility-stack \.composer-action \{[^}]+(?:width|height):(?:1[0-9]|2[0-9])px/);
+  assert.match(css, /\.composer-utility-stack \{[^}]+height:38px[^}]+grid-template-rows:repeat\(2,18px\)/);
+  assert.match(css, /\.composer-utility-stack \.composer-action \{[^}]+width:32px[^}]+height:18px/);
   assert.match(css, /\.context-meter \{[^}]+width:36px[^}]+height:38px/);
   assert.match(css, /\.composer #sendButton \{[^}]+width:38px[^}]+height:38px/);
   assert.match(css, /\.context-meter svg \{[^}]+top:50%[^}]+left:50%[^}]+translate\(-50%,-50%\)/);
@@ -68,6 +68,28 @@ test("composer stacks attachment and commands beside a smaller context ring and 
   assert.match(renderer, /classList\.toggle\("context-unavailable", !pressure\)/);
   assert.match(renderer, /attachment-preview/);
   assert.match(renderer, /thumbnailData/);
+});
+
+test("main composer starts on one line, grows to one third of the viewport, scrolls, and collapses after submit", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(css, /\.composer textarea \{[^}]+min-height:34px[^}]+height:34px[^}]+max-height:var\(--composer-input-max-height,33vh\)[^}]+overflow-y:hidden[^}]+transition:height/);
+  assert.match(css, /\.composer textarea\.is-scrollable \{[^}]+overflow-y:auto/);
+  assert.match(renderer, /COMPOSER_INPUT_MIN_HEIGHT = 34/);
+  assert.match(renderer, /COMPOSER_INPUT_MAX_VIEWPORT_RATIO = 1 \/ 3/);
+  assert.match(renderer, /function resizeMessageInput\(\{ immediate = false \} = \{\}\)/);
+  assert.match(renderer, /Math\.floor\(window\.innerHeight \* COMPOSER_INPUT_MAX_VIEWPORT_RATIO\)/);
+  assert.match(renderer, /classList\.toggle\("is-scrollable", contentHeight > maximumHeight\)/);
+  assert.match(renderer, /input\.value = "";\s*\n\s*resizeMessageInput\(\);/);
+  assert.match(renderer, /input\.value = text;\s*\n\s*resizeMessageInput\(\);/);
+  assert.match(renderer, /window\.addEventListener\("resize", \(\) => resizeMessageInput\(\{ immediate: true \}\)\)/);
+});
+
+test("the full chat has a verified 360px minimum height and a 380 by 400 compact preset", () => {
+  assert.match(main, /compact: \[380, 400\]/);
+  assert.match(main, /const FULL_MIN_WIDTH = 360/);
+  assert.match(main, /const FULL_MIN_HEIGHT = 360/);
+  assert.match(main, /Math\.min\(FULL_MIN_WIDTH, display\.width\)/);
+  assert.match(main, /Math\.min\(FULL_MIN_HEIGHT, display\.height\)/);
 });
 
 test("model picker names the control and provides loading, empty, error, retry, and model-recovery UI", () => {
@@ -165,17 +187,32 @@ test("activity glow intensity is brighter by default, adjustable, and persisted"
   assert.match(main, /set-glow-intensity/);
 });
 
-test("collapsed pet keeps only recent messages and opens the exact notifying session", () => {
+test("collapsed pet exposes three exact recent sessions and inline quick reply without restoring full mode", () => {
   assert.doesNotMatch(html, /id="orb(?:NewSession|Commands|Attach)"/);
+  assert.match(html, /id="orbSessionList"[^>]+role="list"/);
+  assert.match(html, /id="orbReplyForm"[^>]+aria-label="Quick reply"/);
+  assert.match(html, /id="orbReplyInput"[^>]+aria-label="Quick reply message"/);
   assert.match(renderer, /compactNotificationTimer = setTimeout/);
   assert.match(renderer, /\}, 2500\)/);
   assert.match(renderer, /orb-status-closing/);
   assert.match(renderer, /notifyCompletion\(nextSessions\.find/);
+  assert.match(renderer, /recentReplySessions\(state\.dashboard\?\.sessions, 3\)/);
+  assert.match(renderer, /openCompactSession\(session\.sessionId\)/);
+  assert.match(renderer, /openCompactReply\(session\.sessionId\)/);
   assert.match(renderer, /await selectSession\(sessionId, true\)/);
-  assert.match(renderer, /compactReplySessionId/);
-  assert.match(renderer, /openCompactReplySession/);
-  assert.match(renderer, /#icon-send/);
+  const quickReply = renderer.slice(renderer.indexOf("async function sendCompactReply"), renderer.indexOf("function detectCompletedSessions"));
+  assert.match(quickReply, /window\.widget\.send\(\{/);
+  assert.match(quickReply, /sessionId,/);
+  assert.match(quickReply, /trackQueuedPrompt\(sessionId/);
+  assert.doesNotMatch(quickReply, /setWindowMode\("full"\)/);
+  assert.match(renderer, /if \(state\.compactReplyBusy\) return/);
+  assert.match(renderer, /event\.key === "Enter" && !event\.shiftKey/);
+  assert.match(renderer, /event\.key === "Escape" && state\.windowMode === "orb"/);
+  assert.match(renderer, /event\.target\.closest\("#orbStatus, #orbHistoryButton"\)/);
   assert.match(main, /const ORB_SIZE = 128/);
+  assert.match(main, /const ORB_EXPANDED_HEIGHT = 158/);
+  assert.match(main, /const ORB_EXPANDED_WIDTH = 460/);
+  assert.match(main, /preserveCompactPosition: true/);
 });
 
 test("window layer has normal, above-by-default, and fullscreen-game modes", () => {
@@ -242,7 +279,7 @@ test("compact modes use immediate pointer capture, native drag IPC, and magnetic
   assert.match(main, /begin-compact-drag/);
   assert.match(main, /move-compact-drag/);
   assert.match(main, /end-compact-drag/);
-  assert.match(main, /wasActive !== compactStatus\.active && !compactDragOrigin/);
+  assert.match(main, /wasActive !== compactStatus\.active \|\| wasExpanded !== compactStatus\.expanded/);
   assert.match(html, /data-avatar[^>]+draggable="false"/);
 });
 
@@ -256,7 +293,7 @@ test("edge mode only captures the visible handle and passes transparent glow cli
   assert.match(renderer, /getBoundingClientRect\(\)/);
   assert.match(renderer, /rect\.left - EDGE_HIT_PADDING/);
   assert.match(renderer, /document\.addEventListener\("mousemove", updateEdgePointerHit, true\)/);
-  assert.match(css, /\.edge-line \{ --edge-halo-opacity:\.22/);
+  assert.match(css, /--edge-halo-opacity:\.12/);
   assert.match(css, /\.edge-hit-active \.edge-line::after, \.edge-mode:focus-visible \.edge-line::after/);
   assert.doesNotMatch(css, /\.edge-hit-active \.edge-line[^}]+scaleY/);
   assert.doesNotMatch(css, /\.edge-hit-active \.edge-line[^}]+translateX/);
@@ -265,6 +302,19 @@ test("edge mode only captures the visible handle and passes transparent glow cli
     endCompactDrag.indexOf("window.widget.endCompactDrag()") < endCompactDrag.indexOf("if (!moved) return"),
     "a click without movement must still clear the native compact drag origin",
   );
+});
+
+test("edge line mirrors thinking, writing, tool, waiting, done, and error states", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(css, /\.mode-edge\.activity-thinking\s*\{/);
+  assert.match(css, /\.mode-edge\.activity-writing\s*\{/);
+  assert.match(css, /\.mode-edge\.activity-tool\s*\{/);
+  assert.match(css, /\.mode-edge\.state-waiting\s*\{/);
+  assert.match(css, /\.mode-edge\.state-done\s*\{/);
+  assert.match(css, /\.mode-edge\.state-error\s*\{/);
+  assert.match(css, /\.edge-mode\.bounce \.edge-line/);
+  assert.match(css, /@keyframes edge-done-pulse/);
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)/);
 });
 
 test("orb activity glow eases between idle, thinking, writing, tool, waiting, error, and done palettes", () => {

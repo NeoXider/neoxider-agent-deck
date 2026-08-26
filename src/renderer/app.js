@@ -28,6 +28,10 @@ const state = {
   compactStatusClosing: false,
   compactHistoryOpen: false,
   compactReplySessionId: null,
+  compactReplyOpen: false,
+  compactReplyBusy: false,
+  compactReplyError: "",
+  compactSessionSignature: "",
   commandSelectionIndex: 0,
   lastCommandQuery: "",
   queuedPromptsBySession: new Map(),
@@ -87,6 +91,35 @@ function compactText(value, limit = 120) {
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}…` : normalized;
 }
 
+const COMPOSER_INPUT_MIN_HEIGHT = 34;
+const COMPOSER_INPUT_MAX_VIEWPORT_RATIO = 1 / 3;
+let messageInputResizeFrame = null;
+
+function resizeMessageInput({ immediate = false } = {}) {
+  const input = $("#messageInput");
+  if (!input) return;
+  if (messageInputResizeFrame) cancelAnimationFrame(messageInputResizeFrame);
+  const maximumHeight = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.floor(window.innerHeight * COMPOSER_INPUT_MAX_VIEWPORT_RATIO));
+  const previousHeight = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.round(input.getBoundingClientRect().height));
+  input.style.setProperty("--composer-input-max-height", `${maximumHeight}px`);
+  input.style.height = "0px";
+  const contentHeight = input.scrollHeight;
+  const targetHeight = input.value.length
+    ? Math.min(maximumHeight, Math.max(COMPOSER_INPUT_MIN_HEIGHT, contentHeight))
+    : COMPOSER_INPUT_MIN_HEIGHT;
+  input.classList.toggle("is-scrollable", contentHeight > maximumHeight);
+  if (immediate) {
+    input.style.height = `${targetHeight}px`;
+    messageInputResizeFrame = null;
+    return;
+  }
+  input.style.height = `${previousHeight}px`;
+  messageInputResizeFrame = requestAnimationFrame(() => {
+    input.style.height = `${targetHeight}px`;
+    messageInputResizeFrame = null;
+  });
+}
+
 function closePickers(except = null, { restoreFocus = false } = {}) {
   $$(".picker.open").forEach((picker) => {
     if (picker === except) return;
@@ -133,45 +166,89 @@ function pickerOption(label, { selected = false, meta = "", title = "", onSelect
 
 function compactPreviewEntry() {
   if (state.compactNotification) return state.compactNotification;
-  if (state.compactHistoryOpen) {
-    const sessions = state.dashboard?.sessions || [];
-    const session = sessions.find((item) => item.sessionId === state.selectedSessionId)
-      || [...sessions].sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))[0];
-    if (session) return {
-      kind: "history",
-      sessionId: session.sessionId,
-      title: session.title || "Current session",
-      text: session.preview || "No assistant reply yet.",
-    };
-  }
   return null;
+}
+
+function recentCompactSessions() {
+  return window.compactSessions.recentReplySessions(state.dashboard?.sessions, 3);
+}
+
+function renderCompactSessions() {
+  const root = $("#orbSessionList");
+  const sessions = recentCompactSessions();
+  const signature = JSON.stringify([
+    state.compactReplySessionId,
+    ...sessions.map((session) => [session.sessionId, session.title, session.preview, session.updatedAt, session.running]),
+  ]);
+  if (signature === state.compactSessionSignature && root.childElementCount) return sessions;
+  state.compactSessionSignature = signature;
+  root.replaceChildren();
+  if (!sessions.length) {
+    const empty = document.createElement("div");
+    empty.className = "orb-session-empty";
+    empty.textContent = "No assistant replies yet";
+    root.append(empty);
+    return sessions;
+  }
+  for (const session of sessions) {
+    const row = document.createElement("div");
+    row.className = `orb-session-row${session.sessionId === state.compactReplySessionId ? " selected" : ""}`;
+    row.setAttribute("role", "listitem");
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "orb-session-open";
+    open.title = `Open ${session.title}`;
+    open.setAttribute("aria-label", `Open ${session.title} in the widget`);
+    const title = document.createElement("b");
+    title.textContent = session.title;
+    const preview = document.createElement("small");
+    preview.textContent = compactText(session.preview, 74);
+    open.append(title, preview);
+    open.addEventListener("click", () => openCompactSession(session.sessionId));
+    const reply = document.createElement("button");
+    reply.type = "button";
+    reply.className = "orb-session-reply";
+    reply.title = `Quick reply to ${session.title}`;
+    reply.setAttribute("aria-label", `Quick reply to ${session.title}`);
+    reply.append(createIcon("chat"));
+    reply.addEventListener("click", () => openCompactReply(session.sessionId));
+    row.append(open, reply);
+    root.append(row);
+  }
+  return sessions;
 }
 
 function syncCompactStatus() {
   const activity = state.currentActivity;
   const preview = compactPreviewEntry();
-  const active = Boolean(state.compactStatusClosing || preview || activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
+  const compactSessions = renderCompactSessions();
+  const expanded = state.compactHistoryOpen || state.compactReplyOpen;
+  const active = Boolean(expanded || state.compactStatusClosing || preview || activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
   const label = preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
   const text = compactText(preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
   document.body.classList.toggle("orb-has-status", active);
   document.body.classList.toggle("orb-has-notification", preview?.kind === "notification");
   document.body.classList.toggle("orb-status-closing", state.compactStatusClosing);
   document.body.classList.toggle("orb-history-open", state.compactHistoryOpen);
+  document.body.classList.toggle("orb-reply-open", state.compactReplyOpen);
   $("#orbStatusLabel").textContent = label;
   $("#orbStatusText").textContent = text;
-  $("#orbStatus").disabled = !preview?.sessionId && !state.selectedSessionId;
+  $("#orbStatusCard").hidden = expanded;
+  $("#orbStatusCard").disabled = !preview?.sessionId && !state.selectedSessionId;
+  $("#orbSessionList").hidden = !state.compactHistoryOpen;
+  $("#orbReplyForm").hidden = !state.compactReplyOpen;
   const compactButton = $("#orbHistoryButton");
   const replySession = state.dashboard?.sessions?.find((session) => session.sessionId === state.compactReplySessionId);
-  const hasReplyTarget = Boolean(state.compactReplySessionId);
-  const compactButtonLabel = hasReplyTarget
-    ? (replySession?.title ? `Reply to ${replySession.title}` : "Reply in this session")
-    : "Recent messages";
-  compactButton.classList.toggle("active", state.compactHistoryOpen || hasReplyTarget);
-  compactButton.setAttribute("aria-pressed", String(state.compactHistoryOpen));
+  const compactButtonLabel = expanded ? "Close recent replies" : `Recent replies${compactSessions.length ? ` (${compactSessions.length})` : ""}`;
+  compactButton.classList.toggle("active", expanded);
+  compactButton.setAttribute("aria-pressed", String(expanded));
   compactButton.title = compactButtonLabel;
   compactButton.setAttribute("aria-label", compactButtonLabel);
-  compactButton.querySelector("use")?.setAttribute("href", hasReplyTarget ? "#icon-send" : "#icon-chat");
-  window.widget.setCompactStatus({ active, label, text }).catch(() => {});
+  compactButton.querySelector("use")?.setAttribute("href", expanded ? "#icon-close" : "#icon-chat");
+  $("#orbReplyTitle").textContent = replySession?.title || "Quick reply";
+  $("#orbReplyFeedback").textContent = state.compactReplyError;
+  $("#orbReplySend").disabled = state.compactReplyBusy;
+  window.widget.setCompactStatus({ active, expanded, label, text }).catch(() => {});
 }
 
 function syncActivityCard() {
@@ -231,7 +308,7 @@ function notifyCompletion(session) {
     state.compactStatusClosing = false;
     state.compactNotificationTimer = setTimeout(() => {
       state.compactNotification = null;
-      state.compactStatusClosing = !state.compactHistoryOpen;
+      state.compactStatusClosing = !state.compactHistoryOpen && !state.compactReplyOpen;
       syncCompactStatus();
       if (state.compactStatusClosing) setTimeout(() => {
         state.compactStatusClosing = false;
@@ -248,7 +325,7 @@ function notifyCompletion(session) {
       setAvatar("idle");
       setActivity(null);
     }
-  }, 1600);
+  }, 2600);
 }
 
 function applyWindowMode(mode) {
@@ -763,6 +840,7 @@ function chooseCommand(command) {
   if (!command) return;
   const input = $("#messageInput");
   input.value = `/${command.name}${command.input?.hint ? " " : ""}`;
+  resizeMessageInput();
   input.placeholder = command.input?.hint || "Run Harness command…";
   state.commandSelectionIndex = 0;
   state.lastCommandQuery = "";
@@ -1596,18 +1674,27 @@ function setFocusMode(enabled) {
 }
 
 function toggleCompactHistory() {
-  state.compactHistoryOpen = !state.compactHistoryOpen;
+  const open = !(state.compactHistoryOpen || state.compactReplyOpen);
+  state.compactHistoryOpen = open;
+  state.compactReplyOpen = false;
+  state.compactReplyBusy = false;
+  state.compactReplyError = "";
   if (state.compactHistoryOpen) state.compactNotification = null;
   syncCompactStatus();
 }
 
-async function openCompactSession() {
+async function openCompactSession(requestedSessionId = null) {
   const entry = compactPreviewEntry();
-  const sessionId = entry?.sessionId || state.selectedSessionId;
+  const sessionId = typeof requestedSessionId === "string"
+    ? requestedSessionId
+    : entry?.sessionId || state.selectedSessionId;
   if (!sessionId) return;
   state.compactNotification = null;
   state.compactStatusClosing = false;
   state.compactHistoryOpen = false;
+  state.compactReplyOpen = false;
+  state.compactReplyBusy = false;
+  state.compactReplyError = "";
   clearTimeout(state.compactNotificationTimer);
   await setWindowMode("full");
   await selectSession(sessionId, true);
@@ -1616,18 +1703,85 @@ async function openCompactSession() {
   syncCompactStatus();
 }
 
-async function openCompactReplySession() {
-  const sessionId = state.compactReplySessionId || state.compactNotification?.sessionId;
+function openCompactReply(sessionId) {
   if (!sessionId) return;
+  state.compactReplySessionId = sessionId;
   state.compactNotification = null;
   state.compactStatusClosing = false;
   state.compactHistoryOpen = false;
+  state.compactReplyOpen = true;
+  state.compactReplyBusy = false;
+  state.compactReplyError = "";
   clearTimeout(state.compactNotificationTimer);
-  await setWindowMode("full");
-  await selectSession(sessionId, true);
-  state.compactReplySessionId = null;
   syncCompactStatus();
-  requestAnimationFrame(() => $("#messageInput")?.focus());
+  requestAnimationFrame(() => $("#orbReplyInput")?.focus());
+}
+
+function closeCompactReply({ showHistory = true } = {}) {
+  state.compactReplyOpen = false;
+  state.compactReplyBusy = false;
+  state.compactReplyError = "";
+  state.compactHistoryOpen = showHistory;
+  syncCompactStatus();
+  if (showHistory) requestAnimationFrame(() => $("#orbSessionList .orb-session-reply")?.focus());
+}
+
+async function sendCompactReply() {
+  if (state.compactReplyBusy) return;
+  const sessionId = state.compactReplySessionId;
+  const input = $("#orbReplyInput");
+  const text = input.value.trim();
+  if (!sessionId || !text) {
+    state.compactReplyError = "Write a message first";
+    syncCompactStatus();
+    input.focus();
+    return;
+  }
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+  const queueingBehindTurn = state.runningSessionIds.has(sessionId);
+  state.compactReplyBusy = true;
+  state.compactReplyError = "";
+  syncCompactStatus();
+  try {
+    await window.widget.send({
+      sessionId,
+      text,
+      selection: null,
+      attachments: [],
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    if (queueingBehindTurn) trackQueuedPrompt(sessionId, { text });
+    input.value = "";
+    state.compactReplyOpen = false;
+    state.compactHistoryOpen = false;
+    state.compactReplyBusy = false;
+    state.compactReplySessionId = null;
+    state.compactNotification = {
+      kind: "notification",
+      sessionId,
+      title: session?.title || "Reply sent",
+      text: queueingBehindTurn ? "Queued behind the active turn." : "Reply sent to this session.",
+    };
+    clearTimeout(state.compactNotificationTimer);
+    state.compactNotificationTimer = setTimeout(() => {
+      state.compactNotification = null;
+      state.compactStatusClosing = true;
+      syncCompactStatus();
+      setTimeout(() => {
+        state.compactStatusClosing = false;
+        syncCompactStatus();
+      }, 240);
+    }, 2200);
+    setAvatar("waiting", queueingBehindTurn ? "queued" : "waiting for reply");
+    syncCompactStatus();
+    await refresh();
+  } catch (error) {
+    state.compactReplyBusy = false;
+    state.compactReplyError = compactText(error?.message || error || "Reply was not sent", 86);
+    setAvatar("error", "not sent");
+    syncCompactStatus();
+    requestAnimationFrame(() => input.focus());
+  }
 }
 
 function detectCompletedSessions(nextSessions) {
@@ -1813,6 +1967,7 @@ async function openCommands({ restore = false } = {}) {
   setTab("chat");
   const input = $("#messageInput");
   if (!input.value.trim()) input.value = "/";
+  resizeMessageInput();
   await loadCommands();
   renderCommands(commandQuery());
   setCommandMenuOpen(true);
@@ -1957,6 +2112,13 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest("#commandMenu, #commandsButton, #messageInput")) setCommandMenuOpen(false);
 });
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.windowMode === "orb" && (state.compactHistoryOpen || state.compactReplyOpen)) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (state.compactReplyOpen) closeCompactReply();
+    else toggleCompactHistory();
+    return;
+  }
   if (trapSettingsFocus(event)) return;
   if (event.key === "Escape") {
     const settingsOpen = $("#settingsPanel").classList.contains("open");
@@ -2012,6 +2174,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
   $("#sendButton").disabled = true;
   $("#sendButton").classList.add("sending");
   input.value = "";
+  resizeMessageInput();
   input.placeholder = "Message the agent…";
   try {
     const commandName = /^\/(\S+)/.exec(text)?.[1];
@@ -2035,6 +2198,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
     }
   } catch (error) {
     input.value = text;
+    resizeMessageInput();
     showError(error);
     setAvatar("error", "not sent");
   } finally {
@@ -2072,6 +2236,7 @@ $("#messageInput").addEventListener("keydown", (event) => {
   }
 });
 $("#messageInput").addEventListener("input", async (event) => {
+  resizeMessageInput();
   const slashMode = /^\/[^\s]*$/.test(event.target.value);
   if (!slashMode) {
     setCommandMenuOpen(false);
@@ -2110,11 +2275,19 @@ $("#openSessionButton").addEventListener("click", () => {
 });
 $("#dockButton").addEventListener("click", () => setWindowMode("edge"));
 $("#orbRestore").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
-$("#orbHistoryButton").addEventListener("click", () => {
-  if (state.compactReplySessionId) openCompactReplySession().catch(showError);
-  else toggleCompactHistory();
+$("#orbHistoryButton").addEventListener("click", toggleCompactHistory);
+$("#orbStatusCard").addEventListener("click", () => openCompactSession().catch(showError));
+$("#orbReplyClose").addEventListener("click", () => closeCompactReply());
+$("#orbReplyForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  sendCompactReply().catch(() => {});
 });
-$("#orbStatus").addEventListener("click", openCompactSession);
+$("#orbReplyInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    $("#orbReplyForm").requestSubmit();
+  }
+});
 $("#edgeMode").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
 for (const target of [$("#orbMode"), $("#edgeMode")]) {
   target.addEventListener("pointerdown", beginCompactDrag);
@@ -2129,6 +2302,7 @@ document.addEventListener("mouseleave", () => {
 window.addEventListener("blur", () => {
   if (!compactDrag) setEdgePointerActive(false);
 });
+window.addEventListener("resize", () => resizeMessageInput({ immediate: true }));
 for (const target of [$(".brand")]) {
   target.addEventListener("pointerdown", beginFullDrag);
   target.addEventListener("pointermove", moveFullDrag);
@@ -2226,6 +2400,7 @@ renderNotifications();
 renderAttachments();
 renderQueuedPrompts();
 renderMode();
+resizeMessageInput({ immediate: true });
 // A hidden widget still has to notice a finished turn, so polling never stops —
 // it just slows down instead of hitting Harness every 2.5s behind a minimized window.
 const POLL_INTERVAL_VISIBLE = 2500;
@@ -2276,6 +2451,18 @@ if (screenshotFixture) {
       };
       state.selectedSessionId = "demo-active";
       renderSessions();
+    } else if (["small-chat", "composer-single-line", "composer-multiline"].includes(screenshotFixture)) {
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-small", title: "Compact chat", running: false, projections: { values: { contextPressure: { projectedTokens: 4200, contextWindow: 65536 } } }, subagents: [] }] };
+      state.selectedSessionId = "demo-small";
+      renderSessionSelect();
+      renderContext();
+      renderMessages([{ role: "assistant", text: "Ready for the next task." }]);
+      const input = $("#messageInput");
+      input.value = screenshotFixture === "composer-multiline"
+        ? Array.from({ length: 24 }, (_, index) => `Line ${index + 1}: keep the growing composer readable.`).join("\n")
+        : "";
+      resizeMessageInput({ immediate: true });
     } else if (["chat", "focus-chat"].includes(screenshotFixture)) {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-chat", title: "Release verification", running: false, projections: { values: { contextPressure: { projectedTokens: 55296, contextWindow: 131072 } } }, subagents: [] }] };
@@ -2382,6 +2569,19 @@ if (screenshotFixture) {
         { kind: "reference", previewKind: "file", path: "C:\\demo\\release-notes.md", name: "release-notes.md" },
         { kind: "reference", previewKind: "video", path: "C:\\demo\\widget-preview.mp4", name: "widget-preview.mp4" },
       ]);
+    } else if (["orb-recent-three", "orb-recent-three-left", "orb-quick-reply"].includes(screenshotFixture)) {
+      state.dashboard = { harness: true, sessions: [
+        { sessionId: "demo-build", title: "Build review", updatedAt: Date.now(), running: false, state: "idle", preview: "Windows package passed the final verification.", projections: { values: {} }, subagents: [] },
+        { sessionId: "demo-unity", title: "Unity gameplay", updatedAt: Date.now() - 1000, running: false, state: "idle", preview: "Play Mode checks completed successfully.", projections: { values: {} }, subagents: [] },
+        { sessionId: "demo-mcp", title: "Capability Hub", updatedAt: Date.now() - 2000, running: true, state: "working", preview: "Dynamic MCP routing is ready for the next call.", projections: { values: {} }, subagents: [] },
+      ] };
+      state.selectedSessionId = "demo-build";
+      state.compactNotification = null;
+      state.compactHistoryOpen = true;
+      state.compactReplyOpen = false;
+      if (screenshotFixture === "orb-recent-three-left") applyCompactSide("left");
+      if (screenshotFixture === "orb-quick-reply") openCompactReply("demo-build");
+      else syncCompactStatus();
     } else if (screenshotFixture === "orb-notification") {
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-notification", title: "Unity gameplay pass", updatedAt: Date.now(), running: false, state: "idle", preview: "The Play Mode verification finished successfully.", projections: { values: {} }, subagents: [] }] };
       state.selectedSessionId = "demo-notification";
@@ -2402,6 +2602,12 @@ if (screenshotFixture) {
       setTab("chat");
       setAvatar("working", "using tool");
       setActivity({ active: true, kind: "tool", label: "Using tool", text: "read_file" });
+    } else if (screenshotFixture === "edge-done") {
+      setAvatar("done", "done");
+      setActivity({ active: true, kind: "done", label: "Done", text: "The latest session finished." });
+    } else if (screenshotFixture === "edge-error") {
+      setAvatar("error", "error");
+      setActivity({ active: true, kind: "error", label: "Error", text: "The latest session needs attention." });
     } else if (screenshotFixture === "markdown-tools") {
       setTab("chat");
       renderMessages([
