@@ -120,6 +120,12 @@ function attachScreenshotHarness({
               return Boolean(rect && (rect.left < -1 || rect.top < -1 || rect.right > innerWidth + 1 || rect.bottom > innerHeight + 1));
             })(),
             compactSide: document.body.classList.contains('side-left') ? 'left' : 'right',
+            compactErrorUnread: document.body.classList.contains('compact-error-unread'),
+            completionCelebration: document.body.classList.contains('completion-celebration'),
+            fullSuccessGlowVisible: (() => {
+              const style = getComputedStyle(document.querySelector('.widget-shell'), '::after');
+              return document.body.classList.contains('completion-celebration') && Number(style.opacity) > 0;
+            })(),
             edgeHitActive: document.querySelector('#edgeMode')?.classList.contains('edge-hit-active') || false,
             edgeLineWidth: Math.round(document.querySelector('.edge-line')?.getBoundingClientRect().width || 0),
             edgeHaloOpacity: getComputedStyle(document.querySelector('.edge-line'), '::before').opacity,
@@ -143,6 +149,21 @@ function attachScreenshotHarness({
             })(),
             contextRingSize: Math.round(document.querySelector('#contextMeter svg').getBoundingClientRect().width),
             contextUnavailable: document.querySelector('#contextMeter').classList.contains('unavailable'),
+            contextValue: document.querySelector('#contextValue')?.textContent || '',
+            contextVisible: (() => {
+              const rect = document.querySelector('#contextMeter')?.getBoundingClientRect();
+              return Boolean(rect && rect.width > 0 && rect.height > 0);
+            })(),
+            settingsOpen: document.querySelector('#settingsPanel')?.classList.contains('open') || false,
+            updateStatus: document.querySelector('#updateStatus')?.textContent || '',
+            updateBadgeVisible: !document.querySelector('#updateBadge')?.hidden,
+            updateDownloadVisible: !document.querySelector('#downloadUpdateButton')?.hidden,
+            updateInstallVisible: !document.querySelector('#installUpdateButton')?.hidden,
+            updateProgress: document.querySelector('#updateProgress')?.getAttribute('aria-valuenow') || '',
+            hotkeySettingsOpen: Boolean(document.querySelector('#hotkeySettings')?.open),
+            hotkeyRows: document.querySelectorAll('.hotkey-row').length,
+            captureMenuOpen: document.querySelector('.capture-picker')?.classList.contains('open') || false,
+            captureRows: document.querySelectorAll('#captureMenu [data-capture]').length,
             composerTextareaWidth: Math.round(document.querySelector('#messageInput').getBoundingClientRect().width),
             composerInputHeight: Math.round(document.querySelector('#messageInput').getBoundingClientRect().height),
             composerHeight: Math.round(document.querySelector('#chatForm').getBoundingClientRect().height),

@@ -42,9 +42,23 @@ test("package metadata stays coherent with the product source of truth", () => {
 });
 
 test("every release artifact starts with the canonical product slug", () => {
-  for (const platform of ["win", "mac", "linux"]) {
+  for (const platform of ["mac", "linux"]) {
     assert.match(packageJson.build[platform].artifactName, /^NeoXider-Agent-Deck-/);
   }
+  assert.match(packageJson.build.nsis.artifactName, /^NeoXider-Agent-Deck-/);
+  assert.match(packageJson.build.portable.artifactName, /^NeoXider-Agent-Deck-/);
+});
+
+test("Windows ships both an auto-updatable installer and a portable fallback", () => {
+  assert.deepEqual(packageJson.build.win.target, ["nsis", "portable"]);
+  assert.match(packageJson.build.nsis.artifactName, /-setup\.\$\{ext\}$/);
+  assert.match(packageJson.build.portable.artifactName, /-portable\.\$\{ext\}$/);
+  assert.deepEqual(packageJson.build.publish, {
+    provider: "github",
+    owner: "NeoXider",
+    repo: "neoxider-agent-deck",
+  });
+  assert.equal(packageJson.dependencies["electron-updater"], "6.8.9");
 });
 
 test("platform packaging creates artifacts without implicit publishing", () => {
@@ -59,5 +73,7 @@ test("the Windows installer follows the canonical repository, artifact, and prod
   assert.match(installer, /NeoXider-Agent-Deck-\*-windows-\*-portable\.exe/);
   assert.match(installer, /NeoXider Agent Deck\.exe/);
   assert.match(installer, /NeoXider Agent Deck\.lnk/);
+  assert.match(installer, /Get-FileHash -LiteralPath \$temporary -Algorithm SHA256/);
+  assert.match(installer, /\[System\.IO\.File\]::Replace\(\$temporary, \$executable, \$rollback/);
   assert.doesNotMatch(installer, /DeepSeek Harness Widget/);
 });

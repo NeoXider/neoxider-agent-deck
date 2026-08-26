@@ -38,6 +38,7 @@
       <symbol id="icon-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m5 18 5-5 3 3 2-2 4 4"/></symbol>
       <symbol id="icon-focus" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5"/></symbol>
       <symbol id="icon-focus-exit" viewBox="0 0 24 24"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></symbol>
+      <symbol id="icon-capture" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><circle cx="12" cy="12" r="3"/></symbol>
     </svg>
     <main class="widget-shell">
       <header class="titlebar drag-region">
@@ -58,6 +59,13 @@
           <button id="agentsTab" class="tab" data-tab="agents" type="button" role="tab" aria-selected="false" aria-controls="agentsPanel" tabindex="-1" title="Agents" aria-label="Agents"><svg class="ui-icon"><use href="#icon-agents"/></svg></button>
         </nav>
         <div class="window-actions no-drag">
+          <div class="picker capture-picker">
+            <button id="captureButton" class="icon-button picker-button" type="button" title="Capture screen" aria-label="Capture screen" aria-haspopup="menu" aria-controls="captureMenu" aria-expanded="false"><svg class="ui-icon"><use href="#icon-capture"/></svg></button>
+            <div id="captureMenu" class="picker-menu capture-menu" role="menu" aria-hidden="true">
+              <button data-capture="region" type="button" role="menuitem"><svg class="ui-icon"><use href="#icon-capture"/></svg><span><b>Capture region</b><small id="captureRegionHint">Select an area</small></span></button>
+              <button data-capture="display" type="button" role="menuitem"><svg class="ui-icon"><use href="#icon-image"/></svg><span><b>Capture display</b><small id="captureDisplayHint">Current monitor</small></span></button>
+            </div>
+          </div>
           <button id="settingsButton" class="icon-button" type="button" title="Settings" aria-label="Settings" aria-haspopup="dialog" aria-controls="settingsPanel" aria-expanded="false"><svg class="ui-icon"><use href="#icon-settings"/></svg></button>
           <button id="dockButton" class="icon-button" type="button" title="Dock to screen edge" aria-label="Dock to screen edge"><svg class="ui-icon"><use href="#icon-dock"/></svg></button>
         </div>
@@ -170,11 +178,33 @@
 
       <section id="settingsPanel" class="settings-panel no-drag" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" aria-hidden="true" inert>
         <div class="settings-head"><b id="settingsTitle">Settings</b><button id="closeSettings" class="icon-button" type="button" title="Close settings" aria-label="Close settings"><svg class="ui-icon"><use href="#icon-close"/></svg></button></div>
-        <div class="setting-block layer-setting"><span>Window layer</span><div id="windowLayerSwitch" class="layer-switch" role="group" aria-label="Window layer"><button data-layer="normal" type="button" title="Behave like a normal window" aria-pressed="false">Normal</button><button data-layer="above" type="button" title="Stay above ordinary windows" aria-pressed="true">Above</button><button data-layer="game" type="button" title="Maximum layer for fullscreen apps" aria-pressed="false">Game</button></div><small id="platformStatus" class="setting-hint" role="status" aria-live="polite" hidden></small></div>
+        <div class="setting-block layer-setting"><span>Window layer</span><div id="windowLayerSwitch" class="layer-switch" role="group" aria-label="Window layer"><button data-layer="normal" type="button" title="Desktop layer — every normal app window covers the widget" aria-pressed="false">Desktop</button><button data-layer="above" type="button" title="Stay above ordinary windows" aria-pressed="true">Above</button><button data-layer="game" type="button" title="Maximum safe layer for borderless fullscreen apps" aria-pressed="false">Game</button></div><small id="platformStatus" class="setting-hint" role="status" aria-live="polite" hidden></small></div>
         <label class="autostart-setting"><span><span id="autoStartLabel">Start at login</span><small id="autoStartStatus" role="status" aria-live="polite">Checking…</small></span><input id="autoStartToggle" type="checkbox" disabled /></label>
         <label id="opacitySetting" class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /><small id="opacityStatus" class="setting-hint" role="status" hidden></small></label>
         <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>
         <div class="setting-block"><span>Size</span><div id="sizeSwitch" class="size-switch" role="group" aria-label="Widget size"><button data-size="compact" type="button" aria-pressed="false">S</button><button data-size="standard" type="button" aria-pressed="true">M</button><button data-size="large" type="button" aria-pressed="false">L</button></div></div>
+        <div id="updateSettings" class="update-settings setting-block">
+          <div class="update-heading"><span><b>Updates</b><small id="updateVersion">Current version</small></span><span id="updateBadge" class="update-badge" hidden>New</span></div>
+          <small id="updateStatus" class="update-status" role="status" aria-live="polite">Ready to check</small>
+          <div id="updateProgress" class="update-progress" role="progressbar" aria-label="Update download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><span></span></div>
+          <div class="update-actions">
+            <button id="checkUpdateButton" type="button">Check</button>
+            <button id="downloadUpdateButton" type="button" hidden>Download</button>
+            <button id="installUpdateButton" class="accent" type="button" hidden>Install & restart</button>
+          </div>
+        </div>
+        <details id="hotkeySettings" class="hotkey-settings setting-block">
+          <summary><span><b>Keyboard shortcuts</b><small>Click a field, then press a combination</small></span><svg class="ui-icon"><use href="#icon-chevron"/></svg></summary>
+          <div class="hotkey-list">
+            <div class="hotkey-row"><label for="hotkey-showRestore">Open widget</label><input id="hotkey-showRestore" data-hotkey-action="showRestore" type="text" readonly /><input data-hotkey-enabled="showRestore" type="checkbox" aria-label="Enable Open widget shortcut" /></div>
+            <div class="hotkey-row"><label for="hotkey-collapseAvatar">Collapse to avatar</label><input id="hotkey-collapseAvatar" data-hotkey-action="collapseAvatar" type="text" readonly /><input data-hotkey-enabled="collapseAvatar" type="checkbox" aria-label="Enable Collapse to avatar shortcut" /></div>
+            <div class="hotkey-row"><label for="hotkey-collapseEdge">Collapse to edge</label><input id="hotkey-collapseEdge" data-hotkey-action="collapseEdge" type="text" readonly /><input data-hotkey-enabled="collapseEdge" type="checkbox" aria-label="Enable Collapse to edge shortcut" /></div>
+            <div class="hotkey-row"><label for="hotkey-newSession">New session</label><input id="hotkey-newSession" data-hotkey-action="newSession" type="text" readonly /><input data-hotkey-enabled="newSession" type="checkbox" aria-label="Enable New session shortcut" /></div>
+            <div class="hotkey-row"><label for="hotkey-captureDisplay">Capture display</label><input id="hotkey-captureDisplay" data-hotkey-action="captureDisplay" type="text" readonly /><input data-hotkey-enabled="captureDisplay" type="checkbox" aria-label="Enable Capture display shortcut" /></div>
+            <div class="hotkey-row"><label for="hotkey-captureRegion">Capture region</label><input id="hotkey-captureRegion" data-hotkey-action="captureRegion" type="text" readonly /><input data-hotkey-enabled="captureRegion" type="checkbox" aria-label="Enable Capture region shortcut" /></div>
+          </div>
+          <div class="hotkey-footer"><small id="hotkeyStatus" role="status" aria-live="polite">Ready</small><button id="resetHotkeysButton" type="button">Reset defaults</button></div>
+        </details>
         <button id="openHarnessButton" class="primary-button" type="button">Open full Harness</button>
       </section>
 

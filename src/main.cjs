@@ -1,9 +1,16 @@
 const path = require("node:path");
-const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
+const { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { HarnessApi } = require("./harness-api.cjs");
 const { createAutoStartController } = require("./auto-start.cjs");
 const { createHarnessLauncher } = require("./harness-launcher.cjs");
 const { createGameLayerKeeper } = require("./game-layer-keeper.cjs");
+const { createEdgeHitTracker } = require("./edge-hit-tracker.cjs");
+const { createHotkeyManager } = require("./hotkey-manager.cjs");
+const { createQuitCoordinator } = require("./quit-coordinator.cjs");
+const { createRegionSelector } = require("./region-selector.cjs");
+const { createScreenshotCaptureGate, createScreenshotService } = require("./screenshot-service.cjs");
+const { createInstalledUpdateService } = require("./installed-update-service.cjs");
+const { createUpdateService } = require("./update-service.cjs");
 const { harnessSessionUrl } = require("./harness-url.cjs");
 const {
   applyPlatformOpacity,
@@ -91,6 +98,13 @@ let settingsStore;
 let autoStartController;
 let harnessLauncher;
 let gameLayerKeeper;
+let edgeHitTracker;
+let hotkeyManager;
+let quitCoordinator;
+let screenshotService;
+let updateService;
+let selectRegion;
+let hotkeyRegistrationError = null;
 let preferenceSaveTimer = null;
 let compactStatus = { active: false, expanded: false, label: "Ready", text: "" };
 let compactDragOrigin = null;
@@ -108,6 +122,28 @@ if (!hasSingleInstanceLock) {
   app.quit();
   return;
 }
+
+function cleanupApplication() {
+  clearTimeout(preferenceSaveTimer);
+  preferenceSaveTimer = null;
+  if (windowRef && !windowRef.isDestroyed()) captureWindowBounds(windowMode, windowRef.getBounds());
+  if (settingsStore) savePreferences();
+  muxClient.stop();
+  gameLayerKeeper?.stop();
+  edgeHitTracker?.stop();
+  hotkeyManager?.dispose();
+  selectRegion?.dispose();
+  screenshotService?.cleanupCaptures({ maxAgeMs: 0, maxFiles: 0 });
+  tray?.destroy();
+  tray = null;
+}
+
+quitCoordinator = createQuitCoordinator({
+  app,
+  cleanup: cleanupApplication,
+  onCleanupError: (error) => console.error("Application cleanup failed", error),
+});
+const screenshotCaptureGate = createScreenshotCaptureGate();
 
 function traceCompactDrag(stage, details = {}) {
   compactDragTrace.push({ stage, at: Date.now(), ...details });
@@ -162,6 +198,126 @@ function autoStartPreference() {
   } catch {
     return { enabled: false, available: false };
   }
+}
+
+function sendToRenderer(channel, value) {
+  if (!windowRef || windowRef.isDestroyed()) return false;
+  windowRef.webContents.send(channel, value);
+  return true;
+}
+
+function createApplicationUpdateService() {
+  const shared = {
+    currentVersion: app.getVersion(),
+    isPackaged: app.isPackaged,
+    openExternal: (url) => shell.openExternal(url),
+    onState: (state) => sendToRenderer("update-state", state),
+  };
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE) {
+    return createUpdateService({
+      ...shared,
+      requestQuit: (reason) => quitCoordinator.requestQuit(reason),
+    });
+  }
+  let updater = null;
+  try {
+    ({ autoUpdater: updater } = require("electron-updater"));
+  } catch (error) {
+    console.error("Installed updater is unavailable", error);
+  }
+  return createInstalledUpdateService({
+    ...shared,
+    updater,
+    isMas: Boolean(process.mas),
+    isWindowsStore: Boolean(process.windowsStore),
+    isMacSigned: false,
+  });
+}
+
+function screenshotDisplayPoint() {
+  if (!windowRef || windowRef.isDestroyed()) return undefined;
+  const bounds = windowRef.getBounds();
+  return { x: bounds.x + Math.round(bounds.width / 2), y: bounds.y + Math.round(bounds.height / 2) };
+}
+
+async function captureScreenshotForChat(kind) {
+  if (!screenshotService || !["display", "region"].includes(kind)) {
+    return { ok: false, canceled: false, reason: "screenshot-service-unavailable" };
+  }
+  return screenshotCaptureGate.run(async () => {
+    const previousMode = windowMode;
+    let restoredToFull = false;
+    if (windowRef && !windowRef.isDestroyed()) windowRef.hide();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    try {
+      const result = kind === "display"
+        ? await screenshotService.captureDisplay({ point: screenshotDisplayPoint() })
+        : await screenshotService.captureRegion();
+      if (!result.ok) return result;
+      let prepared;
+      try {
+        prepared = await prepareFiles([result.path]);
+      } finally {
+        try {
+          await screenshotService.removeCapture(result.path);
+        } catch (error) {
+          console.warn("Failed to remove prepared screenshot", error);
+        }
+      }
+      applyWindowMode("full");
+      restoredToFull = true;
+      return { ...result, prepared };
+    } finally {
+      if (!restoredToFull && windowRef && !windowRef.isDestroyed()) {
+        applyWindowMode(previousMode, { captureCurrent: false, persist: false });
+      }
+    }
+  });
+}
+
+async function captureScreenshotFromHotkey(kind) {
+  try {
+    const result = await captureScreenshotForChat(kind);
+    sendToRenderer("screenshot-captured", result);
+  } catch (error) {
+    sendToRenderer("screenshot-captured", { ok: false, canceled: false, reason: error?.code || "capture-failed", error: String(error?.message || error) });
+  }
+}
+
+function hotkeyErrorView(error) {
+  return {
+    code: String(error?.code || "hotkey-error"),
+    message: String(error?.message || error),
+    action: error?.action ? String(error.action) : "",
+    conflictingAction: error?.conflictingAction ? String(error.conflictingAction) : "",
+    accelerator: error?.accelerator ? String(error.accelerator) : "",
+  };
+}
+
+function registerConfiguredHotkeys(bindings) {
+  const registration = hotkeyManager.applyAvailable(bindings);
+  const conflict = registration.conflicts.at(-1);
+  if (conflict) {
+    hotkeyRegistrationError = {
+      ...hotkeyErrorView(conflict),
+      message: `${conflict.accelerator} could not be registered because another app uses it; the shortcut remains enabled and will be retried next launch`,
+    };
+  }
+  return registration.active;
+}
+
+async function cleanupSentCaptureFiles(attachments) {
+  if (!screenshotService) return;
+  const paths = [...new Set((attachments || [])
+    .map((item) => item?.path)
+    .filter((filePath) => screenshotService.ownsCapture(filePath)))].slice(0, 12);
+  await Promise.all(paths.map(async (filePath) => {
+    try {
+      await screenshotService.removeCapture(filePath);
+    } catch (error) {
+      console.warn("Failed to remove sent screenshot", error);
+    }
+  }));
 }
 
 function publishQueue(sessionId, items) {
@@ -354,6 +510,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   if (persist) savePreferences();
   applyWindowLayer(nextMode);
   applyEdgePointerHit(false);
+  edgeHitTracker?.sync();
   if (nextMode === "full") windowRef.show();
   else windowRef.showInactive();
   gameLayerKeeper?.trigger();
@@ -432,24 +589,21 @@ function createWindow() {
   // but give up after a few attempts so a reproducible crash cannot become a loop.
   windowRef.webContents.on("render-process-gone", (_event, details) => {
     console.error("Renderer gone", details.reason);
-    if (app.isQuitting || details.reason === "clean-exit") return;
-    if (rendererRecoveryCount >= MAX_RENDERER_RECOVERIES) {
-      app.isQuitting = true;
-      app.quit();
-      return;
-    }
-    rendererRecoveryCount += 1;
-    windowRef.webContents.reload();
+    quitCoordinator.handleRendererGone(details, () => {
+      if (rendererRecoveryCount >= MAX_RENDERER_RECOVERIES) {
+        quitCoordinator.requestQuit("renderer-recovery-limit");
+        return;
+      }
+      rendererRecoveryCount += 1;
+      windowRef.webContents.reload();
+    });
   });
   windowRef.once("ready-to-show", () => {
     if (screenshotPath) applyWindowMode("full", { captureCurrent: false, persist: false });
     else applyWindowMode(preferences.windowState.mode, { captureCurrent: false, persist: false });
   });
   windowRef.on("close", (event) => {
-    if (!app.isQuitting) {
-      event.preventDefault();
-      applyWindowMode("edge");
-    }
+    quitCoordinator.handleWindowClose(event, () => applyWindowMode("edge"));
   });
   windowRef.on("resize", () => {
     if (windowMode !== "full") return;
@@ -506,6 +660,7 @@ ipcMain.handle("pick-files", async () => {
   return result.canceled ? { attachments: [], failures: [] } : prepareFiles(result.filePaths);
 });
 ipcMain.handle("prepare-files", async (_event, filePaths) => prepareFiles(filePaths));
+ipcMain.handle("capture-screenshot", async (_event, kind) => captureScreenshotForChat(String(kind || "")));
 ipcMain.handle("create-session", async (_event, options) => {
   const sessionId = await api.createSession(options || {});
   await api.ensureFullAccess(sessionId);
@@ -525,6 +680,7 @@ ipcMain.handle("send", async (_event, payload) => {
   const promptText = [text, ...references].filter(Boolean).join("\n\n");
   const images = attachments.filter((item) => item.kind === "image");
   await api.prompt(sessionId, promptText, payload && payload.timeZone, images);
+  await cleanupSentCaptureFiles(attachments);
   return { sessionId };
 });
 ipcMain.handle("cancel", async (_event, sessionId) => api.cancel(sessionId));
@@ -578,6 +734,30 @@ ipcMain.handle("set-size", (_event, preset) => {
 ipcMain.handle("set-auto-start", (_event, enabled) => {
   return autoStartController.setEnabled(enabled);
 });
+ipcMain.handle("set-hotkeys", (_event, bindings) => {
+  try {
+    const hotkeys = hotkeyManager.apply(bindings);
+    preferences.hotkeys = hotkeys;
+    hotkeyRegistrationError = null;
+    savePreferences();
+    return { ok: true, hotkeys };
+  } catch (error) {
+    hotkeyRegistrationError = hotkeyErrorView(error);
+    return { ok: false, hotkeys: hotkeyManager.getBindings(), error: hotkeyRegistrationError };
+  }
+});
+ipcMain.handle("reset-hotkeys", () => {
+  try {
+    const hotkeys = hotkeyManager.resetDefaults();
+    preferences.hotkeys = hotkeys;
+    hotkeyRegistrationError = null;
+    savePreferences();
+    return { ok: true, hotkeys };
+  } catch (error) {
+    hotkeyRegistrationError = hotkeyErrorView(error);
+    return { ok: false, hotkeys: hotkeyManager.getBindings(), error: hotkeyRegistrationError };
+  }
+});
 ipcMain.handle("get-preferences", () => {
   const autoStart = autoStartPreference();
   return {
@@ -590,10 +770,17 @@ ipcMain.handle("get-preferences", () => {
     size: preferences.size,
     windowMode,
     compactSide: preferences.compactSide,
+    hotkeys: preferences.hotkeys,
+    hotkeyError: hotkeyRegistrationError,
+    screenshotCapabilities: screenshotService?.capabilities() || {},
     platformCapabilities: PLATFORM_CAPABILITIES,
   };
 });
 ipcMain.handle("app-info", () => ({ version: app.getVersion(), repository: REPOSITORY_URL, productName: PRODUCT_NAME }));
+ipcMain.handle("get-update-state", () => updateService?.getState() || null);
+ipcMain.handle("check-for-updates", () => updateService?.check() || null);
+ipcMain.handle("download-update", () => updateService?.download() || null);
+ipcMain.handle("install-update", () => updateService?.install() || null);
 ipcMain.handle("set-window-mode", (_event, mode) => {
   applyWindowMode(mode);
   return windowMode;
@@ -614,7 +801,8 @@ ipcMain.handle("set-compact-status", (_event, value) => {
 });
 ipcMain.on("set-edge-pointer-active", (event, active) => {
   if (!windowRef || windowRef.isDestroyed() || event.sender !== windowRef.webContents) return;
-  applyEdgePointerHit(Boolean(active));
+  if (edgeHitTracker) edgeHitTracker.tick();
+  else applyEdgePointerHit(Boolean(active));
 });
 ipcMain.on("move-full-drag", (event, value) => {
   if (!windowRef || windowMode !== "full" || !fullDragOrigin || event.sender !== windowRef.webContents) return;
@@ -640,6 +828,7 @@ ipcMain.on("begin-compact-drag", (event, value) => {
   const screenY = Number(value?.y);
   if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
   applyEdgePointerHit(true);
+  edgeHitTracker?.sync();
   compactDragOrigin = { screenX, screenY, bounds: windowRef.getBounds() };
   traceCompactDrag("begin", { screenX, screenY, bounds: compactDragOrigin.bounds });
 });
@@ -652,7 +841,9 @@ ipcMain.on("begin-full-drag", (event, value) => {
 });
 ipcMain.handle("end-compact-drag", () => {
   compactDragOrigin = null;
-  return snapCurrentCompactWindow({ traceEnd: true });
+  const result = snapCurrentCompactWindow({ traceEnd: true });
+  edgeHitTracker?.sync();
+  return result;
 });
 ipcMain.on("move-compact-drag", (event, value) => {
   if (!windowRef || windowMode === "full" || !compactDragOrigin || event.sender !== windowRef.webContents) return;
@@ -672,10 +863,12 @@ ipcMain.on("agent-complete", () => {
 });
 
 app.on("second-instance", () => {
-  if (!windowRef || windowRef.isDestroyed()) return;
-  if (windowRef.isMinimized()) windowRef.restore();
-  windowRef.show();
-  windowRef.focus();
+  quitCoordinator.handleActivation(() => {
+    if (!windowRef || windowRef.isDestroyed()) return;
+    if (windowRef.isMinimized()) windowRef.restore();
+    windowRef.show();
+    windowRef.focus();
+  });
 });
 
 app.whenReady().then(() => {
@@ -700,7 +893,56 @@ app.whenReady().then(() => {
     getMode: () => windowMode,
     capabilities: PLATFORM_CAPABILITIES,
   });
+  if (PLATFORM_CAPABILITIES.edgeMouseForwarding) {
+    edgeHitTracker = createEdgeHitTracker({
+      screen,
+      getWindow: () => windowRef,
+      getMode: () => windowMode,
+      getSide: () => preferences.compactSide,
+      isDragging: () => Boolean(compactDragOrigin),
+      setActive: applyEdgePointerHit,
+    });
+  }
+  selectRegion = createRegionSelector({ BrowserWindow, screen, platform: process.platform });
+  screenshotService = createScreenshotService({
+    desktopCapturer,
+    screen,
+    platform: process.platform,
+    tempRoot: app.getPath("temp"),
+    selectRegion,
+  });
+  screenshotService.cleanupCaptures();
+  updateService = createApplicationUpdateService();
+  hotkeyManager = createHotkeyManager({
+    app,
+    globalShortcut,
+    handlers: {
+      showRestore: () => applyWindowMode("full"),
+      collapseAvatar: () => applyWindowMode("orb"),
+      collapseEdge: () => applyWindowMode("edge"),
+      newSession: () => {
+        applyWindowMode("full");
+        sendToRenderer("hotkey-action", "newSession");
+      },
+      captureDisplay: () => captureScreenshotFromHotkey("display"),
+      captureRegion: () => captureScreenshotFromHotkey("region"),
+    },
+    onError: (error) => {
+      hotkeyRegistrationError = hotkeyErrorView(error);
+      sendToRenderer("hotkey-error", hotkeyRegistrationError);
+    },
+  });
+  try {
+    registerConfiguredHotkeys(preferences.hotkeys);
+  } catch (error) {
+    hotkeyRegistrationError = hotkeyErrorView(error);
+    console.error("Failed to register hotkeys", error);
+  }
   createWindow();
+  if (!process.env.WIDGET_SCREENSHOT_PATH) {
+    const updateCheckTimer = setTimeout(() => updateService.check().catch((error) => console.error("Update check failed", error)), 4000);
+    updateCheckTimer.unref?.();
+  }
   // A screenshot run must capture a fixture, not whatever a live Harness pushes.
   if (!process.env.WIDGET_SCREENSHOT_PATH) muxClient.connect();
   const iconPath = path.join(__dirname, "renderer", "assets", "neoxider-github.png");
@@ -711,21 +953,12 @@ app.whenReady().then(() => {
     { label: "Show widget", click: () => applyWindowMode("full") },
     { label: "Open Harness", click: () => shell.openExternal(HARNESS_URL) },
     { type: "separator" },
-    { label: "Quit", click: () => { app.isQuitting = true; app.quit(); } },
+    { label: "Quit", click: () => quitCoordinator.requestQuit("tray") },
   ]));
   tray.on("double-click", () => applyWindowMode(windowMode === "full" ? "edge" : "full"));
 });
 
-app.on("before-quit", () => {
-  app.isQuitting = true;
-  if (windowRef && !windowRef.isDestroyed()) captureWindowBounds(windowMode, windowRef.getBounds());
-  if (settingsStore) savePreferences();
-  muxClient.stop();
-  gameLayerKeeper?.stop();
-  // An undestroyed tray icon can survive as a ghost in the Windows notification area.
-  tray?.destroy();
-  tray = null;
-});
+app.on("before-quit", () => quitCoordinator.beforeQuit());
 
 // Unplugging a monitor or changing resolution can leave the widget off-screen, and
 // nothing re-clamped it until the next mode switch. Re-apply the current mode so the
@@ -734,5 +967,9 @@ function reclampToCurrentDisplays() {
   if (!windowRef || windowRef.isDestroyed()) return;
   applyWindowMode(windowMode, { captureCurrent: false, persist: false });
 }
-app.on("activate", () => (windowRef && !windowRef.isDestroyed() ? applyWindowMode("full") : createWindow()));
-app.on("window-all-closed", (event) => event.preventDefault());
+app.on("activate", () => quitCoordinator.handleActivation(() => (
+  windowRef && !windowRef.isDestroyed() ? applyWindowMode("full") : createWindow()
+)));
+app.on("window-all-closed", (event) => {
+  if (!quitCoordinator.isQuitting()) event.preventDefault();
+});

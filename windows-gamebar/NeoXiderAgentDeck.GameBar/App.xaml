@@ -1,0 +1,10 @@
+<Application
+    x:Class="NeoXiderAgentDeck.GameBar.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <SolidColorBrush x:Key="DeckTextPrimary" Color="#FFF4F7FF" />
+        <SolidColorBrush x:Key="DeckTextMuted" Color="#FF8D99AE" />
+        <SolidColorBrush x:Key="DeckAccent" Color="#FF49E7C0" />
+    </Application.Resources>
+</Application>

@@ -23,6 +23,12 @@ const state = {
   unread: 0,
   dashboardInitialized: false,
   runningSessionIds: new Set(),
+  completedSignalSessionIds: new Set(),
+  errorSignalSessionIds: new Set(),
+  unacknowledgedErrorSessionIds: new Set(),
+  compactErrorUnread: false,
+  harnessOffline: false,
+  completionSignalTimer: null,
   compactNotification: null,
   compactNotificationTimer: null,
   compactStatusClosing: false,
@@ -32,6 +38,8 @@ const state = {
   compactReplyBusy: false,
   compactReplyError: "",
   compactSessionSignature: "",
+  sessionListSignature: "",
+  sessionSelectSignature: "",
   commandSelectionIndex: 0,
   lastCommandQuery: "",
   queuedPromptsBySession: new Map(),
@@ -46,6 +54,10 @@ const state = {
   harnessStarting: false,
   platformCapabilities: null,
   platformPresentation: null,
+  screenshotCapabilities: {},
+  hotkeys: {},
+  updateState: null,
+  appVersion: "",
   pollTimer: null,
   pollInterval: 0,
 };
@@ -231,6 +243,7 @@ function syncCompactStatus() {
   document.body.classList.toggle("orb-status-closing", state.compactStatusClosing);
   document.body.classList.toggle("orb-history-open", state.compactHistoryOpen);
   document.body.classList.toggle("orb-reply-open", state.compactReplyOpen);
+  document.body.classList.toggle("compact-error-unread", state.compactErrorUnread);
   $("#orbStatusLabel").textContent = label;
   $("#orbStatusText").textContent = text;
   $("#orbStatusCard").hidden = expanded;
@@ -276,6 +289,7 @@ function setActivity(activity) {
 }
 
 function setAvatar(mode, label) {
+  if (mode !== "done") clearCompletionSignal();
   state.avatarMode = mode;
   const shell = $("#avatarShell");
   shell.className = `avatar-shell ${mode}`;
@@ -293,8 +307,60 @@ function renderNotifications() {
   });
 }
 
+function clearCompletionSignal() {
+  clearTimeout(state.completionSignalTimer);
+  state.completionSignalTimer = null;
+  document.body.classList.remove("completion-celebration");
+}
+
+function syncUnacknowledgedErrors() {
+  state.compactErrorUnread = state.unacknowledgedErrorSessionIds.size > 0;
+  return state.compactErrorUnread;
+}
+
+function acknowledgeSessionError(sessionId) {
+  if (sessionId) state.unacknowledgedErrorSessionIds.delete(sessionId);
+  syncUnacknowledgedErrors();
+}
+
+function signalSessionError(session, label = "model error", text = "The current Harness turn ended with an error.") {
+  const sessionId = session?.sessionId || null;
+  if (sessionId && state.errorSignalSessionIds.has(sessionId)) return false;
+  if (sessionId) {
+    state.errorSignalSessionIds.add(sessionId);
+    state.completedSignalSessionIds.delete(sessionId);
+  }
+  clearCompletionSignal();
+  clearTimeout(state.compactNotificationTimer);
+  state.compactNotificationTimer = null;
+  state.compactNotification = null;
+  state.compactStatusClosing = false;
+  const visibleInFull = state.windowMode === "full" && (!sessionId || sessionId === state.selectedSessionId);
+  if (sessionId && !visibleInFull) state.unacknowledgedErrorSessionIds.add(sessionId);
+  syncUnacknowledgedErrors();
+  if (state.windowMode !== "full" || visibleInFull) {
+    setAvatar("error", label);
+    setActivity({ active: true, kind: "error", label: "Turn failed", text });
+  } else {
+    syncCompactStatus();
+  }
+  return true;
+}
+
 function notifyCompletion(session) {
+  const sessionId = session?.sessionId || null;
+  if (sessionId && state.completedSignalSessionIds.has(sessionId)) return false;
+  if (sessionId) {
+    state.completedSignalSessionIds.add(sessionId);
+    state.errorSignalSessionIds.delete(sessionId);
+    state.unacknowledgedErrorSessionIds.delete(sessionId);
+  }
+  const visuallyRelevant = state.windowMode !== "full" || !sessionId || sessionId === state.selectedSessionId;
+  if (!visuallyRelevant) return true;
+  clearCompletionSignal();
+  syncUnacknowledgedErrors();
   setAvatar("done");
+  document.body.classList.add("completion-celebration");
   setActivity({ active: true, kind: "done", label: "Done", text: "Agent finished the current task." });
   if (state.windowMode !== "full") {
     state.compactReplySessionId = session?.sessionId || state.compactReplySessionId;
@@ -320,30 +386,101 @@ function notifyCompletion(session) {
     window.widget.notifyAgentComplete();
     syncCompactStatus();
   }
-  setTimeout(() => {
+  state.completionSignalTimer = setTimeout(() => {
+    document.body.classList.remove("completion-celebration");
+    state.completionSignalTimer = null;
     if (!state.dashboard?.sessions?.some((session) => session.running)) {
-      setAvatar("idle");
-      setActivity(null);
+      if (state.avatarMode === "done") setAvatar("idle");
+      if (state.currentActivity?.kind === "done") setActivity(null);
     }
   }, 2600);
+  return true;
+}
+
+const MODE_EXIT_DURATION = 105;
+const MODE_ENTER_DURATION = 420;
+let modeTransitionSequence = 0;
+let modeRequestSequence = 0;
+
+function clearModeTransitionClasses(kind) {
+  const prefix = kind === "out" ? "mode-transition-to-" : "mode-transition-from-";
+  document.body.classList.remove(`mode-transition-${kind}`);
+  [...document.body.classList].filter((name) => name.startsWith(prefix)).forEach((name) => document.body.classList.remove(name));
+}
+
+function prefersReducedMotion() {
+  return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+}
+
+function animateModeExit(targetMode, requestSequence) {
+  if (targetMode === state.windowMode || prefersReducedMotion()) return Promise.resolve(requestSequence === modeRequestSequence);
+  const transitionSequence = ++modeTransitionSequence;
+  clearModeTransitionClasses("out");
+  void document.body.offsetWidth;
+  document.body.classList.add("mode-transition-out", `mode-transition-to-${targetMode}`);
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      const currentTransition = transitionSequence === modeTransitionSequence;
+      if (currentTransition) clearModeTransitionClasses("out");
+      resolve(currentTransition && requestSequence === modeRequestSequence);
+    }, MODE_EXIT_DURATION);
+  });
+}
+
+function animateModeEnter(previousMode) {
+  if (prefersReducedMotion()) return;
+  const sequence = ++modeTransitionSequence;
+  clearModeTransitionClasses("in");
+  void document.body.offsetWidth;
+  document.body.classList.add("mode-transition-in", `mode-transition-from-${previousMode}`);
+  setTimeout(() => {
+    if (sequence === modeTransitionSequence) clearModeTransitionClasses("in");
+  }, MODE_ENTER_DURATION);
 }
 
 function applyWindowMode(mode) {
+  const previousMode = state.windowMode;
+  if (mode === previousMode) {
+    syncCompactStatus();
+    return;
+  }
+  clearModeTransitionClasses("out");
   state.windowMode = mode;
   document.body.classList.remove("mode-full", "mode-orb", "mode-edge");
   document.body.classList.add(`mode-${mode}`);
   if (mode !== "edge") window.widget.setEdgePointerActive(true);
   if (mode === "full") {
+    acknowledgeSessionError(state.selectedSessionId);
     state.unread = 0;
     renderNotifications();
+  } else if (state.compactErrorUnread && !state.harnessOffline) {
+    const pendingSession = state.dashboard?.sessions?.find((session) => state.unacknowledgedErrorSessionIds.has(session.sessionId));
+    setAvatar("error", "needs attention");
+    setActivity({ active: true, kind: "error", label: "Turn failed", text: pendingSession?.preview || "A session needs attention." });
+  } else if (state.avatarMode === "error" && !state.compactErrorUnread && !state.harnessOffline) {
+    setAvatar("idle");
+    if (state.currentActivity?.kind === "error") setActivity(null);
   }
+  animateModeEnter(previousMode);
   syncCompactStatus();
 }
 
 async function setWindowMode(mode) {
   if (mode === "edge" && state.platformPresentation?.edgeAvailable === false) return state.windowMode;
-  applyWindowMode(await window.widget.setWindowMode(mode));
+  const requestSequence = ++modeRequestSequence;
+  if (!await animateModeExit(mode, requestSequence) || requestSequence !== modeRequestSequence) return state.windowMode;
+  const appliedMode = await window.widget.setWindowMode(mode);
+  if (requestSequence !== modeRequestSequence) return state.windowMode;
+  applyWindowMode(appliedMode);
   return state.windowMode;
+}
+
+function applyAuthoritativeWindowMode(mode) {
+  // Native hotkeys, tray actions, and the main-process acknowledgement all outrank
+  // a renderer request that is still waiting for its exit animation or IPC reply.
+  modeRequestSequence += 1;
+  clearModeTransitionClasses("out");
+  applyWindowMode(mode);
 }
 
 function applyCompactSide(side) {
@@ -444,9 +581,8 @@ function beginCompactDrag(event) {
     startX: event.screenX,
     startY: event.screenY,
     moved: false,
+    nativeStarted: false,
   };
-  event.currentTarget.setPointerCapture?.(event.pointerId);
-  window.widget.beginCompactDrag({ x: event.screenX, y: event.screenY });
 }
 
 function moveCompactDrag(event) {
@@ -454,7 +590,12 @@ function moveCompactDrag(event) {
   const dx = event.screenX - compactDrag.startX;
   const dy = event.screenY - compactDrag.startY;
   if (!compactDrag.moved && Math.hypot(dx, dy) < 4) return;
-  compactDrag.moved = true;
+  if (!compactDrag.nativeStarted) {
+    compactDrag.nativeStarted = true;
+    compactDrag.moved = true;
+    compactDrag.target.setPointerCapture?.(event.pointerId);
+    window.widget.beginCompactDrag({ x: compactDrag.startX, y: compactDrag.startY });
+  }
   event.preventDefault();
   window.widget.moveCompactDrag({ x: event.screenX, y: event.screenY });
 }
@@ -462,7 +603,8 @@ function moveCompactDrag(event) {
 async function endCompactDrag(event) {
   if (!compactDrag || compactDrag.pointerId !== event.pointerId) return;
   const moved = compactDrag.moved;
-  compactDrag.target.releasePointerCapture?.(event.pointerId);
+  const nativeStarted = compactDrag.nativeStarted;
+  if (nativeStarted) compactDrag.target.releasePointerCapture?.(event.pointerId);
   compactDrag = null;
   // The click event fires synchronously right after pointerup, long before this IPC
   // round trip resolves. Arming the guard after the await let every drag release
@@ -471,8 +613,8 @@ async function endCompactDrag(event) {
     event.preventDefault();
     suppressCompactClick = true;
   }
+  if (!nativeStarted) return;
   const result = await window.widget.endCompactDrag().catch(() => null);
-  if (!moved) return;
   if (result?.side) applyCompactSide(result.side);
   if (state.windowMode === "edge") setEdgePointerActive(false);
   setTimeout(() => { suppressCompactClick = false; }, 0);
@@ -521,7 +663,7 @@ function renderContext() {
   if (!pressure) {
     meter.style.setProperty("--context", "0");
     $("#contextArc").style.strokeDashoffset = "97.39";
-    $("#contextValue").textContent = "—";
+    $("#contextValue").textContent = "0%";
     meter.title = "Context usage unavailable";
     return;
   }
@@ -537,13 +679,27 @@ function renderContext() {
 function renderSessions() {
   const root = $("#sessions");
   const sessions = state.dashboard?.sessions || [];
+  const signature = JSON.stringify([
+    Boolean(state.dashboard?.harness),
+    state.selectedSessionId,
+    ...sessions.map((session) => {
+      const agentState = ["working", "error"].includes(session.state)
+        ? session.state
+        : (session.running ? "working" : "idle");
+      const childCount = (session.subagents || []).filter((item) => item.kind === "child").length;
+      const pressure = contextPressure(session);
+      return [session.sessionId, session.title || "", agentState, childCount, pressure ? Math.round(pressure.percent) : null];
+    }),
+  ]);
+  if (signature === state.sessionListSignature && root.childElementCount) return false;
+  state.sessionListSignature = signature;
   root.replaceChildren();
   if (!sessions.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = state.dashboard?.harness ? "No sessions yet. Start one in chat." : "Start Harness to load sessions.";
     root.append(empty);
-    return;
+    return true;
   }
   for (const session of sessions) {
     const agentState = ["working", "error"].includes(session.state)
@@ -575,6 +731,7 @@ function renderSessions() {
     card.addEventListener("click", () => selectSession(session.sessionId, true));
     root.append(card);
   }
+  return true;
 }
 
 function renderSessionSelect() {
@@ -586,6 +743,21 @@ function renderSessionSelect() {
     : "Select a session to open it in DeepSeek Harness";
   $("#sessionButtonText").textContent = selected?.title || "New session";
   const root = $("#sessionOptions");
+  const signature = JSON.stringify([
+    state.selectedSessionId,
+    ...sessions.map((session) => {
+      const pressure = contextPressure(session);
+      return [
+        session.sessionId,
+        session.title || "",
+        session.cwd || "",
+        Boolean(session.running),
+        pressure ? Math.round(pressure.percent) : null,
+      ];
+    }),
+  ]);
+  if (signature === state.sessionSelectSignature && root.childElementCount) return false;
+  state.sessionSelectSignature = signature;
   root.replaceChildren();
   root.append(pickerOption("New session", {
     meta: "new",
@@ -606,6 +778,7 @@ function renderSessionSelect() {
       },
     }));
   }
+  return true;
 }
 
 function modelSelectionValue(selection) {
@@ -1167,6 +1340,7 @@ async function applyModelSelection() {
 
 async function selectSession(sessionId, openChat = false) {
   state.selectedSessionId = sessionId || null;
+  if (state.windowMode === "full") acknowledgeSessionError(state.selectedSessionId);
   state.messagesStickToBottom = true;
   state.unseenMessages = 0;
   state.historySignature = "";
@@ -1535,10 +1709,10 @@ async function refreshHistory() {
     setActivity(view.activity || null);
     renderMessages(messages);
     const latest = messages[messages.length - 1];
-    if (latest?.role === "error") setAvatar("error", "model error");
+    if (latest?.role === "error" && state.windowMode === "full") setAvatar("error", "model error");
   } catch (error) {
     showError(error);
-    setAvatar("error", "history error");
+    if (state.windowMode === "full") setAvatar("error", "history error");
   } finally {
     state.historyBusy = false;
   }
@@ -1551,7 +1725,13 @@ function updateLiveSessionState(sessionId, running, activity = null, stateName =
     session.activity = activity;
     if (stateName) session.state = stateName;
   }
-  if (running) state.runningSessionIds.add(sessionId);
+  if (running) {
+    state.runningSessionIds.add(sessionId);
+    state.completedSignalSessionIds.delete(sessionId);
+    state.errorSignalSessionIds.delete(sessionId);
+    state.unacknowledgedErrorSessionIds.delete(sessionId);
+    syncUnacknowledgedErrors();
+  }
   else state.runningSessionIds.delete(sessionId);
   renderSessions();
   renderSessionSelect();
@@ -1616,14 +1796,10 @@ async function handleLiveEvent(payload) {
   if (event.type === "turn/end") {
     const failed = event.data?.reason?.kind === "error";
     updateLiveSessionState(sessionId, false, null, failed ? "error" : "idle");
+    const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId) || { sessionId };
+    if (failed) signalSessionError(session);
+    else notifyCompletion(session);
     if (sessionId === state.selectedSessionId) {
-      if (failed) {
-        setAvatar("error", "model error");
-        setActivity({ active: true, kind: "error", label: "Turn failed", text: "The current Harness turn ended with an error." });
-      } else {
-        setAvatar("done", "done");
-        setActivity(null);
-      }
       setTimeout(async () => {
         await refreshHistory();
         state.liveStreamsBySession.delete(sessionId);
@@ -1696,6 +1872,7 @@ async function openCompactSession(requestedSessionId = null) {
   state.compactReplyBusy = false;
   state.compactReplyError = "";
   clearTimeout(state.compactNotificationTimer);
+  state.selectedSessionId = sessionId;
   await setWindowMode("full");
   await selectSession(sessionId, true);
   if (state.compactReplySessionId === sessionId) state.compactReplySessionId = null;
@@ -1786,11 +1963,19 @@ async function sendCompactReply() {
 
 function detectCompletedSessions(nextSessions) {
   const currentRunning = new Set(nextSessions.filter((session) => session.running).map((session) => session.sessionId));
+  for (const sessionId of currentRunning) {
+    state.completedSignalSessionIds.delete(sessionId);
+    state.errorSignalSessionIds.delete(sessionId);
+    state.unacknowledgedErrorSessionIds.delete(sessionId);
+  }
+  syncUnacknowledgedErrors();
   if (state.dashboardInitialized) {
     const existing = new Set(nextSessions.map((session) => session.sessionId));
     for (const sessionId of state.runningSessionIds) {
       if (!currentRunning.has(sessionId) && existing.has(sessionId)) {
-        notifyCompletion(nextSessions.find((session) => session.sessionId === sessionId));
+        const session = nextSessions.find((item) => item.sessionId === sessionId);
+        if (session?.state === "error") signalSessionError(session);
+        else notifyCompletion(session);
       }
     }
   }
@@ -1803,7 +1988,14 @@ async function refresh() {
   state.refreshing = true;
   try {
     const dashboard = await window.widget.dashboard();
-    detectCompletedSessions(dashboard.sessions || []);
+    const wasOffline = state.harnessOffline;
+    state.harnessOffline = !dashboard.harness;
+    document.body.classList.toggle("harness-offline", state.harnessOffline);
+    if (dashboard.harness) detectCompletedSessions(dashboard.sessions || []);
+    else {
+      state.runningSessionIds = new Set();
+      state.dashboardInitialized = false;
+    }
     state.dashboard = dashboard;
     syncCompactStatus();
     if (!dashboard.harness && state.focusMode) setFocusMode(false);
@@ -1828,7 +2020,7 @@ async function refresh() {
       else setActivity({ active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" });
       setAvatar("working", running?.activity?.label || "working");
     }
-    else if (!["done", "error"].includes(state.avatarMode)) setAvatar("idle");
+    else if ((wasOffline && state.avatarMode === "error" && !state.compactErrorUnread) || !["done", "error"].includes(state.avatarMode)) setAvatar("idle");
     renderSessions();
     renderSessionSelect();
     renderContext();
@@ -1962,6 +2154,37 @@ async function pickAttachments() {
   }
 }
 
+function handleScreenshotResult(result) {
+  if (result?.canceled) {
+    if (state.currentActivity?.kind === "capture") setActivity(null);
+    return false;
+  }
+  if (!result?.ok) throw new Error(result?.error || `Screen capture unavailable: ${result?.reason || "unknown error"}`);
+  addAttachments(result.prepared);
+  if (!result.prepared?.attachments?.length) throw new Error("The screenshot could not be prepared as an attachment");
+  setTab("chat");
+  setActivity({
+    active: true,
+    kind: "files",
+    label: result.kind === "region" ? "Region captured" : "Display captured",
+    text: "Screenshot attached above the message field. Review it before sending.",
+  });
+  $("#messageInput").focus();
+  return true;
+}
+
+async function captureScreenshot(kind) {
+  closePickers();
+  setActivity({ active: true, kind: "capture", label: "Screen capture", text: kind === "region" ? "Select an area · Esc cancels" : "Capturing the current display…" });
+  try {
+    return handleScreenshotResult(await window.widget.captureScreenshot(kind));
+  } catch (error) {
+    showError(error);
+    setAvatar("error", "capture error");
+    return false;
+  }
+}
+
 async function openCommands({ restore = false } = {}) {
   if (restore && state.windowMode !== "full") await setWindowMode("full");
   setTab("chat");
@@ -1987,6 +2210,142 @@ function setAutoStartStatus(text, error = false) {
   const status = $("#autoStartStatus");
   status.textContent = text;
   status.classList.toggle("error", error);
+}
+
+function setHotkeyStatus(text, error = false) {
+  const status = $("#hotkeyStatus");
+  status.textContent = text;
+  status.classList.toggle("error", error);
+}
+
+function hotkeyDisplayName(accelerator) {
+  if (!accelerator) return "Not set";
+  const commandKey = /Mac/i.test(navigator.userAgent) ? "Cmd" : "Ctrl";
+  return accelerator.replaceAll("CommandOrControl", commandKey).replaceAll("Control", "Ctrl");
+}
+
+function renderHotkeys(bindings = state.hotkeys) {
+  state.hotkeys = bindings || {};
+  $$('[data-hotkey-action]').forEach((input) => {
+    const binding = state.hotkeys[input.dataset.hotkeyAction];
+    input.value = hotkeyDisplayName(binding?.accelerator);
+    input.title = binding?.accelerator || "Not set";
+    input.disabled = binding?.enabled === false;
+  });
+  $$('[data-hotkey-enabled]').forEach((toggle) => {
+    const binding = state.hotkeys[toggle.dataset.hotkeyEnabled];
+    toggle.checked = binding?.enabled !== false;
+  });
+}
+
+function shortcutFromKeyboardEvent(event) {
+  if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return "";
+  const aliases = {
+    " ": "Space",
+    ArrowUp: "Up",
+    ArrowDown: "Down",
+    ArrowLeft: "Left",
+    ArrowRight: "Right",
+    "+": "Plus",
+  };
+  const key = aliases[event.key] || (/^F(?:[1-9]|1\d|2[0-4])$/.test(event.key) ? event.key : /^[a-z0-9]$/i.test(event.key) ? event.key.toUpperCase() : event.key);
+  if (!/^(?:Space|Tab|Enter|Escape|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|Plus|F(?:[1-9]|1\d|2[0-4])|[A-Z0-9])$/.test(key)) return "";
+  const modifiers = [];
+  if (event.ctrlKey || event.metaKey) modifiers.push("CommandOrControl");
+  if (event.altKey) modifiers.push("Alt");
+  if (event.shiftKey) modifiers.push("Shift");
+  return [...modifiers, key].join("+");
+}
+
+async function updateHotkey(action, binding) {
+  const previous = state.hotkeys;
+  setHotkeyStatus("Saving…");
+  let result;
+  try {
+    result = await window.widget.setHotkeys({ ...previous, [action]: binding });
+  } catch (error) {
+    renderHotkeys(previous);
+    setHotkeyStatus(String(error?.message || error), true);
+    return false;
+  }
+  if (!result?.ok) {
+    renderHotkeys(previous);
+    setHotkeyStatus(result?.error?.message || "Shortcut is unavailable", true);
+    return false;
+  }
+  renderHotkeys(result.hotkeys);
+  setHotkeyStatus("Saved");
+  return true;
+}
+
+function applyScreenshotCapabilities(capabilities = {}) {
+  state.screenshotCapabilities = capabilities;
+  for (const kind of ["region", "display"]) {
+    const support = capabilities[kind] || {};
+    const button = $(`#captureMenu [data-capture="${kind}"]`);
+    button.disabled = support.available === false;
+    button.title = support.available === false ? support.reason || "Unavailable" : "";
+  }
+  $("#captureButton").disabled = [capabilities.region, capabilities.display].every((support) => support?.available === false);
+}
+
+function renderUpdateState(value) {
+  if (!value || typeof value !== "object") return;
+  state.updateState = value;
+  const status = $("#updateStatus");
+  const progress = Number(value.progress);
+  const latest = value.latestVersion ? `v${value.latestVersion}` : "";
+  const labels = {
+    idle: "Ready to check",
+    checking: "Checking GitHub Releases…",
+    current: value.installMode === "manual" ? "Open GitHub Releases to check this build" : "You have the latest version",
+    available: value.installMode === "manual" ? `${latest} is available · open release to install` : `${latest} is available`,
+    downloading: `Downloading ${Number.isFinite(progress) ? Math.round(progress) : 0}%…`,
+    ready: `${latest} is verified and ready`,
+    installing: "Installing update and restarting…",
+    error: value.error?.message || "Update check failed",
+  };
+  status.textContent = labels[value.status] || "Ready to check";
+  status.classList.toggle("error", value.status === "error");
+  status.classList.toggle("ready", ["current", "ready"].includes(value.status));
+  $("#updateVersion").textContent = latest && latest !== `v${value.currentVersion}`
+    ? `Current v${value.currentVersion} · Latest ${latest}`
+    : `Current v${value.currentVersion || state.appVersion || "…"}`;
+  $("#updateBadge").hidden = !["available", "downloading", "ready"].includes(value.status);
+
+  const progressBar = $("#updateProgress");
+  const progressValue = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
+  progressBar.hidden = !["downloading", "ready", "installing"].includes(value.status);
+  progressBar.style.setProperty("--update-progress", `${progressValue}%`);
+  progressBar.setAttribute("aria-valuenow", String(Math.round(progressValue)));
+
+  const busy = ["checking", "downloading", "installing"].includes(value.status);
+  $("#checkUpdateButton").disabled = busy;
+  $("#downloadUpdateButton").hidden = !(value.status === "available" && ["portable-replace", "managed"].includes(value.installMode));
+  $("#downloadUpdateButton").disabled = busy;
+  const installButton = $("#installUpdateButton");
+  installButton.hidden = !(value.status === "ready" || (["current", "available"].includes(value.status) && value.installMode === "manual"));
+  installButton.disabled = busy;
+  installButton.textContent = value.installMode === "manual" ? "Open release" : "Install & restart";
+}
+
+async function runUpdateAction(action) {
+  const methods = {
+    check: "checkForUpdates",
+    download: "downloadUpdate",
+    install: "installUpdate",
+  };
+  const method = methods[action];
+  if (!method || typeof window.widget[method] !== "function") return;
+  try {
+    renderUpdateState(await window.widget[method]());
+  } catch (error) {
+    renderUpdateState({
+      ...(state.updateState || { currentVersion: state.appVersion }),
+      status: "error",
+      error: { message: String(error?.message || error) },
+    });
+  }
 }
 
 function applyPlatformCapabilities(capabilities) {
@@ -2015,7 +2374,7 @@ function applyPlatformCapabilities(capabilities) {
   gameButton.disabled = !presentation.gameLayerAvailable;
   gameButton.setAttribute("aria-disabled", String(!presentation.gameLayerAvailable));
   gameButton.title = presentation.gameLayerAvailable
-    ? "Maximum layer for fullscreen apps"
+    ? "Maximum safe layer for borderless fullscreen apps"
     : "Game layer is unavailable on this platform; Above is used instead";
 
   const dockButton = $("#dockButton");
@@ -2065,6 +2424,9 @@ async function hydratePreferences() {
     applyPlatformCapabilities(preferences.platformCapabilities);
     applyCompactSide(preferences.compactSide || "right");
     applyWindowMode(preferences.windowMode || "full");
+    renderHotkeys(preferences.hotkeys);
+    applyScreenshotCapabilities(preferences.screenshotCapabilities);
+    if (preferences.hotkeyError) setHotkeyStatus(preferences.hotkeyError.message, true);
   } catch {
     autoStartToggle.checked = confirmedAutoStart;
     autoStartToggle.disabled = true;
@@ -2094,6 +2456,8 @@ $("#modelButton").addEventListener("click", (event) => {
   togglePicker(event.currentTarget);
   if (event.currentTarget.closest(".picker").classList.contains("open")) setTimeout(() => $("#modelSearch").focus(), 0);
 });
+$("#captureButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
+$$('#captureMenu [data-capture]').forEach((button) => button.addEventListener("click", () => captureScreenshot(button.dataset.capture)));
 $("#reasoningButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#workspaceButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#modelSearch").addEventListener("input", (event) => renderModelOptions(event.target.value));
@@ -2327,6 +2691,40 @@ $$('#windowLayerSwitch button').forEach((button) => button.addEventListener("cli
   syncPressed($$('#windowLayerSwitch button'), value, "layer");
 }));
 $("#autoStartToggle").addEventListener("change", updateAutoStartToggle);
+$$('[data-hotkey-action]').forEach((input) => {
+  input.addEventListener("focus", () => setHotkeyStatus("Press a new combination · Esc cancels"));
+  input.addEventListener("keydown", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      renderHotkeys();
+      setHotkeyStatus("Canceled");
+      input.blur();
+      return;
+    }
+    const accelerator = shortcutFromKeyboardEvent(event);
+    if (!accelerator) {
+      setHotkeyStatus("Include one supported key", true);
+      return;
+    }
+    input.value = accelerator;
+    if (await updateHotkey(input.dataset.hotkeyAction, { enabled: true, accelerator })) input.blur();
+  });
+});
+$$('[data-hotkey-enabled]').forEach((toggle) => toggle.addEventListener("change", async () => {
+  const action = toggle.dataset.hotkeyEnabled;
+  const current = state.hotkeys[action];
+  await updateHotkey(action, { enabled: toggle.checked, accelerator: current?.accelerator });
+}));
+$("#resetHotkeysButton").addEventListener("click", async () => {
+  const result = await window.widget.resetHotkeys();
+  if (result?.ok) {
+    renderHotkeys(result.hotkeys);
+    setHotkeyStatus("Defaults restored");
+  } else {
+    setHotkeyStatus(result?.error?.message || "Could not restore shortcuts", true);
+  }
+});
 $("#opacityRange").addEventListener("input", async (event) => {
   if (event.currentTarget.disabled) return;
   const percent = Number(event.target.value);
@@ -2341,6 +2739,9 @@ $$('#sizeSwitch button').forEach((button) => button.addEventListener("click", as
   const value = await window.widget.setSize(button.dataset.size);
   syncPressed($$('#sizeSwitch button'), value, "size");
 }));
+$("#checkUpdateButton").addEventListener("click", () => runUpdateAction("check"));
+$("#downloadUpdateButton").addEventListener("click", () => runUpdateAction("download"));
+$("#installUpdateButton").addEventListener("click", () => runUpdateAction("install"));
 
 let dragDepth = 0;
 document.addEventListener("dragenter", (event) => {
@@ -2368,7 +2769,7 @@ document.addEventListener("drop", async (event) => {
   }
 });
 
-window.widget.onWindowMode((mode) => applyWindowMode(mode));
+window.widget.onWindowMode((mode) => applyAuthoritativeWindowMode(mode));
 window.widget.onCompactSide((side) => applyCompactSide(side));
 window.widget.onQueueUpdate(({ sessionId, items }) => {
   if (!sessionId) return;
@@ -2376,6 +2777,14 @@ window.widget.onQueueUpdate(({ sessionId, items }) => {
   if (sessionId === state.selectedSessionId) renderQueuedPrompts();
 });
 window.widget.onLiveEvent((payload) => { handleLiveEvent(payload).catch(showError); });
+window.widget.onHotkeyAction((action) => {
+  if (action === "newSession") createNewSession();
+});
+window.widget.onHotkeyError((error) => setHotkeyStatus(error?.message || "Shortcut failed", true));
+window.widget.onScreenshotCaptured((result) => {
+  try { handleScreenshotResult(result); } catch (error) { showError(error); }
+});
+window.widget.onUpdateState((value) => renderUpdateState(value));
 window.widget.onEdgeBounce(() => {
   const edge = $("#edgeMode");
   edge.classList.remove("bounce");
@@ -2384,9 +2793,12 @@ window.widget.onEdgeBounce(() => {
 });
 hydratePreferences();
 window.widget.getAppInfo().then((info) => {
+  state.appVersion = info.version;
   $("#versionLabel").textContent = `v${info.version}`;
   $("#projectLink").title = `Open NeoXider/neoxider-agent-deck v${info.version} on GitHub`;
+  $("#updateVersion").textContent = `Current v${info.version}`;
 });
+window.widget.getUpdateState().then((value) => renderUpdateState(value)).catch(() => {});
 
 const launchParams = new URLSearchParams(location.search);
 const requestedTab = launchParams.get("screenshotTab");
@@ -2424,7 +2836,15 @@ if (!screenshotFixture) {
 
 if (screenshotFixture) {
   setTimeout(async () => {
-    if (["edge-idle", "edge-hover"].includes(screenshotFixture)) {
+    if (screenshotFixture === "empty-chat") {
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [] };
+      state.selectedSessionId = null;
+      renderSessions();
+      renderSessionSelect();
+      renderContext();
+      renderMessages([]);
+    } else if (["edge-idle", "edge-hover"].includes(screenshotFixture)) {
       setAvatar("idle", "");
       setActivity(null);
       state.dashboard = { harness: true, sessions: [] };
@@ -2566,6 +2986,28 @@ if (screenshotFixture) {
       applyGlowIntensity(0.82);
       setActivity({ active: true, kind: "writing", label: "Writing", text: "Composing the answer in the mini-chat…" });
       setSettingsOpen(true, { restoreFocus: false });
+    } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
+      setTab("chat");
+      renderUpdateState(screenshotFixture === "update-ready"
+        ? { status: "ready", currentVersion: "0.4.3", latestVersion: "0.5.0", installMode: "portable-replace", progress: 100 }
+        : { status: "available", currentVersion: "0.4.3", latestVersion: "0.5.0", installMode: "managed", progress: 0 });
+      setSettingsOpen(true, { restoreFocus: false });
+    } else if (screenshotFixture === "hotkey-settings") {
+      setTab("chat");
+      renderHotkeys({
+        showRestore: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+Space" },
+        collapseAvatar: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+A" },
+        collapseEdge: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+E" },
+        newSession: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+N" },
+        captureDisplay: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+D" },
+        captureRegion: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+S" },
+      });
+      setSettingsOpen(true, { restoreFocus: false });
+      $("#hotkeySettings").open = true;
+    } else if (screenshotFixture === "capture-menu") {
+      setTab("chat");
+      applyScreenshotCapabilities({ region: { available: true }, display: { available: true } });
+      togglePicker($("#captureButton"));
     } else if (screenshotFixture === "attachments") {
       setTab("chat");
       const paths = (launchParams.get("screenshotFiles") || "").split("|").filter(Boolean);
@@ -2626,12 +3068,33 @@ if (screenshotFixture) {
       setTab("chat");
       setAvatar("working", "using tool");
       setActivity({ active: true, kind: "tool", label: "Using tool", text: "read_file" });
-    } else if (screenshotFixture === "edge-done") {
-      setAvatar("done", "done");
-      setActivity({ active: true, kind: "done", label: "Done", text: "The latest session finished." });
+    } else if (["edge-done", "edge-done-cleanup", "completion-chat"].includes(screenshotFixture)) {
+      const completedSession = { sessionId: "demo-complete", title: "Release verification", preview: "The latest session finished.", running: false, state: "idle" };
+      state.dashboard = { harness: true, sessions: [completedSession] };
+      state.selectedSessionId = completedSession.sessionId;
+      notifyCompletion(completedSession);
     } else if (screenshotFixture === "edge-error") {
-      setAvatar("error", "error");
-      setActivity({ active: true, kind: "error", label: "Error", text: "The latest session needs attention." });
+      const failedSession = { sessionId: "demo-error", title: "Failed verification", preview: "The latest session needs attention.", running: false, state: "error" };
+      state.dashboard = { harness: true, sessions: [failedSession] };
+      state.selectedSessionId = failedSession.sessionId;
+      applyWindowMode("edge");
+      signalSessionError(failedSession, "error", "The latest session needs attention.");
+    } else if (screenshotFixture === "edge-error-ack") {
+      const failedSession = { sessionId: "demo-error-ack", title: "Acknowledged failure", preview: "This failure was opened in full chat.", running: false, state: "error" };
+      state.dashboard = { harness: true, sessions: [failedSession] };
+      state.selectedSessionId = failedSession.sessionId;
+      applyWindowMode("edge");
+      signalSessionError(failedSession, "error", "The latest session needs attention.");
+      applyWindowMode("full");
+      applyWindowMode("edge");
+    } else if (screenshotFixture === "edge-error-interrupts-done") {
+      const completedSession = { sessionId: "demo-complete-before-error", title: "Earlier completion", preview: "This completion is superseded.", running: false, state: "idle" };
+      const failedSession = { sessionId: "demo-new-error", title: "New failure", preview: "The newer error needs attention.", running: false, state: "error" };
+      state.dashboard = { harness: true, sessions: [failedSession, completedSession] };
+      state.selectedSessionId = failedSession.sessionId;
+      applyWindowMode("edge");
+      notifyCompletion(completedSession);
+      signalSessionError(failedSession, "error", "The newer error needs attention.");
     } else if (screenshotFixture === "markdown-tools") {
       setTab("chat");
       renderMessages([

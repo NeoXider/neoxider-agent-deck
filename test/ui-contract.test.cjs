@@ -66,8 +66,9 @@ test("composer stacks attachment and commands beside a smaller context ring and 
   assert.match(css, /\.context-meter svg \{[^}]+top:50%[^}]+left:50%[^}]+translate\(-50%,-50%\)/);
   assert.match(css, /\.context-meter span \{[^}]+position:absolute[^}]+inset:0[^}]+place-items:center/);
   assert.match(css, /\.composer\.context-unavailable \{[^}]+grid-template-columns:28px 28px minmax\(0,1fr\) 38px/);
-  assert.match(css, /\.context-meter\.unavailable \{ display:none; \}/);
+  assert.match(css, /\.context-meter\.unavailable \{ display:grid; opacity:\.64; \}/);
   assert.match(renderer, /classList\.toggle\("context-unavailable", !pressure\)/);
+  assert.match(renderer, /\$\("#contextValue"\)\.textContent = "0%"/);
   assert.match(renderer, /attachment-preview/);
   assert.match(renderer, /thumbnailData/);
 });
@@ -197,7 +198,7 @@ test("collapsed pet exposes three exact recent sessions and inline quick reply w
   assert.match(renderer, /compactNotificationTimer = setTimeout/);
   assert.match(renderer, /\}, 2500\)/);
   assert.match(renderer, /orb-status-closing/);
-  assert.match(renderer, /notifyCompletion\(nextSessions\.find/);
+  assert.match(renderer, /else notifyCompletion\(session\)/);
   assert.match(renderer, /recentReplySessions\(state\.dashboard\?\.sessions, 3\)/);
   assert.match(renderer, /openCompactSession\(session\.sessionId\)/);
   assert.match(renderer, /openCompactReply\(session\.sessionId\)/);
@@ -219,6 +220,8 @@ test("collapsed pet exposes three exact recent sessions and inline quick reply w
 
 test("window layer has normal, above-by-default, and fullscreen-game modes", () => {
   assert.match(html, /data-layer="normal"/);
+  assert.match(html, /data-layer="normal"[^>]+>Desktop<\/button>/);
+  assert.match(html, /every normal app window covers the widget/);
   assert.match(html, /data-layer="above"/);
   assert.match(html, /data-layer="game"/);
   assert.match(settingsStore, /windowLayer: "above"/);
@@ -270,14 +273,20 @@ test("window contract has no close control and supports avatar and edge modes", 
   assert.match(main, /nextMode === "orb"/);
   assert.match(main, /ORB_QUICK_WIDTH/);
   assert.match(main, /set-compact-status/);
-  assert.match(main, /event\.preventDefault\(\);\s*applyWindowMode\("edge"\)/);
+  assert.match(main, /quitCoordinator\.handleWindowClose\(event, \(\) => applyWindowMode\("edge"\)\)/);
 });
 
-test("compact modes use immediate pointer capture, native drag IPC, and magnetic snap", () => {
+test("compact modes preserve short clicks and start native drag only after the movement threshold", () => {
   assert.match(renderer, /setPointerCapture/);
   assert.match(renderer, /beginCompactDrag/);
   assert.match(renderer, /moveCompactDrag/);
   assert.match(renderer, /endCompactDrag/);
+  assert.match(renderer, /Math\.hypot\(dx, dy\) < 4/);
+  assert.match(renderer, /if \(!compactDrag\.nativeStarted\)/);
+  assert.match(renderer, /window\.widget\.beginCompactDrag\(\{ x: compactDrag\.startX, y: compactDrag\.startY \}\)/);
+  assert.match(renderer, /if \(!nativeStarted\) return/);
+  const begin = renderer.slice(renderer.indexOf("function beginCompactDrag"), renderer.indexOf("function moveCompactDrag"));
+  assert.doesNotMatch(begin, /setPointerCapture|window\.widget\.beginCompactDrag/);
   assert.match(main, /begin-compact-drag/);
   assert.match(main, /move-compact-drag/);
   assert.match(main, /end-compact-drag/);
@@ -295,14 +304,17 @@ test("edge mode only captures the visible handle and passes transparent glow cli
   assert.match(renderer, /getBoundingClientRect\(\)/);
   assert.match(renderer, /rect\.left - EDGE_HIT_PADDING/);
   assert.match(renderer, /document\.addEventListener\("mousemove", updateEdgePointerHit, true\)/);
-  assert.match(css, /--edge-halo-opacity:\.12/);
+  assert.match(css, /--edge-primary:#49e7c6/);
+  assert.match(css, /--edge-secondary:#48bfff/);
+  assert.match(css, /--edge-halo-opacity:\.22/);
+  assert.doesNotMatch(css, /\.mode-edge\.state-idle \.edge-line[^\{]*\{[^\}]*animation/);
   assert.match(css, /\.edge-hit-active \.edge-line::after, \.edge-mode:focus-visible \.edge-line::after/);
   assert.doesNotMatch(css, /\.edge-hit-active \.edge-line[^}]+scaleY/);
   assert.doesNotMatch(css, /\.edge-hit-active \.edge-line[^}]+translateX/);
   const endCompactDrag = renderer.match(/async function endCompactDrag\(event\) \{[\s\S]+?\n\}/)?.[0] || "";
   assert.ok(
-    endCompactDrag.indexOf("window.widget.endCompactDrag()") < endCompactDrag.indexOf("if (!moved) return"),
-    "a click without movement must still clear the native compact drag origin",
+    endCompactDrag.indexOf("if (!nativeStarted) return") < endCompactDrag.indexOf("window.widget.endCompactDrag()"),
+    "a short click must not create or end a native drag",
   );
 });
 
@@ -422,6 +434,104 @@ test("interactive controls, view transitions, compact modes, and send have reduc
   assert.match(renderer, /behavior: reduceMotion \? "auto" : "smooth"/);
 });
 
+test("screen capture is a visible header action and only prepares reviewed chat attachments", () => {
+  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  assert.match(html, /id="captureButton"/);
+  assert.match(html, /data-capture="region"/);
+  assert.match(html, /data-capture="display"/);
+  assert.match(preload, /captureScreenshot: \(kind\) => ipcRenderer\.invoke\("capture-screenshot", kind\)/);
+  assert.match(main, /ipcMain\.handle\("capture-screenshot"/);
+  assert.match(main, /screenshotCaptureGate\.run/);
+  assert.match(main, /await screenshotService\.removeCapture\(result\.path\)/);
+  assert.match(main, /await cleanupSentCaptureFiles\(attachments\)/);
+  assert.match(renderer, /addAttachments\(result\.prepared\)/);
+  assert.match(renderer, /Screenshot attached above the message field\. Review it before sending\./);
+  assert.doesNotMatch(renderer, /handleScreenshotResult[\s\S]{0,700}requestSubmit\(/);
+});
+
+test("all six global shortcuts can be rebound, disabled, reset, and persisted", () => {
+  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  const store = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
+  for (const action of ["showRestore", "collapseAvatar", "collapseEdge", "newSession", "captureDisplay", "captureRegion"]) {
+    assert.match(html, new RegExp(`data-hotkey-action="${action}"`));
+    assert.match(html, new RegExp(`data-hotkey-enabled="${action}"`));
+  }
+  assert.match(html, /id="resetHotkeysButton"/);
+  assert.match(preload, /setHotkeys/);
+  assert.match(preload, /resetHotkeys/);
+  assert.match(main, /createHotkeyManager/);
+  assert.match(main, /registerConfiguredHotkeys\(preferences\.hotkeys\)/);
+  assert.match(main, /shortcut remains enabled and will be retried next launch/);
+  assert.doesNotMatch(main, /preferences\.hotkeys = registerConfiguredHotkeys/);
+  assert.match(store, /hotkeys: DEFAULT_HOTKEYS/);
+  assert.match(renderer, /function hotkeyDisplayName\(accelerator\)/);
+  assert.match(renderer, /replaceAll\("CommandOrControl", commandKey\)/);
+  assert.match(renderer, /duplicate|conflict|Shortcut is unavailable/i);
+});
+
+test("updates can be checked, downloaded, verified, and installed from settings", () => {
+  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  for (const id of ["updateSettings", "updateStatus", "updateProgress", "checkUpdateButton", "downloadUpdateButton", "installUpdateButton"]) {
+    assert.match(html, new RegExp(`id="${id}"`));
+  }
+  for (const api of ["getUpdateState", "checkForUpdates", "downloadUpdate", "installUpdate", "onUpdateState"]) {
+    assert.match(preload, new RegExp(api));
+  }
+  assert.match(main, /createApplicationUpdateService/);
+  assert.match(main, /createUpdateService/);
+  assert.match(main, /createInstalledUpdateService/);
+  assert.match(main, /sendToRenderer\("update-state", state\)/);
+  assert.match(renderer, /function renderUpdateState\(value\)/);
+  assert.match(renderer, /\["portable-replace", "managed"\]\.includes\(value\.installMode\)/);
+  assert.match(renderer, /Install & restart/);
+});
+
+test("full, avatar, and edge transitions use a short renderer handoff without touching saved geometry", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(renderer, /MODE_EXIT_DURATION = 105/);
+  assert.match(renderer, /await animateModeExit\(mode, requestSequence\)/);
+  assert.match(renderer, /requestSequence !== modeRequestSequence/);
+  assert.match(renderer, /function applyAuthoritativeWindowMode\(mode\)/);
+  assert.match(renderer, /function animateModeEnter\(previousMode\)/);
+  assert.match(renderer, /prefersReducedMotion\(\)/);
+  assert.match(css, /\.mode-transition-out\.mode-full \.widget-shell/);
+  assert.match(css, /\.mode-transition-in\.mode-orb \.orb-mode/);
+  assert.match(css, /\.mode-transition-in\.mode-edge \.edge-mode/);
+  assert.match(css, /@keyframes mode-enter-full/);
+  assert.match(css, /@keyframes mode-enter-orb/);
+  assert.match(css, /@keyframes mode-enter-edge/);
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)/);
+  assert.doesNotMatch(css, /(?:^|\n)\.mode-full \.widget-shell \{[^}]*animation:/);
+  assert.doesNotMatch(css, /(?:^|\n)\.mode-orb \.orb-mode \{[^}]*animation:/);
+  assert.doesNotMatch(css, /(?:^|\n)\.mode-edge \.edge-mode \{[^}]*animation:/);
+  assert.doesNotMatch(css, /@keyframes (?:shell|compact|edge)-enter/);
+  const transitionBlock = renderer.slice(renderer.indexOf("const MODE_EXIT_DURATION"), renderer.indexOf("function applyCompactSide"));
+  assert.doesNotMatch(transitionBlock, /setPosition|setBounds|windowState|compactSide/);
+});
+
+test("compact errors are acknowledged in full chat and completion feedback is finite and interruptible", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(renderer, /compactErrorUnread: false/);
+  assert.match(renderer, /unacknowledgedErrorSessionIds: new Set\(\)/);
+  assert.match(renderer, /function signalSessionError\(session/);
+  assert.match(renderer, /if \(mode !== "done"\) clearCompletionSignal\(\)/);
+  assert.match(renderer, /clearTimeout\(state\.compactNotificationTimer\)[\s\S]+?state\.compactNotification = null/);
+  assert.match(renderer, /state\.unacknowledgedErrorSessionIds\.add\(sessionId\)/);
+  assert.match(renderer, /acknowledgeSessionError\(state\.selectedSessionId\)/);
+  assert.match(renderer, /state\.selectedSessionId = sessionId;[\s\S]+?await setWindowMode\("full"\)/);
+  assert.match(renderer, /state\.avatarMode === "error" && !state\.compactErrorUnread && !state\.harnessOffline/);
+  assert.match(renderer, /session\?\.state === "error"\) signalSessionError\(session\)/);
+  assert.match(renderer, /latest\?\.role === "error" && state\.windowMode === "full"/);
+  assert.match(renderer, /function clearCompletionSignal\(\)/);
+  assert.match(renderer, /document\.body\.classList\.add\("completion-celebration"\)/);
+  assert.match(renderer, /state\.completionSignalTimer = setTimeout[\s\S]+?\}, 2600\)/);
+  assert.match(css, /\.completion-celebration\.mode-full \.widget-shell::after/);
+  assert.match(css, /\.completion-celebration\.mode-orb \.orb-avatar/);
+  assert.match(css, /\.completion-celebration\.mode-edge \.edge-line/);
+  assert.doesNotMatch(css, /\.completion-celebration[^\{]*\{[^\}]*infinite/);
+  assert.doesNotMatch(css, /\.mode-edge\.state-error \.edge-line[^\{]*\{[^\}]*infinite/);
+});
+
 test("settings keeps keyboard focus inside its modal surface", () => {
   assert.match(renderer, /function trapSettingsFocus/);
   assert.match(renderer, /event\.key !== "Tab"/);
@@ -534,7 +644,9 @@ test("a dead renderer is recovered instead of left on screen", () => {
 
 test("shutdown releases the tray and guards a destroyed window", () => {
   assert.match(main, /tray\?\.destroy\(\)/);
-  assert.match(main, /app\.on\("activate", \(\) => \(windowRef && !windowRef\.isDestroyed\(\)/);
+  assert.match(main, /app\.on\("activate", \(\) => quitCoordinator\.handleActivation/);
+  assert.match(main, /app\.on\("before-quit", \(\) => quitCoordinator\.beforeQuit\(\)\)/);
+  assert.match(main, /requestQuit\("tray"\)/);
   assert.match(main, /ipcMain\.on\("agent-complete"[\s\S]*?!windowRef \|\| windowRef\.isDestroyed\(\)/);
 });
 
@@ -620,7 +732,7 @@ test("a renderer payload cannot retarget a call at another session", () => {
 
 test("settings written by a newer build are preserved, not overwritten", () => {
   const store = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
-  assert.match(store, /const SCHEMA_VERSION = 1;/);
+  assert.match(store, /const SCHEMA_VERSION = 2;/);
   assert.match(store, /version > SCHEMA_VERSION/);
   assert.match(store, /SETTINGS_TOO_NEW/);
 });

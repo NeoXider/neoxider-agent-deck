@@ -1,0 +1,114 @@
+<Page
+    x:Class="NeoXiderAgentDeck.GameBar.WidgetPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Background="Transparent"
+    mc:Ignorable="d">
+
+    <Grid x:Name="Root" Background="Transparent" Loaded="OnLoaded">
+        <Grid.Resources>
+            <Storyboard x:Name="WaitingPulse">
+                <DoubleAnimation
+                    AutoReverse="True"
+                    Duration="0:0:1.4"
+                    From="0.18"
+                    RepeatBehavior="Forever"
+                    Storyboard.TargetName="OuterGlow"
+                    Storyboard.TargetProperty="Opacity"
+                    To="0.72" />
+                <DoubleAnimation
+                    AutoReverse="True"
+                    Duration="0:0:1.4"
+                    From="0.92"
+                    RepeatBehavior="Forever"
+                    Storyboard.TargetName="Avatar"
+                    Storyboard.TargetProperty="Opacity"
+                    To="1" />
+            </Storyboard>
+        </Grid.Resources>
+
+        <Border
+            Margin="8"
+            Padding="14,12"
+            Background="#EA0D111A"
+            BorderBrush="#4A7987A8"
+            BorderThickness="1"
+            CornerRadius="22">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="78" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Grid Width="68" Height="68" HorizontalAlignment="Left" VerticalAlignment="Center">
+                    <Ellipse
+                        x:Name="OuterGlow"
+                        Margin="-4"
+                        Opacity="0.35"
+                        StrokeThickness="6">
+                        <Ellipse.Stroke>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Offset="0" Color="#FF42E7C0" />
+                                <GradientStop Offset="0.55" Color="#FF54BFF3" />
+                                <GradientStop Offset="1" Color="#FF9D6CFF" />
+                            </LinearGradientBrush>
+                        </Ellipse.Stroke>
+                    </Ellipse>
+                    <Ellipse Margin="3" Fill="#FF152031" Stroke="#A049E7C0" StrokeThickness="2" />
+                    <Image
+                        x:Name="Avatar"
+                        Width="52"
+                        Height="52"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Source="ms-appx:///Assets/AgentAvatar.png" />
+                </Grid>
+
+                <StackPanel Grid.Column="1" Margin="4,0,12,0" VerticalAlignment="Center" Spacing="3">
+                    <TextBlock
+                        FontSize="10"
+                        FontWeight="SemiBold"
+                        Foreground="#FF7F8DA6"
+                        CharacterSpacing="140"
+                        Text="NEOXIDER / AGENT DECK" />
+                    <TextBlock
+                        x:Name="SessionTitle"
+                        FontSize="16"
+                        FontWeight="SemiBold"
+                        Foreground="{StaticResource DeckTextPrimary}"
+                        Text="Agent Deck" />
+                    <TextBlock
+                        x:Name="StatusDetail"
+                        MaxLines="1"
+                        FontSize="11"
+                        Foreground="{StaticResource DeckTextMuted}"
+                        Text="Bridge is not connected"
+                        TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <Border
+                    x:Name="StatusPill"
+                    Grid.Column="2"
+                    Padding="10,5"
+                    VerticalAlignment="Center"
+                    Background="#2649E7C0"
+                    BorderBrush="#6649E7C0"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Ellipse x:Name="StatusDot" Width="6" Height="6" Fill="#FF49E7C0" />
+                        <TextBlock
+                            x:Name="StatusLabel"
+                            FontSize="10"
+                            FontWeight="Bold"
+                            Foreground="#FFC7FFF2"
+                            Text="WAITING" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

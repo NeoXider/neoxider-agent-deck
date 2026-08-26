@@ -9,6 +9,7 @@ const {
   createSettingsStore,
   normalizePreferences,
 } = require("../src/settings-store.cjs");
+const { normalizeHotkeyBindings } = require("../src/hotkey-manager.cjs");
 
 function withTemporaryStore(run) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agent-deck-settings-test-"));
@@ -26,8 +27,9 @@ const completePreferences = {
   size: "large",
   windowLayer: "game",
   compactSide: "left",
+  hotkeys: normalizeHotkeyBindings({ captureRegion: { enabled: true, accelerator: "Control+Shift+R" } }),
   windowState: {
-    version: 1,
+    version: 2,
     mode: "orb",
     full: { x: -1700, y: 140, width: 500, height: 760 },
     orb: { x: -1912, y: 510, side: "left" },
@@ -77,6 +79,7 @@ const preferenceMutations = [
   ["size", (value) => ({ ...value, size: "compact" })],
   ["window layer", (value) => ({ ...value, windowLayer: "normal" })],
   ["compact side", (value) => ({ ...value, compactSide: "right" })],
+  ["hotkeys", (value) => ({ ...value, hotkeys: { ...value.hotkeys, captureDisplay: false } })],
   ["startup mode", (value) => ({ ...value, windowState: { ...value.windowState, mode: "edge" } })],
   ["full bounds", (value) => ({ ...value, windowState: { ...value.windowState, full: { x: 80, y: 90, width: 380, height: 520 } } })],
   ["orb bounds", (value) => ({ ...value, windowState: { ...value.windowState, orb: { x: 1740, y: 260, side: "right" } } })],
@@ -140,8 +143,20 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     size: "compact",
     windowLayer: "normal",
     compactSide: "left",
-    windowState: { version: 1, mode: "full", full: null, orb: null, edge: null },
+    hotkeys: normalizeHotkeyBindings(),
+    windowState: { version: 2, mode: "full", full: null, orb: null, edge: null },
   });
+});
+
+test("invalid shortcuts fall back without resetting unrelated preferences", () => {
+  const normalized = normalizePreferences({
+    opacity: 0.71,
+    glowIntensity: 0.36,
+    hotkeys: { showRestore: "not a shortcut" },
+  });
+  assert.equal(normalized.opacity, 0.71);
+  assert.equal(normalized.glowIntensity, 0.36);
+  assert.deepEqual(normalized.hotkeys, normalizeHotkeyBindings());
 });
 
 test("missing or malformed settings fall back to complete normalized defaults", () => {

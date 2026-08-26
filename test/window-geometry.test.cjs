@@ -24,3 +24,19 @@ test("edge handle snaps flush and preserves a safe vertical position", () => {
   assert.equal(result.x, 1864);
   assert.equal(result.y, 20);
 });
+
+test("a released edge handle can only occupy the physical left or right display edge", () => {
+  const displays = [
+    workArea,
+    { x: -1920, y: 40, width: 1920, height: 1040 },
+  ];
+  for (const display of displays) {
+    const width = 88;
+    const legalX = new Set([display.x, display.x + display.width - width]);
+    for (const x of [display.x - 500, display.x, display.x + 100, display.x + 900, display.x + display.width + 500]) {
+      const snapped = snapCompactBounds({ x, y: display.y + 200, width, height: 132 }, display, "edge");
+      assert.ok(legalX.has(snapped.x), `edge x=${snapped.x} must be flush with ${[...legalX].join(" or ")}`);
+      assert.equal(snapped.x, snapped.side === "left" ? display.x : display.x + display.width - width);
+    }
+  }
+});

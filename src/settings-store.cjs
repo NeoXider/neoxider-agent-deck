@@ -1,5 +1,6 @@
 const path = require("node:path");
 const fs = require("node:fs");
+const { DEFAULT_HOTKEYS, normalizeHotkeyBindings } = require("./hotkey-manager.cjs");
 
 const DEFAULT_PREFERENCES = Object.freeze({
   opacity: 0.96,
@@ -7,13 +8,14 @@ const DEFAULT_PREFERENCES = Object.freeze({
   size: "standard",
   windowLayer: "above",
   compactSide: "right",
-  windowState: Object.freeze({ version: 1, mode: "full", full: null, orb: null, edge: null }),
+  hotkeys: DEFAULT_HOTKEYS,
+  windowState: Object.freeze({ version: 2, mode: "full", full: null, orb: null, edge: null }),
 });
 
 // The schema version this build writes. normalizePreferences discards keys it does
 // not know, so opening a file written by a NEWER build would silently destroy that
 // build's settings on the next save. Such a file is preserved instead.
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 function boundedNumber(value, fallback, min, max) {
   const numeric = Number(value);
@@ -50,12 +52,19 @@ function normalizePreferences(raw = {}) {
     : DEFAULT_PREFERENCES.windowLayer;
   const windowLayer = ["normal", "above", "game"].includes(source.windowLayer) ? source.windowLayer : legacyLayer;
   const windowStateSource = source.windowState && typeof source.windowState === "object" ? source.windowState : {};
+  let hotkeys;
+  try {
+    hotkeys = normalizeHotkeyBindings(source.hotkeys || DEFAULT_HOTKEYS);
+  } catch {
+    hotkeys = normalizeHotkeyBindings(DEFAULT_HOTKEYS);
+  }
   return {
     opacity: boundedNumber(source.opacity, DEFAULT_PREFERENCES.opacity, 0.65, 1),
     glowIntensity: boundedNumber(source.glowIntensity, DEFAULT_PREFERENCES.glowIntensity, 0, 1),
     size: ["compact", "standard", "large"].includes(source.size) ? source.size : DEFAULT_PREFERENCES.size,
     windowLayer,
     compactSide,
+    hotkeys,
     windowState: {
       version: SCHEMA_VERSION,
       mode: ["full", "orb", "edge"].includes(windowStateSource.mode) ? windowStateSource.mode : "full",

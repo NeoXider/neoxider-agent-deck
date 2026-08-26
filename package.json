@@ -27,7 +27,7 @@
     "chat-smoke": "node scripts/chat-smoke.cjs",
     "tool-smoke": "node scripts/tool-call-smoke.cjs",
     "build": "npm run build:win",
-    "build:win": "npm run test && electron-builder --win portable --x64 --publish never",
+    "build:win": "npm run test && electron-builder --win nsis portable --x64 --publish never",
     "build:mac": "npm run test && electron-builder --mac dmg zip --publish never",
     "build:linux": "npm run test && electron-builder --linux AppImage deb --publish never",
     "test:input": "electron scripts/input-regression.cjs",
@@ -51,9 +51,20 @@
     "asar": true,
     "win": {
       "target": [
+        "nsis",
         "portable"
       ],
-      "icon": "src/renderer/assets/neoxider-github.png",
+      "icon": "src/renderer/assets/neoxider-github.png"
+    },
+    "nsis": {
+      "artifactName": "NeoXider-Agent-Deck-${version}-windows-${arch}-setup.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
       "artifactName": "NeoXider-Agent-Deck-${version}-windows-${arch}-portable.${ext}"
     },
     "mac": {
@@ -75,12 +86,19 @@
       "syncDesktopName": true,
       "icon": "src/renderer/assets/neoxider-github.png",
       "artifactName": "NeoXider-Agent-Deck-${version}-linux-${arch}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "NeoXider",
+      "repo": "neoxider-agent-deck"
     }
   },
   "dependencies": {
+    "electron-updater": "6.8.9",
     "highlight.js": "11.12.0",
     "markdown-it": "15.0.0",
-    "sanitize-html": "2.17.7"
+    "sanitize-html": "2.17.7",
+    "semver": "7.8.5"
   },
   "engines": {
     "node": ">=22"

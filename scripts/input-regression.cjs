@@ -14,14 +14,26 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let currentMode = "full";
 const sentPayloads = [];
 const openedSessionIds = [];
+const modeRequests = [];
+const modeResponseDelays = new Map();
+const compactDragEvents = [];
 function registerStubs() {
   ipcMain.handle("set-window-mode", (_event, mode) => {
+    modeRequests.push(mode);
     currentMode = mode;
-    return mode;
+    const delay = modeResponseDelays.get(mode) || 0;
+    return delay ? wait(delay).then(() => mode) : mode;
   });
-  ipcMain.handle("end-compact-drag", () => ({ side: "right" }));
+  ipcMain.handle("end-compact-drag", () => {
+    compactDragEvents.push("end");
+    return { side: "right" };
+  });
   ipcMain.handle("end-full-drag", () => null);
   ipcMain.handle("app-info", () => ({ version: "0.0.0-test" }));
+  ipcMain.handle("get-update-state", () => ({ status: "idle", currentVersion: "0.0.0", installMode: "manual" }));
+  ipcMain.handle("check-for-updates", () => null);
+  ipcMain.handle("download-update", () => null);
+  ipcMain.handle("install-update", () => null);
   ipcMain.handle("set-compact-status", () => null);
   ipcMain.handle("get-preferences", () => ({}));
   ipcMain.handle("send", (_event, payload) => {
@@ -42,7 +54,10 @@ function registerStubs() {
   ipcMain.handle("workspaces", () => []);
   ipcMain.handle("get-queue", () => []);
   for (const channel of ["begin-compact-drag", "move-compact-drag", "begin-full-drag", "move-full-drag", "set-edge-pointer-active", "agent-complete"]) {
-    ipcMain.on(channel, () => {});
+    ipcMain.on(channel, () => {
+      if (channel === "begin-compact-drag") compactDragEvents.push("begin");
+      if (channel === "move-compact-drag") compactDragEvents.push("move");
+    });
   }
 }
 
@@ -108,6 +123,15 @@ async function main() {
     failures.push(`avatar click did not collapse to orb (mode stayed "${currentMode}")`);
   }
 
+  // --- 1b. a short click on the orb must restore Full --------------------
+  const orb = await centerOf(contents, "#orbRestore");
+  if (!orb) throw new Error("orbRestore not found");
+  click(contents, orb.x, orb.y);
+  await wait(600);
+  if (currentMode !== "full") {
+    failures.push(`orb click did not restore full (mode stayed "${currentMode}")`);
+  }
+
   // Back to full for the next case.
   await contents.executeJavaScript('document.body.className = "mode-full"');
   await wait(200);
@@ -115,24 +139,32 @@ async function main() {
   // --- 2. dragging the edge handle must not restore the widget ------------
   await contents.executeJavaScript('document.body.className = "mode-edge side-right"');
   currentMode = "edge";
+  modeRequests.length = 0;
+  compactDragEvents.length = 0;
   await wait(300);
   const line = await centerOf(contents, "#edgeMode .edge-line");
   if (!line) throw new Error("edge line not found");
-  contents.sendInputEvent({ type: "mouseDown", x: line.x, y: line.y, button: "left", clickCount: 1 });
+  const windowBounds = win.getBounds();
+  contents.sendInputEvent({ type: "mouseDown", x: line.x, y: line.y, globalX: windowBounds.x + line.x, globalY: windowBounds.y + line.y, button: "left", clickCount: 1 });
   for (let step = 1; step <= 6; step += 1) {
-    contents.sendInputEvent({ type: "mouseMove", x: line.x, y: line.y + step * 9, button: "left" });
+    contents.sendInputEvent({ type: "mouseMove", x: line.x, y: line.y + step * 9, globalX: windowBounds.x + line.x, globalY: windowBounds.y + line.y + step * 9, button: "left" });
     await wait(30);
   }
-  contents.sendInputEvent({ type: "mouseUp", x: line.x, y: line.y + 54, button: "left", clickCount: 1 });
+  contents.sendInputEvent({ type: "mouseUp", x: line.x, y: line.y + 54, globalX: windowBounds.x + line.x, globalY: windowBounds.y + line.y + 54, button: "left", clickCount: 1 });
   await wait(600);
   if (currentMode === "full") {
-    failures.push("releasing the edge handle after a drag restored the widget");
+    failures.push(`releasing the edge handle after a drag restored the widget; drag=${JSON.stringify(compactDragEvents)}, modes=${JSON.stringify(modeRequests)}`);
+  }
+  if (!compactDragEvents.includes("begin") || !compactDragEvents.includes("end")) {
+    failures.push(`edge drag did not cross the native movement threshold: ${JSON.stringify(compactDragEvents)}`);
   }
 
   // --- 3. a per-session chat icon replies inline without restoring full --
   await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
     query: { screenshotFixture: "orb-recent-three", screenshotStatic: "1" },
   });
+  win.show();
+  win.focus();
   await wait(1200);
   await contents.executeJavaScript(`(() => {
     document.body.classList.remove("mode-full", "mode-edge", "side-left");
@@ -163,6 +195,7 @@ async function main() {
   await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
     query: { screenshotFixture: "orb-recent-three", screenshotStatic: "1" },
   });
+  win.focus();
   await wait(1200);
   await contents.executeJavaScript(`(() => {
     document.body.classList.remove("mode-full", "mode-edge", "side-left");
@@ -178,8 +211,85 @@ async function main() {
   if (currentMode !== "full") failures.push(`recent session preview did not restore the full widget; hit=${JSON.stringify(previewHit)}`);
   if (!openedSessionIds.includes("demo-build")) failures.push(`recent session opened the wrong id: ${JSON.stringify(openedSessionIds)}`);
 
+  // Load a fresh renderer so the timing regression cannot perturb the physical
+  // pointer sequences above (Electron retains pointer state across navigation).
+  await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
+    query: { screenshotFixture: "chat", screenshotStatic: "1" },
+  });
+  win.focus();
+  win.show();
+  win.focus();
+  await wait(1200);
+
+  // --- 5. a stale delayed reply cannot override a newer mode intent -------
+  modeRequests.length = 0;
+  modeResponseDelays.set("orb", 260);
+  modeResponseDelays.set("full", 5);
+  const rapidMode = await contents.executeJavaScript(`(async () => {
+    const first = setWindowMode("orb");
+    await new Promise((resolve) => setTimeout(resolve, 130));
+    const second = setWindowMode("full");
+    await Promise.all([first, second]);
+    return { stateMode: state.windowMode, bodyMode: document.body.className };
+  })()`);
+  modeResponseDelays.clear();
+  if (currentMode !== "full" || rapidMode.stateMode !== "full" || !rapidMode.bodyMode.includes("mode-full")) {
+    failures.push(`rapid mode requests did not keep the last Full intent: main=${currentMode}, renderer=${JSON.stringify(rapidMode)}`);
+  }
+  if (modeRequests.join(",") !== "orb,full") {
+    failures.push(`rapid mode requests did not exercise both IPC replies: ${JSON.stringify(modeRequests)}`);
+  }
+
+  // --- 6. unchanged dashboard renders preserve nodes, focus, and scroll ---
+  const stableRender = await contents.executeJavaScript(`(() => {
+    setTab("agents");
+    renderSessions();
+    const list = document.querySelector("#sessions");
+    const card = list.querySelector(".session-card");
+    list.style.height = "18px";
+    list.scrollTop = 9;
+    const scrollTop = list.scrollTop;
+    renderSessions();
+    const sameCard = card === list.querySelector(".session-card");
+    const scrollPreserved = list.scrollTop === scrollTop;
+    list.style.height = "";
+    setTab("chat");
+    document.querySelector("#sessionButton").click();
+    const option = document.querySelector("#sessionOptions .picker-option:last-child");
+    option.focus();
+    const focusedBefore = document.activeElement === option;
+    renderSessionSelect();
+    const result = {
+      sameCard,
+      sameOption: option === document.querySelector("#sessionOptions .picker-option:last-child"),
+      optionFocused: focusedBefore && document.activeElement === option,
+      scrollPreserved,
+    };
+    document.querySelector("#sessionButton").click();
+    return result;
+  })()`);
+  if (!Object.values(stableRender).every(Boolean)) {
+    failures.push(`unchanged dashboard rebuilt interactive DOM: ${JSON.stringify(stableRender)}`);
+  }
+
+  const emptyContext = await contents.executeJavaScript(`(() => {
+    const selected = state.selectedSessionId;
+    state.selectedSessionId = null;
+    renderContext();
+    const result = {
+      value: document.querySelector("#contextValue").textContent,
+      unavailable: document.querySelector("#contextMeter").classList.contains("unavailable"),
+    };
+    state.selectedSessionId = selected;
+    renderContext();
+    return result;
+  })()`);
+  if (emptyContext.value !== "0%" || !emptyContext.unavailable) {
+    failures.push(`empty context meter was not retained at 0%: ${JSON.stringify(emptyContext)}`);
+  }
+
   for (const failure of failures) console.error(`FAIL ${failure}`);
-  if (failures.length === 0) console.log("PASS compact drag, exact-session open, and inline quick reply behave correctly");
+  if (failures.length === 0) console.log("PASS stable rendering, last-intent modes, compact drag, exact-session open, and inline quick reply behave correctly");
   app.exit(failures.length === 0 ? 0 : 1);
 }
 

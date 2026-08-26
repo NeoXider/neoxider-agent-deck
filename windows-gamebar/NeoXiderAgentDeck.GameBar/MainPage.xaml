@@ -1,0 +1,24 @@
+<Page
+    x:Class="NeoXiderAgentDeck.GameBar.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="#FF090C12">
+    <Grid Padding="40">
+        <StackPanel MaxWidth="640" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+            <Image Width="84" Height="84" Source="ms-appx:///Assets/AgentAvatar.png" />
+            <TextBlock
+                HorizontalAlignment="Center"
+                FontSize="28"
+                FontWeight="SemiBold"
+                Foreground="{StaticResource DeckTextPrimary}"
+                Text="NeoXider Agent Deck" />
+            <TextBlock
+                HorizontalAlignment="Center"
+                FontSize="15"
+                Foreground="{StaticResource DeckTextMuted}"
+                Text="Press Win+G, open the Widget menu, select NeoXider Agent Deck, then pin it."
+                TextAlignment="Center"
+                TextWrapping="Wrap" />
+        </StackPanel>
+    </Grid>
+</Page>
