@@ -532,11 +532,15 @@ test("every bridged IPC channel has a handler and no handler is orphaned", () =>
 });
 
 test("the live event socket detects a half-open connection", () => {
-  assert.match(main, /MUX_SILENCE_TIMEOUT = 60000/);
-  assert.match(main, /socket\.onopen = \(\) => \{/);
-  assert.match(main, /muxSilenceTimer = setTimeout\(\(\) => \{\s*\n\s*if \(muxSocket === socket\) socket\.close\(\);/);
+  const muxClient = readFileSync(path.join(root, "src", "mux-client.cjs"), "utf8");
+  assert.match(muxClient, /MUX_SILENCE_TIMEOUT = 60000/);
+  assert.match(muxClient, /current\.onopen = \(\) => \{/);
+  assert.match(muxClient, /silenceTimer = setTimeoutImpl\(\(\) => \{\s*\n\s*if \(socket === current\) current\.close\(\);/);
   // Reconnect must back off instead of retrying an offline Harness forever at 1.5s.
-  assert.match(main, /muxReconnectDelay = Math\.min\(muxReconnectDelay \* 2, MUX_RECONNECT_MAX\)/);
+  assert.match(muxClient, /reconnectDelay = Math\.min\(reconnectDelay \* 2, reconnectMax\)/);
+  // Wherever the logic lives, the widget still owns the socket's lifetime.
+  assert.match(main, /muxClient\.connect\(\)/);
+  assert.match(main, /muxClient\.stop\(\)/);
 });
 
 test("attachment preparation is asynchronous and reports failures per file", () => {

@@ -16,6 +16,7 @@ const {
 } = require("./platform-capabilities.cjs");
 const { APP_ID, PRODUCT_NAME, REPOSITORY_URL } = require("./product.cjs");
 const { renderMarkdown } = require("./markdown.cjs");
+const { createMuxClient } = require("./mux-client.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
 const { configureProductUserData } = require("./user-data-migration.cjs");
 const { moveCompactBounds, snapCompactBounds } = require("./window-geometry.cjs");
@@ -89,16 +90,6 @@ let compactDragOrigin = null;
 let fullDragOrigin = null;
 let compactDragTrace = [];
 const queueSnapshots = new Map();
-let muxSocket = null;
-let muxReconnectTimer = null;
-let muxStopped = false;
-let muxSilenceTimer = null;
-let muxReconnectDelay = 1500;
-const MUX_RECONNECT_MIN = 1500;
-const MUX_RECONNECT_MAX = 30000;
-// Harness pushes frames continuously while a session is live; a full minute of
-// silence means the socket is dead even if the OS never told us.
-const MUX_SILENCE_TIMEOUT = 60000;
 let rendererRecoveryCount = 0;
 const MAX_RENDERER_RECOVERIES = 3;
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -211,63 +202,19 @@ function publishLiveEvent(frame) {
   windowRef.webContents.send("live-event", { sessionId: frame.sessionId, event: { type: event.type, seq: event.seq, data } });
 }
 
-function muxUrl() {
-  const url = new URL("/api/events.mux", HARNESS_URL);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.href;
-}
-
-function connectQueueMux() {
-  if (muxStopped || process.env.WIDGET_SCREENSHOT_PATH || muxSocket) return;
-  const socket = new WebSocket(muxUrl());
-  muxSocket = socket;
-
-  // A half-open TCP connection (laptop sleep, VPN or Wi-Fi switch) never delivers
-  // onclose, so without this watchdog the socket stays truthy forever, the guard
-  // above returns early on every retry, and live events stop arriving for good —
-  // while HTTP polling keeps the rest of the UI looking perfectly healthy.
-  const noteTraffic = () => {
-    clearTimeout(muxSilenceTimer);
-    muxSilenceTimer = setTimeout(() => {
-      if (muxSocket === socket) socket.close();
-    }, MUX_SILENCE_TIMEOUT);
-  };
-
-  socket.onopen = () => {
-    muxReconnectDelay = MUX_RECONNECT_MIN;
-    noteTraffic();
-  };
-  socket.onmessage = (event) => {
-    noteTraffic();
-    try {
-      const envelope = JSON.parse(String(event.data));
-      const frame = envelope?.payload;
-      if (frame?.type === "session/subscribed" && queueSnapshots.has(frame.sessionId)) publishQueue(frame.sessionId, []);
-      else if (frame?.type === "session/queue" && frame.sessionId) publishQueue(frame.sessionId, frame.items);
-      else if (frame?.type === "session/event") publishLiveEvent(frame);
-    } catch {}
-  };
-  const reconnect = () => {
-    clearTimeout(muxSilenceTimer);
-    muxSilenceTimer = null;
-    if (muxSocket === socket) muxSocket = null;
-    if (!muxStopped && !muxReconnectTimer) {
-      const delay = muxReconnectDelay;
-      // Back off so an offline Harness is not hammered every 1.5s indefinitely.
-      muxReconnectDelay = Math.min(muxReconnectDelay * 2, MUX_RECONNECT_MAX);
-      muxReconnectTimer = setTimeout(() => {
-        muxReconnectTimer = null;
-        connectQueueMux();
-      }, delay);
-    }
-  };
-  socket.onclose = reconnect;
-  socket.onerror = () => {
-    // onerror does not always imply onclose; force the socket through one path.
-    if (muxSocket === socket && socket.readyState !== WebSocket.CLOSED) socket.close();
-  };
-  noteTraffic();
-}
+// Reconnect and silence handling live in mux-client.cjs: that logic only becomes
+// testable once the socket and the clock are injected, and an untested version of it
+// is how live events once died quietly while the rest of the UI looked healthy.
+const muxClient = createMuxClient({
+  harnessUrl: HARNESS_URL,
+  onQueue: publishQueue,
+  onLiveEvent: publishLiveEvent,
+  // A resubscribe means Harness reset its queue for that session, so a snapshot we
+  // still hold is stale and must be cleared rather than left on screen.
+  onSubscribed: (sessionId) => {
+    if (queueSnapshots.has(sessionId)) publishQueue(sessionId, []);
+  },
+});
 
 function captureWindowBounds(mode, bounds, side = preferences.compactSide, setLastMode = true) {
   const previousMode = preferences.windowState.mode;
@@ -927,7 +874,8 @@ app.whenReady().then(() => {
     openPath: (filePath) => shell.openPath(filePath),
   });
   createWindow();
-  connectQueueMux();
+  // A screenshot run must capture a fixture, not whatever a live Harness pushes.
+  if (!process.env.WIDGET_SCREENSHOT_PATH) muxClient.connect();
   const iconPath = path.join(__dirname, "renderer", "assets", "neoxider-github.png");
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 32, height: 32 });
   tray = new Tray(icon);
@@ -945,13 +893,7 @@ app.on("before-quit", () => {
   app.isQuitting = true;
   if (windowRef && !windowRef.isDestroyed()) captureWindowBounds(windowMode, windowRef.getBounds());
   if (settingsStore) savePreferences();
-  muxStopped = true;
-  clearTimeout(muxReconnectTimer);
-  muxReconnectTimer = null;
-  clearTimeout(muxSilenceTimer);
-  muxSilenceTimer = null;
-  muxSocket?.close();
-  muxSocket = null;
+  muxClient.stop();
   // An undestroyed tray icon can survive as a ghost in the Windows notification area.
   tray?.destroy();
   tray = null;
