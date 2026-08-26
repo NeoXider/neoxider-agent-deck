@@ -2570,10 +2570,29 @@ if (screenshotFixture) {
       setTab("chat");
       const paths = (launchParams.get("screenshotFiles") || "").split("|").filter(Boolean);
       if (paths.length) addAttachments(await window.widget.prepareFiles(paths));
-      else addAttachments([
-        { kind: "reference", previewKind: "file", path: "C:\\demo\\release-notes.md", name: "release-notes.md" },
-        { kind: "reference", previewKind: "video", path: "C:\\demo\\widget-preview.mp4", name: "widget-preview.mp4" },
-      ]);
+      else {
+        const previewData = (label, first, second) => {
+          const canvas = document.createElement("canvas");
+          canvas.width = 96;
+          canvas.height = 64;
+          const context = canvas.getContext("2d");
+          const gradient = context.createLinearGradient(0, 0, 96, 64);
+          gradient.addColorStop(0, first);
+          gradient.addColorStop(1, second);
+          context.fillStyle = gradient;
+          context.fillRect(0, 0, 96, 64);
+          context.fillStyle = "rgba(6,10,17,.38)";
+          context.fillRect(7, 37, 82, 18);
+          context.fillStyle = "white";
+          context.font = "700 11px sans-serif";
+          context.fillText(label, 12, 50);
+          return canvas.toDataURL("image/png").split(",")[1];
+        };
+        addAttachments([
+          { kind: "image", mediaType: "image/png", data: previewData("PNG", "#45e2c4", "#7166ff"), path: "C:\\demo\\widget-preview.png", name: "widget-preview.png" },
+          { kind: "reference", previewKind: "video", thumbnailData: previewData("VIDEO", "#ff748f", "#8b79ff"), thumbnailMediaType: "image/png", path: "C:\\demo\\widget-motion.mp4", name: "widget-motion.mp4" },
+        ]);
+      }
     } else if (["orb-recent-three", "orb-recent-three-left", "orb-quick-reply"].includes(screenshotFixture)) {
       state.dashboard = { harness: true, sessions: [
         { sessionId: "demo-build", title: "Build review", updatedAt: Date.now(), running: false, state: "idle", preview: "Windows package passed the final verification.", projections: { values: {} }, subagents: [] },

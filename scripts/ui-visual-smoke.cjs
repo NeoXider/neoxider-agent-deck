@@ -24,8 +24,8 @@ const cases = [
   { name: "compact-model-closed", tab: "chat", fixture: "model-closed", width: 360, height: 500, expect: { closedModelLabel: "Qwen 3.5 9B", closedModelVisible: true, closedModelUnclipped: true } },
   { name: "model-empty", tab: "chat", fixture: "model-empty", expect: { modelControlLabel: "MODEL", modelControlText: "No models loaded", modelPickerActions: 2 } },
   { name: "model-error", tab: "chat", fixture: "model-error", expect: { modelSetupCards: 1, modelSetupActions: 2, closedModelLabel: "No model", closedModelVisible: true } },
-  { name: "attachments", tab: "chat", fixture: "attachments", expect: { attachmentChips: 2, attachmentsAboveComposer: true, composerUtilitiesStacked: true } },
-  { name: "compact-attachments", tab: "chat", fixture: "attachments", width: 360, height: 500, expect: { attachmentChips: 2, attachmentsAboveComposer: true, composerUtilitiesStacked: true } },
+  { name: "attachments", tab: "chat", fixture: "attachments", expect: { attachmentChips: 2, attachmentImages: 2, attachmentsAboveComposer: true, composerUtilitiesStacked: true } },
+  { name: "compact-attachments", tab: "chat", fixture: "attachments", width: 360, height: 500, expect: { attachmentChips: 2, attachmentImages: 2, attachmentsAboveComposer: true, composerUtilitiesStacked: true } },
   { name: "markdown-tools", tab: "chat", fixture: "markdown-tools", expect: { toolGroups: 1, toolCalls: 2, historicalReasoning: 0 } },
   { name: "thinking-chat", tab: "chat", fixture: "thinking" },
   { name: "writing-chat", tab: "chat", fixture: "writing", expect: { liveBubbles: 1, liveCaretDisplay: "inline-block" } },
@@ -106,7 +106,13 @@ function runElectron(testCase) {
 
 async function main() {
   mkdirSync(output, { recursive: true });
-  for (const testCase of cases) {
+  const requested = new Set(process.argv.slice(2));
+  const selectedCases = requested.size ? cases.filter(({ name }) => requested.has(name)) : cases;
+  if (requested.size && selectedCases.length !== requested.size) {
+    const known = new Set(selectedCases.map(({ name }) => name));
+    throw new Error(`Unknown UI smoke case: ${[...requested].filter((name) => !known.has(name)).join(", ")}`);
+  }
+  for (const testCase of selectedCases) {
     const files = await runElectron(testCase);
     if (statSync(files.screenshot).size < 500) throw new Error(`${testCase.name} screenshot is unexpectedly small`);
     const audit = JSON.parse(readFileSync(files.audit, "utf8"));

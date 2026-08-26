@@ -31,6 +31,7 @@
     "build:mac": "npm run test && electron-builder --mac dmg zip --publish never",
     "build:linux": "npm run test && electron-builder --linux AppImage deb --publish never",
     "test:input": "electron scripts/input-regression.cjs",
+    "test:attachments-live": "electron scripts/attachment-preview-smoke.cjs",
     "test:platforms": "node scripts/platform-matrix.cjs"
   },
   "devDependencies": {

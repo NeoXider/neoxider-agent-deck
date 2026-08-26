@@ -61,6 +61,7 @@ function attachScreenshotHarness({
             queueSingleLine: [...document.querySelectorAll('.queue-row')].every((row) => row.getBoundingClientRect().height <= 40),
             queueAboveComposer: !document.querySelector('.queue-dock.has-items') || document.querySelector('.queue-dock.has-items').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
             attachmentChips: document.querySelectorAll('.attachment-chip').length,
+            attachmentImages: document.querySelectorAll('.attachment-preview img').length,
             attachmentsAboveComposer: !document.querySelector('.attachment-bar.has-items') || document.querySelector('.attachment-bar.has-items').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
             liveBubbles: document.querySelectorAll('.live-assistant').length,
              offlineBanners: document.querySelectorAll('.offline-banner.show').length,
