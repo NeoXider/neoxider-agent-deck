@@ -229,14 +229,14 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .mode-option .ui-icon { width:16px; height:16px; }
 .mode-option.active { background:linear-gradient(135deg,rgba(73,231,198,.14),rgba(139,121,255,.15)); color:white; box-shadow:inset 0 1px rgba(255,255,255,.08); }
 
-.context-meter { position:relative; width:36px; height:38px; display:grid; place-items:center; }
-.context-meter svg { position:absolute; top:50%; left:50%; width:32px; height:32px; transform:translate(-50%,-50%) rotate(-90deg); }
+.context-meter { position:relative; width:28px; height:18px; display:grid; place-items:center; }
+.context-meter svg { position:absolute; top:50%; left:50%; width:18px; height:18px; transform:translate(-50%,-50%) rotate(-90deg); }
 .context-meter circle { fill:none; stroke-width:2.2; }
 .context-track { stroke:rgba(255,255,255,.09); }
 .context-arc { stroke:var(--mint); stroke-linecap:round; stroke-dasharray:97.39; transition:stroke-dashoffset .35s ease, stroke .25s ease; filter:drop-shadow(0 0 4px rgba(73,231,198,.55)); }
 .context-meter.high .context-arc { stroke:#ffca72; }
 .context-meter.critical .context-arc { stroke:var(--danger); }
-.context-meter span { position:absolute; inset:0; display:grid; place-items:center; padding:0; color:#d6dde7; font-size:7px; font-weight:850; font-variant-numeric:tabular-nums; line-height:1; text-align:center; }
+.context-meter span { position:absolute; inset:0; display:grid; place-items:center; padding:0; color:#d6dde7; font-size:5.5px; font-weight:850; font-variant-numeric:tabular-nums; line-height:1; text-align:center; }
 .command-menu { display:none; min-height:0; max-height:min(190px,36vh); flex:none; overflow:hidden; border:1px solid rgba(139,121,255,.27); border-radius:13px; background:rgba(13,17,27,.985); box-shadow:0 15px 38px rgba(0,0,0,.42),inset 0 1px rgba(255,255,255,.035); }
 .command-menu.open { display:flex; flex-direction:column; animation:command-menu-in .18s cubic-bezier(.22,1,.36,1); }
 .command-menu-head { min-height:34px; flex:none; display:flex; align-items:center; gap:7px; padding:7px 10px; border-bottom:1px solid rgba(255,255,255,.07); color:#8f9caf; }
@@ -383,13 +383,16 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .attachment-remove:hover { background:rgba(255,115,143,.1); color:#ff91a7; }
 .attachment-remove .ui-icon { width:14px; height:14px; }
 
-.composer { width:100%; min-width:0; display:grid; grid-template-columns:36px 32px 32px minmax(0,1fr) 38px; gap:4px; align-items:end; padding:5px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.045); }
-.composer.has-running { grid-template-columns:36px 32px 32px minmax(0,1fr) 32px 38px; }
-.composer.context-unavailable { grid-template-columns:32px 32px minmax(0,1fr) 38px; }
-.composer.context-unavailable.has-running { grid-template-columns:32px 32px minmax(0,1fr) 32px 38px; }
+.composer { width:100%; min-width:0; display:grid; grid-template-columns:28px 28px minmax(0,1fr) 38px; gap:3px; align-items:end; padding:5px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.045); }
+.composer.has-running { grid-template-columns:28px 28px minmax(0,1fr) 30px 38px; }
+.composer.context-unavailable { grid-template-columns:28px 28px minmax(0,1fr) 38px; }
+.composer.context-unavailable.has-running { grid-template-columns:28px 28px minmax(0,1fr) 30px 38px; }
 .context-meter.unavailable { display:none; }
-.composer-utility-stack { width:32px; height:38px; display:grid; grid-template-rows:repeat(2,18px); gap:2px; align-self:end; }
-.composer-utility-stack .composer-action { width:32px; height:18px; border-radius:6px; }
+.composer-view-stack { width:28px; height:38px; display:grid; grid-template-rows:repeat(2,18px); gap:2px; align-self:end; }
+.composer-view-stack .focus-chat-button { width:28px; height:18px; border-radius:6px; }
+.composer-view-stack .focus-chat-button .ui-icon { width:13px; height:13px; }
+.composer-utility-stack { width:28px; height:38px; display:grid; grid-template-rows:repeat(2,18px); gap:2px; align-self:end; }
+.composer-utility-stack .composer-action { width:28px; height:18px; border-radius:6px; }
 .composer-utility-stack .composer-action .ui-icon { width:13px; height:13px; }
 .composer-action, .composer-stop { width:32px; height:34px; border:0; background:transparent; }
 .composer-action .ui-icon, .composer-stop .ui-icon { width:16px; height:16px; }
@@ -549,8 +552,8 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
   .icon-button { width:34px; height:34px; }
   .tabs { width:66px; height:32px; }
   .chat-heading { grid-template-columns:minmax(0,1fr) 34px 34px minmax(108px,.82fr); gap:5px; }
-  .context-meter { width:32px; height:36px; }
-  .context-meter svg { width:30px; height:30px; }
+  .context-meter { width:28px; height:18px; }
+  .context-meter svg { width:18px; height:18px; }
   .control-grid { gap:5px; padding:0 6px 6px; }
   .picker-button { padding:0 8px; gap:6px; }
   .picker-button > span { font-size:9px; }
@@ -560,12 +563,12 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
   .attachment-bar { grid-template-columns:1fr; gap:5px; }
   .attachment-heading { display:none; }
   .composer, .composer.has-running { gap:3px; padding:4px; }
-  .composer { grid-template-columns:32px 32px 32px minmax(130px,1fr) 36px; }
-  .composer.has-running { grid-template-columns:32px 32px 32px minmax(130px,1fr) 32px 36px; }
-  .composer.context-unavailable { grid-template-columns:32px 32px minmax(130px,1fr) 36px; }
-  .composer.context-unavailable.has-running { grid-template-columns:32px 32px minmax(130px,1fr) 32px 36px; }
-  .composer-utility-stack { width:32px; height:38px; }
-  .composer-utility-stack .composer-action { width:32px; height:18px; }
+  .composer { grid-template-columns:28px 28px minmax(130px,1fr) 36px; }
+  .composer.has-running { grid-template-columns:28px 28px minmax(130px,1fr) 30px 36px; }
+  .composer.context-unavailable { grid-template-columns:28px 28px minmax(130px,1fr) 36px; }
+  .composer.context-unavailable.has-running { grid-template-columns:28px 28px minmax(130px,1fr) 30px 36px; }
+  .composer-utility-stack { width:28px; height:38px; }
+  .composer-utility-stack .composer-action { width:28px; height:18px; }
   .composer-action, .composer-stop { width:100%; height:34px; }
   .composer #sendButton { width:36px; height:36px; }
   .settings-panel { top:56px; right:9px; width:calc(100% - 18px); }

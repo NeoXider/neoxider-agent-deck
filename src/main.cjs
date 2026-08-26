@@ -1,10 +1,9 @@
 const path = require("node:path");
-const { mkdirSync, writeFileSync } = require("node:fs");
-const fsPromises = require("node:fs/promises");
 const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { HarnessApi } = require("./harness-api.cjs");
 const { createAutoStartController } = require("./auto-start.cjs");
 const { createHarnessLauncher } = require("./harness-launcher.cjs");
+const { createGameLayerKeeper } = require("./game-layer-keeper.cjs");
 const { harnessSessionUrl } = require("./harness-url.cjs");
 const {
   applyPlatformOpacity,
@@ -16,6 +15,10 @@ const {
 } = require("./platform-capabilities.cjs");
 const { APP_ID, PRODUCT_NAME, REPOSITORY_URL } = require("./product.cjs");
 const { renderMarkdown } = require("./markdown.cjs");
+const { createAttachmentReader } = require("./attachments.cjs");
+const { queueItemView } = require("./queue-view.cjs");
+const { attachScreenshotHarness } = require("../scripts/screenshot-harness.cjs");
+const { createMuxClient } = require("./mux-client.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
 const { configureProductUserData } = require("./user-data-migration.cjs");
 const { moveCompactBounds, snapCompactBounds } = require("./window-geometry.cjs");
@@ -27,6 +30,14 @@ const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
 app.setName(PRODUCT_NAME);
 configureProductUserData({ app });
 const api = new HarnessApi(HARNESS_URL);
+// nativeImage is the only Electron dependency attachment reading has, so it is passed
+// in rather than reached for, which keeps the rules unit-testable.
+const { prepareFiles } = createAttachmentReader({
+  async makeThumbnail(filePath) {
+    const thumbnail = await nativeImage.createThumbnailFromPath(filePath, { width: 160, height: 100 });
+    return thumbnail.isEmpty() ? "" : thumbnail.toPNG().toString("base64");
+  },
+});
 const SIZE_PRESETS = {
   compact: [380, 400],
   standard: [420, 640],
@@ -70,15 +81,6 @@ function requireSessionId(value) {
   return sessionId;
 }
 
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
-const IMAGE_TYPES = new Map([
-  [".png", "image/png"],
-  [".jpg", "image/jpeg"],
-  [".jpeg", "image/jpeg"],
-  [".webp", "image/webp"],
-  [".gif", "image/gif"],
-]);
-const VIDEO_TYPES = new Set([".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".wmv"]);
 
 let windowRef;
 let tray;
@@ -88,22 +90,13 @@ let preferences = DEFAULT_PREFERENCES;
 let settingsStore;
 let autoStartController;
 let harnessLauncher;
+let gameLayerKeeper;
 let preferenceSaveTimer = null;
 let compactStatus = { active: false, expanded: false, label: "Ready", text: "" };
 let compactDragOrigin = null;
 let fullDragOrigin = null;
 let compactDragTrace = [];
 const queueSnapshots = new Map();
-let muxSocket = null;
-let muxReconnectTimer = null;
-let muxStopped = false;
-let muxSilenceTimer = null;
-let muxReconnectDelay = 1500;
-const MUX_RECONNECT_MIN = 1500;
-const MUX_RECONNECT_MAX = 30000;
-// Harness pushes frames continuously while a session is live; a full minute of
-// silence means the socket is dead even if the OS never told us.
-const MUX_SILENCE_TIMEOUT = 60000;
 let rendererRecoveryCount = 0;
 const MAX_RENDERER_RECOVERIES = 3;
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -171,19 +164,6 @@ function autoStartPreference() {
   }
 }
 
-function queueItemView(item) {
-  const content = Array.isArray(item?.message?.content) ? item.message.content : [];
-  const textBlocks = content.filter((block) => block?.type === "text" && typeof block.text === "string");
-  const text = textBlocks.map((block) => block.text).join("\n").trim();
-  const editableText = content.length > 0 && content.every((block) => block?.type === "text") ? text : null;
-  return {
-    id: String(item?.id || item?.message?.id || ""),
-    placement: String(item?.placement || "queued"),
-    text: editableText,
-    preview: String(text || (content.length ? `${content.length} attachment${content.length === 1 ? "" : "s"}` : "Queued message")).replace(/\s+/g, " ").slice(0, 240),
-  };
-}
-
 function publishQueue(sessionId, items) {
   const safeItems = (Array.isArray(items) ? items : []).map(queueItemView).filter((item) => item.id && item.placement === "queued");
   if (safeItems.length) queueSnapshots.set(sessionId, safeItems);
@@ -216,63 +196,19 @@ function publishLiveEvent(frame) {
   windowRef.webContents.send("live-event", { sessionId: frame.sessionId, event: { type: event.type, seq: event.seq, data } });
 }
 
-function muxUrl() {
-  const url = new URL("/api/events.mux", HARNESS_URL);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.href;
-}
-
-function connectQueueMux() {
-  if (muxStopped || process.env.WIDGET_SCREENSHOT_PATH || muxSocket) return;
-  const socket = new WebSocket(muxUrl());
-  muxSocket = socket;
-
-  // A half-open TCP connection (laptop sleep, VPN or Wi-Fi switch) never delivers
-  // onclose, so without this watchdog the socket stays truthy forever, the guard
-  // above returns early on every retry, and live events stop arriving for good —
-  // while HTTP polling keeps the rest of the UI looking perfectly healthy.
-  const noteTraffic = () => {
-    clearTimeout(muxSilenceTimer);
-    muxSilenceTimer = setTimeout(() => {
-      if (muxSocket === socket) socket.close();
-    }, MUX_SILENCE_TIMEOUT);
-  };
-
-  socket.onopen = () => {
-    muxReconnectDelay = MUX_RECONNECT_MIN;
-    noteTraffic();
-  };
-  socket.onmessage = (event) => {
-    noteTraffic();
-    try {
-      const envelope = JSON.parse(String(event.data));
-      const frame = envelope?.payload;
-      if (frame?.type === "session/subscribed" && queueSnapshots.has(frame.sessionId)) publishQueue(frame.sessionId, []);
-      else if (frame?.type === "session/queue" && frame.sessionId) publishQueue(frame.sessionId, frame.items);
-      else if (frame?.type === "session/event") publishLiveEvent(frame);
-    } catch {}
-  };
-  const reconnect = () => {
-    clearTimeout(muxSilenceTimer);
-    muxSilenceTimer = null;
-    if (muxSocket === socket) muxSocket = null;
-    if (!muxStopped && !muxReconnectTimer) {
-      const delay = muxReconnectDelay;
-      // Back off so an offline Harness is not hammered every 1.5s indefinitely.
-      muxReconnectDelay = Math.min(muxReconnectDelay * 2, MUX_RECONNECT_MAX);
-      muxReconnectTimer = setTimeout(() => {
-        muxReconnectTimer = null;
-        connectQueueMux();
-      }, delay);
-    }
-  };
-  socket.onclose = reconnect;
-  socket.onerror = () => {
-    // onerror does not always imply onclose; force the socket through one path.
-    if (muxSocket === socket && socket.readyState !== WebSocket.CLOSED) socket.close();
-  };
-  noteTraffic();
-}
+// Reconnect and silence handling live in mux-client.cjs: that logic only becomes
+// testable once the socket and the clock are injected, and an untested version of it
+// is how live events once died quietly while the rest of the UI looked healthy.
+const muxClient = createMuxClient({
+  harnessUrl: HARNESS_URL,
+  onQueue: publishQueue,
+  onLiveEvent: publishLiveEvent,
+  // A resubscribe means Harness reset its queue for that session, so a snapshot we
+  // still hold is stale and must be cleared rather than left on screen.
+  onSubscribed: (sessionId) => {
+    if (queueSnapshots.has(sessionId)) publishQueue(sessionId, []);
+  },
+});
 
 function captureWindowBounds(mode, bounds, side = preferences.compactSide, setLastMode = true) {
   const previousMode = preferences.windowState.mode;
@@ -301,6 +237,7 @@ function applyWindowLayer(mode = windowMode) {
 function setWindowLayerPreference(value) {
   preferences.windowLayer = normalizeWindowLayer(value, PLATFORM_CAPABILITIES);
   applyWindowLayer();
+  gameLayerKeeper?.sync();
   savePreferences();
   return preferences.windowLayer;
 }
@@ -337,63 +274,6 @@ function snapCurrentCompactWindow({ traceEnd = false } = {}) {
   savePreferences();
   windowRef.webContents.send("compact-side", preferences.compactSide);
   return { ...windowRef.getBounds(), side: preferences.compactSide };
-}
-
-async function prepareFile(filePath) {
-  const resolved = path.resolve(String(filePath));
-  // Asynchronous on purpose: the main process is single-threaded, and reading plus
-  // base64-encoding up to twelve 8 MB files synchronously froze the window, the tray
-  // and every IPC handler for seconds while Windows painted "Not responding".
-  const info = await fsPromises.stat(resolved);
-  if (!info.isFile()) throw new Error(`Not a file: ${resolved}`);
-  const extension = path.extname(resolved).toLowerCase();
-  const mediaType = IMAGE_TYPES.get(extension);
-  if (!mediaType) {
-    if (VIDEO_TYPES.has(extension)) {
-      let thumbnailData = "";
-      try {
-        const thumbnail = await nativeImage.createThumbnailFromPath(resolved, { width: 160, height: 100 });
-        if (!thumbnail.isEmpty()) thumbnailData = thumbnail.toPNG().toString("base64");
-      } catch {}
-      return {
-        kind: "reference",
-        previewKind: "video",
-        thumbnailData,
-        thumbnailMediaType: thumbnailData ? "image/png" : "",
-        path: resolved,
-        name: path.basename(resolved),
-      };
-    }
-    return { kind: "reference", previewKind: "file", path: resolved, name: path.basename(resolved) };
-  }
-  if (info.size > MAX_IMAGE_BYTES) throw new Error(`${path.basename(resolved)} exceeds the 8 MB image limit`);
-  return {
-    kind: "image",
-    mediaType,
-    data: (await fsPromises.readFile(resolved)).toString("base64"),
-    name: path.basename(resolved),
-    path: resolved,
-    bytes: info.size,
-  };
-}
-
-async function prepareFiles(filePaths) {
-  const resolved = [...new Set((filePaths || []).map((value) => path.resolve(String(value))))].slice(0, 12);
-  const settled = await Promise.allSettled(resolved.map(prepareFile));
-  // One unreadable or oversized file used to reject the whole batch, so the user got
-  // nothing back and no way to tell which file was at fault. Report per file instead.
-  const attachments = [];
-  const failures = [];
-  settled.forEach((entry, index) => {
-    if (entry.status === "fulfilled") attachments.push(entry.value);
-    else {
-      failures.push({
-        name: path.basename(resolved[index]),
-        error: entry.reason instanceof Error ? entry.reason.message : String(entry.reason),
-      });
-    }
-  });
-  return { attachments, failures };
 }
 
 function applyWindowMode(nextMode, { captureCurrent = true, persist = true, preserveCompactPosition = false } = {}) {
@@ -476,6 +356,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   applyEdgePointerHit(false);
   if (nextMode === "full") windowRef.show();
   else windowRef.showInactive();
+  gameLayerKeeper?.trigger();
   windowRef.webContents.send("window-mode", windowMode);
   windowRef.webContents.send("compact-side", preferences.compactSide);
 }
@@ -580,200 +461,16 @@ function createWindow() {
     captureFullBounds();
     schedulePreferenceSave();
   });
+  gameLayerKeeper?.attach(windowRef);
 
   if (screenshotPath) {
-    windowRef.webContents.once("did-finish-load", () => {
-      const requestedDelay = Number(process.env.WIDGET_SCREENSHOT_DELAY);
-      const captureDelay = Number.isFinite(requestedDelay) && requestedDelay >= 1200 ? requestedDelay : 5000;
-      const requestedMode = process.env.WIDGET_SCREENSHOT_MODE;
-      const requestedSide = process.env.WIDGET_SCREENSHOT_SIDE;
-      if (["orb", "edge"].includes(requestedMode)) {
-        setTimeout(() => {
-          if (["left", "right"].includes(requestedSide)) preferences.compactSide = requestedSide;
-          applyWindowMode(requestedMode);
-        }, Math.min(3500, captureDelay - 650));
-      }
-      setTimeout(async () => {
-        const auditPath = process.env.WIDGET_UI_AUDIT_PATH;
-        let audit = null;
-        if (auditPath) {
-          audit = await windowRef.webContents.executeJavaScript(`(() => {
-            const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.queue-dock.has-items','.attachment-bar.has-items','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-session-row','.orb-reply-form','.orb-history-button','.edge-mode'];
-            const boxes = selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((element) => {
-              const rect = element.getBoundingClientRect();
-              const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).display !== 'none';
-              return { selector, visible, left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height };
-            })).filter((item) => item.visible);
-            const tolerance = 1;
-            const offenders = boxes.filter((box) => box.left < -tolerance || box.top < -tolerance || box.right > innerWidth + tolerance || box.bottom > innerHeight + tolerance);
-            const semantic = {
-              toolGroups: document.querySelectorAll('.tool-group').length,
-              toolCalls: document.querySelectorAll('.tool-call').length,
-              historicalReasoning: document.querySelectorAll('.reasoning-bubble').length,
-              markdownLists: document.querySelectorAll('#messages ul, #messages ol').length,
-              footer: document.querySelectorAll('footer').length,
-              titlebarTabs: document.querySelectorAll('.titlebar > .tabs').length,
-              setupInToolbar: document.querySelector('#agentControls')?.parentElement?.classList.contains('chat-heading') || false,
-              focusMode: document.body.classList.contains('focus-chat'),
-              focusChromeHidden: ['.titlebar','.chat-heading','.activity-card','.settings-panel'].every((selector) => getComputedStyle(document.querySelector(selector)).display === 'none'),
-              commandRows: document.querySelectorAll('.command-row').length,
-              commandAboveComposer: !document.querySelector('.command-menu.open') || document.querySelector('.command-menu.open').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
-              commandFitsWidth: !document.querySelector('.command-menu.open') || document.querySelector('.command-menu.open').scrollWidth <= document.querySelector('.command-menu.open').clientWidth + 1,
-              queueRows: document.querySelectorAll('.queue-row').length,
-              queueActions: document.querySelectorAll('.queue-action').length,
-              queueSingleLine: [...document.querySelectorAll('.queue-row')].every((row) => row.getBoundingClientRect().height <= 40),
-              queueAboveComposer: !document.querySelector('.queue-dock.has-items') || document.querySelector('.queue-dock.has-items').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
-              attachmentChips: document.querySelectorAll('.attachment-chip').length,
-              attachmentsAboveComposer: !document.querySelector('.attachment-bar.has-items') || document.querySelector('.attachment-bar.has-items').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
-              liveBubbles: document.querySelectorAll('.live-assistant').length,
-               offlineBanners: document.querySelectorAll('.offline-banner.show').length,
-               startHarnessButtons: document.querySelectorAll('#offlineBanner.show #startHarnessButton').length,
-               startHarnessText: document.querySelector('#startHarnessButton')?.textContent?.trim() || '',
-               startHarnessButtonVisible: (() => {
-                 const button = document.querySelector('#startHarnessButton');
-                 const rect = button?.getBoundingClientRect();
-                 const style = button && getComputedStyle(button);
-                 return Boolean(rect && rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility === 'visible' && Number(style.opacity) > 0);
-               })(),
-               startHarnessButtonDisabled: Boolean(document.querySelector('#startHarnessButton')?.disabled),
-               startHarnessTextPainted: (() => {
-                 const style = getComputedStyle(document.querySelector('#startHarnessButton'));
-                 const alpha = (color) => {
-                   if (!color || color === 'transparent') return 0;
-                   return color.endsWith(', 0)') ? 0 : 1;
-                 };
-                 return Number(style.opacity) > 0 && alpha(style.color) > 0 && alpha(style.webkitTextFillColor || style.color) > 0;
-               })(),
-               startHarnessTextWidth: (() => {
-                 const button = document.querySelector('#startHarnessButton');
-                 const range = document.createRange();
-                 range.selectNodeContents(button);
-                 return Math.round(range.getBoundingClientRect().width * 100) / 100;
-               })(),
-               startHarnessButtonRect: (() => {
-                 const rect = document.querySelector('#startHarnessButton').getBoundingClientRect();
-                 return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-               })(),
-               headerStateText: document.querySelector('#avatarState')?.textContent || '',
-              scrollLatestVisible: Boolean(document.querySelector('.scroll-latest:not([hidden])')),
-              glowControl: document.querySelectorAll('#glowRange').length,
-              glowIntensity: getComputedStyle(document.documentElement).getPropertyValue('--chat-glow-intensity').trim(),
-              windowLayerOptions: document.querySelectorAll('#windowLayerSwitch [data-layer]').length,
-              agentWorking: document.querySelectorAll('.session-card.state-working').length,
-              agentIdle: document.querySelectorAll('.session-card.state-idle').length,
-              agentError: document.querySelectorAll('.session-card.state-error').length,
-              orbUtilityButtons: document.querySelectorAll('#orbMode > button:not(#orbRestore):not(#orbStatus)').length,
-              orbNotification: document.body.classList.contains('orb-has-notification'),
-              orbStatusShadow: getComputedStyle(document.querySelector('#orbStatus')).boxShadow,
-              orbReplyShadow: getComputedStyle(document.querySelector('#orbHistoryButton')).boxShadow,
-              orbRecentRows: document.querySelectorAll('.orb-session-row').length,
-              orbRecentUniqueSessions: new Set([...document.querySelectorAll('.orb-session-row .orb-session-open')].map((button) => button.getAttribute('aria-label'))).size,
-              orbHistoryOpen: document.body.classList.contains('orb-history-open'),
-              orbQuickReplyOpen: document.body.classList.contains('orb-reply-open'),
-              orbReplyTarget: document.querySelector('#orbReplyTitle')?.textContent || '',
-              orbReplyInputVisible: (() => {
-                const input = document.querySelector('#orbReplyInput');
-                const rect = input?.getBoundingClientRect();
-                return Boolean(rect && rect.width > 0 && rect.height > 0 && !input.closest('[hidden]'));
-              })(),
-              orbPanelClipped: (() => {
-                const panel = document.querySelector('#orbStatus');
-                const rect = panel?.getBoundingClientRect();
-                return Boolean(rect && (rect.left < -1 || rect.top < -1 || rect.right > innerWidth + 1 || rect.bottom > innerHeight + 1));
-              })(),
-              compactSide: document.body.classList.contains('side-left') ? 'left' : 'right',
-              edgeHitActive: document.querySelector('#edgeMode')?.classList.contains('edge-hit-active') || false,
-              edgeLineWidth: Math.round(document.querySelector('.edge-line')?.getBoundingClientRect().width || 0),
-              edgeHaloOpacity: getComputedStyle(document.querySelector('.edge-line'), '::before').opacity,
-              edgePrimary: getComputedStyle(document.body).getPropertyValue('--edge-primary').trim(),
-              edgeState: document.body.classList.contains('activity-thinking') ? 'thinking'
-                : document.body.classList.contains('activity-writing') ? 'writing'
-                  : document.body.classList.contains('activity-tool') ? 'tool'
-                    : document.body.classList.contains('state-error') ? 'error'
-                      : document.body.classList.contains('state-done') ? 'done'
-                        : document.body.classList.contains('state-waiting') ? 'waiting' : 'idle',
-              brandUserSelect: getComputedStyle(document.querySelector('.brand')).userSelect,
-              composerUtilitiesStacked: (() => {
-                const attach = document.querySelector('#attachButton').getBoundingClientRect();
-                const commands = document.querySelector('#commandsButton').getBoundingClientRect();
-                return Math.abs((attach.left + attach.right - commands.left - commands.right) / 2) <= 1 && attach.bottom <= commands.top + 1;
-              })(),
-              contextRingSize: Math.round(document.querySelector('#contextMeter svg').getBoundingClientRect().width),
-              contextUnavailable: document.querySelector('#contextMeter').classList.contains('unavailable'),
-              composerTextareaWidth: Math.round(document.querySelector('#messageInput').getBoundingClientRect().width),
-              composerInputHeight: Math.round(document.querySelector('#messageInput').getBoundingClientRect().height),
-              composerHeight: Math.round(document.querySelector('#chatForm').getBoundingClientRect().height),
-              composerUtilityHeight: Math.round(document.querySelector('.composer-utility-stack').getBoundingClientRect().height),
-              composerInputScrollable: document.querySelector('#messageInput').scrollHeight > document.querySelector('#messageInput').clientHeight + 1,
-              composerInputMaxDelta: Math.round(Math.abs(document.querySelector('#messageInput').getBoundingClientRect().height - innerHeight / 3) * 100) / 100,
-              conversationBubbles: document.querySelectorAll('#messages .bubble').length,
-              shortMessageVisible: (() => {
-                const bubble = document.querySelector('#messages .bubble');
-                const viewport = document.querySelector('#messages');
-                if (!bubble || !viewport) return false;
-                const bubbleRect = bubble.getBoundingClientRect();
-                const viewportRect = viewport.getBoundingClientRect();
-                return bubbleRect.width > 0 && bubbleRect.height > 0 && bubbleRect.top >= viewportRect.top - 1 && bubbleRect.bottom <= viewportRect.bottom + 1;
-              })(),
-              sendWidth: Math.round(document.querySelector('#sendButton').getBoundingClientRect().width),
-              sendHeight: Math.round(document.querySelector('#sendButton').getBoundingClientRect().height),
-              modelControlLabel: document.querySelector('.model-button-copy small')?.textContent || '',
-              modelControlText: document.querySelector('#modelButtonText')?.textContent || '',
-              closedModelLabel: document.querySelector('#controlsPrimary')?.textContent || '',
-              closedModelVisible: (() => {
-                const label = document.querySelector('#controlsPrimary')?.getBoundingClientRect();
-                const summary = document.querySelector('#agentControls > summary')?.getBoundingClientRect();
-                return Boolean(label && summary && label.width > 0 && label.left >= summary.left && label.right <= summary.right);
-              })(),
-              closedModelUnclipped: (() => {
-                const label = document.querySelector('#controlsPrimary');
-                return Boolean(label && label.clientWidth > 0 && label.scrollWidth <= label.clientWidth + 1);
-              })(),
-              modelPickerActions: document.querySelectorAll('.model-picker-actions button').length,
-              modelSetupCards: document.querySelectorAll('.model-setup-card').length,
-              modelSetupActions: document.querySelectorAll('.model-setup-actions button').length,
-              autoStartHydrated: !document.querySelector('#autoStartToggle').disabled,
-              autoStartStatus: document.querySelector('#autoStartStatus').textContent,
-              offlineSessionText: document.querySelector('#sessions .empty-state')?.textContent || '',
-              liveCaretDisplay: getComputedStyle(document.querySelector('.live-assistant') || document.body, '::after').display,
-              contextCenterDelta: (() => {
-                const meter = document.querySelector('#contextMeter').getBoundingClientRect();
-                const value = document.querySelector('#contextValue').getBoundingClientRect();
-                return Math.round(Math.max(
-                  Math.abs((meter.left + meter.right - value.left - value.right) / 2),
-                  Math.abs((meter.top + meter.bottom - value.top - value.bottom) / 2),
-                ) * 100) / 100;
-              })(),
-            };
-            return { viewport: { width: innerWidth, height: innerHeight }, scroll: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight }, boxes, offenders, semantic };
-          })()`);
-          audit.compactDragTrace = compactDragTrace;
-          audit.windowBounds = windowRef.getBounds();
-        }
-        const image = await windowRef.webContents.capturePage();
-        if (auditPath) {
-          const rect = audit.semantic.startHarnessButtonRect;
-          let brightPixels = 0;
-          if (rect?.width > 0 && rect?.height > 0) {
-            const size = image.getSize();
-            const x = Math.max(0, Math.min(size.width - 1, Math.floor(rect.x)));
-            const y = Math.max(0, Math.min(size.height - 1, Math.floor(rect.y)));
-            const width = Math.max(1, Math.min(size.width - x, Math.ceil(rect.width)));
-            const height = Math.max(1, Math.min(size.height - y, Math.ceil(rect.height)));
-            const bitmap = image.crop({ x, y, width, height }).toBitmap();
-            for (let offset = 0; offset + 3 < bitmap.length; offset += 4) {
-              if (bitmap[offset] >= 205 && bitmap[offset + 1] >= 205 && bitmap[offset + 2] >= 205 && bitmap[offset + 3] >= 205) brightPixels += 1;
-            }
-          }
-          audit.semantic.startHarnessBrightPixels = brightPixels;
-          mkdirSync(path.dirname(auditPath), { recursive: true });
-          writeFileSync(auditPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
-        }
-        mkdirSync(path.dirname(screenshotPath), { recursive: true });
-        writeFileSync(screenshotPath, image.toPNG());
-        app.isQuitting = true;
-        app.quit();
-      }, captureDelay);
+    attachScreenshotHarness({
+      window: windowRef,
+      app,
+      applyWindowMode,
+      screenshotPath,
+      getDragTrace: () => compactDragTrace,
+      setCompactSide: (side) => { preferences.compactSide = side; },
     });
   }
 }
@@ -997,8 +694,15 @@ app.whenReady().then(() => {
     workingDirectory: path.join(app.getPath("userData"), "harness-workspace"),
     openPath: (filePath) => shell.openPath(filePath),
   });
+  gameLayerKeeper = createGameLayerKeeper({
+    getWindow: () => windowRef,
+    isEnabled: () => preferences.windowLayer === "game",
+    getMode: () => windowMode,
+    capabilities: PLATFORM_CAPABILITIES,
+  });
   createWindow();
-  connectQueueMux();
+  // A screenshot run must capture a fixture, not whatever a live Harness pushes.
+  if (!process.env.WIDGET_SCREENSHOT_PATH) muxClient.connect();
   const iconPath = path.join(__dirname, "renderer", "assets", "neoxider-github.png");
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 32, height: 32 });
   tray = new Tray(icon);
@@ -1016,13 +720,8 @@ app.on("before-quit", () => {
   app.isQuitting = true;
   if (windowRef && !windowRef.isDestroyed()) captureWindowBounds(windowMode, windowRef.getBounds());
   if (settingsStore) savePreferences();
-  muxStopped = true;
-  clearTimeout(muxReconnectTimer);
-  muxReconnectTimer = null;
-  clearTimeout(muxSilenceTimer);
-  muxSilenceTimer = null;
-  muxSocket?.close();
-  muxSocket = null;
+  muxClient.stop();
+  gameLayerKeeper?.stop();
   // An undestroyed tray icon can survive as a ghost in the Windows notification area.
   tray?.destroy();
   tray = null;

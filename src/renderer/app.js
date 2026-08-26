@@ -2424,8 +2424,13 @@ if (!screenshotFixture) {
 
 if (screenshotFixture) {
   setTimeout(async () => {
-    if (screenshotFixture === "edge-hover") {
+    if (["edge-idle", "edge-hover"].includes(screenshotFixture)) {
+      setAvatar("idle", "");
+      setActivity(null);
+      state.dashboard = { harness: true, sessions: [] };
+      if (screenshotFixture === "edge-hover") {
       $("#edgeMode").classList.add("edge-hit-active");
+      }
     } else if (["offline", "offline-agents", "focus-offline"].includes(screenshotFixture)) {
       setTab("chat");
       if (screenshotFixture === "focus-offline") setFocusMode(true);

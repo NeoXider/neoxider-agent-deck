@@ -55,15 +55,17 @@ test("composer stacks attachment and commands beside a smaller context ring and 
   const input = html.indexOf('id="messageInput"');
   const stop = html.indexOf('id="cancelButton"');
   const send = html.indexOf('id="sendButton"');
-  assert.ok(context > 0 && context < attach && attach < commands && commands < focus && focus < input && input < stop && stop < send);
+  assert.ok(focus > 0 && focus < context && context < attach && attach < commands && commands < input && input < stop && stop < send);
+  assert.match(html, /class="composer-view-stack"[\s\S]+id="focusChatButton"[\s\S]+id="contextMeter"/);
   assert.match(html, /class="composer-utility-stack"[\s\S]+id="attachButton"[\s\S]+id="commandsButton"/);
-  assert.match(css, /\.composer-utility-stack \{[^}]+height:38px[^}]+grid-template-rows:repeat\(2,18px\)/);
-  assert.match(css, /\.composer-utility-stack \.composer-action \{[^}]+width:32px[^}]+height:18px/);
-  assert.match(css, /\.context-meter \{[^}]+width:36px[^}]+height:38px/);
+  assert.match(css, /\.composer-utility-stack \{[^}]+width:28px[^}]+height:38px[^}]+grid-template-rows:repeat\(2,18px\)/);
+  assert.match(css, /\.composer-utility-stack \.composer-action \{[^}]+width:28px[^}]+height:18px/);
+  assert.match(css, /\.composer-view-stack \{[^}]+height:38px[^}]+grid-template-rows:repeat\(2,18px\)/);
+  assert.match(css, /\.context-meter \{[^}]+width:28px[^}]+height:18px/);
   assert.match(css, /\.composer #sendButton \{[^}]+width:38px[^}]+height:38px/);
   assert.match(css, /\.context-meter svg \{[^}]+top:50%[^}]+left:50%[^}]+translate\(-50%,-50%\)/);
   assert.match(css, /\.context-meter span \{[^}]+position:absolute[^}]+inset:0[^}]+place-items:center/);
-  assert.match(css, /\.composer\.context-unavailable \{[^}]+grid-template-columns:32px 32px minmax\(0,1fr\) 38px/);
+  assert.match(css, /\.composer\.context-unavailable \{[^}]+grid-template-columns:28px 28px minmax\(0,1fr\) 38px/);
   assert.match(css, /\.context-meter\.unavailable \{ display:none; \}/);
   assert.match(renderer, /classList\.toggle\("context-unavailable", !pressure\)/);
   assert.match(renderer, /attachment-preview/);
@@ -582,19 +584,24 @@ test("every bridged IPC channel has a handler and no handler is orphaned", () =>
 });
 
 test("the live event socket detects a half-open connection", () => {
-  assert.match(main, /MUX_SILENCE_TIMEOUT = 60000/);
-  assert.match(main, /socket\.onopen = \(\) => \{/);
-  assert.match(main, /muxSilenceTimer = setTimeout\(\(\) => \{\s*\n\s*if \(muxSocket === socket\) socket\.close\(\);/);
+  const muxClient = readFileSync(path.join(root, "src", "mux-client.cjs"), "utf8");
+  assert.match(muxClient, /MUX_SILENCE_TIMEOUT = 60000/);
+  assert.match(muxClient, /current\.onopen = \(\) => \{/);
+  assert.match(muxClient, /silenceTimer = setTimeoutImpl\(\(\) => \{\s*\n\s*if \(socket === current\) current\.close\(\);/);
   // Reconnect must back off instead of retrying an offline Harness forever at 1.5s.
-  assert.match(main, /muxReconnectDelay = Math\.min\(muxReconnectDelay \* 2, MUX_RECONNECT_MAX\)/);
+  assert.match(muxClient, /reconnectDelay = Math\.min\(reconnectDelay \* 2, reconnectMax\)/);
+  // Wherever the logic lives, the widget still owns the socket's lifetime.
+  assert.match(main, /muxClient\.connect\(\)/);
+  assert.match(main, /muxClient\.stop\(\)/);
 });
 
 test("attachment preparation is asynchronous and reports failures per file", () => {
-  assert.doesNotMatch(main, /readFileSync\(resolved\)|statSync\(resolved\)/);
-  assert.match(main, /await fsPromises\.stat\(resolved\)/);
-  assert.match(main, /await fsPromises\.readFile\(resolved\)/);
-  assert.match(main, /Promise\.allSettled\(resolved\.map\(prepareFile\)\)/);
-  assert.match(main, /return \{ attachments, failures \}/);
+  const attachments = readFileSync(path.join(root, "src", "attachments.cjs"), "utf8");
+  assert.doesNotMatch(attachments, /readFileSync\(resolved\)|statSync\(resolved\)/);
+  assert.match(attachments, /await fileSystem\.stat\(resolved\)/);
+  assert.match(attachments, /await fileSystem\.readFile\(resolved\)/);
+  assert.match(attachments, /Promise\.allSettled\(resolved\.map\(prepareFile\)\)/);
+  assert.match(attachments, /return \{ attachments, failures \}/);
   assert.match(renderer, /prepared\.failures \|\| \[\]/);
 });
 
