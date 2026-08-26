@@ -23,6 +23,8 @@ test("package metadata stays coherent with the product source of truth", () => {
   assert.equal(packageJson.repository.url, `${REPOSITORY_URL}.git`);
   assert.equal(packageJson.homepage, `${REPOSITORY_URL}#readme`);
   assert.equal(packageJson.bugs, `${REPOSITORY_URL}/issues`);
+  assert.equal(packageJson.author.name, "NeoXider");
+  assert.match(packageJson.author.email, /@users\.noreply\.github\.com$/);
   assert.match(packageJson.version, /^\d+\.\d+\.\d+$/);
   assert.equal(packageLock.name, PACKAGE_NAME);
   assert.equal(packageLock.version, packageJson.version);
@@ -42,6 +44,12 @@ test("package metadata stays coherent with the product source of truth", () => {
 test("every release artifact starts with the canonical product slug", () => {
   for (const platform of ["win", "mac", "linux"]) {
     assert.match(packageJson.build[platform].artifactName, /^NeoXider-Agent-Deck-/);
+  }
+});
+
+test("platform packaging creates artifacts without implicit publishing", () => {
+  for (const script of ["build:win", "build:mac", "build:linux"]) {
+    assert.match(packageJson.scripts[script], /--publish never$/);
   }
 });
 
