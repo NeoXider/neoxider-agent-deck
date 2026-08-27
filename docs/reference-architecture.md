@@ -50,7 +50,7 @@ message**, a preference for custom protocols over `file://`, and reviewing fuses
 | Renderer cannot render executable markup | **Met** | `markdown.cjs` disables raw HTML and allows three schemes. Asserted. |
 | **`setPermissionRequestHandler`** | **Not met** | No handler registered. We load no remote content and CSP is `default-src 'none'`, so practical risk is low — but the checklist's position is deny-by-default, and a deny-all handler is a few lines. |
 | **Validate the sender of every IPC message** | **Not met** | 6 of 45 handlers check the sender. Electron's wording is that sender validation *should be the default*. One window and no remote content make this hard to exploit today; it is still the largest single gap. |
-| **Fuses reviewed** | **Not met** | `@electron/fuses` is not used. `ELECTRON_RUN_AS_NODE` turns the shipped binary into a general-purpose Node runtime for anyone who can execute it — and we ship a portable `.exe`. |
+| **Fuses reviewed** | **Met** | `scripts/electron-fuses.cjs` runs as electron-builder's `afterPack` hook and burns `RunAsNode`, `EnableNodeOptionsEnvironmentVariable` and `EnableNodeCliInspectArguments` off, `OnlyLoadAppFromAsar` on, and asar integrity validation on wherever the platform implements it. Asserted by `test/fuses.test.cjs`; verified by building the portable `.exe` and launching it. |
 | Prefer a custom protocol over `file://` | **Not met** | The renderer is loaded with `loadFile`. Lower priority: the strict CSP removes most of what this protects against. |
 
 ---
@@ -79,8 +79,14 @@ main. The correct shape is one shared guard applied at registration, so a new ha
 validated because of how it is registered — not because someone remembered.
 
 **Retrofitting security costs more than building it in.** That is the argument for closing
-the permission-handler and fuses gaps now, while each is a handful of lines, rather than
-after something depends on the current behaviour.
+the permission-handler gap now, while it is a handful of lines, rather than after
+something depends on the current behaviour. The fuses gap was closed exactly on that
+reasoning, and it stayed small: one build hook and a test.
+
+**A protection nothing exercises is a claim, not a control.** The fuse policy is asserted
+by a unit test *and* checked against a real packaged build, because the values are
+invisible at runtime — the app behaves identically whether they are burned in or not, so
+a wiring mistake would have looked exactly like success.
 
 **Measure before optimising.** Electron's performance guide leads with *"Measure, Measure,
 Measure"*. This project already works that way where it counts — the capability broker's
@@ -95,16 +101,18 @@ not been profiled, so this document claims nothing about it.
 1. **Centralised IPC sender validation.** 39 unguarded handlers, an explicit checklist
    item, cheap to fix once at the registration point. Pairs naturally with extracting the
    handlers out of `main.cjs`, which is separately overdue.
-2. **Electron fuses.** Disabling `run-as-node` and `node-options` closes a known escape on
-   a portable binary we already distribute. Small, self-contained, package-time only.
-3. **Deny-all permission handler.** A few lines, and it removes a class of future mistakes.
-4. **Move base64 and thumbnail encoding off the main thread.** The measured symptom was a
+2. **Deny-all permission handler.** A few lines, and it removes a class of future mistakes.
+3. **Move base64 and thumbnail encoding off the main thread.** The measured symptom was a
    frozen window on large attachments; async I/O fixed part of it, encoding is what is left.
-5. **Extract the IPC handlers from `main.cjs`.** 233 lines closing over 40 identifiers, 16
+4. **Extract the IPC handlers from `main.cjs`.** 233 lines closing over 40 identifiers, 16
    of them mutable module state that needs accessors rather than snapshots — the same trap
    the screenshot harness hit. Blocked only by needing the file free.
-6. **Custom protocol instead of `file://`.** Real, but the strict CSP already covers most
-   of the motivation.
+5. **Custom protocol instead of `file://`.** Real, but the strict CSP already covers most
+   of the motivation. It also gates the one fuse we cannot set today:
+   `GrantFileProtocolExtraPrivileges` stays on only because the renderer is a `file://`
+   page.
+
+**Closed:** *Electron fuses* — `scripts/electron-fuses.cjs`, wired as `afterPack`.
 
 ## Sources
 
