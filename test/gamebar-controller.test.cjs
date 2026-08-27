@@ -626,10 +626,12 @@ test("widget package absence is re-probed slowly and disposal cancels further la
 test("the sandbox bridge carries exact Game Bar selection in both directions", () => {
   const root = path.resolve(__dirname, "..");
   const main = readFileSync(path.join(root, "src", "main.cjs"), "utf8");
+  // These two channels live in ipc-handlers.cjs now, behind the shared sender guard.
+  const ipc = readFileSync(path.join(root, "src", "ipc-handlers.cjs"), "utf8");
   const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
   const renderer = readFileSync(path.join(root, "src", "renderer", "app.js"), "utf8");
-  assert.match(main, /ipcMain\.on\("gamebar-selected-session"/);
-  assert.match(main, /ipcMain\.handle\("dashboard", \(\) => dashboardReader\.read\(\)\)/);
+  assert.match(ipc, /on\("gamebar-selected-session"/);
+  assert.match(ipc, /const dashboard = await readDashboard\(\)/);
   assert.match(main, /readDashboard: dashboardReader\.read/);
   assert.match(main, /sendToRenderer\("gamebar-select-session", sessionId\)/);
   assert.match(preload, /selectGameBarSession: \(sessionId\) => ipcRenderer\.send\("gamebar-selected-session", sessionId\)/);

@@ -26,7 +26,7 @@ const TEST_EXEMPT = new Map([
 ]);
 
 // A ratchet, not a target. Lower it when you extract; never raise it to fit new code.
-const MAIN_LINE_CEILING = 1000;
+const MAIN_LINE_CEILING = 820;
 const MAIN_LINE_GOAL = 400;
 // No single module should become the next god-object either.
 const MODULE_LINE_CEILING = 700;
@@ -68,8 +68,7 @@ test("main.cjs stays a composition root", () => {
   assert.ok(
     lines <= MAIN_LINE_CEILING,
     `main.cjs is ${lines} lines, over the ${MAIN_LINE_CEILING} ceiling (goal: ${MAIN_LINE_GOAL}). `
-      + "Extract a module and lower the ceiling. Raising it is not the fix — that is exactly how it "
-      + "grew back to 990 lines after the first split.",
+      + "Extract a module and lower the ceiling. Raising it is not the fix.",
   );
 });
 

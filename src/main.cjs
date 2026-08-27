@@ -1,6 +1,7 @@
 const path = require("node:path");
-const { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
+const { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, session, shell, Tray } = require("electron");
 const { HarnessApi } = require("./harness-api.cjs");
+const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createAutoStartController } = require("./auto-start.cjs");
 const { createHarnessLauncher } = require("./harness-launcher.cjs");
 const { createGameLayerKeeper } = require("./game-layer-keeper.cjs");
@@ -13,7 +14,6 @@ const { createRendererRecoveryController } = require("./renderer-recovery.cjs");
 const { createScreenshotCaptureGate, createScreenshotService } = require("./screenshot-service.cjs");
 const { createInstalledUpdateService } = require("./installed-update-service.cjs");
 const { createUpdateService } = require("./update-service.cjs");
-const { harnessSessionUrl } = require("./harness-url.cjs");
 const {
   applyPlatformOpacity,
   applyPlatformWindowLayer,
@@ -72,13 +72,6 @@ const EDGE_WIDTH = 88;
 const EDGE_HEIGHT = 132;
 const openExternalUrl = createExternalLinkOpener({ openExternal: (url) => shell.openExternal(url) });
 
-// Every channel that takes a session id gets it from the renderer, so it is checked
-// once here instead of reaching Harness as undefined and surfacing as a TypeError.
-function requireSessionId(value) {
-  const sessionId = String(value ?? "").trim();
-  if (!sessionId) throw new Error("A session id is required");
-  return sessionId;
-}
 let windowRef;
 let tray;
 let windowMode = "full";
@@ -625,238 +618,74 @@ function createWindow() {
   }
 }
 
-ipcMain.handle("dashboard", () => dashboardReader.read());
-ipcMain.on("gamebar-selected-session", (event, sessionId) => event.sender === windowRef?.webContents && gameBarController?.setSelectedSessionId(sessionId));
-ipcMain.handle("history", async (_event, sessionId) => {
-  const view = await api.history(sessionId);
-  return {
-    ...view,
-    messages: view.messages.map((message) => typeof message.text === "string"
-      ? { ...message, html: renderMarkdown(message.text) }
-      : message),
-  };
-});
-ipcMain.handle("models", async (_event, sessionId) => api.models(sessionId || undefined));
-ipcMain.handle("commands", async (_event, sessionId) => api.commands(sessionId));
-ipcMain.handle("execute-command", async (_event, payload) => api.executeCommand(payload.sessionId, payload.line));
-ipcMain.handle("workspaces", async () => api.workspaces());
-ipcMain.handle("pick-workspace", async () => {
-  const result = await dialog.showOpenDialog(windowRef, { properties: ["openDirectory", "createDirectory"] });
-  if (result.canceled || !result.filePaths[0]) return null;
-  return api.createWorkspace(result.filePaths[0]);
-});
-ipcMain.handle("pick-files", async () => {
-  const result = await dialog.showOpenDialog(windowRef, { properties: ["openFile", "multiSelections"] });
-  return result.canceled ? { attachments: [], failures: [] } : prepareFiles(result.filePaths);
-});
-ipcMain.handle("prepare-files", async (_event, filePaths) => prepareFiles(filePaths));
-ipcMain.handle("capture-screenshot", async (_event, kind) => captureScreenshotForChat(String(kind || "")));
-ipcMain.handle("create-session", async (_event, options) => {
-  const sessionId = await api.createSession(options || {});
-  await api.ensureFullAccess(sessionId);
-  return { sessionId };
-});
-ipcMain.handle("select-model", async (_event, payload) => {
-  return api.selectModel(requireSessionId(payload?.sessionId), payload?.selection);
-});
-ipcMain.handle("send", async (_event, payload) => {
-  const text = String(payload && payload.text || "").trim();
-  const attachments = Array.isArray(payload && payload.attachments) ? payload.attachments : [];
-  if (!text && !attachments.length) throw new Error("Message is empty");
-  const sessionId = payload && payload.sessionId ? payload.sessionId : await api.createSession();
-  await api.ensureFullAccess(sessionId);
-  if (payload && payload.selection) await api.selectModel(sessionId, payload.selection);
-  const references = attachments.filter((item) => item.kind === "reference").map((item) => `@${item.path}`);
-  const promptText = [text, ...references].filter(Boolean).join("\n\n");
-  const images = attachments.filter((item) => item.kind === "image");
-  await api.prompt(sessionId, promptText, payload && payload.timeZone, images);
-  await cleanupSentCaptureFiles(attachments);
-  return { sessionId };
-});
-ipcMain.handle("cancel", async (_event, sessionId) => api.cancel(sessionId));
-ipcMain.handle("get-queue", (_event, sessionId) => queueSnapshots.get(String(sessionId || "")) || []);
-ipcMain.handle("update-queue", async (_event, payload) => {
-  const sessionId = String(payload?.sessionId || "");
-  const itemId = String(payload?.itemId || "");
-  const kind = String(payload?.action?.kind || "");
-  if (!sessionId || !itemId || !["remove", "steer", "edit"].includes(kind)) throw new Error("Invalid queue action");
-  const action = kind === "edit"
-    ? { kind, content: [{ type: "text", text: String(payload?.action?.text || "").trim() }] }
-    : { kind };
-  if (kind === "edit" && !action.content[0].text) throw new Error("Queued message is empty");
-  return api.updateQueue(sessionId, itemId, action);
-});
-ipcMain.handle("open-harness", async () => shell.openExternal(HARNESS_URL));
-ipcMain.handle("open-harness-session", async (_event, sessionId) => shell.openExternal(harnessSessionUrl(HARNESS_URL, sessionId)));
-ipcMain.handle("open-project", async () => shell.openExternal(REPOSITORY_URL));
-ipcMain.handle("open-external", async (_event, value) => {
-  const url = parseExternalUrl(value);
-  if (!url) throw new Error("Unsupported external link protocol");
-  return shell.openExternal(url);
-});
-ipcMain.handle("start-harness", async () => harnessLauncher.start());
-ipcMain.handle("set-window-layer", (_event, value) => {
-  return setWindowLayerPreference(value);
-});
-ipcMain.handle("set-opacity", (_event, value) => {
-  preferences.opacity = Math.max(0.65, Math.min(1, Number(value) || 0.96));
-  applyPlatformOpacity(windowRef, preferences.opacity, PLATFORM_CAPABILITIES);
-  // Dragging a slider fires continuously; a full synchronous rewrite per tick would
-  // stall the main process, so the write is debounced like resize and move already are.
-  schedulePreferenceSave();
-  return preferences.opacity;
-});
-ipcMain.handle("set-glow-intensity", (_event, value) => {
-  const numeric = Number(value);
-  preferences.glowIntensity = Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 0.82;
-  schedulePreferenceSave();
-  return preferences.glowIntensity;
-});
-ipcMain.handle("set-size", (_event, preset) => {
-  const size = SIZE_PRESETS[preset] || SIZE_PRESETS.standard;
-  preferences.size = SIZE_PRESETS[preset] ? preset : "standard";
-  if (windowMode === "full") windowRef.setSize(size[0], size[1], true);
-  fullBounds = { ...(fullBounds || windowRef.getBounds()), width: size[0], height: size[1] };
-  captureWindowBounds("full", fullBounds, preferences.compactSide, windowMode === "full");
-  savePreferences();
-  return preferences.size;
-});
-ipcMain.handle("set-auto-start", (_event, enabled) => {
-  return autoStartController.setEnabled(enabled);
-});
-ipcMain.handle("set-hotkeys", (_event, bindings) => {
-  try {
-    const hotkeys = hotkeyManager.apply(bindings);
-    preferences.hotkeys = hotkeys;
-    hotkeyRegistrationError = null;
-    savePreferences();
-    return { ok: true, hotkeys };
-  } catch (error) {
-    hotkeyRegistrationError = hotkeyErrorView(error);
-    return { ok: false, hotkeys: hotkeyManager.getBindings(), error: hotkeyRegistrationError };
-  }
-});
-ipcMain.handle("reset-hotkeys", () => {
-  try {
-    const hotkeys = hotkeyManager.resetDefaults();
-    preferences.hotkeys = hotkeys;
-    hotkeyRegistrationError = null;
-    savePreferences();
-    return { ok: true, hotkeys };
-  } catch (error) {
-    hotkeyRegistrationError = hotkeyErrorView(error);
-    return { ok: false, hotkeys: hotkeyManager.getBindings(), error: hotkeyRegistrationError };
-  }
-});
-ipcMain.handle("get-preferences", () => {
-  const autoStart = autoStartPreference();
-  return {
-    alwaysOnTop: preferences.windowLayer !== "normal",
-    windowLayer: preferences.windowLayer,
-    autoStart: autoStart.enabled,
-    autoStartAvailable: autoStart.available,
-    opacity: preferences.opacity,
-    glowIntensity: preferences.glowIntensity,
-    size: preferences.size,
-    windowMode,
-    compactSide: preferences.compactSide,
-    hotkeys: preferences.hotkeys,
-    hotkeyError: hotkeyRegistrationError,
-    screenshotCapabilities: screenshotService?.capabilities() || {},
+// The handlers themselves live in ipc-handlers.cjs, behind one shared sender guard.
+//
+// Every mutable binding below is handed over as an accessor, never as a value: this file
+// reassigns windowRef, preferences, windowMode, fullBounds, both drag origins, the
+// compact status, the pending-resize flag, the hotkey error and six lazily created
+// services. A value captured here would be a snapshot frozen at startup — services would
+// still be undefined, and the window would still be the one from before the last mode
+// change. That failure is invisible to unit tests and only shows up in a real run, which
+// is exactly how the screenshot harness earned its own accessors.
+function registerWidgetIpc() {
+  registerIpcHandlers({
+    ipcMain,
+    // Deny-by-default permissions belong on the session the renderer actually uses.
+    session: session.defaultSession,
+    dialog,
+    openExternal: (url) => shell.openExternal(url),
+    getAppVersion: () => app.getVersion(),
+    api,
+    queueSnapshots,
+    prepareFiles,
+    parseExternalUrl,
+    harnessUrl: HARNESS_URL,
+    repositoryUrl: REPOSITORY_URL,
+    productName: PRODUCT_NAME,
     platformCapabilities: PLATFORM_CAPABILITIES,
-  };
-});
-ipcMain.handle("app-info", () => ({ version: app.getVersion(), repository: REPOSITORY_URL, productName: PRODUCT_NAME }));
-ipcMain.handle("get-update-state", () => updateService?.getState() || null);
-ipcMain.handle("check-for-updates", () => checkAndStageUpdate());
-ipcMain.handle("install-update", () => updateService?.install() || null);
-ipcMain.handle("set-window-mode", (_event, mode) => {
-  applyWindowMode(mode);
-  return windowMode;
-});
-ipcMain.handle("set-compact-status", (_event, value) => {
-  const wasActive = compactStatus.active;
-  const wasExpanded = compactStatus.expanded;
-  compactStatus = {
-    active: Boolean(value && value.active),
-    expanded: Boolean(value && value.expanded),
-    label: String(value && value.label || "Ready").slice(0, 80),
-    text: String(value && value.text || "").slice(0, 180),
-  };
-  if (windowMode === "orb" && (wasActive !== compactStatus.active || wasExpanded !== compactStatus.expanded) && !compactDragOrigin) {
-    applyWindowMode("orb", { captureCurrent: false, persist: false, preserveCompactPosition: true });
-  } else if (windowMode === "orb" && (wasActive !== compactStatus.active || wasExpanded !== compactStatus.expanded)) {
-    compactStatusResizePending = true;
-  }
-  return compactStatus;
-});
-ipcMain.on("set-edge-pointer-active", (event, active) => {
-  if (!windowRef || windowRef.isDestroyed() || event.sender !== windowRef.webContents) return;
-  if (edgeHitTracker) edgeHitTracker.tick();
-  else applyEdgePointerHit(Boolean(active));
-});
-ipcMain.on("move-full-drag", (event, value) => {
-  if (!windowRef || windowMode !== "full" || !fullDragOrigin || event.sender !== windowRef.webContents) return;
-  const screenX = Number(value?.x);
-  const screenY = Number(value?.y);
-  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
-  const candidate = {
-    x: fullDragOrigin.bounds.x + screenX - fullDragOrigin.screenX,
-    y: fullDragOrigin.bounds.y + screenY - fullDragOrigin.screenY,
-  };
-  moveWindowWithinNearestDisplay(fullDragOrigin.bounds, candidate);
-  fullBounds = { ...windowRef.getBounds() };
-});
-ipcMain.handle("end-full-drag", () => {
-  fullDragOrigin = null;
-  captureFullBounds();
-  savePreferences();
-  return windowRef?.getBounds();
-});
-ipcMain.on("begin-compact-drag", (event, value) => {
-  if (!windowRef || windowMode === "full" || event.sender !== windowRef.webContents) return;
-  const screenX = Number(value?.x);
-  const screenY = Number(value?.y);
-  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
-  applyEdgePointerHit(true);
-  edgeHitTracker?.sync();
-  compactDragOrigin = { screenX, screenY, bounds: windowRef.getBounds() };
-  traceCompactDrag("begin", { screenX, screenY, bounds: compactDragOrigin.bounds });
-});
-ipcMain.on("begin-full-drag", (event, value) => {
-  if (!windowRef || windowMode !== "full" || event.sender !== windowRef.webContents) return;
-  const screenX = Number(value?.x);
-  const screenY = Number(value?.y);
-  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
-  fullDragOrigin = { screenX, screenY, bounds: windowRef.getBounds() };
-});
-ipcMain.handle("end-compact-drag", () => {
-  compactDragOrigin = null;
-  let result = snapCurrentCompactWindow({ traceEnd: true });
-  if (windowMode === "orb" && compactStatusResizePending) {
-    compactStatusResizePending = false;
-    applyWindowMode("orb", { captureCurrent: false, persist: false, preserveCompactPosition: true });
-    result = { ...windowRef.getBounds(), side: preferences.compactSide };
-  }
-  edgeHitTracker?.sync();
-  return result;
-});
-ipcMain.on("move-compact-drag", (event, value) => {
-  if (!windowRef || windowMode === "full" || !compactDragOrigin || event.sender !== windowRef.webContents) return;
-  const screenX = Number(value?.x);
-  const screenY = Number(value?.y);
-  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
-  const candidate = {
-    x: compactDragOrigin.bounds.x + screenX - compactDragOrigin.screenX,
-    y: compactDragOrigin.bounds.y + screenY - compactDragOrigin.screenY,
-  };
-  const moved = moveWindowWithinNearestDisplay(compactDragOrigin.bounds, candidate);
-  traceCompactDrag("move", { screenX, screenY, x: moved.x, y: moved.y });
-});
-ipcMain.on("agent-complete", () => {
-  if (windowMode !== "edge" || !windowRef || windowRef.isDestroyed()) return;
-  sendToRenderer("edge-bounce");
-});
+    sizePresets: SIZE_PRESETS,
+    getWindow: () => windowRef,
+    getWindowMode: () => windowMode,
+    getPreferences: () => preferences,
+    getFullBounds: () => fullBounds,
+    setFullBounds: (value) => { fullBounds = value; },
+    getCompactStatus: () => compactStatus,
+    setCompactStatus: (value) => { compactStatus = value; },
+    getCompactDragOrigin: () => compactDragOrigin,
+    setCompactDragOrigin: (value) => { compactDragOrigin = value; },
+    getFullDragOrigin: () => fullDragOrigin,
+    setFullDragOrigin: (value) => { fullDragOrigin = value; },
+    getCompactStatusResizePending: () => compactStatusResizePending,
+    setCompactStatusResizePending: (value) => { compactStatusResizePending = value; },
+    getHotkeyRegistrationError: () => hotkeyRegistrationError,
+    setHotkeyRegistrationError: (value) => { hotkeyRegistrationError = value; },
+    getAutoStartController: () => autoStartController,
+    getHarnessLauncher: () => harnessLauncher,
+    getHotkeyManager: () => hotkeyManager,
+    getEdgeHitTracker: () => edgeHitTracker,
+    getScreenshotService: () => screenshotService,
+    getUpdateService: () => updateService,
+    getGameBarController: () => gameBarController,
+    readDashboard: dashboardReader.read,
+    applyWindowMode,
+    applyEdgePointerHit,
+    captureFullBounds,
+    captureWindowBounds,
+    savePreferences,
+    schedulePreferenceSave,
+    snapCompactWindow: snapCurrentCompactWindow,
+    moveWithinNearestDisplay: moveWindowWithinNearestDisplay,
+    traceCompactDrag,
+    setWindowLayer: setWindowLayerPreference,
+    captureScreenshot: captureScreenshotForChat,
+    cleanupSentCaptureFiles,
+    autoStartPreference,
+    hotkeyErrorView,
+    sendToRenderer,
+    onUntrustedSender: (channel) => console.warn("Refused IPC from an untrusted sender", channel),
+    onPermissionDenied: (permission, kind) => console.warn("Denied a renderer permission", kind, permission),
+  });
+}
 
 app.on("second-instance", () => {
   quitCoordinator.handleActivation(() => {
@@ -941,6 +770,7 @@ app.whenReady().then(() => {
       console.error("Failed to register hotkeys", error);
     }
   }
+  registerWidgetIpc();
   createWindow();
   gameBarController = createGameBarController({
     platform: process.platform, smokeMode: ISOLATED_SMOKE_MODE, isPackaged: app.isPackaged,
