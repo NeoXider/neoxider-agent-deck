@@ -7,6 +7,9 @@ const root = path.resolve(__dirname, "..");
 const html = readFileSync(path.join(root, "src", "renderer", "index.html"), "utf8");
 const renderer = readFileSync(path.join(root, "src", "renderer", "app.js"), "utf8");
 const main = readFileSync(path.join(root, "src", "main.cjs"), "utf8");
+// The IPC handlers moved out of main.cjs behind one shared sender guard. Contracts about
+// a channel are asserted against the file that now owns it, not against main.cjs.
+const ipc = readFileSync(path.join(root, "src", "ipc-handlers.cjs"), "utf8");
 const platformCapabilities = readFileSync(path.join(root, "src", "platform-capabilities.cjs"), "utf8");
 const settingsStore = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
 const harnessApi = readFileSync(path.join(root, "src", "harness-api.cjs"), "utf8");
@@ -197,7 +200,7 @@ test("activity glow intensity is brighter by default, adjustable, and persisted"
   assert.match(renderer, /applyGlowIntensity/);
   assert.match(renderer, /setGlowIntensity/);
   assert.match(settingsStore, /glowIntensity: 0\.82/);
-  assert.match(main, /set-glow-intensity/);
+  assert.match(ipc, /set-glow-intensity/);
 });
 
 test("collapsed pet exposes three exact recent sessions and inline quick reply without restoring full mode", () => {
@@ -225,7 +228,7 @@ test("collapsed pet exposes three exact recent sessions and inline quick reply w
   assert.match(main, /const ORB_SIZE = 128/);
   assert.match(main, /const ORB_EXPANDED_HEIGHT = 158/);
   assert.match(main, /const ORB_EXPANDED_WIDTH = 460/);
-  assert.match(main, /preserveCompactPosition: true/);
+  assert.match(ipc, /preserveCompactPosition: true/);
 });
 
 test("window layer has normal, above-by-default, and fullscreen-game modes", () => {
@@ -239,14 +242,14 @@ test("window layer has normal, above-by-default, and fullscreen-game modes", () 
   assert.match(main, /preferences\.windowLayer = normalizeWindowLayer\(preferences\.windowLayer, PLATFORM_CAPABILITIES\)/);
   assert.match(platformCapabilities, /"screen-saver"/);
   assert.match(platformCapabilities, /"floating"/);
-  assert.match(main, /set-window-layer/);
+  assert.match(ipc, /set-window-layer/);
   assert.match(renderer, /setWindowLayer/);
 });
 
 test("production autostart uses the stable portable launcher controller", () => {
   assert.match(main, /createAutoStartController/);
   assert.match(main, /autoStartController\.migrateLegacy\(\)/);
-  assert.match(main, /autoStartController\.setEnabled\(enabled\)/);
+  assert.match(ipc, /getAutoStartController\(\)\.setEnabled\(enabled\)/);
   assert.match(main, /autoStartController\?\.getEnabled\(\)/);
   assert.doesNotMatch(main, /setLoginItemSettings\(\{ openAtLogin: Boolean\(enabled\), path: process\.execPath/);
 });
@@ -260,13 +263,13 @@ test("autostart stays disabled until hydration and rolls back to the last confir
   assert.match(renderer, /toggle\.checked = confirmedAutoStart/);
   assert.match(renderer, /Could not update startup/);
   assert.match(renderer, /Could not read startup setting/);
-  assert.match(main, /autoStartAvailable: autoStart\.available/);
+  assert.match(ipc, /autoStartAvailable: autoStart\.available/);
 });
 
 test("saved native mode and side are authoritative before renderer startup", () => {
   const loadPreferences = main.slice(main.indexOf("function loadPreferences"), main.indexOf("function savePreferences"));
   const readyToShow = main.slice(main.indexOf('windowRef.once("ready-to-show"'), main.indexOf('windowRef.on("close"'));
-  const getPreferences = main.slice(main.indexOf('ipcMain.handle("get-preferences"'), main.indexOf('ipcMain.handle("app-info"'));
+  const getPreferences = ipc.slice(ipc.indexOf('handle("get-preferences"'), ipc.indexOf('handle("app-info"'));
 
   assert.match(loadPreferences, /windowMode = preferences\.windowState\.mode/);
   assert.match(loadPreferences, /preferences\.windowState\[windowMode\]\?\.side \|\| preferences\.compactSide/);
@@ -282,7 +285,7 @@ test("window contract has no close control and supports avatar and edge modes", 
   assert.match(main, /\["full", "orb", "edge"\]\.includes\(nextMode\)/);
   assert.match(main, /nextMode === "orb"/);
   assert.match(main, /ORB_QUICK_WIDTH/);
-  assert.match(main, /set-compact-status/);
+  assert.match(ipc, /set-compact-status/);
   assert.match(main, /quitCoordinator\.handleWindowClose\(event, \(\) => applyWindowMode\("edge"\)\)/);
 });
 
@@ -297,12 +300,12 @@ test("compact modes preserve short clicks and start native drag only after the m
   assert.match(renderer, /if \(!nativeStarted\) return/);
   const begin = renderer.slice(renderer.indexOf("function beginCompactDrag"), renderer.indexOf("function moveCompactDrag"));
   assert.doesNotMatch(begin, /setPointerCapture|window\.widget\.beginCompactDrag/);
-  assert.match(main, /begin-compact-drag/);
-  assert.match(main, /move-compact-drag/);
-  assert.match(main, /end-compact-drag/);
-  assert.match(main, /wasActive !== compactStatus\.active \|\| wasExpanded !== compactStatus\.expanded/);
-  assert.match(main, /compactStatusResizePending = true/);
-  assert.match(main, /windowMode === "orb" && compactStatusResizePending[\s\S]+?applyWindowMode\("orb"/);
+  assert.match(ipc, /begin-compact-drag/);
+  assert.match(ipc, /move-compact-drag/);
+  assert.match(ipc, /end-compact-drag/);
+  assert.match(ipc, /wasActive !== compactStatus\.active \|\| wasExpanded !== compactStatus\.expanded/);
+  assert.match(ipc, /setCompactStatusResizePending\(true\)/);
+  assert.match(ipc, /getWindowMode\(\) === "orb" && getCompactStatusResizePending\(\)[\s\S]+?applyWindowMode\("orb"/);
   assert.match(html, /data-avatar[^>]+draggable="false"/);
 });
 
@@ -310,7 +313,7 @@ test("edge mode only captures the visible handle and passes transparent glow cli
   const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   assert.match(main, /setIgnoreMouseEvents\(true, \{ forward: true \}\)/);
-  assert.match(main, /set-edge-pointer-active/);
+  assert.match(ipc, /set-edge-pointer-active/);
   assert.match(preload, /setEdgePointerActive/);
   assert.match(renderer, /const EDGE_HIT_PADDING = 5/);
   assert.match(renderer, /getBoundingClientRect\(\)/);
@@ -365,9 +368,9 @@ test("the clickable NeoXider brand becomes a full-window drag target after movem
   assert.match(renderer, /moveFullDrag/);
   assert.match(renderer, /endFullDrag/);
   assert.match(renderer, /suppressProjectClick/);
-  assert.match(main, /begin-full-drag/);
-  assert.match(main, /move-full-drag/);
-  assert.match(main, /end-full-drag/);
+  assert.match(ipc, /begin-full-drag/);
+  assert.match(ipc, /move-full-drag/);
+  assert.match(ipc, /end-full-drag/);
   assert.match(renderer, /function suppressBrandClickAfterDrag/);
   assert.match(renderer, /suppressProjectClick = false; \}, 1200/);
   assert.match(html, /class="brand no-drag"/);
@@ -406,14 +409,14 @@ test("the session toolbar has a DeepSeek button for the selected Harness session
   const toolbar = html.slice(html.indexOf('<div class="chat-heading'), html.indexOf('<details id="activityCard"'));
   assert.match(toolbar, /id="openSessionButton"[\s\S]{0,300}assets\/deepseek\.svg/);
   assert.match(renderer, /openHarnessSession\(state\.selectedSessionId\)/);
-  assert.match(main, /open-harness-session/);
-  assert.match(main, /harnessSessionUrl\(HARNESS_URL, sessionId\)/);
+  assert.match(ipc, /open-harness-session/);
+  assert.match(ipc, /harnessSessionUrl\(harnessUrl, sessionId\)/);
 });
 
 test("widget-created and widget-prompted sessions enforce Full access", () => {
-  const matches = main.match(/api\.ensureFullAccess\(sessionId\)/g) || [];
+  const matches = ipc.match(/api\.ensureFullAccess\(sessionId\)/g) || [];
   assert.equal(matches.length, 2);
-  assert.match(main, /create-session[\s\S]{0,300}ensureFullAccess/);
+  assert.match(ipc, /create-session[\s\S]{0,300}ensureFullAccess/);
 });
 
 test("the widget is single-instance and has no redundant footer clock or refresh button", () => {
@@ -426,7 +429,7 @@ test("Markdown and tool calls have dedicated safe, collapsed render paths", () =
   assert.match(renderer, /message\.role === "tool"/);
   assert.match(renderer, /details\.className = `tool-call/);
   assert.match(renderer, /bubble\.innerHTML = message\.html/);
-  assert.match(main, /renderMarkdown\(message\.text\)/);
+  assert.match(ipc, /renderMarkdown\(message\.text\)/);
   assert.match(html, /id="messages"/);
   assert.match(readFileSync(path.join(root, "src", "markdown.cjs"), "utf8"), /highlight\.js\/lib\/common/);
   assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.hljs-keyword/);
@@ -454,10 +457,10 @@ test("screen capture is a visible header action and only prepares reviewed chat 
   assert.match(html, /data-capture="region"/);
   assert.match(html, /data-capture="display"/);
   assert.match(preload, /captureScreenshot: \(kind\) => ipcRenderer\.invoke\("capture-screenshot", kind\)/);
-  assert.match(main, /ipcMain\.handle\("capture-screenshot"/);
+  assert.match(ipc, /handle\("capture-screenshot"/);
   assert.match(main, /screenshotCaptureGate\.run/);
   assert.match(main, /await screenshotService\.removeCapture\(result\.path\)/);
-  assert.match(main, /await cleanupSentCaptureFiles\(attachments\)/);
+  assert.match(ipc, /await cleanupSentCaptureFiles\(attachments\)/);
   assert.match(renderer, /addAttachments\(result\.prepared\)/);
   assert.match(renderer, /Screenshot attached above the message field\. Review it before sending\./);
   assert.doesNotMatch(renderer, /handleScreenshotResult[\s\S]{0,700}requestSubmit\(/);
@@ -646,7 +649,7 @@ test("a failed settings write can never crash the main process", () => {
 });
 
 test("continuous slider input is debounced instead of rewritten per tick", () => {
-  const opacity = main.slice(main.indexOf('ipcMain.handle("set-opacity"'), main.indexOf('ipcMain.handle("set-size"'));
+  const opacity = ipc.slice(ipc.indexOf('handle("set-opacity"'), ipc.indexOf('handle("set-size"'));
   assert.match(opacity, /schedulePreferenceSave\(\)/);
   assert.doesNotMatch(opacity, /\n\s*savePreferences\(\);/);
 });
@@ -662,7 +665,10 @@ test("shutdown releases the tray and guards a destroyed window", () => {
   assert.match(main, /app\.on\("activate", \(\) => quitCoordinator\.handleActivation/);
   assert.match(main, /app\.on\("before-quit", \(\) => quitCoordinator\.beforeQuit\(\)\)/);
   assert.match(main, /requestQuit\("tray"\)/);
-  assert.match(main, /ipcMain\.on\("agent-complete"[\s\S]*?!windowRef \|\| windowRef\.isDestroyed\(\)/);
+  // agent-complete is registered through the shared guard, and that guard refuses a
+  // destroyed window before any handler body runs — for this channel and every other.
+  assert.match(ipc, /\n\s*on\("agent-complete"/);
+  assert.match(ipc, /if \(!target \|\| target\.isDestroyed\?\.\(\)\) return false/);
 });
 
 test("the settings swap never deletes the destination first", () => {
@@ -702,7 +708,9 @@ test("releasing a compact drag arms the click guard before any await", () => {
 test("every bridged IPC channel has a handler and no handler is orphaned", () => {
   const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
   const bridged = [...preload.matchAll(/ipcRenderer\.(?:invoke|send)\("([^"]+)"/g)].map((match) => match[1]);
-  const handled = new Set([...main.matchAll(/ipcMain\.(?:handle|on)\("([^"]+)"/g)].map((match) => match[1]));
+  // Registration goes through the guarded handle()/on() helpers, so a channel that is
+  // wired any other way — and therefore unguarded — would not be counted as handled.
+  const handled = new Set([...ipc.matchAll(/^\s*(?:handle|on)\("([^"]+)"/gm)].map((match) => match[1]));
   const missing = bridged.filter((channel) => !handled.has(channel));
   assert.deepEqual(missing, [], `preload exposes channels the main process does not handle: ${missing.join(", ")}`);
   // A handler nothing can reach is dead weight and drifts out of sync with reality.
@@ -741,8 +749,8 @@ test("full access is negotiated once per session, not on every send", () => {
 test("a renderer payload cannot retarget a call at another session", () => {
   // The spread has to come first, otherwise selection.sessionId overwrites the real id.
   assert.match(harnessApi, /"session\.selectModel", \{ \.\.\.\(selection \|\| \{\}\), sessionId \}/);
-  assert.match(main, /function requireSessionId\(value\)/);
-  assert.match(main, /requireSessionId\(payload\?\.sessionId\)/);
+  assert.match(ipc, /function requireSessionId\(value\)/);
+  assert.match(ipc, /requireSessionId\(payload\?\.sessionId\)/);
 });
 
 test("settings written by a newer build are preserved, not overwritten", () => {
