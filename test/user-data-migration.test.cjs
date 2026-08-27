@@ -74,7 +74,10 @@ test("an existing destination always wins over legacy data", () => withTemporary
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(destination, SETTINGS_FILE_NAME))), { marker: "new" });
 }));
 
-test("screenshot smoke uses isolated user and session data without migration", () => withTemporaryDirectory((root) => {
+for (const [label, env] of [
+  ["screenshot", { WIDGET_SCREENSHOT_PATH: "capture.png" }],
+  ["packaged launch", { WIDGET_PACKAGED_SMOKE_PATH: "ready.json" }],
+]) test(`${label} smoke uses isolated user and session data without migration`, () => withTemporaryDirectory((root) => {
   const calls = [];
   const app = {
     getPath(name) {
@@ -85,7 +88,7 @@ test("screenshot smoke uses isolated user and session data without migration", (
     setPath(name, value) { calls.push([name, value]); },
   };
 
-  const result = configureProductUserData({ app, env: { WIDGET_SCREENSHOT_PATH: "capture.png" } });
+  const result = configureProductUserData({ app, env });
 
   assert.equal(result.isSmoke, true);
   assert.match(result.userDataDirectory, /neoxider-agent-deck-smoke/);

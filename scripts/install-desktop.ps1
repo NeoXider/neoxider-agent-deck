@@ -1,4 +1,5 @@
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Net.Http
 
 $repository = "NeoXider/neoxider-agent-deck"
 $release = Invoke-RestMethod -TimeoutSec 30 -Headers @{ "User-Agent" = "NeoXider-Agent-Deck-Installer" } -Uri "https://api.github.com/repos/$repository/releases/latest"
@@ -43,7 +44,7 @@ try {
     [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead,
     $downloadDeadline.Token
   ).GetAwaiter().GetResult()
-  $response.EnsureSuccessStatusCode()
+  $response.EnsureSuccessStatusCode() | Out-Null
   if ($response.Content.Headers.ContentLength.HasValue -and $response.Content.Headers.ContentLength.Value -ne $assetSize) {
     throw "The server reported an unexpected executable size."
   }

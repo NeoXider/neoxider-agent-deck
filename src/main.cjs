@@ -33,6 +33,7 @@ const { captureModeBounds, fitFullBounds, resizeCompactAnchor, restoreCompactBou
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
 const SCREENSHOT_MODE = Boolean(process.env.WIDGET_SCREENSHOT_PATH);
 const PACKAGED_SMOKE_PATH = process.env.WIDGET_PACKAGED_SMOKE_PATH || "";
+const ISOLATED_SMOKE_MODE = SCREENSHOT_MODE || Boolean(PACKAGED_SMOKE_PATH);
 const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
 app.setName(PRODUCT_NAME);
 configureProductUserData({ app });
@@ -895,7 +896,7 @@ app.whenReady().then(() => {
   screen.on("display-added", reclampToCurrentDisplays);
   loadPreferences();
   autoStartController = createAutoStartController({ app });
-  autoStartController.migrateLegacy();
+  if (!ISOLATED_SMOKE_MODE) autoStartController.migrateLegacy();
   harnessLauncher = createHarnessLauncher({
     harnessUrl: HARNESS_URL,
     desktopPath: app.getPath("desktop"),
@@ -947,30 +948,34 @@ app.whenReady().then(() => {
       sendToRenderer("hotkey-error", hotkeyRegistrationError);
     },
   });
-  try {
-    registerConfiguredHotkeys(preferences.hotkeys);
-  } catch (error) {
-    hotkeyRegistrationError = hotkeyErrorView(error);
-    console.error("Failed to register hotkeys", error);
+  if (!ISOLATED_SMOKE_MODE) {
+    try {
+      registerConfiguredHotkeys(preferences.hotkeys);
+    } catch (error) {
+      hotkeyRegistrationError = hotkeyErrorView(error);
+      console.error("Failed to register hotkeys", error);
+    }
   }
   createWindow();
-  if (!SCREENSHOT_MODE && !PACKAGED_SMOKE_PATH) {
+  if (!ISOLATED_SMOKE_MODE) {
     const updateCheckTimer = setTimeout(() => updateService.check().catch((error) => console.error("Update check failed", error)), 4000);
     updateCheckTimer.unref?.();
   }
   // A screenshot run must capture a fixture, not whatever a live Harness pushes.
-  if (!SCREENSHOT_MODE && !PACKAGED_SMOKE_PATH) muxClient.connect();
-  const iconPath = path.join(__dirname, "renderer", "assets", "neoxider-github.png");
-  const icon = nativeImage.createFromPath(iconPath).resize({ width: 32, height: 32 });
-  tray = new Tray(icon);
-  tray.setToolTip(PRODUCT_NAME);
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "Show widget", click: () => applyWindowMode("full") },
-    { label: "Open Harness", click: () => shell.openExternal(HARNESS_URL) },
-    { type: "separator" },
-    { label: "Quit", click: () => quitCoordinator.requestQuit("tray") },
-  ]));
-  tray.on("double-click", () => applyWindowMode(windowMode === "full" ? "edge" : "full"));
+  if (!ISOLATED_SMOKE_MODE) {
+    muxClient.connect();
+    const iconPath = path.join(__dirname, "renderer", "assets", "neoxider-github.png");
+    const icon = nativeImage.createFromPath(iconPath).resize({ width: 32, height: 32 });
+    tray = new Tray(icon);
+    tray.setToolTip(PRODUCT_NAME);
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: "Show widget", click: () => applyWindowMode("full") },
+      { label: "Open Harness", click: () => shell.openExternal(HARNESS_URL) },
+      { type: "separator" },
+      { label: "Quit", click: () => quitCoordinator.requestQuit("tray") },
+    ]));
+    tray.on("double-click", () => applyWindowMode(windowMode === "full" ? "edge" : "full"));
+  }
 });
 
 app.on("before-quit", () => quitCoordinator.beforeQuit());

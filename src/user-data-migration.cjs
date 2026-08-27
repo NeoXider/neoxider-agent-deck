@@ -67,7 +67,7 @@ function migrateUserSettings({
 
 function configureProductUserData({ app, env = process.env, fileSystem = fs } = {}) {
   if (!app) throw new Error("Electron app is required");
-  if (env.WIDGET_SCREENSHOT_PATH) {
+  if (env.WIDGET_SCREENSHOT_PATH || env.WIDGET_PACKAGED_SMOKE_PATH) {
     const smokeRoot = path.join(app.getPath("temp"), `${PACKAGE_NAME}-smoke`, String(process.pid));
     const userDataDirectory = path.join(smokeRoot, "user-data");
     const sessionDataDirectory = path.join(smokeRoot, "session");

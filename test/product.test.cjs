@@ -69,6 +69,8 @@ test("platform packaging creates artifacts without implicit publishing", () => {
   const main = readFileSync(path.join(__dirname, "..", "src", "main.cjs"), "utf8");
   assert.doesNotMatch(main, /^const \{ attachScreenshotHarness \} = require/m);
   assert.match(main, /if \(screenshotPath\) \{\s+const \{ attachScreenshotHarness \} = require/);
+  assert.match(main, /const ISOLATED_SMOKE_MODE = SCREENSHOT_MODE \|\| Boolean\(PACKAGED_SMOKE_PATH\)/);
+  assert.match(main, /if \(!ISOLATED_SMOKE_MODE\) autoStartController\.migrateLegacy\(\)/);
 });
 
 test("tag releases retain updater metadata and publish it with platform artifacts", () => {
@@ -91,6 +93,8 @@ test("tag releases retain updater metadata and publish it with platform artifact
 test("the Windows installer follows the canonical repository, artifact, and product name", () => {
   const installer = readFileSync(path.join(__dirname, "..", "scripts", "install-desktop.ps1"), "utf8");
   assert.match(installer, /NeoXider\/neoxider-agent-deck/);
+  assert.match(installer, /Add-Type -AssemblyName System\.Net\.Http/);
+  assert.match(installer, /EnsureSuccessStatusCode\(\) \| Out-Null/);
   assert.match(installer, /NeoXider-Agent-Deck-\$version-windows-x64-portable\.exe/);
   assert.match(installer, /\$tag -notmatch '\^v/);
   assert.match(installer, /\$asset\.state/);
