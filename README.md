@@ -219,7 +219,7 @@ The renderer is sandboxed with `contextIsolation` enabled and Node.js integratio
 
 ## Companion project
 
-Reduce MCP schema overhead with one lazy tool: [DeepSeek Capability Hub](https://github.com/NeoXider/deepseek-capability-hub).
+Reduce MCP schema overhead with one lazy tool: [NeoXider MCP Hub](https://github.com/NeoXider/neoxider-mcp-hub).
 
 ## Roadmap
 
