@@ -24,7 +24,6 @@ const { APP_ID, PRODUCT_NAME, REPOSITORY_URL } = require("./product.cjs");
 const { renderMarkdown } = require("./markdown.cjs");
 const { createAttachmentReader } = require("./attachments.cjs");
 const { queueItemView } = require("./queue-view.cjs");
-const { attachScreenshotHarness } = require("../scripts/screenshot-harness.cjs");
 const { createMuxClient } = require("./mux-client.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
 const { configureProductUserData } = require("./user-data-migration.cjs");
@@ -33,6 +32,7 @@ const { captureModeBounds, fitFullBounds, resizeCompactAnchor, restoreCompactBou
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
 const SCREENSHOT_MODE = Boolean(process.env.WIDGET_SCREENSHOT_PATH);
+const PACKAGED_SMOKE_PATH = process.env.WIDGET_PACKAGED_SMOKE_PATH || "";
 const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
 app.setName(PRODUCT_NAME);
 configureProductUserData({ app });
@@ -602,6 +602,12 @@ function createWindow() {
   windowRef.once("ready-to-show", () => {
     if (screenshotPath) applyWindowMode("full", { captureCurrent: false, persist: false });
     else applyWindowMode(preferences.windowState.mode, { captureCurrent: false, persist: false });
+    if (PACKAGED_SMOKE_PATH) {
+      const { mkdirSync, writeFileSync } = require("node:fs");
+      mkdirSync(path.dirname(PACKAGED_SMOKE_PATH), { recursive: true });
+      writeFileSync(PACKAGED_SMOKE_PATH, JSON.stringify({ ready: true, version: app.getVersion() }));
+      setTimeout(() => quitCoordinator.requestQuit("packaged-smoke"), 100);
+    }
   });
   windowRef.on("close", (event) => {
     quitCoordinator.handleWindowClose(event, () => applyWindowMode("edge"));
@@ -619,6 +625,7 @@ function createWindow() {
   gameLayerKeeper?.attach(windowRef);
 
   if (screenshotPath) {
+    const { attachScreenshotHarness } = require("../scripts/screenshot-harness.cjs");
     attachScreenshotHarness({
       window: windowRef,
       app,
@@ -947,12 +954,12 @@ app.whenReady().then(() => {
     console.error("Failed to register hotkeys", error);
   }
   createWindow();
-  if (!process.env.WIDGET_SCREENSHOT_PATH) {
+  if (!SCREENSHOT_MODE && !PACKAGED_SMOKE_PATH) {
     const updateCheckTimer = setTimeout(() => updateService.check().catch((error) => console.error("Update check failed", error)), 4000);
     updateCheckTimer.unref?.();
   }
   // A screenshot run must capture a fixture, not whatever a live Harness pushes.
-  if (!process.env.WIDGET_SCREENSHOT_PATH) muxClient.connect();
+  if (!SCREENSHOT_MODE && !PACKAGED_SMOKE_PATH) muxClient.connect();
   const iconPath = path.join(__dirname, "renderer", "assets", "neoxider-github.png");
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 32, height: 32 });
   tray = new Tray(icon);

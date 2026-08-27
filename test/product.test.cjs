@@ -63,8 +63,12 @@ test("Windows ships both an auto-updatable installer and a portable fallback", (
 
 test("platform packaging creates artifacts without implicit publishing", () => {
   for (const script of ["build:win", "build:mac", "build:linux"]) {
-    assert.match(packageJson.scripts[script], /--publish never$/);
+    assert.match(packageJson.scripts[script], /--publish never/);
   }
+  assert.match(packageJson.scripts["build:win"], /packaged-launch-smoke\.ps1$/);
+  const main = readFileSync(path.join(__dirname, "..", "src", "main.cjs"), "utf8");
+  assert.doesNotMatch(main, /^const \{ attachScreenshotHarness \} = require/m);
+  assert.match(main, /if \(screenshotPath\) \{\s+const \{ attachScreenshotHarness \} = require/);
 });
 
 test("tag releases retain updater metadata and publish it with platform artifacts", () => {

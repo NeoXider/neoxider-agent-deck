@@ -192,16 +192,9 @@ test("an enabled current-name login item moves to the new portable path", () => 
   assert.equal(controller.getLastMigrationResult().status, "relocated-current-target");
 });
 
-test("a raw current-name Run entry moves even when launchItems omits it", () => {
+test("a raw current-name Run entry is sufficient to move when Electron omits it", () => {
   const previousPortable = "C:\\Portable\\NeoXider Agent Deck.exe";
-  const app = createFakeApp({
-    launchItems: [{ name: LOGIN_ITEM_NAME, path: previousPortable, args: [], enabled: true, scope: "user" }],
-  });
-  const getLoginItemSettings = app.getLoginItemSettings.bind(app);
-  app.getLoginItemSettings = (options) => {
-    const result = getLoginItemSettings(options);
-    return options ? result : { ...result, launchItems: [] };
-  };
+  const app = createFakeApp();
   const controller = createAutoStartController({
     app,
     env: { PORTABLE_EXECUTABLE_FILE: portableLauncher },
@@ -213,6 +206,9 @@ test("a raw current-name Run entry moves even when launchItems omits it", () => 
   assert.equal(controller.migrateLegacy(), true);
   assert.equal(controller.getEnabled(), true);
   assert.equal(controller.getLastMigrationResult().status, "relocated-current-target");
+  assert.deepEqual(app.calls.set.map((value) => [value.name, value.path, value.openAtLogin]), [
+    [LOGIN_ITEM_NAME, portableLauncher, true],
+  ]);
 });
 
 test("disabled legacy StartupApproved item stays disabled even when its raw Run value exists", () => {

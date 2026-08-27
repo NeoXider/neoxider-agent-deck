@@ -212,11 +212,7 @@ function createAutoStartController({
       const knownLegacy = legacyItems();
       const enabledRelocatedCurrent = relocatedCurrentItems().filter((item) => item.enabled !== false);
       const rawCurrentPath = readRunItemPath(LOGIN_ITEM_NAME);
-      const enabledRawCurrent = Boolean(
-        rawCurrentPath
-        && !samePath(rawCurrentPath, target.path)
-        && loginItemEnabled(app.getLoginItemSettings({ path: rawCurrentPath, args: [] }), platform),
-      );
+      const enabledRawCurrent = Boolean(rawCurrentPath && !samePath(rawCurrentPath, target.path));
       const relocateCurrent = enabledRelocatedCurrent.length > 0 || enabledRawCurrent;
       const rawLegacyNames = LEGACY_LOGIN_ITEM_NAMES.filter((name) => Boolean(readRunItemPath(name)));
       if (knownLegacy.length) {

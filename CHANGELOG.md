@@ -5,6 +5,13 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-08-27
+
+### Fixed
+
+- Portable Windows installs now migrate an enabled current-name startup entry to the new executable path even when Electron omits that raw Registry entry from `launchItems`.
+- Packaged builds no longer load the source-only screenshot harness during normal startup, and Windows packaging now fails unless the finished application reaches a ready renderer.
+
 ## [0.5.0] - 2026-08-27
 
 ### Added
@@ -281,6 +288,7 @@ full audit of the main process, the renderer and the UI.
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.5.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.5.1
 [0.5.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.5.0
 [0.4.3]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.3
 [0.4.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.2
