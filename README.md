@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.0-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.0-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.1-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.1-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -209,7 +209,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.6.0-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.6.1-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
@@ -227,9 +227,9 @@ Screen capture, configurable global hotkeys, and the three-session pet switcher 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.0,
-adds the authenticated Xbox Game Bar bridge foundation, resilient renderer recovery,
-cross-process settings protection and quiet verified background updates.
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.1,
+restores the compact 2×2 composer controls, adds Focus Chat and Open Harness shortcuts,
+and retains the authenticated Xbox Game Bar bridge and verified background updater.
 
 ## Platform support
 

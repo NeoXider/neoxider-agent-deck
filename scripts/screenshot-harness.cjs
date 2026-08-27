@@ -143,18 +143,16 @@ function attachScreenshotHarness({
                     : document.body.classList.contains('state-done') ? 'done'
                       : document.body.classList.contains('state-waiting') ? 'waiting' : 'idle',
             brandUserSelect: getComputedStyle(document.querySelector('.brand')).userSelect,
-            composerUtilitiesInRow: (() => {
+            composerUtilitiesStacked: (() => {
               const attach = document.querySelector('#attachButton').getBoundingClientRect();
               const commands = document.querySelector('#commandsButton').getBoundingClientRect();
-              return Math.abs((attach.top + attach.bottom - commands.top - commands.bottom) / 2) <= 1 && attach.right <= commands.left + 1;
+              return Math.abs((attach.left + attach.right - commands.left - commands.right) / 2) <= 1 && attach.bottom <= commands.top + 1;
             })(),
-            composerViewInRow: (() => {
+            composerViewStacked: (() => {
               const focus = document.querySelector('#focusChatButton').getBoundingClientRect();
               const context = document.querySelector('#contextMeter').getBoundingClientRect();
-              return Math.abs((focus.top + focus.bottom - context.top - context.bottom) / 2) <= 1 && focus.right <= context.left + 1;
+              return Math.abs((focus.left + focus.right - context.left - context.right) / 2) <= 1 && focus.bottom <= context.top + 1;
             })(),
-            // The point of the row layout: nothing beside the input may make the resting
-            // composer taller than its own primary button.
             composerRestingHeight: Math.round(document.querySelector('.composer').getBoundingClientRect().height),
             contextRingSize: Math.round(document.querySelector('#contextMeter svg').getBoundingClientRect().width),
             contextUnavailable: document.querySelector('#contextMeter').classList.contains('unavailable'),

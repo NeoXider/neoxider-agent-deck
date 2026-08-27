@@ -1,17 +1,21 @@
 const HOTKEY_ACTIONS = Object.freeze([
   "showRestore",
+  "toggleFocusChat",
   "collapseAvatar",
   "collapseEdge",
   "newSession",
+  "openHarness",
   "captureDisplay",
   "captureRegion",
 ]);
 
 const DEFAULT_HOTKEYS = Object.freeze({
   showRestore: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+Space" }),
+  toggleFocusChat: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+F" }),
   collapseAvatar: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+A" }),
   collapseEdge: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+E" }),
   newSession: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+N" }),
+  openHarness: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+H" }),
   captureDisplay: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+D" }),
   captureRegion: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+S" }),
 });

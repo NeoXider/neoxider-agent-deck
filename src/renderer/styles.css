@@ -404,20 +404,18 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .attachment-remove:hover { background:rgba(255,115,143,.1); color:#ff91a7; }
 .attachment-remove .ui-icon { width:14px; height:14px; }
 
-.composer { width:100%; min-width:0; display:grid; grid-template-columns:54px 54px minmax(0,1fr) 38px; gap:3px; align-items:end; padding:5px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.045); }
-.composer.has-running { grid-template-columns:54px 54px minmax(0,1fr) 30px 38px; }
-.composer.context-unavailable { grid-template-columns:54px 54px minmax(0,1fr) 38px; }
-.composer.context-unavailable.has-running { grid-template-columns:54px 54px minmax(0,1fr) 30px 38px; }
+.composer { width:100%; min-width:0; display:grid; grid-template-columns:28px 28px minmax(0,1fr) 38px; gap:3px; align-items:end; padding:5px; border:1px solid var(--line); border-radius:14px; background:rgba(255,255,255,.045); }
+.composer.has-running { grid-template-columns:28px 28px minmax(0,1fr) 30px 38px; }
+.composer.context-unavailable { grid-template-columns:28px 28px minmax(0,1fr) 38px; }
+.composer.context-unavailable.has-running { grid-template-columns:28px 28px minmax(0,1fr) 30px 38px; }
 .context-meter.unavailable { display:grid; opacity:.64; }
 .context-meter.unavailable .context-arc { stroke:rgba(73,231,198,.42); filter:none; }
-/* One row, not a column: two stacked 24px buttons made the composer 50px tall at rest,
-   while the single-line textarea beside them is only 34px. */
-.composer-view-stack { width:54px; height:24px; display:grid; grid-template-columns:repeat(2,26px); gap:2px; align-self:end; }
-.composer-view-stack .focus-chat-button { width:26px; height:24px; border-radius:7px; }
-.composer-view-stack .focus-chat-button .ui-icon { width:13px; height:13px; }
-.composer-utility-stack { width:54px; height:24px; display:grid; grid-template-columns:repeat(2,26px); gap:2px; align-self:end; }
-.composer-utility-stack .composer-action { width:26px; height:24px; border-radius:7px; }
-.composer-utility-stack .composer-action .ui-icon { width:13px; height:13px; }
+.composer-view-stack { width:28px; height:38px; display:grid; grid-template-rows:repeat(2,18px); gap:2px; align-self:end; }
+.composer-view-stack .focus-chat-button { width:28px; height:18px; border-radius:6px; }
+.composer-view-stack .focus-chat-button .ui-icon { width:12px; height:12px; }
+.composer-utility-stack { width:28px; height:38px; display:grid; grid-template-rows:repeat(2,18px); gap:2px; align-self:end; }
+.composer-utility-stack .composer-action { width:28px; height:18px; border-radius:6px; }
+.composer-utility-stack .composer-action .ui-icon { width:12px; height:12px; }
 .composer-action, .composer-stop { width:32px; height:34px; border:0; background:transparent; }
 .composer-action .ui-icon, .composer-stop .ui-icon { width:16px; height:16px; }
 .composer-action:hover { background:var(--surface-strong); }
@@ -646,12 +644,12 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
   .attachment-bar { grid-template-columns:1fr; gap:5px; }
   .attachment-heading { display:none; }
   .composer, .composer.has-running { gap:3px; padding:4px; }
-  .composer { grid-template-columns:54px 54px minmax(130px,1fr) 36px; }
-  .composer.has-running { grid-template-columns:54px 54px minmax(130px,1fr) 30px 36px; }
-  .composer.context-unavailable { grid-template-columns:54px 54px minmax(130px,1fr) 36px; }
-  .composer.context-unavailable.has-running { grid-template-columns:54px 54px minmax(130px,1fr) 30px 36px; }
-  .composer-utility-stack, .composer-view-stack { width:54px; height:24px; }
-  .composer-utility-stack .composer-action, .composer-view-stack .focus-chat-button { width:26px; height:24px; }
+  .composer { grid-template-columns:28px 28px minmax(130px,1fr) 36px; }
+  .composer.has-running { grid-template-columns:28px 28px minmax(130px,1fr) 30px 36px; }
+  .composer.context-unavailable { grid-template-columns:28px 28px minmax(130px,1fr) 36px; }
+  .composer.context-unavailable.has-running { grid-template-columns:28px 28px minmax(130px,1fr) 30px 36px; }
+  .composer-utility-stack, .composer-view-stack { width:28px; height:38px; }
+  .composer-utility-stack .composer-action, .composer-view-stack .focus-chat-button { width:28px; height:18px; }
   .composer-action, .composer-stop { width:100%; height:34px; }
   .composer #sendButton { width:36px; height:36px; }
   .settings-panel { top:56px; right:9px; width:calc(100% - 18px); }

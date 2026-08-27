@@ -3151,6 +3151,7 @@ window.widget.onQueueUpdate(({ sessionId, items }) => {
 window.widget.onLiveEvent((payload) => { handleLiveEvent(payload).catch(showError); });
 window.widget.onHotkeyAction((action) => {
   if (action === "newSession") createNewSession();
+  else if (action === "toggleFocusChat") setFocusMode(!state.focusMode);
 });
 window.widget.onHotkeyError((error) => setHotkeyStatus(error?.message || "Shortcut failed", true));
 window.widget.onScreenshotCaptured((result) => {
@@ -3369,9 +3370,11 @@ if (screenshotFixture) {
       setTab("chat");
       renderHotkeys({
         showRestore: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+Space" },
+        toggleFocusChat: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+F" },
         collapseAvatar: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+A" },
         collapseEdge: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+E" },
         newSession: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+N" },
+        openHarness: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+H" },
         captureDisplay: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+D" },
         captureRegion: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+S" },
       });

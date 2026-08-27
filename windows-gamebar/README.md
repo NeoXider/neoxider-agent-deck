@@ -26,17 +26,14 @@ The installer verifies that the MSIX signature matches the supplied public certi
 
 The release certificate is a release-specific development/sideload certificate. GitHub Actions creates it only while building, deletes the private key and temporary PFX, and publishes only the signed MSIX plus public `.cer`. Never install a certificate or package obtained outside the official NeoXider release.
 
-Runtime requirements are Windows 10 build 19041 or later (or Windows 11), x64, and a current Xbox Game Bar app. Check them without changing the machine:
-
-```powershell
-.\scripts\check-prerequisites.ps1
-```
+Runtime requirements are Windows 10 build 19041 or later (or Windows 11), x64, and a current Xbox Game Bar app. The release installer checks the signed package and its runtime dependencies directly.
 
 ## Build locally for development
 
 Local compilation additionally requires Visual Studio 2022, the **Universal Windows Platform development** workload, and Windows 10 SDK **10.0.19041.0**:
 
 ```powershell
+.\scripts\check-prerequisites.ps1
 .\scripts\test-contract.ps1
 .\scripts\build.ps1 -Configuration Debug
 ```

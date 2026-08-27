@@ -5,6 +5,17 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-08-27
+
+### Added
+
+- Rebindable global shortcuts for toggling Focus Chat and opening DeepSeek Harness.
+
+### Fixed
+
+- The four compact composer controls are a space-saving 2×2 grid again instead of stretching across the input row.
+- The restored two-row controls stay within the same 50 px resting composer height at 360–420 px window widths.
+
 ## [0.6.0] - 2026-08-27
 
 ### Added

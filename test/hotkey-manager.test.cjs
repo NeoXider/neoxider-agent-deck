@@ -55,7 +55,7 @@ test("duplicate bindings fail validation before Electron registrations are touch
   assert.deepEqual(shortcuts.calls, []);
 });
 
-test("all six actions register and dispatch their own handlers", async () => {
+test("all eight actions register and dispatch their own handlers", async () => {
   const shortcuts = fakeGlobalShortcut();
   const invoked = [];
   const handlers = Object.fromEntries(HOTKEY_ACTIONS.map((action) => [action, () => invoked.push(action)]));
@@ -65,7 +65,7 @@ test("all six actions register and dispatch their own handlers", async () => {
   for (const binding of Object.values(bindings)) shortcuts.fire(binding.accelerator);
   await Promise.resolve();
   assert.deepEqual(invoked, HOTKEY_ACTIONS);
-  assert.equal(shortcuts.registered.size, 6);
+  assert.equal(shortcuts.registered.size, 8);
 });
 
 test("a conflicting update rolls back every prior binding without unregistering the external owner", () => {

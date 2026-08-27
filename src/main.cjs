@@ -743,12 +743,14 @@ app.whenReady().then(() => {
     globalShortcut,
     handlers: {
       showRestore: () => applyWindowMode("full"),
+      toggleFocusChat: () => { applyWindowMode("full"); sendToRenderer("hotkey-action", "toggleFocusChat"); },
       collapseAvatar: () => applyWindowMode("orb"),
       collapseEdge: () => applyWindowMode("edge"),
       newSession: () => {
         applyWindowMode("full");
         sendToRenderer("hotkey-action", "newSession");
       },
+      openHarness: () => shell.openExternal(HARNESS_URL),
       captureDisplay: () => captureScreenshotFromHotkey("display"),
       captureRegion: () => captureScreenshotFromHotkey("region"),
     },

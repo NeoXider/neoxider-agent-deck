@@ -5,7 +5,7 @@ This backlog records planned work only. Items are not part of the current releas
 ## Shipped in 0.5.0
 
 - Region and full-display capture with reviewable PNG attachments, cancellation, cleanup, and configurable hotkeys.
-- Rebindable shortcuts for show/collapse, new session, both capture modes, Focus Chat, and opening Harness.
+- Rebindable shortcuts for show/collapse, new session, and both capture modes.
 - Three-session Avatar switcher with exact-session open and inline quick reply.
 
 ## Shipped in 0.6.0
@@ -13,6 +13,11 @@ This backlog records planned work only. Items are not part of the current releas
 - Authenticated native BridgeHost and UWP Xbox Game Bar companion protocol for pinned fullscreen status and exact-session actions.
 - Quiet background update download with digest verification and a header install action only when the release is ready.
 - Bounded renderer recovery plus downgrade-safe persistence for settings and independent Full, Avatar, and Edge positions.
+
+## Shipped in 0.6.1
+
+- Compact 2×2 composer controls that preserve the 50 px resting input height.
+- Rebindable Focus Chat and Open Harness shortcuts.
 
 ## Epic: Desktop capture
 
