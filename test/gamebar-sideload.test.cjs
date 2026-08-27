@@ -10,6 +10,7 @@ test("Game Bar CI creates an ephemeral signed x64 sideload kit and releases only
   const workflow = read(".github", "workflows", "gamebar-ci.yml");
   const release = read(".github", "workflows", "release.yml");
 
+  assert.match(workflow, /runs-on: windows-2022/);
   assert.match(workflow, /workflow_call:[\s\S]+release_package:[\s\S]+type: boolean/);
   assert.match(workflow, /build-sideload-package\.ps1[\s\S]+-Version \$version/);
   assert.match(workflow, /name: release-gamebar-x64/);

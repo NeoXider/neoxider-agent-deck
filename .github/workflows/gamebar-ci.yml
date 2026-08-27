@@ -32,7 +32,7 @@ permissions:
 jobs:
   compile:
     name: Contract and x64 compile
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 75
 
     steps:
