@@ -801,3 +801,18 @@ test("harness launch survives a minimal PATH on macOS and Linux", () => {
   assert.match(launcher, /args: \["-lc", \["npx", \.\.\.args\]\.map\(shellQuote\)\.join\(" "\)\]/);
   assert.match(launcher, /function shellQuote\(value\)/);
 });
+
+test("re-asserting the same avatar state does not touch the DOM", () => {
+  // The dashboard poll calls setAvatar("error", "") every 2.5s while Harness is down.
+  // Rewriting the body state class each time restarted the avatar-shake animation, so a
+  // failed agent made the whole widget twitch about once every three seconds.
+  const body = renderer.slice(renderer.indexOf("function setAvatar"), renderer.indexOf("function renderNotifications"));
+  assert.match(body, /if \(state\.avatarMode !== mode \|\| state\.avatarLabel !== text\)/);
+  // The guard has to wrap the class churn, not sit beside it.
+  const guardAt = body.indexOf("state.avatarLabel !== text");
+  for (const churn of ['shell.className = `avatar-shell ${mode}`', 'classList.remove("state-idle"', "classList.add(`state-${mode}`)"]) {
+    assert.ok(body.indexOf(churn) > guardAt, `${churn} must run only when the state actually changed`);
+  }
+  // An identical image src is a needless decode on every poll.
+  assert.match(body, /if \(!image\.src\.endsWith\(next\)\) image\.src = next;/);
+});

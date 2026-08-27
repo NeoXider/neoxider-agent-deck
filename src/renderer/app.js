@@ -22,6 +22,7 @@ const state = {
   pendingSelection: null,
   windowMode: "full",
   avatarMode: "idle",
+  avatarLabel: "ready",
   currentActivity: null,
   currentMode: "agent",
   agentModesBySessionId: new Map(),
@@ -413,13 +414,23 @@ function setActivity(activity) {
 
 function setAvatar(mode, label) {
   if (mode !== "done") clearCompletionSignal();
-  state.avatarMode = mode;
-  const shell = $("#avatarShell");
-  shell.className = `avatar-shell ${mode}`;
-  document.querySelectorAll("[data-avatar]").forEach((image) => { image.src = AVATARS[mode] || AVATARS.idle; });
-  $("#avatarState").textContent = label === "" ? "" : (label || AVATAR_LABELS[mode] || "ready");
-  document.body.classList.remove("state-idle", "state-working", "state-waiting", "state-error", "state-done");
-  document.body.classList.add(`state-${mode}`);
+  const text = label === "" ? "" : (label || AVATAR_LABELS[mode] || "ready");
+  // The poll re-asserts the same state every 2.5s. Rewriting className, the image src and
+  // the body state class when nothing changed restarted avatar-shake on every tick, which
+  // is why a failed agent made the widget twitch about once every three seconds.
+  if (state.avatarMode !== mode || state.avatarLabel !== text) {
+    state.avatarMode = mode;
+    state.avatarLabel = text;
+    const shell = $("#avatarShell");
+    shell.className = `avatar-shell ${mode}`;
+    document.querySelectorAll("[data-avatar]").forEach((image) => {
+      const next = AVATARS[mode] || AVATARS.idle;
+      if (!image.src.endsWith(next)) image.src = next;
+    });
+    $("#avatarState").textContent = text;
+    document.body.classList.remove("state-idle", "state-working", "state-waiting", "state-error", "state-done");
+    document.body.classList.add(`state-${mode}`);
+  }
   syncCompactStatus();
 }
 
