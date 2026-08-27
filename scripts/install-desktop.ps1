@@ -22,14 +22,27 @@ New-Item -ItemType Directory -Force -Path $installDirectory | Out-Null
 $executable = Join-Path $installDirectory "NeoXider Agent Deck.exe"
 $temporary = Join-Path $installDirectory (".agent-deck-download-" + [Guid]::NewGuid().ToString("N") + ".exe")
 $rollback = Join-Path $installDirectory "NeoXider Agent Deck.rollback.exe"
+$replacedExisting = $false
+$handler = $null
+$client = $null
+$response = $null
+$inputStream = $null
+$outputStream = $null
+$downloadDeadline = $null
 
 try {
   $handler = New-Object System.Net.Http.HttpClientHandler
   $handler.AllowAutoRedirect = $true
   $client = New-Object System.Net.Http.HttpClient($handler)
-  $client.Timeout = [TimeSpan]::FromMinutes(5)
+  $client.Timeout = [System.Threading.Timeout]::InfiniteTimeSpan
   $client.DefaultRequestHeaders.UserAgent.ParseAdd("NeoXider-Agent-Deck-Installer")
-  $response = $client.GetAsync([string]$asset.browser_download_url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+  $downloadDeadline = New-Object System.Threading.CancellationTokenSource
+  $downloadDeadline.CancelAfter([TimeSpan]::FromMinutes(5))
+  $response = $client.GetAsync(
+    [string]$asset.browser_download_url,
+    [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead,
+    $downloadDeadline.Token
+  ).GetAwaiter().GetResult()
   $response.EnsureSuccessStatusCode()
   if ($response.Content.Headers.ContentLength.HasValue -and $response.Content.Headers.ContentLength.Value -ne $assetSize) {
     throw "The server reported an unexpected executable size."
@@ -38,45 +51,68 @@ try {
   $outputStream = [System.IO.File]::Open($temporary, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
   $buffer = New-Object byte[] (1024 * 1024)
   $received = [long]0
-  try {
-    while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
-      $received += $read
-      if ($received -gt $assetSize -or $received -gt 268435456) { throw "The executable exceeded its verified release size." }
-      $outputStream.Write($buffer, 0, $read)
-    }
-  } finally {
-    $outputStream.Dispose()
-    $inputStream.Dispose()
-    $response.Dispose()
-    $client.Dispose()
-    $handler.Dispose()
+  while (($read = $inputStream.ReadAsync($buffer, 0, $buffer.Length, $downloadDeadline.Token).GetAwaiter().GetResult()) -gt 0) {
+    $received += $read
+    if ($received -gt $assetSize -or $received -gt 268435456) { throw "The executable exceeded its verified release size." }
+    $outputStream.Write($buffer, 0, $read)
   }
+  $outputStream.Flush()
+  $outputStream.Dispose()
+  $outputStream = $null
+  $inputStream.Dispose()
+  $inputStream = $null
+  $response.Dispose()
+  $response = $null
+  $client.Dispose()
+  $client = $null
+  $handler.Dispose()
+  $handler = $null
+  $downloadDeadline.Dispose()
+  $downloadDeadline = $null
   if ($received -ne $assetSize) { throw "The downloaded executable size does not match the release metadata." }
   $actualHash = (Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actualHash -ne $expectedHash) { throw "Downloaded executable failed SHA-256 verification." }
 
   if (Test-Path -LiteralPath $executable) {
-    [System.IO.File]::Replace($temporary, $executable, $rollback, $true)
     Remove-Item -LiteralPath $rollback -Force -ErrorAction SilentlyContinue
+    [System.IO.File]::Replace($temporary, $executable, $rollback, $true)
+    $replacedExisting = $true
   } else {
     Move-Item -LiteralPath $temporary -Destination $executable
   }
+
+  $desktop = [Environment]::GetFolderPath("Desktop")
+  $shortcutPath = Join-Path $desktop "NeoXider Agent Deck.lnk"
+  $shell = New-Object -ComObject WScript.Shell
+  $shortcut = $shell.CreateShortcut($shortcutPath)
+  $shortcut.TargetPath = $executable
+  $shortcut.WorkingDirectory = $installDirectory
+  $shortcut.IconLocation = "$executable,0"
+  $shortcut.Description = "NeoXider Agent Deck for DeepSeek Harness"
+  $shortcut.Save()
+
+  Start-Process -FilePath $executable
 } catch {
-  throw "Installation failed. Close NeoXider Agent Deck if it is running, then retry. $($_.Exception.Message)"
+  $failure = $_.Exception.Message
+  $rollbackFailure = ""
+  if ($replacedExisting -and (Test-Path -LiteralPath $rollback)) {
+    try {
+      [System.IO.File]::Copy($rollback, $executable, $true)
+    } catch {
+      $rollbackFailure = " Rollback also failed: $($_.Exception.Message)"
+    }
+  }
+  throw "Installation failed. Close NeoXider Agent Deck if it is running, then retry. $failure$rollbackFailure"
 } finally {
+  if ($outputStream) { $outputStream.Dispose() }
+  if ($inputStream) { $inputStream.Dispose() }
+  if ($response) { $response.Dispose() }
+  if ($client) { $client.Dispose() }
+  if ($handler) { $handler.Dispose() }
+  if ($downloadDeadline) { $downloadDeadline.Dispose() }
   Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
 }
 
-$desktop = [Environment]::GetFolderPath("Desktop")
-$shortcutPath = Join-Path $desktop "NeoXider Agent Deck.lnk"
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $executable
-$shortcut.WorkingDirectory = $installDirectory
-$shortcut.IconLocation = "$executable,0"
-$shortcut.Description = "NeoXider Agent Deck for DeepSeek Harness"
-$shortcut.Save()
-
 Write-Host "Installed: $executable"
 Write-Host "Desktop shortcut: $shortcutPath"
-Start-Process -FilePath $executable
+if ($replacedExisting) { Write-Host "Rollback copy: $rollback" }

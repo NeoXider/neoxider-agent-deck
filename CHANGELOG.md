@@ -29,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Background work and errors no longer leak glow or status into the selected idle session.
 - Auxiliary capture/attachment errors no longer replace visible chat history.
 - Manual scroll position, live-bubble identity, autostart opt-out, compact drag resize, and tray quit remain stable.
-- Portable update requests are bounded, partial staging files are cleaned safely, and installer downloads enforce exact size and SHA-256.
+- Portable update headers and response bodies are bounded, partial staging files are cleaned safely, and installer downloads enforce a cancellable deadline, exact size, SHA-256, and recoverable rollback.
+- Windows autostart follows an enabled current-name portable entry when the launcher is moved to a new stable path.
 
 ## [0.4.3] - 2026-08-26
 

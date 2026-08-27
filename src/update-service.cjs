@@ -408,7 +408,12 @@ function createUpdateService({
         signal: controller.signal,
       }), requestTimeoutMs, controller, updateError("UPDATE_TIMEOUT", "The update check timed out"));
       if (!response?.ok) throw updateError("UPDATE_CHECK_HTTP", "GitHub could not be reached for updates");
-      const release = await response.json();
+      const release = await timedOperation(
+        Promise.resolve().then(() => response.json()),
+        requestTimeoutMs,
+        controller,
+        updateError("UPDATE_TIMEOUT", "The update response timed out"),
+      );
       const latestVersion = releaseVersion(release);
       if (!latestVersion) throw updateError("UPDATE_RELEASE_INVALID", "The latest release is not a stable published version");
       const releaseUrl = `https://github.com/${repository}/releases/tag/v${latestVersion}`;

@@ -26,10 +26,15 @@ const deferredSessionRequests = { history: new Map(), models: new Map(), command
 let deferredSend = null;
 let deferredCommand = null;
 let deferredQueueUpdate = null;
+let deferredDashboard = null;
+let createdSessionId = "created-session";
+let dashboardCalls = 0;
+let startHarnessCalls = 0;
 function deferred() {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, reject, resolve };
 }
 function registerStubs() {
   ipcMain.handle("set-window-mode", (_event, mode) => {
@@ -56,7 +61,15 @@ function registerStubs() {
   });
   ipcMain.handle("execute-command", (_event, payload) => deferredCommand?.promise || ({ result: { kind: "text", text: payload.line } }));
   ipcMain.handle("update-queue", () => deferredQueueUpdate?.promise || ({ ok: true }));
-  ipcMain.handle("dashboard", () => dashboardValue);
+  ipcMain.handle("dashboard", () => {
+    dashboardCalls += 1;
+    return deferredDashboard?.promise || dashboardValue;
+  });
+  ipcMain.handle("start-harness", () => {
+    startHarnessCalls += 1;
+    return { ok: true, started: true };
+  });
+  ipcMain.handle("create-session", () => ({ sessionId: createdSessionId }));
   ipcMain.handle("history", (_event, sessionId) => {
     openedSessionIds.push(sessionId);
     return deferredSessionRequests.history.get(sessionId)?.promise || { messages: [], activity: null };
@@ -365,10 +378,27 @@ async function main() {
     state.errorSignalSessionIds.clear();
     state.unacknowledgedErrorSessionIds.clear();
     await refresh();
-    return { pending: [...state.unacknowledgedErrorSessionIds], unread: state.compactErrorUnread, avatar: state.avatarMode };
+    return {
+      pending: [...state.unacknowledgedErrorSessionIds],
+      unread: state.compactErrorUnread,
+      avatar: state.avatarMode,
+      target: state.compactNotification?.sessionId || null,
+      title: state.compactNotification?.title || "",
+    };
   })()`);
-  if (initialBackgroundError.pending.join() !== "error-b" || !initialBackgroundError.unread || initialBackgroundError.avatar !== "error") {
+  if (initialBackgroundError.pending.join() !== "error-b" || !initialBackgroundError.unread || initialBackgroundError.avatar !== "error" || initialBackgroundError.target !== "error-b" || initialBackgroundError.title !== "Background failure") {
     failures.push(`initial compact error snapshot was not surfaced: ${JSON.stringify(initialBackgroundError)}`);
+  }
+
+  currentMode = "edge";
+  await contents.executeJavaScript(`(() => {
+    applyWindowMode("edge");
+    document.querySelector("#edgeMode").click();
+  })()`);
+  await wait(620);
+  const edgeErrorTarget = await contents.executeJavaScript(`({ selected: state.selectedSessionId, mode: state.windowMode, notification: state.compactNotification })`);
+  if (currentMode !== "full" || edgeErrorTarget.mode !== "full" || edgeErrorTarget.selected !== "error-b" || edgeErrorTarget.notification !== null) {
+    failures.push(`edge error activation did not open and acknowledge the exact session: ${JSON.stringify({ currentMode, edgeErrorTarget })}`);
   }
 
   dashboardValue = { harness: true, sessions: [dashboardValue.sessions[0]] };
@@ -379,6 +409,28 @@ async function main() {
   if (prunedBackgroundError.pending.length || prunedBackgroundError.unread) {
     failures.push(`removed session left a permanent compact error: ${JSON.stringify(prunedBackgroundError)}`);
   }
+
+  dashboardValue = { harness: true, sessions: [
+    { sessionId: "done-a", title: "Selected idle", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    { sessionId: "done-b", title: "Finished background", running: false, state: "idle", preview: "Finished exactly here", projections: { values: {} }, subagents: [] },
+  ] };
+  currentMode = "edge";
+  const edgeCompletionTarget = await contents.executeJavaScript(`(() => {
+    state.dashboard = ${JSON.stringify(dashboardValue)};
+    state.selectedSessionId = "done-a";
+    state.completedSignalSessionIds.clear();
+    applyWindowMode("edge");
+    notifyCompletion(state.dashboard.sessions[1]);
+    const target = state.compactNotification?.sessionId || null;
+    document.querySelector("#edgeMode").click();
+    return target;
+  })()`);
+  await wait(620);
+  const openedCompletion = await contents.executeJavaScript(`({ selected: state.selectedSessionId, mode: state.windowMode })`);
+  if (edgeCompletionTarget !== "done-b" || currentMode !== "full" || openedCompletion.mode !== "full" || openedCompletion.selected !== "done-b") {
+    failures.push(`edge completion activation did not open the exact session: ${JSON.stringify({ edgeCompletionTarget, currentMode, openedCompletion })}`);
+  }
+  await contents.executeJavaScript(`clearCompletionSignal()`);
 
   dashboardValue = { harness: true, sessions: [
     { sessionId: "background-a", title: "Selected idle", running: false, state: "idle", projections: { values: {} }, subagents: [] },
@@ -500,6 +552,105 @@ async function main() {
   deferredSend = null;
   if (sendRace.selected !== "send-b" || !sendRace.text.includes("Selected B")) {
     failures.push(`send completion forced the UI back to its original session: ${JSON.stringify(sendRace)}`);
+  }
+
+  deferredSend = deferred();
+  await contents.executeJavaScript(`(() => {
+    state.selectedSessionId = "failed-send-a";
+    state.pendingAttachments = [];
+    const input = document.querySelector("#messageInput");
+    input.value = "message that belongs to A";
+    document.querySelector("#chatForm").requestSubmit();
+    state.selectedSessionId = "failed-send-b";
+    input.value = "draft for B";
+  })()`);
+  await wait(40);
+  deferredSend.reject(new Error("A failed"));
+  await wait(180);
+  const failedSendRace = await contents.executeJavaScript(`({ selected: state.selectedSessionId, draft: document.querySelector("#messageInput").value, active: document.activeElement?.id || "" })`);
+  deferredSend = null;
+  if (failedSendRace.selected !== "failed-send-b" || failedSendRace.draft !== "draft for B") {
+    failures.push(`a failed send restored its text into another session composer: ${JSON.stringify(failedSendRace)}`);
+  }
+
+  const sessionPresentation = await contents.executeJavaScript(`(async () => {
+    state.harnessOffline = false;
+    state.dashboard = { harness: true, sessions: [
+      { sessionId: "presentation-a", title: "Working plan", running: true, state: "working", activity: { active: true, kind: "writing", label: "Writing", text: "A is writing" }, projections: { values: {} }, subagents: [] },
+      { sessionId: "presentation-b", title: "Idle agent", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    ] };
+    state.selectedSessionId = "presentation-a";
+    setSessionAgentMode("presentation-a", "plan");
+    setActivity(state.dashboard.sessions[0].activity);
+    setAvatar("working", "writing");
+    await selectSession("presentation-b", true);
+    const idle = { avatar: state.avatarMode, activity: state.currentActivity, mode: state.currentMode };
+    await selectSession("presentation-a", true);
+    const restored = { mode: state.currentMode };
+    return { idle, restored };
+  })()`);
+  if (sessionPresentation.idle.avatar !== "idle" || sessionPresentation.idle.activity !== null || sessionPresentation.idle.mode !== "agent" || sessionPresentation.restored.mode !== "plan") {
+    failures.push(`session-owned activity or Agent/Plan mode leaked across selection: ${JSON.stringify(sessionPresentation)}`);
+  }
+
+  deferredSessionRequests.history.set("history-plan", { promise: Promise.resolve({ messages: [{ role: "user", text: "/plan" }], activity: null }) });
+  const historyMode = await contents.executeJavaScript(`(async () => {
+    state.dashboard = { harness: true, sessions: [{ sessionId: "history-plan", title: "Existing plan", running: false, state: "idle", projections: { values: {} }, subagents: [] }] };
+    state.agentModesBySessionId.delete("history-plan");
+    await selectSession("history-plan", true);
+    return state.currentMode;
+  })()`);
+  deferredSessionRequests.history.delete("history-plan");
+  if (historyMode !== "plan") failures.push(`existing session Plan mode was not restored from history: ${JSON.stringify(historyMode)}`);
+
+  dashboardValue = { harness: true, sessions: [{ sessionId: "old-session", title: "Old", running: false, state: "idle", projections: { values: {} }, subagents: [] }] };
+  createdSessionId = "created-during-refresh";
+  const staleDashboard = deferred();
+  deferredDashboard = staleDashboard;
+  const creationCallsBefore = dashboardCalls;
+  await contents.executeJavaScript(`(() => {
+    state.selectedSessionId = "old-session";
+    window.__staleRefresh = refresh();
+    window.__creationRace = createNewSession({ restore: false });
+  })()`);
+  await wait(60);
+  dashboardValue = { harness: true, sessions: [{ sessionId: "created-during-refresh", title: "Created", running: false, state: "idle", projections: { values: {} }, subagents: [] }] };
+  deferredDashboard = null;
+  staleDashboard.resolve({ harness: true, sessions: [{ sessionId: "old-session", title: "Old", running: false, state: "idle", projections: { values: {} }, subagents: [] }] });
+  const creationRace = await contents.executeJavaScript(`(async () => {
+    await window.__creationRace;
+    return { selected: state.selectedSessionId, sessions: state.dashboard.sessions.map((session) => session.sessionId) };
+  })()`);
+  if (dashboardCalls - creationCallsBefore < 2 || creationRace.selected !== "created-during-refresh" || creationRace.sessions.join() !== "created-during-refresh") {
+    failures.push(`session creation did not receive a fresh trailing dashboard: ${JSON.stringify({ calls: dashboardCalls - creationCallsBefore, creationRace })}`);
+  }
+
+  const offlineDashboard = deferred();
+  deferredDashboard = offlineDashboard;
+  const startCallsBefore = dashboardCalls;
+  const startsBefore = startHarnessCalls;
+  await contents.executeJavaScript(`(() => {
+    state.dashboard = { harness: false, sessions: [] };
+    state.harnessOffline = true;
+    state.selectedSessionId = null;
+    window.__offlineRefresh = refresh();
+    window.__startRace = startHarnessFromBanner();
+  })()`);
+  await wait(60);
+  dashboardValue = { harness: true, sessions: [] };
+  deferredDashboard = null;
+  offlineDashboard.resolve({ harness: false, sessions: [] });
+  const startRace = await contents.executeJavaScript(`(async () => {
+    await window.__startRace;
+    return {
+      harness: state.dashboard?.harness,
+      label: document.querySelector("#offlineBannerText").textContent,
+      button: document.querySelector("#startHarnessButton").textContent,
+      visible: document.querySelector("#offlineBanner").classList.contains("show"),
+    };
+  })()`);
+  if (dashboardCalls - startCallsBefore < 2 || startHarnessCalls - startsBefore !== 1 || !startRace.harness || startRace.button === "Retry" || startRace.visible) {
+    failures.push(`Start Harness reused a stale in-flight offline snapshot: ${JSON.stringify({ calls: dashboardCalls - startCallsBefore, starts: startHarnessCalls - startsBefore, startRace })}`);
   }
 
   for (const failure of failures) console.error(`FAIL ${failure}`);

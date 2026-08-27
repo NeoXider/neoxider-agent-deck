@@ -5,6 +5,7 @@ const state = {
   focusMode: false,
   focusReturnTab: "chat",
   refreshing: false,
+  refreshPromise: null,
   historyBusy: false,
   historyRequestSequence: 0,
   modelsBusy: false,
@@ -23,6 +24,7 @@ const state = {
   avatarMode: "idle",
   currentActivity: null,
   currentMode: "agent",
+  agentModesBySessionId: new Map(),
   unread: 0,
   dashboardInitialized: false,
   runningSessionIds: new Set(),
@@ -201,6 +203,33 @@ function compactPreviewEntry() {
   return null;
 }
 
+function modeFromCommand(value) {
+  const match = String(value || "").trim().match(/^\/plan(?:\s+(off))?\s*$/i);
+  if (!match) return null;
+  return match[1] ? "agent" : "plan";
+}
+
+function modeFromMessages(messages) {
+  let mode = null;
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (message?.role !== "user") continue;
+    mode = modeFromCommand(message.text) || mode;
+  }
+  return mode;
+}
+
+function syncSelectedAgentMode() {
+  state.currentMode = state.agentModesBySessionId.get(state.selectedSessionId) || "agent";
+  renderMode();
+}
+
+function setSessionAgentMode(sessionId, mode) {
+  if (!sessionId || !["agent", "plan"].includes(mode)) return;
+  state.agentModesBySessionId.set(sessionId, mode);
+  if (sessionId !== state.selectedSessionId) return;
+  syncSelectedAgentMode();
+}
+
 function recentCompactSessions() {
   return window.compactSessions.recentReplySessions(state.dashboard?.sessions, 3);
 }
@@ -340,6 +369,12 @@ function syncUnacknowledgedErrors() {
 
 function acknowledgeSessionError(sessionId) {
   if (sessionId) state.unacknowledgedErrorSessionIds.delete(sessionId);
+  if (sessionId && state.compactNotification?.kind === "error" && state.compactNotification.sessionId === sessionId) {
+    clearTimeout(state.compactNotificationTimer);
+    state.compactNotificationTimer = null;
+    state.compactNotification = null;
+    state.compactStatusClosing = false;
+  }
   syncUnacknowledgedErrors();
 }
 
@@ -365,6 +400,14 @@ function signalSessionError(session, label = "model error", text = "The current 
   state.compactStatusClosing = false;
   const visibleInFull = state.windowMode === "full" && (!sessionId || sessionId === state.selectedSessionId);
   if (sessionId && !visibleInFull) state.unacknowledgedErrorSessionIds.add(sessionId);
+  if (sessionId && !visibleInFull) {
+    state.compactNotification = {
+      kind: "error",
+      sessionId,
+      title: session?.title || "Session needs attention",
+      text: session?.preview || text,
+    };
+  }
   syncUnacknowledgedErrors();
   if (state.windowMode !== "full" || visibleInFull) {
     setAvatar("error", label);
@@ -764,6 +807,9 @@ function renderSessions() {
     const card = document.createElement("div");
     card.dataset.sessionId = session.sessionId;
     card.className = `session-card state-${agentState}${session.sessionId === state.selectedSessionId ? " selected" : ""}`;
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `Open ${session.title || "New session"}`);
     const avatar = document.createElement("div");
     avatar.className = `agent-avatar ${agentState}`;
     const avatarImage = document.createElement("img");
@@ -785,7 +831,13 @@ function renderSessions() {
     status.className = `session-state ${agentState}`;
     status.textContent = agentState;
     card.append(avatar, main, status);
-    card.addEventListener("click", () => selectSession(card.dataset.sessionId, true));
+    const activate = () => selectSession(card.dataset.sessionId, true);
+    card.addEventListener("click", activate);
+    card.addEventListener("keydown", (event) => {
+      if (!["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      activate();
+    });
     root.append(card);
   }
   return true;
@@ -1436,10 +1488,17 @@ async function selectSession(sessionId, openChat = false) {
   const previousSessionId = state.selectedSessionId;
   state.selectedSessionId = sessionId || null;
   if (state.windowMode === "full") acknowledgeSessionError(state.selectedSessionId);
-  if (previousSessionId !== state.selectedSessionId && state.avatarMode === "error" && !state.harnessOffline) {
-    if (state.currentActivity?.kind === "error") setActivity(null);
-    setAvatar("idle");
+  if (previousSessionId !== state.selectedSessionId) {
+    const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
+    const activity = session?.running
+      ? session.activity || { active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" }
+      : null;
+    setActivity(activity);
+    if (session?.state === "error") setAvatar("error", "model error");
+    else if (session?.running) setAvatar("working", activity?.label || "working");
+    else if (!state.harnessOffline) setAvatar("idle");
   }
+  syncSelectedAgentMode();
   state.messagesStickToBottom = true;
   state.unseenMessages = 0;
   state.historySignature = "";
@@ -1846,11 +1905,15 @@ async function refreshHistory() {
     if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return;
     const messages = view.messages || [];
     setActivity(view.activity || null);
+    const detectedMode = modeFromMessages(messages);
+    if (detectedMode) setSessionAgentMode(sessionId, detectedMode);
     renderMessages(messages);
     const latest = messages[messages.length - 1];
     if (state.windowMode === "full") {
       if (latest?.role === "error") setAvatar("error", "model error");
+      else if (view.activity?.active) setAvatar("working", view.activity.label || "working");
       else if (state.avatarMode === "error" && !state.harnessOffline) setAvatar("idle");
+      else if (state.avatarMode !== "done" && !state.harnessOffline) setAvatar("idle");
     }
   } catch (error) {
     if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return;
@@ -2097,7 +2160,7 @@ async function sendCompactReply() {
     }, 2200);
     setAvatar("waiting", queueingBehindTurn ? "queued" : "waiting for reply");
     syncCompactStatus();
-    await refresh();
+    await refresh({ afterCurrent: true });
   } catch (error) {
     state.compactReplyBusy = false;
     state.compactReplyError = compactText(error?.message || error || "Reply was not sent", 86);
@@ -2110,6 +2173,7 @@ async function sendCompactReply() {
 function detectCompletedSessions(nextSessions) {
   const currentRunning = new Set(nextSessions.filter((session) => session.running).map((session) => session.sessionId));
   const existing = new Set(nextSessions.map((session) => session.sessionId));
+  for (const sessionId of state.agentModesBySessionId.keys()) if (!existing.has(sessionId)) state.agentModesBySessionId.delete(sessionId);
   for (const tracked of [state.completedSignalSessionIds, state.errorSignalSessionIds, state.unacknowledgedErrorSessionIds]) {
     for (const sessionId of tracked) if (!existing.has(sessionId)) tracked.delete(sessionId);
   }
@@ -2149,18 +2213,19 @@ function detectCompletedSessions(nextSessions) {
   state.dashboardInitialized = true;
 }
 
-async function refresh() {
-  if (state.refreshing) return;
+async function performRefresh() {
   state.refreshing = true;
   try {
+    const selectedAtRequest = state.selectedSessionId;
     const dashboard = await window.widget.dashboard();
     const wasOffline = state.harnessOffline;
     state.harnessOffline = !dashboard.harness;
     document.body.classList.toggle("harness-offline", state.harnessOffline);
     state.dashboard = dashboard;
     if (!dashboard.harness && state.focusMode) setFocusMode(false);
-    if (state.selectedSessionId && !dashboard.sessions?.some((session) => session.sessionId === state.selectedSessionId)) state.selectedSessionId = null;
-    if (!state.selectedSessionId && dashboard.sessions?.length) {
+    const selectionChangedWhileLoading = state.selectedSessionId !== selectedAtRequest;
+    if (!selectionChangedWhileLoading && state.selectedSessionId && !dashboard.sessions?.some((session) => session.sessionId === state.selectedSessionId)) state.selectedSessionId = null;
+    if (!selectionChangedWhileLoading && !state.selectedSessionId && dashboard.sessions?.length) {
       state.selectedSessionId = (dashboard.sessions.find((session) => session.running) || dashboard.sessions[0]).sessionId;
     }
     if (dashboard.harness) {
@@ -2198,6 +2263,7 @@ async function refresh() {
       if (["working", "waiting"].includes(state.avatarMode)) setAvatar("idle");
     }
     else if ((wasOffline && state.avatarMode === "error" && !state.compactErrorUnread) || !["done", "error"].includes(state.avatarMode)) setAvatar("idle");
+    syncSelectedAgentMode();
     renderSessions();
     renderSessionSelect();
     renderContext();
@@ -2210,6 +2276,22 @@ async function refresh() {
   } finally {
     state.refreshing = false;
   }
+}
+
+function startRefreshPass() {
+  let tracked;
+  tracked = performRefresh().finally(() => {
+    if (state.refreshPromise === tracked) state.refreshPromise = null;
+  });
+  state.refreshPromise = tracked;
+  return tracked;
+}
+
+async function refresh({ afterCurrent = false } = {}) {
+  const active = state.refreshPromise;
+  if (!active) return startRefreshPass();
+  await active;
+  return afterCurrent ? refresh() : state.dashboard;
 }
 
 async function startHarnessFromBanner() {
@@ -2229,7 +2311,7 @@ async function startHarnessFromBanner() {
       throw new Error(reason);
     }
     label.textContent = "Connecting…";
-    await refresh();
+    await refresh({ afterCurrent: true });
     if (!state.dashboard?.harness) throw new Error("Harness started but is not responding yet");
   } catch (error) {
     label.textContent = String(error?.message || "Harness could not be started");
@@ -2252,6 +2334,8 @@ async function executeHarnessCommand(line, sessionId = state.selectedSessionId) 
   setAvatar("working", "running command");
   const value = await window.widget.executeCommand({ sessionId, line });
   const result = value?.result;
+  const selectedMode = result?.kind === "error" ? null : modeFromCommand(line);
+  if (selectedMode) setSessionAgentMode(sessionId, selectedMode);
   if (sessionId !== state.selectedSessionId) return result;
   renderMessages([
     { role: "user", text: line },
@@ -2268,11 +2352,12 @@ async function createNewSession({ restore = true } = {}) {
   try {
     const result = await window.widget.createSession(state.selectedWorkspaceId ? { workspaceId: state.selectedWorkspaceId } : {});
     state.selectedSessionId = result.sessionId;
+    setSessionAgentMode(result.sessionId, "agent");
     state.pendingSelection = null;
     state.modelCatalog = null;
     state.modelLoadState = "idle";
     state.commandCatalog = [];
-    await refresh();
+    await refresh({ afterCurrent: true });
     await Promise.all([loadModels(), loadCommands(), loadWorkspaces()]);
     if (restore) {
       setTab("chat");
@@ -2294,7 +2379,7 @@ async function switchWorkspace(workspaceId) {
   try {
     state.selectedWorkspaceId = workspaceId;
     const result = await window.widget.createSession({ workspaceId });
-    await refresh();
+    await refresh({ afterCurrent: true });
     await selectSession(result.sessionId, true);
     setAvatar("idle", "workspace ready");
   } catch (error) {
@@ -2308,16 +2393,18 @@ function renderMode() {
 }
 
 async function setAgentMode(mode) {
-  const previous = state.currentMode;
-  state.currentMode = mode;
-  renderMode();
+  const sessionId = state.selectedSessionId;
+  if (!sessionId) return;
+  const previous = state.agentModesBySessionId.get(sessionId) || "agent";
+  setSessionAgentMode(sessionId, mode);
   try {
-    await executeHarnessCommand(mode === "plan" ? "/plan" : "/plan off");
+    await executeHarnessCommand(mode === "plan" ? "/plan" : "/plan off", sessionId);
   } catch (error) {
-    state.currentMode = previous;
-    renderMode();
-    showError(error);
-    setAvatar("error", "mode error");
+    setSessionAgentMode(sessionId, previous);
+    if (sessionId === state.selectedSessionId) {
+      showError(error);
+      setAvatar("error", "mode error");
+    }
   }
 }
 
@@ -2690,7 +2777,7 @@ $("#addWorkspaceButton").addEventListener("click", async () => {
     state.selectedWorkspaceId = result.workspace.workspaceId;
     renderWorkspaces();
     const session = await window.widget.createSession({ workspaceId: state.selectedWorkspaceId });
-    await refresh();
+    await refresh({ afterCurrent: true });
     await selectSession(session.sessionId, true);
     setAvatar("idle", "workspace ready");
   } catch (error) {
@@ -2733,26 +2820,29 @@ $("#chatForm").addEventListener("submit", async (event) => {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       const stillOwnsVisibleSession = state.selectedSessionId === targetSessionId;
-      if (!targetSessionId || stillOwnsVisibleSession) state.selectedSessionId = result.sessionId;
+      if (stillOwnsVisibleSession) {
+        state.selectedSessionId = result.sessionId;
+        if (!targetSessionId) setSessionAgentMode(result.sessionId, "agent");
+      }
       if (queueingBehindTurn) trackQueuedPrompt(result.sessionId, { text, attachmentCount });
       const submittedPaths = new Set(submittedAttachments.map((attachment) => attachment.path));
       state.pendingAttachments = state.pendingAttachments.filter((attachment) => !submittedPaths.has(attachment.path));
       renderAttachments();
-      if (!targetSessionId || stillOwnsVisibleSession) {
+      if (stillOwnsVisibleSession) {
         setAvatar("waiting", "waiting for reply");
-        await refresh();
+        await refresh({ afterCurrent: true });
       }
     }
   } catch (error) {
-    if (!input.value.trim()) input.value = text;
-    resizeMessageInput();
-    if (!targetSessionId || state.selectedSessionId === targetSessionId) {
+    if (state.selectedSessionId === targetSessionId) {
+      if (!input.value.trim()) input.value = text;
+      resizeMessageInput();
       showTransientActivityError(error, "Message not sent");
     }
   } finally {
     $("#sendButton").disabled = false;
     $("#sendButton").classList.remove("sending");
-    input.focus();
+    if (state.selectedSessionId === targetSessionId) input.focus();
   }
 });
 $("#messageInput").addEventListener("keydown", (event) => {
@@ -2836,7 +2926,11 @@ $("#orbReplyInput").addEventListener("keydown", (event) => {
     $("#orbReplyForm").requestSubmit();
   }
 });
-$("#edgeMode").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
+$("#edgeMode").addEventListener("click", (event) => {
+  if (suppressCompactClick) event.preventDefault();
+  else if (compactPreviewEntry()?.sessionId) openCompactSession().catch(showError);
+  else setWindowMode("full");
+});
 for (const target of [$("#orbMode"), $("#edgeMode")]) {
   target.addEventListener("pointerdown", beginCompactDrag);
   target.addEventListener("pointermove", moveCompactDrag);

@@ -170,6 +170,51 @@ test("enabled legacy item migrates to the new target and is disabled only after 
   assert.equal(controller.getLastMigrationResult().status, "migrated");
 });
 
+test("an enabled current-name login item moves to the new portable path", () => {
+  const previousPortable = "C:\\Portable\\NeoXider Agent Deck.exe";
+  const app = createFakeApp({
+    launchItems: [{ name: LOGIN_ITEM_NAME, path: previousPortable, args: [], enabled: true, scope: "user" }],
+  });
+  const controller = createAutoStartController({
+    app,
+    env: { PORTABLE_EXECUTABLE_FILE: portableLauncher },
+    execPath: temporaryChild,
+    platform: "win32",
+    readRunItemPath: () => "",
+  });
+
+  assert.equal(controller.getEnabled(), false);
+  assert.equal(controller.migrateLegacy(), true);
+  assert.equal(controller.getEnabled(), true);
+  assert.deepEqual(app.calls.set.map((value) => [value.name, value.path, value.openAtLogin]), [
+    [LOGIN_ITEM_NAME, portableLauncher, true],
+  ]);
+  assert.equal(controller.getLastMigrationResult().status, "relocated-current-target");
+});
+
+test("a raw current-name Run entry moves even when launchItems omits it", () => {
+  const previousPortable = "C:\\Portable\\NeoXider Agent Deck.exe";
+  const app = createFakeApp({
+    launchItems: [{ name: LOGIN_ITEM_NAME, path: previousPortable, args: [], enabled: true, scope: "user" }],
+  });
+  const getLoginItemSettings = app.getLoginItemSettings.bind(app);
+  app.getLoginItemSettings = (options) => {
+    const result = getLoginItemSettings(options);
+    return options ? result : { ...result, launchItems: [] };
+  };
+  const controller = createAutoStartController({
+    app,
+    env: { PORTABLE_EXECUTABLE_FILE: portableLauncher },
+    execPath: temporaryChild,
+    platform: "win32",
+    readRunItemPath: (name) => name === LOGIN_ITEM_NAME ? previousPortable : "",
+  });
+
+  assert.equal(controller.migrateLegacy(), true);
+  assert.equal(controller.getEnabled(), true);
+  assert.equal(controller.getLastMigrationResult().status, "relocated-current-target");
+});
+
 test("disabled legacy StartupApproved item stays disabled even when its raw Run value exists", () => {
   const app = createFakeApp({ launchItems: [{ name: legacyName, path: temporaryChild, args: [], enabled: false, scope: "user" }] });
   const controller = createAutoStartController({

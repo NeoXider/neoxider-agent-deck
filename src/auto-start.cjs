@@ -151,9 +151,22 @@ function createAutoStartController({
 
   const query = () => app.getLoginItemSettings({ path: target.path, args: target.args });
   const launchItems = () => app.getLoginItemSettings()?.launchItems || [];
+  const samePath = (left, right) => (
+    path.win32.normalize(String(left || "")).toLowerCase() === path.win32.normalize(String(right || "")).toLowerCase()
+  );
+  const sameTarget = (item) => (
+    samePath(item?.path, target.path)
+    && (item?.args || []).length === target.args.length
+    && (item?.args || []).every((argument, index) => argument === target.args[index])
+  );
   const legacyItems = () => launchItems().filter((item) => (
     LEGACY_LOGIN_ITEM_NAMES.includes(item?.name)
     && typeof item.path === "string"
+  ));
+  const relocatedCurrentItems = () => launchItems().filter((item) => (
+    item?.name === LOGIN_ITEM_NAME
+    && typeof item.path === "string"
+    && !sameTarget(item)
   ));
   const writeItem = (name, itemTarget, enabled) => app.setLoginItemSettings({
     openAtLogin: Boolean(enabled),
@@ -197,10 +210,18 @@ function createAutoStartController({
         return enabled;
       }
       const knownLegacy = legacyItems();
+      const enabledRelocatedCurrent = relocatedCurrentItems().filter((item) => item.enabled !== false);
+      const rawCurrentPath = readRunItemPath(LOGIN_ITEM_NAME);
+      const enabledRawCurrent = Boolean(
+        rawCurrentPath
+        && !samePath(rawCurrentPath, target.path)
+        && loginItemEnabled(app.getLoginItemSettings({ path: rawCurrentPath, args: [] }), platform),
+      );
+      const relocateCurrent = enabledRelocatedCurrent.length > 0 || enabledRawCurrent;
       const rawLegacyNames = LEGACY_LOGIN_ITEM_NAMES.filter((name) => Boolean(readRunItemPath(name)));
       if (knownLegacy.length) {
         const enabledLegacy = knownLegacy.filter((item) => item.enabled !== false);
-        if (!enabledLegacy.length) {
+        if (!enabledLegacy.length && !relocateCurrent) {
           const enabled = this.getEnabled();
           if (enabled && rawLegacyNames.length) {
             const cleanupFailures = rawLegacyNames
@@ -220,7 +241,7 @@ function createAutoStartController({
       }
 
       const enabledLegacy = knownLegacy.filter((item) => item.enabled !== false);
-      if (!enabledLegacy.length && !rawLegacyNames.length) {
+      if (!enabledLegacy.length && !rawLegacyNames.length && !relocateCurrent) {
         const enabled = this.getEnabled();
         lastMigrationResult = { status: "nothing-to-migrate", migrated: false, enabled };
         return enabled;
@@ -244,7 +265,12 @@ function createAutoStartController({
         return false;
       }
 
-      lastMigrationResult = { status: "migrated", migrated: true, enabled: true, deletedRunItems: rawLegacyNames };
+      lastMigrationResult = {
+        status: relocateCurrent ? "relocated-current-target" : "migrated",
+        migrated: true,
+        enabled: true,
+        deletedRunItems: rawLegacyNames,
+      };
       return true;
     },
   };

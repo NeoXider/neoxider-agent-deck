@@ -93,11 +93,16 @@ test("the Windows installer follows the canonical repository, artifact, and prod
   assert.match(installer, /268435456/);
   assert.match(installer, /-TimeoutSec 30/);
   assert.match(installer, /ResponseHeadersRead/);
+  assert.match(installer, /CancellationTokenSource/);
+  assert.match(installer, /CancelAfter\(\[TimeSpan\]::FromMinutes\(5\)\)/);
+  assert.match(installer, /ReadAsync\(\$buffer, 0, \$buffer\.Length, \$downloadDeadline\.Token\)/);
   assert.match(installer, /\$received -ne \$assetSize/);
   assert.match(installer, /\$expectedUrl/);
   assert.match(installer, /NeoXider Agent Deck\.exe/);
   assert.match(installer, /NeoXider Agent Deck\.lnk/);
   assert.match(installer, /Get-FileHash -LiteralPath \$temporary -Algorithm SHA256/);
   assert.match(installer, /\[System\.IO\.File\]::Replace\(\$temporary, \$executable, \$rollback/);
+  assert.match(installer, /\[System\.IO\.File\]::Copy\(\$rollback, \$executable, \$true\)/);
+  assert.match(installer, /if \(\$replacedExisting\) \{ Write-Host "Rollback copy: \$rollback" \}/);
   assert.doesNotMatch(installer, /DeepSeek Harness Widget/);
 });

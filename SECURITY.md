@@ -9,4 +9,8 @@
 - API keys remain in DeepSeek Harness provider storage and are never read by the widget.
 - Sessions created or prompted from the widget are deliberately switched to Harness `danger-full-access`. The agent can read, write, execute, and use configured tools without another permission prompt, so only trusted models, workspaces, MCP servers, and skills should be used.
 
+## Distribution
+
+Portable self-updates and the desktop install script are size-bounded and verified against the SHA-256 digest published by GitHub before installation. Current Windows and macOS artifacts are not code-signed, so SmartScreen or Gatekeeper can warn. Download only from the project's GitHub Releases page, verify `SHA256SUMS.txt` when installing manually, and do not treat bypassing an operating-system warning as proof that a file is authentic.
+
 Report vulnerabilities privately through GitHub Security Advisories. Do not include credentials, private prompts, local paths, or session exports in a public issue.

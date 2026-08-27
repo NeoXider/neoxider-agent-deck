@@ -126,6 +126,8 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 
 To install the latest release under `%LOCALAPPDATA%`, create a desktop shortcut and launch it:
 
+> **One-time upgrade note:** 0.5.0 is the first release with in-app updating. Version 0.4.3 and earlier cannot update themselves, so install 0.5.0 manually once; later supported releases can use **Settings → Updates**.
+
 ```powershell
 git clone https://github.com/NeoXider/neoxider-agent-deck.git
 cd neoxider-agent-deck

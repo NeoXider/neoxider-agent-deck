@@ -58,9 +58,10 @@ test("composer stacks attachment and commands beside a smaller context ring and 
   assert.ok(focus > 0 && focus < context && context < attach && attach < commands && commands < input && input < stop && stop < send);
   assert.match(html, /class="composer-view-stack"[\s\S]+id="focusChatButton"[\s\S]+id="contextMeter"/);
   assert.match(html, /class="composer-utility-stack"[\s\S]+id="attachButton"[\s\S]+id="commandsButton"/);
-  assert.match(css, /\.composer-utility-stack \{[^}]+width:28px[^}]+height:38px[^}]+grid-template-rows:repeat\(2,18px\)/);
-  assert.match(css, /\.composer-utility-stack \.composer-action \{[^}]+width:28px[^}]+height:18px/);
-  assert.match(css, /\.composer-view-stack \{[^}]+height:38px[^}]+grid-template-rows:repeat\(2,18px\)/);
+  assert.match(css, /\.composer-utility-stack \{[^}]+width:28px[^}]+height:50px[^}]+grid-template-rows:repeat\(2,24px\)/);
+  assert.match(css, /\.composer-utility-stack \.composer-action \{[^}]+width:28px[^}]+height:24px/);
+  assert.match(css, /\.composer-view-stack \{[^}]+height:50px[^}]+grid-template-rows:repeat\(2,24px\)/);
+  assert.match(css, /\.composer-view-stack \.focus-chat-button \{[^}]+width:28px[^}]+height:24px/);
   assert.match(css, /\.context-meter \{[^}]+width:28px[^}]+height:18px/);
   assert.match(css, /\.composer #sendButton \{[^}]+width:38px[^}]+height:38px/);
   assert.match(css, /\.context-meter svg \{[^}]+top:50%[^}]+left:50%[^}]+translate\(-50%,-50%\)/);
@@ -100,6 +101,7 @@ test("the full chat has a verified 360px minimum height and a 380 by 400 compact
 
 test("model picker names the control and provides loading, empty, error, retry, and model-recovery UI", () => {
   assert.match(html, /class="model-button-copy"><small>MODEL<\/small><b id="modelButtonText">Loading providers…<\/b>/);
+  assert.match(html, /id="modelSearch"[^>]+aria-label="Search models or providers"/);
   assert.match(renderer, /modelLoadState === "loading"/);
   assert.match(renderer, /No models loaded/);
   assert.match(renderer, /Models unavailable/);
@@ -124,6 +126,10 @@ test("chat is the first and default page, followed by state-aware agents", () =>
   assert.match(html, /id="chatPanel" class="panel chat-panel active"/);
   assert.match(renderer, /agent-avatar \$\{agentState\}/);
   assert.match(renderer, /session-state \$\{agentState\}/);
+  assert.match(renderer, /card\.tabIndex = 0/);
+  assert.match(renderer, /card\.setAttribute\("role", "button"\)/);
+  assert.match(renderer, /card\.setAttribute\("aria-label", `Open \$\{session\.title \|\| "New session"\}`\)/);
+  assert.match(renderer, /\["Enter", " "\]\.includes\(event\.key\)/);
   assert.match(harnessApi, /sessionStateFromHistory/);
 });
 

@@ -293,6 +293,21 @@ test("a hanging update check fails with a bounded retryable error", async () => 
   assert.equal((await service.check()).status, "error");
 });
 
+test("an update check also times out when response headers arrive but the JSON body stalls", async () => {
+  const service = createUpdateService({
+    currentVersion: "1.0.0",
+    repository: REPOSITORY,
+    fetchImpl: async () => ({
+      ok: true,
+      json: () => new Promise(() => {}),
+    }),
+    requestTimeoutMs: 20,
+  });
+  const result = await service.check();
+  assert.equal(result.status, "error");
+  assert.equal(result.error.code, "UPDATE_TIMEOUT");
+});
+
 test("a stalled update stream closes and deletes its partial file", async (t) => {
   const body = Buffer.from("new portable binary");
   const fixture = portableService({
