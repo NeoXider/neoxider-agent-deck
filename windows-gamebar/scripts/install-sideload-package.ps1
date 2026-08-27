@@ -24,7 +24,7 @@ function Resolve-SingleArtifact {
     return $matches[0].FullName
 }
 
-$package = Resolve-SingleArtifact $PackagePath 'NeoXider-Agent-Deck-GameBar-*-windows-x64.appx' 'Game Bar AppX package'
+$package = Resolve-SingleArtifact $PackagePath 'NeoXider-Agent-Deck-GameBar-*-windows-x64.msix' 'Game Bar MSIX package'
 $certificate = Resolve-SingleArtifact $CertificatePath 'NeoXider-Agent-Deck-GameBar-*-windows-x64.cer' 'public signing certificate'
 
 $publicCertificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certificate)
@@ -36,7 +36,7 @@ $signature = Get-AuthenticodeSignature -LiteralPath $package
 if ($signature.Status -in @('NotSigned', 'HashMismatch', 'NotSupportedFileFormat') -or
     -not $signature.SignerCertificate -or
     $signature.SignerCertificate.Thumbprint -ne $publicCertificate.Thumbprint) {
-    throw 'The AppX signature does not match the supplied public certificate.'
+    throw 'The MSIX signature does not match the supplied public certificate.'
 }
 
 $trusted = Get-ChildItem -LiteralPath Cert:\CurrentUser\TrustedPeople |
@@ -50,15 +50,18 @@ $trustedSignature = Get-AuthenticodeSignature -LiteralPath $package
 if ($trustedSignature.Status -ne 'Valid' -or
     -not $trustedSignature.SignerCertificate -or
     $trustedSignature.SignerCertificate.Thumbprint -ne $publicCertificate.Thumbprint) {
-    throw "The trusted AppX signature is not valid (status: $($trustedSignature.Status))."
+    throw "The trusted MSIX signature is not valid (status: $($trustedSignature.Status))."
 }
 
-$dependencyRoot = Join-Path $PSScriptRoot 'Dependencies'
+$dependencyRoot = Join-Path $PSScriptRoot 'Dependencies\x64'
 $dependencies = @()
 if (Test-Path -LiteralPath $dependencyRoot) {
-    $dependencies = @(Get-ChildItem -LiteralPath $dependencyRoot -Recurse -File |
+    $dependencies = @(Get-ChildItem -LiteralPath $dependencyRoot -File |
         Where-Object Extension -in @('.appx', '.msix') |
         Select-Object -ExpandProperty FullName)
+}
+if ($dependencies.Count -eq 0) {
+    throw 'The x64 dependency package set is missing or empty.'
 }
 
 $arguments = @{

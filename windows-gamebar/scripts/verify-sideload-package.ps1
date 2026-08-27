@@ -8,10 +8,30 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Read-EmbeddedManifest {
+    param([Parameter(Mandatory = $true)][string]$PackagePath)
+
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
+    try {
+        $manifestEntry = $archive.Entries | Where-Object FullName -eq 'AppxManifest.xml' | Select-Object -First 1
+        if (-not $manifestEntry) {
+            throw "The package does not contain AppxManifest.xml: $PackagePath"
+        }
+        $reader = [System.IO.StreamReader]::new($manifestEntry.Open())
+        try {
+            return [xml]$reader.ReadToEnd()
+        } finally {
+            $reader.Dispose()
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
 $root = (Resolve-Path -LiteralPath $Directory).Path
 $baseName = "NeoXider-Agent-Deck-GameBar-$Version-windows-x64"
-$packages = @(Get-ChildItem -LiteralPath $root -File |
-    Where-Object { $_.BaseName -eq $baseName -and $_.Extension -in @('.appx', '.msix') })
+$packages = @(Get-ChildItem -LiteralPath $root -File -Filter "$baseName.msix")
 $certificates = @(Get-ChildItem -LiteralPath $root -File -Filter "$baseName.cer")
 $installer = Join-Path $root 'Install-NeoXider-Agent-Deck-GameBar.ps1'
 
@@ -38,21 +58,7 @@ if ($signature.Status -ne 'Valid' -or
 }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archive = [System.IO.Compression.ZipFile]::OpenRead($packages[0].FullName)
-try {
-    $manifestEntry = $archive.Entries | Where-Object FullName -eq 'AppxManifest.xml' | Select-Object -First 1
-    if (-not $manifestEntry) {
-        throw 'The package does not contain AppxManifest.xml.'
-    }
-    $reader = [System.IO.StreamReader]::new($manifestEntry.Open())
-    try {
-        [xml]$manifest = $reader.ReadToEnd()
-    } finally {
-        $reader.Dispose()
-    }
-} finally {
-    $archive.Dispose()
-}
+$manifest = Read-EmbeddedManifest -PackagePath $packages[0].FullName
 
 $identity = $manifest.Package.Identity
 if ($identity.Name -ne 'NeoXider.AgentDeck.GameBar' -or
@@ -60,6 +66,29 @@ if ($identity.Name -ne 'NeoXider.AgentDeck.GameBar' -or
     $identity.ProcessorArchitecture -ne 'x64' -or
     $identity.Version -ne "$Version.0") {
     throw "Unexpected embedded package identity: $($identity.Name), $($identity.Publisher), $($identity.ProcessorArchitecture), $($identity.Version)."
+}
+
+$dependencyRoot = Join-Path $root 'Dependencies'
+$dependencyX64 = Join-Path $dependencyRoot 'x64'
+$unexpectedDependencyDirectories = @()
+if (Test-Path -LiteralPath $dependencyRoot) {
+    $unexpectedDependencyDirectories = @(Get-ChildItem -LiteralPath $dependencyRoot -Directory |
+        Where-Object Name -ne 'x64')
+}
+$dependencyPackages = @()
+if (Test-Path -LiteralPath $dependencyX64) {
+    $dependencyPackages = @(Get-ChildItem -LiteralPath $dependencyX64 -File |
+        Where-Object Extension -in @('.appx', '.msix'))
+}
+if ($unexpectedDependencyDirectories.Count -gt 0 -or $dependencyPackages.Count -eq 0) {
+    throw 'The sideload output must contain only a non-empty Dependencies\x64 package set.'
+}
+foreach ($dependencyPackage in $dependencyPackages) {
+    $dependencyManifest = Read-EmbeddedManifest -PackagePath $dependencyPackage.FullName
+    $dependencyArchitecture = [string]$dependencyManifest.Package.Identity.ProcessorArchitecture
+    if ($dependencyArchitecture -notin @('x64', 'neutral')) {
+        throw "Unexpected dependency architecture $dependencyArchitecture in $($dependencyPackage.Name)."
+    }
 }
 
 Write-Host "Game Bar sideload package verified: $($packages[0].Name)" -ForegroundColor Green

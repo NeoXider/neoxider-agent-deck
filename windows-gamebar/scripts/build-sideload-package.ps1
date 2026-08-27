@@ -8,10 +8,13 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $repositoryRoot = Split-Path -Parent $root
-$project = Join-Path $root 'NeoXiderAgentDeck.GameBar\NeoXiderAgentDeck.GameBar.csproj'
-$manifest = Join-Path $root 'NeoXiderAgentDeck.GameBar\Package.appxmanifest'
+$sourceProjectDirectory = Join-Path $root 'NeoXiderAgentDeck.GameBar'
+$manifest = Join-Path $sourceProjectDirectory 'Package.appxmanifest'
 $installerSource = Join-Path $PSScriptRoot 'install-sideload-package.ps1'
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) "neoxider-gamebar-$([guid]::NewGuid().ToString('N'))"
+$stagedProjectDirectory = Join-Path $temporaryRoot 'NeoXiderAgentDeck.GameBar'
+$stagedProject = Join-Path $stagedProjectDirectory 'NeoXiderAgentDeck.GameBar.csproj'
+$stagedManifest = Join-Path $stagedProjectDirectory 'Package.appxmanifest'
 $certificate = $null
 $trustedCertificateImported = $false
 
@@ -23,7 +26,6 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "Invalid package version: $Version"
 }
 $packageVersion = "$Version.0"
-$manifestBytes = [System.IO.File]::ReadAllBytes($manifest)
 
 [xml]$manifestXml = Get-Content -LiteralPath $manifest -Raw
 $identity = $manifestXml.Package.Identity
@@ -54,8 +56,13 @@ $passwordText = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'
 $password = ConvertTo-SecureString -String $passwordText -AsPlainText -Force
 
 try {
-    $manifestXml.Package.Identity.Version = $packageVersion
-    [System.IO.File]::WriteAllText($manifest, $manifestXml.OuterXml, [System.Text.UTF8Encoding]::new($false))
+    New-Item -ItemType Directory -Path $stagedProjectDirectory -Force | Out-Null
+    Get-ChildItem -LiteralPath $sourceProjectDirectory -Force |
+        Where-Object Name -notin @('bin', 'obj', 'AppPackages') |
+        Copy-Item -Destination $stagedProjectDirectory -Recurse -Force
+    [xml]$stagedManifestXml = Get-Content -LiteralPath $stagedManifest -Raw
+    $stagedManifestXml.Package.Identity.Version = $packageVersion
+    [System.IO.File]::WriteAllText($stagedManifest, $stagedManifestXml.OuterXml, [System.Text.UTF8Encoding]::new($false))
 
     $certificate = New-SelfSignedCertificate `
         -Type Custom `
@@ -75,7 +82,7 @@ try {
     Import-Certificate -FilePath $cerPath -CertStoreLocation Cert:\CurrentUser\TrustedPeople | Out-Null
     $trustedCertificateImported = $true
 
-    & $msbuild $project /restore /m /t:Rebuild `
+    & $msbuild $stagedProject /restore /m /t:Rebuild `
         /p:Configuration=Release `
         /p:Platform=x64 `
         /p:AppxPackageSigningEnabled=true `
@@ -86,39 +93,40 @@ try {
         /p:GenerateAppInstallerFile=false `
         /p:UapAppxPackageBuildMode=SideloadOnly `
         /p:AppxBundle=Never `
-        /p:AppxPackageVersion=$packageVersion `
         /p:AppxPackageDir=$appxOutput\
     if ($LASTEXITCODE -ne 0) {
         throw "Signed Game Bar package build failed with exit code $LASTEXITCODE."
     }
 
-    $packages = @(Get-ChildItem -LiteralPath $appxOutput -Recurse -File |
+    $packages = @(Get-ChildItem -LiteralPath $appxOutput -Recurse -File -Filter '*.msix' |
         Where-Object {
-            $_.Extension -in @('.appx', '.msix') -and
             $_.FullName -notmatch '[\\/]Dependencies[\\/]'
         })
     if ($packages.Count -ne 1) {
-        throw "Expected one x64 AppX/MSIX package, found $($packages.Count)."
+        throw "Expected one x64 MSIX package, found $($packages.Count)."
     }
 
-    $extension = '.appx'
     $baseName = "NeoXider-Agent-Deck-GameBar-$Version-windows-x64"
-    $packageDestination = Join-Path $resolvedOutput "$baseName$extension"
+    $packageDestination = Join-Path $resolvedOutput "$baseName.msix"
     $certificateDestination = Join-Path $resolvedOutput "$baseName.cer"
     $installerDestination = Join-Path $resolvedOutput 'Install-NeoXider-Agent-Deck-GameBar.ps1'
     Copy-Item -LiteralPath $packages[0].FullName -Destination $packageDestination -Force
     Copy-Item -LiteralPath $cerPath -Destination $certificateDestination -Force
     Copy-Item -LiteralPath $installerSource -Destination $installerDestination -Force
 
-    $dependencySource = Join-Path $appxOutput 'Dependencies'
-    if (-not (Test-Path -LiteralPath $dependencySource)) {
-        $dependencySource = Get-ChildItem -LiteralPath $appxOutput -Directory -Recurse |
-            Where-Object Name -eq 'Dependencies' |
-            Select-Object -First 1 -ExpandProperty FullName
+    $dependencySources = @(Get-ChildItem -LiteralPath $appxOutput -Directory -Recurse |
+        Where-Object { $_.Name -ieq 'x64' -and $_.Parent.Name -eq 'Dependencies' })
+    if ($dependencySources.Count -ne 1) {
+        throw "Expected one x64 dependency directory, found $($dependencySources.Count)."
     }
-    if ($dependencySource -and (Test-Path -LiteralPath $dependencySource)) {
-        Copy-Item -LiteralPath $dependencySource -Destination (Join-Path $resolvedOutput 'Dependencies') -Recurse -Force
+    $dependencyPackages = @(Get-ChildItem -LiteralPath $dependencySources[0].FullName -File |
+        Where-Object Extension -in @('.appx', '.msix'))
+    if ($dependencyPackages.Count -eq 0) {
+        throw 'The x64 dependency directory is empty.'
     }
+    $dependencyDestination = Join-Path $resolvedOutput 'Dependencies\x64'
+    New-Item -ItemType Directory -Path $dependencyDestination -Force | Out-Null
+    $dependencyPackages | Copy-Item -Destination $dependencyDestination -Force
 
     @"
 NeoXider Agent Deck Game Bar companion $Version (x64)
@@ -145,7 +153,6 @@ The private key and PFX are never included in artifacts or releases.
 
     Write-Host "Signed Game Bar sideload kit: $resolvedOutput" -ForegroundColor Green
 } finally {
-    [System.IO.File]::WriteAllBytes($manifest, $manifestBytes)
     if ($certificate -and $trustedCertificateImported) {
         Remove-Item -LiteralPath "Cert:\CurrentUser\TrustedPeople\$($certificate.Thumbprint)" -Force -ErrorAction SilentlyContinue
     }

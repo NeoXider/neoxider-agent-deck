@@ -241,7 +241,7 @@ jobs:
         with:
           name: release-gamebar-x64
           path: |
-            windows-gamebar/artifacts/gamebar-sideload/NeoXider-Agent-Deck-GameBar-*-windows-x64.appx
+            windows-gamebar/artifacts/gamebar-sideload/NeoXider-Agent-Deck-GameBar-*-windows-x64.msix
             windows-gamebar/artifacts/gamebar-sideload/NeoXider-Agent-Deck-GameBar-*-windows-x64.cer
             windows-gamebar/artifacts/gamebar-sideload/NeoXider-Agent-Deck-GameBar-*-windows-x64.zip
             windows-gamebar/artifacts/gamebar-sideload/Install-NeoXider-Agent-Deck-GameBar.ps1

@@ -126,7 +126,7 @@ jobs:
             "NeoXider-Agent-Deck-${version}-macos-arm64.zip"
             "NeoXider-Agent-Deck-${version}-macos-x64.dmg"
             "NeoXider-Agent-Deck-${version}-macos-x64.zip"
-            "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.appx"
+            "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.msix"
             "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.cer"
             "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.zip"
             "Install-NeoXider-Agent-Deck-GameBar.ps1"

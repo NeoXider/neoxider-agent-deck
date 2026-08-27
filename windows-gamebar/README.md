@@ -22,9 +22,9 @@ Download `NeoXider-Agent-Deck-GameBar-<version>-windows-x64.zip` from the same G
 .\Install-NeoXider-Agent-Deck-GameBar.ps1
 ```
 
-The installer verifies that the AppX signature matches the supplied public certificate, trusts that public certificate for the current Windows user, installs any packaged x64 dependencies, and installs the companion. It does not need administrator rights. Press `Win+G`, open **Widgets**, choose **NeoXider Agent Deck**, and pin it.
+The installer verifies that the MSIX signature matches the supplied public certificate, trusts that public certificate for the current Windows user, installs only the packaged x64 dependencies, and installs the companion. It does not need administrator rights. Press `Win+G`, open **Widgets**, choose **NeoXider Agent Deck**, and pin it.
 
-The release certificate is a release-specific development/sideload certificate. GitHub Actions creates it only while building, deletes the private key and temporary PFX, and publishes only the signed AppX plus public `.cer`. Never install a certificate or package obtained outside the official NeoXider release.
+The release certificate is a release-specific development/sideload certificate. GitHub Actions creates it only while building, deletes the private key and temporary PFX, and publishes only the signed MSIX plus public `.cer`. Never install a certificate or package obtained outside the official NeoXider release.
 
 Runtime requirements are Windows 10 build 19041 or later (or Windows 11), x64, and a current Xbox Game Bar app. Check them without changing the machine:
 
@@ -43,7 +43,7 @@ Local compilation additionally requires Visual Studio 2022, the **Universal Wind
 
 For the first deployment, open `NeoXiderAgentDeck.GameBar.sln` in Visual Studio, select `Debug | x64`, then choose **Build → Deploy Solution**. Game Bar widgets are protocol-activated, so normal startup opens only the instruction page.
 
-Tag releases call the same Windows workflow used for pull-request compile verification. It builds a Release x64 package with an ephemeral `CN=NeoXider` certificate and rejects the release if the AppX, public certificate, installer, signature, embedded identity, architecture, or version is missing or inconsistent.
+Tag releases call the same Windows workflow used for pull-request compile verification. It builds a Release x64 package with an ephemeral `CN=NeoXider` certificate and rejects the release if the MSIX, public certificate, installer, signature, embedded identity, architecture, version, or x64 dependency set is missing or inconsistent.
 
 ## One-time Game Bar setup
 

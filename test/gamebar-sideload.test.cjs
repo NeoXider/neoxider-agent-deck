@@ -21,7 +21,7 @@ test("Game Bar CI creates an ephemeral signed x64 sideload kit and releases only
   assert.match(workflow, /workflow_call:[\s\S]+release_package:[\s\S]+type: boolean/);
   assert.match(workflow, /build-sideload-package\.ps1[\s\S]+-Version \$version/);
   assert.match(workflow, /name: release-gamebar-x64/);
-  assert.match(workflow, /NeoXider-Agent-Deck-GameBar-\*-windows-x64\.appx/);
+  assert.match(workflow, /NeoXider-Agent-Deck-GameBar-\*-windows-x64\.msix/);
   assert.match(workflow, /NeoXider-Agent-Deck-GameBar-\*-windows-x64\.cer/);
   assert.match(workflow, /NeoXider-Agent-Deck-GameBar-\*-windows-x64\.zip/);
   assert.match(workflow, /Install-NeoXider-Agent-Deck-GameBar\.ps1/);
@@ -31,7 +31,7 @@ test("Game Bar CI creates an ephemeral signed x64 sideload kit and releases only
   assert.match(release, /gamebar:[\s\S]+uses: \.\/\.github\/workflows\/gamebar-ci\.yml[\s\S]+release_package: true/);
   assert.match(release, /needs: \[build, gamebar\]/);
   for (const name of [
-    "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.appx",
+    "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.msix",
     "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.cer",
     "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.zip",
     "Install-NeoXider-Agent-Deck-GameBar.ps1",
@@ -51,8 +51,11 @@ test("sideload builder deletes private material and validates package identity b
   assert.match(build, /\[System\.IO\.Path\]::GetTempPath\(\)/);
   assert.match(build, /finally \{[\s\S]+Cert:\\CurrentUser\\My[\s\S]+Remove-Item[\s\S]+\$temporaryRoot/);
   assert.match(build, /verify-sideload-package\.ps1[\s\S]+Compress-Archive/);
-  assert.match(build, /ReadAllBytes\(\$manifest\)[\s\S]+Package\.Identity\.Version = \$packageVersion[\s\S]+WriteAllBytes\(\$manifest, \$manifestBytes\)/);
-  assert.match(build, /\.Extension -in @\('\.appx', '\.msix'\)/);
+  assert.match(build, /\$stagedProjectDirectory[\s\S]+Where-Object Name -notin @\('bin', 'obj', 'AppPackages'\)[\s\S]+Package\.Identity\.Version = \$packageVersion/);
+  assert.match(build, /& \$msbuild \$stagedProject/);
+  assert.doesNotMatch(build, /AppxPackageVersion/);
+  assert.match(build, /-Filter '\*\.msix'/);
+  assert.match(build, /Dependencies\\x64/);
   assert.match(build, /Extension -in @\('\.pfx', '\.p12', '\.pvk', '\.key'\)/);
   assert.match(build, /AppxPackageSigningEnabled=true/);
   assert.match(build, /Platform=x64/);
@@ -64,6 +67,8 @@ test("sideload builder deletes private material and validates package identity b
   assert.match(verify, /AppxManifest\.xml/);
   assert.match(verify, /ProcessorArchitecture -ne 'x64'/);
   assert.match(verify, /identity\.Version -ne "\$Version\.0"/);
+  assert.match(verify, /Dependencies\\x64/);
+  assert.match(verify, /dependencyArchitecture -notin @\('x64', 'neutral'\)/);
   assert.match(verify, /HasPrivateKey/);
 });
 
@@ -80,5 +85,7 @@ test("sideload installer validates the signer before trusting the public certifi
   assert.match(installer, /trustedSignature\.Status -ne 'Valid'/);
   assert.match(installer, /HasPrivateKey/);
   assert.match(installer, /DependencyPath/);
+  assert.match(installer, /Dependencies\\x64/);
+  assert.match(installer, /windows-x64\.msix/);
   assert.match(installer, /ForceApplicationShutdown/);
 });
