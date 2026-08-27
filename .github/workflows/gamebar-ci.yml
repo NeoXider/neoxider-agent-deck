@@ -139,12 +139,7 @@ jobs:
                 throw 'Visual Studio Installer setup.exe is unavailable on the runner.'
               }
               $installer = $setup
-              $installerArguments = @(
-                'modify', '--installPath', $vs2022,
-                '--add', $workload,
-                '--add', $sdkComponent,
-                '--includeRecommended', '--quiet', '--wait', '--norestart'
-              )
+              $installerArguments = "modify --installPath `"$vs2022`" --add $workload --add $sdkComponent --includeRecommended --quiet --norestart"
             } else {
               $installer = Join-Path $env:RUNNER_TEMP 'vs_enterprise_2022.exe'
               Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vs_enterprise.exe' -OutFile $installer
@@ -154,16 +149,11 @@ jobs:
               }
 
               $vs2022 = Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Enterprise'
-              $installerArguments = @(
-                '--installPath', $vs2022,
-                '--add', $workload,
-                '--add', $sdkComponent,
-                '--includeRecommended', '--quiet', '--wait', '--norestart'
-              )
+              $installerArguments = "--installPath `"$vs2022`" --add $workload --add $sdkComponent --includeRecommended --quiet --wait --norestart"
             }
 
-            & $installer @installerArguments
-            $installerExitCode = $LASTEXITCODE
+            $installerProcess = Start-Process -FilePath $installer -ArgumentList $installerArguments -Wait -PassThru
+            $installerExitCode = $installerProcess.ExitCode
           } finally {
             Get-ChildItem -LiteralPath $env:TEMP -File -Filter 'dd_*' -ErrorAction SilentlyContinue |
               Where-Object LastWriteTime -ge $installStarted |
