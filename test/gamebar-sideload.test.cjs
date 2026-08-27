@@ -51,6 +51,8 @@ test("sideload builder deletes private material and validates package identity b
   assert.match(build, /\[System\.IO\.Path\]::GetTempPath\(\)/);
   assert.match(build, /finally \{[\s\S]+Cert:\\CurrentUser\\My[\s\S]+Remove-Item[\s\S]+\$temporaryRoot/);
   assert.match(build, /verify-sideload-package\.ps1[\s\S]+Compress-Archive/);
+  assert.match(build, /ReadAllBytes\(\$manifest\)[\s\S]+Package\.Identity\.Version = \$packageVersion[\s\S]+WriteAllBytes\(\$manifest, \$manifestBytes\)/);
+  assert.match(build, /\.Extension -in @\('\.appx', '\.msix'\)/);
   assert.match(build, /Extension -in @\('\.pfx', '\.p12', '\.pvk', '\.key'\)/);
   assert.match(build, /AppxPackageSigningEnabled=true/);
   assert.match(build, /Platform=x64/);

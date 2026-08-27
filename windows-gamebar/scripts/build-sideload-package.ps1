@@ -22,6 +22,8 @@ if (-not $Version) {
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "Invalid package version: $Version"
 }
+$packageVersion = "$Version.0"
+$manifestBytes = [System.IO.File]::ReadAllBytes($manifest)
 
 [xml]$manifestXml = Get-Content -LiteralPath $manifest -Raw
 $identity = $manifestXml.Package.Identity
@@ -50,9 +52,11 @@ $cerPath = Join-Path $temporaryRoot 'signing.cer'
 $appxOutput = Join-Path $temporaryRoot 'AppPackages'
 $passwordText = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 $password = ConvertTo-SecureString -String $passwordText -AsPlainText -Force
-$packageVersion = "$Version.0"
 
 try {
+    $manifestXml.Package.Identity.Version = $packageVersion
+    [System.IO.File]::WriteAllText($manifest, $manifestXml.OuterXml, [System.Text.UTF8Encoding]::new($false))
+
     $certificate = New-SelfSignedCertificate `
         -Type Custom `
         -Subject 'CN=NeoXider' `
@@ -88,8 +92,11 @@ try {
         throw "Signed Game Bar package build failed with exit code $LASTEXITCODE."
     }
 
-    $packages = @(Get-ChildItem -LiteralPath $appxOutput -Recurse -File -Filter '*.appx' |
-        Where-Object { $_.FullName -notmatch '[\\/]Dependencies[\\/]' -and $_.Name -notmatch 'Test' })
+    $packages = @(Get-ChildItem -LiteralPath $appxOutput -Recurse -File |
+        Where-Object {
+            $_.Extension -in @('.appx', '.msix') -and
+            $_.FullName -notmatch '[\\/]Dependencies[\\/]'
+        })
     if ($packages.Count -ne 1) {
         throw "Expected one x64 AppX/MSIX package, found $($packages.Count)."
     }
@@ -138,6 +145,7 @@ The private key and PFX are never included in artifacts or releases.
 
     Write-Host "Signed Game Bar sideload kit: $resolvedOutput" -ForegroundColor Green
 } finally {
+    [System.IO.File]::WriteAllBytes($manifest, $manifestBytes)
     if ($certificate -and $trustedCertificateImported) {
         Remove-Item -LiteralPath "Cert:\CurrentUser\TrustedPeople\$($certificate.Thumbprint)" -Force -ErrorAction SilentlyContinue
     }
