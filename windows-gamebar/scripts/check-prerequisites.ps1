@@ -21,7 +21,7 @@ if (-not (Test-Path -LiteralPath $vswhere)) {
 }
 
 $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'
-$sdkReference = Join-Path $sdkRoot 'References\10.0.19041.0\Windows.Foundation.FoundationContract\3.0.0.0\Windows.Foundation.FoundationContract.winmd'
+$sdkReference = Join-Path $sdkRoot 'References\10.0.19041.0\Windows.Foundation.FoundationContract\4.0.0.0\Windows.Foundation.FoundationContract.winmd'
 $sdkPlatform = Join-Path $sdkRoot 'Platforms\UAP\10.0.19041.0\Platform.xml'
 if (-not (Test-Path -LiteralPath $sdkReference) -or -not (Test-Path -LiteralPath $sdkPlatform)) {
     $failures.Add('Windows 10 SDK 10.0.19041.0 UWP references are missing.')

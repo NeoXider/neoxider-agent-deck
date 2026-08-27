@@ -9,8 +9,12 @@ const read = (...parts) => readFileSync(path.join(root, ...parts), "utf8");
 test("Game Bar CI creates an ephemeral signed x64 sideload kit and releases only public material", () => {
   const workflow = read(".github", "workflows", "gamebar-ci.yml");
   const release = read(".github", "workflows", "release.yml");
+  const prerequisites = read("windows-gamebar", "scripts", "check-prerequisites.ps1");
 
   assert.match(workflow, /runs-on: windows-2022/);
+  assert.match(workflow, /Windows\.Foundation\.FoundationContract\\4\.0\.0\.0/);
+  assert.match(prerequisites, /Windows\.Foundation\.FoundationContract\\4\.0\.0\.0/);
+  assert.doesNotMatch(`${workflow}\n${prerequisites}`, /Windows\.Foundation\.FoundationContract\\3\.0\.0\.0/);
   assert.match(workflow, /Start-Process -FilePath \$installer -ArgumentList \$installerArguments -Wait -PassThru/);
   assert.ok(workflow.includes('$installerArguments = "modify --installPath `"$vs2022`" --add $workload --add $sdkComponent --includeRecommended --quiet --norestart"'));
   assert.ok(workflow.includes('$installerArguments = "--installPath `"$vs2022`" --add $workload --add $sdkComponent --includeRecommended --quiet --wait --norestart"'));
