@@ -660,7 +660,9 @@ test("a dead renderer is recovered instead of left on screen", () => {
 test("shutdown releases the tray and guards a destroyed window", () => {
   assert.match(main, /tray\?\.destroy\(\)/);
   assert.match(main, /app\.on\("activate", \(\) => quitCoordinator\.handleActivation/);
-  assert.match(main, /app\.on\("before-quit", \(\) => quitCoordinator\.beforeQuit\(\)\)/);
+  // The encoder pool has to be torn down before the coordinator runs, so this is a block
+  // now rather than a one-liner. Both calls must still be there, in that order.
+  assert.match(main, /app\.on\("before-quit", \(\) => \{[^}]*imageEncoder\.shutdown\(\);[^}]*quitCoordinator\.beforeQuit\(\);/);
   assert.match(main, /requestQuit\("tray"\)/);
   assert.match(main, /ipcMain\.on\("agent-complete"[\s\S]*?!windowRef \|\| windowRef\.isDestroyed\(\)/);
 });
@@ -726,7 +728,10 @@ test("attachment preparation is asynchronous and reports failures per file", () 
   const attachments = readFileSync(path.join(root, "src", "attachments.cjs"), "utf8");
   assert.doesNotMatch(attachments, /readFileSync\(resolved\)|statSync\(resolved\)/);
   assert.match(attachments, /await fileSystem\.stat\(resolved\)/);
-  assert.match(attachments, /await fileSystem\.readFile\(resolved\)/);
+  // Encoding is injected now, so the read lives in the default encoder rather than
+  // inline. What matters is unchanged: it is awaited, never synchronous.
+  assert.match(attachments, /await fileSystem\.readFile\(filePath\)/);
+  assert.match(attachments, /encodeImage/);
   assert.match(attachments, /Promise\.allSettled\(resolved\.map\(prepareFile\)\)/);
   assert.match(attachments, /return \{ attachments, failures \}/);
   assert.match(renderer, /prepared\.failures \|\| \[\]/);

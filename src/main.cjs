@@ -22,7 +22,8 @@ const {
 } = require("./platform-capabilities.cjs");
 const { APP_ID, PRODUCT_NAME, REPOSITORY_URL } = require("./product.cjs");
 const { renderMarkdown } = require("./markdown.cjs");
-const { createAttachmentReader } = require("./attachments.cjs");
+const { createAttachmentReader, MAX_IMAGE_BYTES } = require("./attachments.cjs");
+const { createBase64Encoder } = require("./base64-encoder.cjs");
 const { queueItemView } = require("./queue-view.cjs");
 const { createMuxClient } = require("./mux-client.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
@@ -38,9 +39,11 @@ const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
 app.setName(PRODUCT_NAME);
 configureProductUserData({ app });
 const api = new HarnessApi(HARNESS_URL);
-// nativeImage is the only Electron dependency attachment reading has, so it is passed
-// in rather than reached for, which keeps the rules unit-testable.
+// nativeImage is the only Electron dependency attachment reading has, so it is injected
+// rather than reached for. So is base64 encoding: base64-encoder.cjs owns that decision.
+const imageEncoder = createBase64Encoder({ strategy: process.env.DSH_WIDGET_B64_STRATEGY });
 const { prepareFiles } = createAttachmentReader({
+  encodeImage: (filePath) => imageEncoder.encodeFile(filePath, MAX_IMAGE_BYTES),
   async makeThumbnail(filePath) {
     const thumbnail = await nativeImage.createThumbnailFromPath(filePath, { width: 160, height: 100 });
     return thumbnail.isEmpty() ? "" : thumbnail.toPNG().toString("base64");
@@ -978,7 +981,7 @@ app.whenReady().then(() => {
   }
 });
 
-app.on("before-quit", () => quitCoordinator.beforeQuit());
+app.on("before-quit", () => { imageEncoder.shutdown(); quitCoordinator.beforeQuit(); });
 
 // Unplugging a monitor or changing resolution can leave the widget off-screen, and
 // nothing re-clamped it until the next mode switch. Re-apply the current mode so the
