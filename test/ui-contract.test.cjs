@@ -62,15 +62,20 @@ test("composer stacks attachment and commands beside a smaller context ring and 
   assert.ok(focus > 0 && focus < context && context < attach && attach < commands && commands < input && input < stop && stop < send);
   assert.match(html, /class="composer-view-stack"[\s\S]+id="focusChatButton"[\s\S]+id="contextMeter"/);
   assert.match(html, /class="composer-utility-stack"[\s\S]+id="attachButton"[\s\S]+id="commandsButton"/);
-  assert.match(css, /\.composer-utility-stack \{[^}]+width:28px[^}]+height:50px[^}]+grid-template-rows:repeat\(2,24px\)/);
-  assert.match(css, /\.composer-utility-stack \.composer-action \{[^}]+width:28px[^}]+height:24px/);
-  assert.match(css, /\.composer-view-stack \{[^}]+height:50px[^}]+grid-template-rows:repeat\(2,24px\)/);
-  assert.match(css, /\.composer-view-stack \.focus-chat-button \{[^}]+width:28px[^}]+height:24px/);
+  // One row each, not a column. Two stacked 24px buttons made the resting composer 62px
+  // tall while the single-line textarea beside them measured 34px, so the controls — not
+  // the input — were setting the height. Measured with scripts/composer-measure.cjs.
+  assert.match(css, /\.composer-utility-stack \{[^}]+width:54px[^}]+height:24px[^}]+grid-template-columns:repeat\(2,26px\)/);
+  assert.match(css, /\.composer-utility-stack \.composer-action \{[^}]+width:26px[^}]+height:24px/);
+  assert.match(css, /\.composer-view-stack \{[^}]+height:24px[^}]+grid-template-columns:repeat\(2,26px\)/);
+  assert.match(css, /\.composer-view-stack \.focus-chat-button \{[^}]+width:26px[^}]+height:24px/);
+  // Neither cluster may go back to being taller than one line of input.
+  assert.doesNotMatch(css, /\.composer-(?:utility|view)-stack \{[^}]+height:50px/);
   assert.match(css, /\.context-meter \{[^}]+width:28px[^}]+height:18px/);
   assert.match(css, /\.composer #sendButton \{[^}]+width:38px[^}]+height:38px/);
   assert.match(css, /\.context-meter svg \{[^}]+top:50%[^}]+left:50%[^}]+translate\(-50%,-50%\)/);
   assert.match(css, /\.context-meter span \{[^}]+position:absolute[^}]+inset:0[^}]+place-items:center/);
-  assert.match(css, /\.composer\.context-unavailable \{[^}]+grid-template-columns:28px 28px minmax\(0,1fr\) 38px/);
+  assert.match(css, /\.composer\.context-unavailable \{[^}]+grid-template-columns:54px 54px minmax\(0,1fr\) 38px/);
   assert.match(css, /\.context-meter\.unavailable \{ display:grid; opacity:\.64; \}/);
   assert.match(renderer, /classList\.toggle\("context-unavailable", !pressure\)/);
   assert.match(renderer, /\$\("#contextValue"\)\.textContent = "0%"/);
