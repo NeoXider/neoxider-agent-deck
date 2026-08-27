@@ -1,6 +1,9 @@
 node_modules/
 release/
 tmp/
+windows-gamebar/**/bin/
+windows-gamebar/**/obj/
+windows-gamebar/artifacts/
 *.log
 .DS_Store
 Thumbs.db

@@ -8,6 +8,15 @@ $target = if ([System.IO.Path]::IsPathRooted($Executable)) { $Executable } else 
 $target = [System.IO.Path]::GetFullPath($target)
 if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw "Packaged executable not found: $target" }
 
+$bridgeHost = Join-Path (Split-Path -Parent $target) "resources\gamebar\NeoXiderAgentDeck.BridgeHost.exe"
+if (-not (Test-Path -LiteralPath $bridgeHost -PathType Leaf)) {
+  throw "Packaged Game Bar bridge host not found: $bridgeHost"
+}
+$bridgeHostBytes = (Get-Item -LiteralPath $bridgeHost).Length
+if ($bridgeHostBytes -le 0 -or $bridgeHostBytes -ge 20MB) {
+  throw "Packaged Game Bar bridge host has an invalid size: $bridgeHostBytes bytes."
+}
+
 $package = Get-Content -LiteralPath (Join-Path $root "package.json") -Raw | ConvertFrom-Json
 $marker = Join-Path ([System.IO.Path]::GetTempPath()) ("neoxider-agent-deck-smoke-" + [Guid]::NewGuid().ToString("N") + ".json")
 $previousMarker = $env:WIDGET_PACKAGED_SMOKE_PATH
@@ -28,7 +37,7 @@ try {
   if ([string]$receipt.version -ne [string]$package.version) {
     throw "Packaged version $($receipt.version) does not match package version $($package.version)."
   }
-  Write-Host "Packaged launch smoke passed: NeoXider Agent Deck $($receipt.version)"
+  Write-Host "Packaged launch smoke passed: NeoXider Agent Deck $($receipt.version); bridge host $bridgeHostBytes bytes"
 } finally {
   if ($null -eq $previousMarker) { Remove-Item Env:WIDGET_PACKAGED_SMOKE_PATH -ErrorAction SilentlyContinue }
   else { $env:WIDGET_PACKAGED_SMOKE_PATH = $previousMarker }

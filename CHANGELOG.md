@@ -5,6 +5,28 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-08-27
+
+### Added
+
+- A native Windows BridgeHost and UWP Xbox Game Bar companion contract for pinned fullscreen status, acknowledge, exact-session open, and Full-access quick reply.
+- Strict versioned JSONL framing, exact AppContainer authentication, bounded queues, reconnect generations, and redacted three-session snapshots.
+- A compact header **Update** action that appears only after a release has been fully downloaded and verified.
+
+### Changed
+
+- Supported builds now check and stage stable updates quietly in the background; installation and restart always remain user-triggered.
+- Windows packages include the trimmed self-contained BridgeHost and verify its exact packaged path during launch smoke.
+- Game Bar state and the desktop renderer share one coalesced dashboard read instead of running duplicate polling loops.
+- README screenshots and cover now show the current full, compact, edge, update, and empty-session context states.
+
+### Fixed
+
+- The context ring remains visible at `0%` before any Harness session exists.
+- Renderer recovery is bounded across crashes, failed loads, and unresponsive windows without resurrecting an intentional tray quit.
+- Settings from a newer schema, autostart intent, opacity, glow, size, layer, hotkeys, and independent Full/Avatar/Edge positions survive restart without downgrade loss.
+- Windows BridgeHost resolution now uses Windows path semantics even when the cross-platform suite runs on macOS or Linux.
+
 ## [0.5.2] - 2026-08-27
 
 ### Fixed
@@ -295,6 +317,7 @@ full audit of the main process, the renderer and the UI.
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.6.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.0
 [0.5.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.5.2
 [0.5.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.5.1
 [0.5.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.5.0

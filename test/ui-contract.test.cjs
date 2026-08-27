@@ -85,10 +85,16 @@ test("main composer starts on one line, grows to one third of the viewport, scro
   assert.match(renderer, /COMPOSER_INPUT_MAX_VIEWPORT_RATIO = 1 \/ 3/);
   assert.match(renderer, /function resizeMessageInput\(\{ immediate = false \} = \{\}\)/);
   assert.match(renderer, /Math\.floor\(window\.innerHeight \* COMPOSER_INPUT_MAX_VIEWPORT_RATIO\)/);
-  assert.match(renderer, /classList\.toggle\("is-scrollable", contentHeight > maximumHeight\)/);
+  assert.match(renderer, /Math\.floor\(viewportMaximum \/ lineHeight\) \* lineHeight/);
+  assert.match(renderer, /function restoreMessageInputViewport/);
+  assert.match(renderer, /selectionStart: input\.selectionStart/);
+  assert.match(renderer, /scrollTop: input\.scrollTop/);
+  assert.match(renderer, /Math\.round\(snapshot\.scrollTop \/ snapshot\.lineHeight\) \* snapshot\.lineHeight/);
+  assert.match(renderer, /input\.setSelectionRange\(snapshot\.selectionStart, snapshot\.selectionEnd, snapshot\.selectionDirection\)/);
+  assert.match(renderer, /classList\.toggle\("is-scrollable", isScrollable\)/);
   assert.match(renderer, /input\.value = "";\s*\n\s*resizeMessageInput\(\);/);
   assert.match(renderer, /input\.value = text;\s*\n\s*resizeMessageInput\(\);/);
-  assert.match(renderer, /window\.addEventListener\("resize", \(\) => resizeMessageInput\(\{ immediate: true \}\)\)/);
+  assert.match(renderer, /window\.addEventListener\("resize", \(\) => \{[\s\S]+resizeMessageInput\(\{ immediate: true \}\)/);
 });
 
 test("the full chat has a verified 360px minimum height and a 380 by 400 compact preset", () => {
@@ -107,6 +113,10 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(renderer, /Models unavailable/);
   assert.match(renderer, /function retryModels/);
   assert.match(renderer, /function positionPickerMenu/);
+  assert.match(renderer, /MODEL_PICKER_ROW_HEIGHT = 36/);
+  assert.match(renderer, /bottomBoundary = Math\.min\(shell\.bottom - PICKER_SURFACE_GAP, composer\.top - PICKER_SURFACE_GAP\)/);
+  assert.match(renderer, /--picker-options-height/);
+  assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.model-menu \.picker-options:not\(:empty\)[^}]+scroll-snap-type:y mandatory/);
   assert.match(renderer, /function createModelSetupCard/);
   assert.match(renderer, /Choose model/);
   assert.match(renderer, /Retry models/);
@@ -149,6 +159,9 @@ test("slash commands render as a vertical filtered palette immediately above the
   assert.match(renderer, /function filteredCommands/);
   assert.match(renderer, /className = `command-row/);
   assert.match(renderer, /command-description/);
+  assert.match(renderer, /COMMAND_MENU_ROW_HEIGHT = 44/);
+  assert.match(renderer, /--command-menu-max-height/);
+  assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.command-row \{[^}]+height:44px[^}]+scroll-snap-align:start/);
   assert.match(renderer, /\["ArrowDown", "ArrowUp"\]/);
   assert.match(renderer, /\["Enter", "Tab"\]/);
   assert.match(renderer, /\/\^\\\/\[\^\\s\]\*\$\//);
@@ -483,21 +496,28 @@ test("all six global shortcuts can be rebound, disabled, reset, and persisted", 
   assert.match(renderer, /duplicate|conflict|Shortcut is unavailable/i);
 });
 
-test("updates can be checked, downloaded, verified, and installed from settings", () => {
+test("updates download in the background and expose install only after verification", () => {
   const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
-  for (const id of ["updateSettings", "updateStatus", "updateProgress", "checkUpdateButton", "downloadUpdateButton", "installUpdateButton"]) {
+  for (const id of ["updateSettings", "updateStatus", "updateProgress", "checkUpdateButton", "installUpdateButton", "headerUpdateButton"]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
-  for (const api of ["getUpdateState", "checkForUpdates", "downloadUpdate", "installUpdate", "onUpdateState"]) {
+  for (const api of ["getUpdateState", "checkForUpdates", "installUpdate", "onUpdateState"]) {
     assert.match(preload, new RegExp(api));
   }
   assert.match(main, /createApplicationUpdateService/);
   assert.match(main, /createUpdateService/);
   assert.match(main, /createInstalledUpdateService/);
   assert.match(main, /sendToRenderer\("update-state", state\)/);
+  assert.match(main, /async function checkAndStageUpdate\(\)/);
+  assert.match(main, /result\?\.status === "available"[\s\S]+\["portable-replace", "managed"\]\.includes\(result\.installMode\)[\s\S]+updateService\.download\(\)/);
+  assert.match(main, /setTimeout\(\(\) => checkAndStageUpdate\(\)/);
   assert.match(renderer, /function renderUpdateState\(value\)/);
-  assert.match(renderer, /\["portable-replace", "managed"\]\.includes\(value\.installMode\)/);
   assert.match(renderer, /Install & restart/);
+  assert.match(renderer, /headerInstallButton\.hidden = value\.status !== "ready"/);
+  assert.match(renderer, /\$\("#headerUpdateButton"\)\.addEventListener\("click", \(\) => runUpdateAction\("install"\)\)/);
+  assert.doesNotMatch(html, /downloadUpdateButton/);
+  assert.doesNotMatch(preload, /downloadUpdate|download-update/);
+  assert.doesNotMatch(renderer, /runUpdateAction\("download"\)/);
 });
 
 test("full, avatar, and edge transitions use a short renderer handoff without touching saved geometry", () => {
@@ -652,13 +672,16 @@ test("continuous slider input is debounced instead of rewritten per tick", () =>
 });
 
 test("a dead renderer is recovered instead of left on screen", () => {
+  assert.match(main, /require\("\.\/renderer-recovery\.cjs"\)/);
   assert.match(main, /on\("render-process-gone"/);
-  assert.match(main, /MAX_RENDERER_RECOVERIES = 3/);
-  assert.match(main, /windowRef\.webContents\.reload\(\)/);
+  assert.match(main, /on\("did-finish-load", \(\) => rendererRecovery\.loaded\(\)\)/);
+  assert.match(main, /on\("did-fail-load"/);
+  assert.match(main, /on\("unresponsive"/);
 });
 
 test("shutdown releases the tray and guards a destroyed window", () => {
   assert.match(main, /tray\?\.destroy\(\)/);
+  assert.match(main, /rendererRecovery\?\.dispose\(\)/);
   assert.match(main, /app\.on\("activate", \(\) => quitCoordinator\.handleActivation/);
   assert.match(main, /app\.on\("before-quit", \(\) => quitCoordinator\.beforeQuit\(\)\)/);
   assert.match(main, /requestQuit\("tray"\)/);

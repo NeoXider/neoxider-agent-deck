@@ -71,6 +71,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - if: runner.os == 'Windows'
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 9.0.x
       - run: npm ci
       - run: npm run ${{ matrix.script }}
       - if: matrix.uiSmoke

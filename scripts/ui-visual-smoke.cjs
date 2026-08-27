@@ -14,19 +14,19 @@ const cases = [
   { name: "focus-offline", tab: "chat", fixture: "focus-offline", width: 360, height: 500, expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", focusMode: false }, min: { startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
   { name: "chat", tab: "chat", fixture: "chat", expect: { historicalReasoning: 0, markdownLists: 1, footer: 0, titlebarTabs: 1, titlebarOverlap: false, setupInToolbar: true, brandUserSelect: "none", composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 18, sendWidth: 38, sendHeight: 38, contextCenterDelta: 0 } },
   { name: "focus-chat", tab: "chat", fixture: "focus-chat", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, historicalReasoning: 0, composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 18, sendWidth: 36, sendHeight: 36, contextCenterDelta: 0 } },
-  { name: "commands", tab: "chat", fixture: "commands", expect: { commandRows: 6, commandAboveComposer: true, commandFitsWidth: true } },
-  { name: "focus-commands", tab: "chat", fixture: "focus-commands", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, commandRows: 6, commandAboveComposer: true, commandFitsWidth: true } },
+  { name: "commands", tab: "chat", fixture: "commands", expect: { commandRows: 6, commandAboveComposer: true, commandFitsWidth: true }, layout: { commandVisibleRows: 4 } },
+  { name: "focus-commands", tab: "chat", fixture: "focus-commands", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, commandRows: 6, commandAboveComposer: true, commandFitsWidth: true }, layout: { commandVisibleRows: 3 } },
   { name: "queued-message", tab: "chat", fixture: "queued-message", width: 360, height: 500, expect: { queueRows: 2, queueActions: 6, queueSingleLine: true, queueAboveComposer: true } },
   { name: "live-stream", tab: "chat", fixture: "live-stream", width: 360, height: 500, expect: { liveBubbles: 1, historicalReasoning: 0 } },
   { name: "scroll-away", tab: "chat", fixture: "scroll-away", width: 360, height: 500, expect: { scrollLatestVisible: true } },
   { name: "glow-settings", tab: "chat", fixture: "glow-settings", expect: { glowControl: 1, glowIntensity: "0.82", windowLayerOptions: 3, autoStartHydrated: true } },
-  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.5.0 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, updateProgress: "100" } },
-  { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.5.0 is available", updateBadgeVisible: true, updateDownloadVisible: true, updateInstallVisible: false } },
+  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.1 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, updateProgress: "100" } },
+  { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.1 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
   { name: "hotkey-settings", tab: "chat", fixture: "hotkey-settings", width: 420, height: 640, expect: { settingsOpen: true, hotkeySettingsOpen: true, hotkeyRows: 6 } },
   { name: "capture-menu", tab: "chat", fixture: "capture-menu", expect: { captureMenuOpen: true, captureRows: 2 } },
-  { name: "model", tab: "chat", fixture: "model", expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B" } },
-  { name: "model-360", tab: "chat", fixture: "model", width: 360, height: 360, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false } },
-  { name: "model-380", tab: "chat", fixture: "model", width: 380, height: 400, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false } },
+  { name: "model", tab: "chat", fixture: "model", expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B" }, layout: { modelVisibleRows: 6 } },
+  { name: "model-360", tab: "chat", fixture: "model", width: 360, height: 360, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false }, layout: { modelVisibleRows: 1 } },
+  { name: "model-380", tab: "chat", fixture: "model", width: 380, height: 400, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false }, layout: { modelVisibleRows: 2 } },
   { name: "model-closed", tab: "chat", fixture: "model-closed", expect: { closedModelLabel: "Qwen 3.5 9B", closedModelVisible: true, closedModelUnclipped: true } },
   { name: "compact-model-closed", tab: "chat", fixture: "model-closed", width: 360, height: 500, expect: { closedModelLabel: "Qwen 3.5 9B", closedModelVisible: true, closedModelUnclipped: true } },
   { name: "model-empty", tab: "chat", fixture: "model-empty", expect: { modelControlLabel: "MODEL", modelControlText: "No models loaded", modelPickerActions: 2 } },
@@ -41,7 +41,7 @@ const cases = [
   { name: "compact-chat", tab: "chat", fixture: "chat", width: 360, height: 500, expect: { historicalReasoning: 0, footer: 0, titlebarTabs: 1, setupInToolbar: true, composerUtilitiesStacked: true, contextRingSize: 18, sendWidth: 36, sendHeight: 36 } },
   { name: "compact-tools", tab: "chat", fixture: "markdown-tools", width: 360, height: 500, expect: { toolGroups: 1, toolCalls: 2 } },
   { name: "composer-single-line", tab: "chat", fixture: "composer-single-line", width: 380, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 50, composerInputScrollable: false, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 60 } },
-  { name: "composer-multiline-max", tab: "chat", fixture: "composer-multiline", width: 380, height: 400, expect: { composerInputScrollable: true, conversationBubbles: 1, shortMessageVisible: true }, max: { composerInputMaxDelta: 1 } },
+  { name: "composer-multiline-max", tab: "chat", fixture: "composer-multiline", width: 380, height: 400, expect: { composerInputScrollable: true, conversationBubbles: 1, shortMessageVisible: true }, layout: { composerFullLines: 8 } },
   { name: "small-chat-400", tab: "chat", fixture: "small-chat", width: 400, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 50, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 60 } },
   { name: "small-chat-380", tab: "chat", fixture: "small-chat", width: 380, height: 380, expect: { composerInputHeight: 34, composerUtilityHeight: 50, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 60 } },
   { name: "small-chat-360", tab: "chat", fixture: "small-chat", width: 360, height: 360, expect: { composerInputHeight: 34, composerUtilityHeight: 50, conversationBubbles: 1, shortMessageVisible: true, titlebarOverlap: false }, max: { composerHeight: 60 } },
@@ -115,6 +115,37 @@ function runElectron(testCase) {
   });
 }
 
+function findBox(audit, selector) {
+  return audit.boxes.find((box) => box.selector === selector);
+}
+
+function assertSnappedLayout(testCase, audit) {
+  if (testCase.layout?.composerFullLines) {
+    const expectedHeight = testCase.layout.composerFullLines * 15;
+    if (Math.abs(audit.semantic.composerInputHeight - expectedHeight) > 1) {
+      throw new Error(`${testCase.name} expected ${testCase.layout.composerFullLines} complete composer lines (${expectedHeight}px), got ${audit.semantic.composerInputHeight}px`);
+    }
+  }
+  if (testCase.layout?.commandVisibleRows) {
+    const menu = findBox(audit, ".command-menu.open");
+    const expectedHeight = 46 + testCase.layout.commandVisibleRows * 44;
+    if (!menu || Math.abs(menu.height - expectedHeight) > 1) {
+      throw new Error(`${testCase.name} expected a ${expectedHeight}px command menu ending on ${testCase.layout.commandVisibleRows} full rows, got ${JSON.stringify(menu)}`);
+    }
+  }
+  if (testCase.layout?.modelVisibleRows) {
+    const menu = findBox(audit, ".picker.open .picker-menu");
+    const composer = findBox(audit, ".composer");
+    const expectedHeight = 57 + testCase.layout.modelVisibleRows * 36;
+    if (!menu || Math.abs(menu.height - expectedHeight) > 1) {
+      throw new Error(`${testCase.name} expected a ${expectedHeight}px model picker ending on ${testCase.layout.modelVisibleRows} full rows, got ${JSON.stringify(menu)}`);
+    }
+    if (!composer || menu.bottom > composer.top - 1) {
+      throw new Error(`${testCase.name} model picker overlaps the composer: ${JSON.stringify({ menu, composer })}`);
+    }
+  }
+}
+
 async function main() {
   rmSync(output, { recursive: true, force: true });
   mkdirSync(output, { recursive: true });
@@ -147,6 +178,7 @@ async function main() {
     for (const [key, maximum] of Object.entries(testCase.max || {})) {
       if (!(audit.semantic?.[key] <= maximum)) throw new Error(`${testCase.name} expected ${key}<=${maximum}, got ${JSON.stringify(audit.semantic?.[key])}`);
     }
+    assertSnappedLayout(testCase, audit);
     process.stdout.write(`✓ ${testCase.name} ${audit.viewport.width}x${audit.viewport.height}\n`);
   }
 }

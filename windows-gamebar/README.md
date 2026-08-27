@@ -2,35 +2,39 @@
 
 This isolated Windows UWP companion is the safe fullscreen path for NeoXider Agent Deck. Xbox Game Bar hosts and renders the widget in its own overlay; there is no DLL injection, DirectX hook, process patching, or anti-cheat-sensitive code.
 
-The first stage includes:
+The companion includes:
 
 - official `Microsoft.Gaming.XboxGameBar` activation and manifest contract;
 - a pin-capable 360×112 edge/orb status surface;
 - Game Bar theme and opacity handling;
 - a versioned, bounded desktop bridge contract;
-- prerequisite and structural checks that fail clearly.
+- a self-contained native BridgeHost with exact AppContainer authentication;
+- live snapshot, acknowledge, exact-session open and Full-access quick reply commands;
+- prerequisite, protocol and sidecar checks that fail clearly.
 
-It intentionally reports `offline` until the desktop named-pipe bridge is implemented. See [BRIDGE_PROTOCOL.md](BRIDGE_PROTOCOL.md).
+The bridge is implemented and included in Windows desktop packages. The UWP package still needs a one-time sideload/deploy and user pinning before the Game Bar surface can connect. See [BRIDGE_PROTOCOL.md](BRIDGE_PROTOCOL.md).
 
-## Requirements
+## Install the release companion
 
-- Windows 10 build 19041 or later, or Windows 11;
-- the current Xbox Game Bar app;
-- Visual Studio 2022;
-- **Universal Windows Platform development** workload;
-- Windows 10 SDK **10.0.19041.0**.
+Download `NeoXider-Agent-Deck-GameBar-<version>-windows-x64.zip` from the same GitHub release as the desktop app, extract it completely, then run:
 
-Check the machine without changing it:
+```powershell
+.\Install-NeoXider-Agent-Deck-GameBar.ps1
+```
+
+The installer verifies that the AppX signature matches the supplied public certificate, trusts that public certificate for the current Windows user, installs any packaged x64 dependencies, and installs the companion. It does not need administrator rights. Press `Win+G`, open **Widgets**, choose **NeoXider Agent Deck**, and pin it.
+
+The release certificate is a release-specific development/sideload certificate. GitHub Actions creates it only while building, deletes the private key and temporary PFX, and publishes only the signed AppX plus public `.cer`. Never install a certificate or package obtained outside the official NeoXider release.
+
+Runtime requirements are Windows 10 build 19041 or later (or Windows 11), x64, and a current Xbox Game Bar app. Check them without changing the machine:
 
 ```powershell
 .\scripts\check-prerequisites.ps1
 ```
 
-On this machine, Xbox Game Bar is installed, but the UWP workload and SDK 19041 are currently missing. Install them from **Visual Studio Installer → Modify** before building. The scripts never install workloads automatically.
+## Build locally for development
 
-## Build and deploy for development
-
-After the prerequisites are installed:
+Local compilation additionally requires Visual Studio 2022, the **Universal Windows Platform development** workload, and Windows 10 SDK **10.0.19041.0**:
 
 ```powershell
 .\scripts\test-contract.ps1
@@ -38,6 +42,8 @@ After the prerequisites are installed:
 ```
 
 For the first deployment, open `NeoXiderAgentDeck.GameBar.sln` in Visual Studio, select `Debug | x64`, then choose **Build → Deploy Solution**. Game Bar widgets are protocol-activated, so normal startup opens only the instruction page.
+
+Tag releases call the same Windows workflow used for pull-request compile verification. It builds a Release x64 package with an ephemeral `CN=NeoXider` certificate and rejects the release if the AppX, public certificate, installer, signature, embedded identity, architecture, or version is missing or inconsistent.
 
 ## One-time Game Bar setup
 

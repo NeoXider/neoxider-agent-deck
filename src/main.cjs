@@ -4,10 +4,12 @@ const { HarnessApi } = require("./harness-api.cjs");
 const { createAutoStartController } = require("./auto-start.cjs");
 const { createHarnessLauncher } = require("./harness-launcher.cjs");
 const { createGameLayerKeeper } = require("./game-layer-keeper.cjs");
+const { createGameBarController, createSharedDashboardReader } = require("./gamebar-controller.cjs");
 const { createEdgeHitTracker } = require("./edge-hit-tracker.cjs");
 const { createHotkeyManager } = require("./hotkey-manager.cjs");
 const { createQuitCoordinator } = require("./quit-coordinator.cjs");
 const { createRegionSelector } = require("./region-selector.cjs");
+const { createRendererRecoveryController } = require("./renderer-recovery.cjs");
 const { createScreenshotCaptureGate, createScreenshotService } = require("./screenshot-service.cjs");
 const { createInstalledUpdateService } = require("./installed-update-service.cjs");
 const { createUpdateService } = require("./update-service.cjs");
@@ -38,6 +40,7 @@ const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
 app.setName(PRODUCT_NAME);
 configureProductUserData({ app });
 const api = new HarnessApi(HARNESS_URL);
+const dashboardReader = createSharedDashboardReader({ api });
 // nativeImage is the only Electron dependency attachment reading has, so it is passed
 // in rather than reached for, which keeps the rules unit-testable.
 const { prepareFiles } = createAttachmentReader({
@@ -88,8 +91,6 @@ function requireSessionId(value) {
   if (!sessionId) throw new Error("A session id is required");
   return sessionId;
 }
-
-
 let windowRef;
 let tray;
 let windowMode = "full";
@@ -113,8 +114,8 @@ let compactStatusResizePending = false;
 let fullDragOrigin = null;
 let compactDragTrace = [];
 const queueSnapshots = new Map();
-let rendererRecoveryCount = 0;
-const MAX_RENDERER_RECOVERIES = 3;
+let rendererRecovery;
+let gameBarController;
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 // Without the return the losing instance keeps running the whole module: it would
@@ -128,6 +129,8 @@ if (!hasSingleInstanceLock) {
 function cleanupApplication() {
   clearTimeout(preferenceSaveTimer);
   preferenceSaveTimer = null;
+  rendererRecovery?.dispose();
+  gameBarController?.dispose();
   if (windowRef && !windowRef.isDestroyed()) captureWindowBounds(windowMode, windowRef.getBounds());
   if (settingsStore) savePreferences();
   muxClient.stop();
@@ -151,11 +154,9 @@ function traceCompactDrag(stage, details = {}) {
   compactDragTrace.push({ stage, at: Date.now(), ...details });
   compactDragTrace = compactDragTrace.slice(-24);
 }
-
 function settingsPath() {
   return path.join(app.getPath("userData"), "widget-settings.json");
 }
-
 function loadPreferences() {
   settingsStore = createSettingsStore({ filePath: settingsPath() });
   preferences = settingsStore.load();
@@ -185,7 +186,6 @@ function savePreferences() {
   preferenceSaveTimer = null;
   writePreferences();
 }
-
 function schedulePreferenceSave() {
   clearTimeout(preferenceSaveTimer);
   preferenceSaveTimer = setTimeout(() => {
@@ -195,19 +195,15 @@ function schedulePreferenceSave() {
 }
 
 function autoStartPreference() {
-  try {
-    return { enabled: Boolean(autoStartController?.getEnabled()), available: Boolean(autoStartController?.available) };
-  } catch {
-    return { enabled: false, available: false };
-  }
+  try { return { enabled: Boolean(autoStartController?.getEnabled()), available: Boolean(autoStartController?.available) }; }
+  catch { return { enabled: false, available: false }; }
 }
-
-function sendToRenderer(channel, value) {
-  if (!windowRef || windowRef.isDestroyed()) return false;
-  windowRef.webContents.send(channel, value);
-  return true;
+function sendToRenderer(channel, value) { return rendererRecovery?.send(channel, value) || false; }
+async function openGameBarSession(sessionId) {
+  applyWindowMode("full");
+  windowRef?.focus();
+  if (!sendToRenderer("gamebar-select-session", sessionId)) throw new Error("Renderer unavailable");
 }
-
 function createApplicationUpdateService() {
   const shared = {
     currentVersion: app.getVersion(),
@@ -235,7 +231,12 @@ function createApplicationUpdateService() {
     isMacSigned: false,
   });
 }
-
+async function checkAndStageUpdate() {
+  const result = await updateService?.check();
+  return result?.status === "available" && ["portable-replace", "managed"].includes(result.installMode)
+    ? updateService.download()
+    : result || null;
+}
 function screenshotDisplayPoint() {
   if (!windowRef || windowRef.isDestroyed()) return undefined;
   const bounds = windowRef.getBounds();
@@ -326,7 +327,7 @@ function publishQueue(sessionId, items) {
   const safeItems = (Array.isArray(items) ? items : []).map(queueItemView).filter((item) => item.id && item.placement === "queued");
   if (safeItems.length) queueSnapshots.set(sessionId, safeItems);
   else queueSnapshots.delete(sessionId);
-  if (windowRef && !windowRef.isDestroyed()) windowRef.webContents.send("queue-update", { sessionId, items: safeItems });
+  sendToRenderer("queue-update", { sessionId, items: safeItems });
 }
 
 function publishLiveEvent(frame) {
@@ -351,7 +352,7 @@ function publishLiveEvent(frame) {
   } else if (!["turn/start", "assistant/message"].includes(event.type)) {
     return;
   }
-  windowRef.webContents.send("live-event", { sessionId: frame.sessionId, event: { type: event.type, seq: event.seq, data } });
+  sendToRenderer("live-event", { sessionId: frame.sessionId, event: { type: event.type, seq: event.seq, data } });
 }
 
 // Reconnect and silence handling live in mux-client.cjs: that logic only becomes
@@ -430,7 +431,7 @@ function snapCurrentCompactWindow({ traceEnd = false } = {}) {
   setPlatformBounds(windowRef, { x: snapped.x, y: snapped.y, width: snapped.width, height: snapped.height }, true, PLATFORM_CAPABILITIES);
   captureWindowBounds(windowMode, snapped, snapped.side);
   savePreferences();
-  windowRef.webContents.send("compact-side", preferences.compactSide);
+  sendToRenderer("compact-side", preferences.compactSide);
   return { ...windowRef.getBounds(), side: preferences.compactSide };
 }
 
@@ -516,8 +517,8 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   if (nextMode === "full") windowRef.show();
   else windowRef.showInactive();
   gameLayerKeeper?.trigger();
-  windowRef.webContents.send("window-mode", windowMode);
-  windowRef.webContents.send("compact-side", preferences.compactSide);
+  sendToRenderer("window-mode", windowMode);
+  sendToRenderer("compact-side", preferences.compactSide);
 }
 
 function createWindow() {
@@ -564,15 +565,6 @@ function createWindow() {
   const screenshotFixture = process.env.WIDGET_SCREENSHOT_FIXTURE || "";
   const screenshotFiles = process.env.WIDGET_SCREENSHOT_FILES || "";
   const screenshotBackdrop = process.env.WIDGET_SCREENSHOT_BACKDROP || "";
-  windowRef.loadFile(path.join(__dirname, "renderer", "index.html"), {
-    query: {
-      ...(screenshotTab ? { screenshotTab } : {}),
-      ...(screenshotFixture ? { screenshotFixture } : {}),
-      ...(screenshotFiles ? { screenshotFiles } : {}),
-      ...(screenshotBackdrop ? { screenshotBackdrop } : {}),
-      ...(process.env.WIDGET_SCREENSHOT_PATH ? { screenshotStatic: "1" } : {}),
-    },
-  });
   // The renderer only ever shows local files. Anything that tries to replace the
   // widget with remote content, or to spawn a second Electron window, is a bug or
   // an injection attempt: refuse it and hand safe links to the real browser.
@@ -589,16 +581,23 @@ function createWindow() {
   // A frameless transparent window that loses its renderer stays on screen as a dead
   // click-through shape the user cannot close except from the task manager. Reload it,
   // but give up after a few attempts so a reproducible crash cannot become a loop.
+  windowRef.webContents.on("did-finish-load", () => rendererRecovery.loaded());
+  windowRef.webContents.on("did-fail-load", (_event, code, description, _url, isMainFrame) => {
+    if (isMainFrame !== false && code !== -3) rendererRecovery.failed(`load-${code || description || "failed"}`);
+  });
+  windowRef.on("unresponsive", () => rendererRecovery.failed("unresponsive", true));
   windowRef.webContents.on("render-process-gone", (_event, details) => {
     console.error("Renderer gone", details.reason);
-    quitCoordinator.handleRendererGone(details, () => {
-      if (rendererRecoveryCount >= MAX_RENDERER_RECOVERIES) {
-        quitCoordinator.requestQuit("renderer-recovery-limit");
-        return;
-      }
-      rendererRecoveryCount += 1;
-      windowRef.webContents.reload();
-    });
+    quitCoordinator.handleRendererGone(details, () => rendererRecovery.failed(details.reason || "gone"));
+  });
+  windowRef.loadFile(path.join(__dirname, "renderer", "index.html"), {
+    query: {
+      ...(screenshotTab ? { screenshotTab } : {}),
+      ...(screenshotFixture ? { screenshotFixture } : {}),
+      ...(screenshotFiles ? { screenshotFiles } : {}),
+      ...(screenshotBackdrop ? { screenshotBackdrop } : {}),
+      ...(process.env.WIDGET_SCREENSHOT_PATH ? { screenshotStatic: "1" } : {}),
+    },
   });
   windowRef.once("ready-to-show", () => {
     if (screenshotPath) applyWindowMode("full", { captureCurrent: false, persist: false });
@@ -638,14 +637,8 @@ function createWindow() {
   }
 }
 
-ipcMain.handle("dashboard", async () => {
-  try {
-    const dashboard = await api.dashboard();
-    return { ok: true, harness: true, ...dashboard };
-  } catch (error) {
-    return { ok: false, harness: false, error: error instanceof Error ? error.message : String(error), sessions: [] };
-  }
-});
+ipcMain.handle("dashboard", () => dashboardReader.read());
+ipcMain.on("gamebar-selected-session", (event, sessionId) => event.sender === windowRef?.webContents && gameBarController?.setSelectedSessionId(sessionId));
 ipcMain.handle("history", async (_event, sessionId) => {
   const view = await api.history(sessionId);
   return {
@@ -787,8 +780,7 @@ ipcMain.handle("get-preferences", () => {
 });
 ipcMain.handle("app-info", () => ({ version: app.getVersion(), repository: REPOSITORY_URL, productName: PRODUCT_NAME }));
 ipcMain.handle("get-update-state", () => updateService?.getState() || null);
-ipcMain.handle("check-for-updates", () => updateService?.check() || null);
-ipcMain.handle("download-update", () => updateService?.download() || null);
+ipcMain.handle("check-for-updates", () => checkAndStageUpdate());
 ipcMain.handle("install-update", () => updateService?.install() || null);
 ipcMain.handle("set-window-mode", (_event, mode) => {
   applyWindowMode(mode);
@@ -875,7 +867,7 @@ ipcMain.on("move-compact-drag", (event, value) => {
 });
 ipcMain.on("agent-complete", () => {
   if (windowMode !== "edge" || !windowRef || windowRef.isDestroyed()) return;
-  windowRef.webContents.send("edge-bounce");
+  sendToRenderer("edge-bounce");
 });
 
 app.on("second-instance", () => {
@@ -948,6 +940,11 @@ app.whenReady().then(() => {
       sendToRenderer("hotkey-error", hotkeyRegistrationError);
     },
   });
+  rendererRecovery = createRendererRecoveryController({
+    getWindow: () => windowRef,
+    isQuitting: () => quitCoordinator.isQuitting(),
+    requestQuit: (reason) => quitCoordinator.requestQuit(reason),
+  });
   if (!ISOLATED_SMOKE_MODE) {
     try {
       registerConfiguredHotkeys(preferences.hotkeys);
@@ -957,8 +954,14 @@ app.whenReady().then(() => {
     }
   }
   createWindow();
+  gameBarController = createGameBarController({
+    platform: process.platform, smokeMode: ISOLATED_SMOKE_MODE, isPackaged: app.isPackaged,
+    appPath: app.getAppPath(), resourcesPath: process.resourcesPath, version: app.getVersion(), api,
+    readDashboard: dashboardReader.read, onOpenSession: openGameBarSession,
+  });
+  gameBarController.start();
   if (!ISOLATED_SMOKE_MODE) {
-    const updateCheckTimer = setTimeout(() => updateService.check().catch((error) => console.error("Update check failed", error)), 4000);
+    const updateCheckTimer = setTimeout(() => checkAndStageUpdate().catch((error) => console.error("Update check failed", error)), 4000);
     updateCheckTimer.unref?.();
   }
   // A screenshot run must capture a fixture, not whatever a live Harness pushes.

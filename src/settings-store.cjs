@@ -78,6 +78,7 @@ function normalizePreferences(raw = {}) {
 function createSettingsStore({ filePath, fileSystem = fs } = {}) {
   if (!filePath) throw new Error("Settings file path is required");
   const backupPath = `${filePath}.bak`;
+  let protectedNewerSchema = null;
 
   function read(candidate) {
     const raw = JSON.parse(fileSystem.readFileSync(candidate, "utf8"));
@@ -85,9 +86,39 @@ function createSettingsStore({ filePath, fileSystem = fs } = {}) {
     if (Number.isFinite(version) && version > SCHEMA_VERSION) {
       const error = new Error(`Settings schema v${version} is newer than v${SCHEMA_VERSION}`);
       error.code = "SETTINGS_TOO_NEW";
+      error.settingsSchemaVersion = version;
       throw error;
     }
     return normalizePreferences(raw);
+  }
+
+  function protectNewerSettings(candidate, error) {
+    if (error?.code !== "SETTINGS_TOO_NEW") return false;
+    const version = error.settingsSchemaVersion;
+    protectedNewerSchema ||= { path: candidate, version };
+    if (candidate === filePath) {
+      // This sidecar is only a recovery aid. The primary file remains authoritative
+      // and save() becomes read-only so reinstalling the newer build sees it directly.
+      try { fileSystem.copyFileSync(filePath, `${filePath}.v${version}`); } catch {}
+    }
+    return true;
+  }
+
+  function protectNewerSettingsBeforeSave() {
+    if (protectedNewerSchema) return;
+    let primaryIsUsable = false;
+    try {
+      read(filePath);
+      primaryIsUsable = true;
+    } catch (error) {
+      try { protectNewerSettings(filePath, error); } catch {}
+    }
+    if (protectedNewerSchema || primaryIsUsable) return;
+    try {
+      read(backupPath);
+    } catch (error) {
+      try { protectNewerSettings(backupPath, error); } catch {}
+    }
   }
 
   return {
@@ -95,17 +126,22 @@ function createSettingsStore({ filePath, fileSystem = fs } = {}) {
       try {
         return read(filePath);
       } catch (error) {
-        // A downgrade must not quietly overwrite a newer file: keep a copy first so
-        // reinstalling the newer build restores the user's settings.
-        if (error?.code === "SETTINGS_TOO_NEW") {
-          try { fileSystem.copyFileSync(filePath, `${filePath}.v${Number(JSON.parse(fileSystem.readFileSync(filePath, "utf8"))?.windowState?.version)}`); } catch {}
-        }
+        try { protectNewerSettings(filePath, error); } catch {}
       }
-      try { return read(backupPath); } catch {}
+      try {
+        return read(backupPath);
+      } catch (error) {
+        try { protectNewerSettings(backupPath, error); } catch {}
+      }
       return normalizePreferences();
     },
     save(value) {
       const normalized = normalizePreferences(value);
+      // load() normally detects a downgrade first, but save() also guards direct
+      // callers and a newer primary written after load. Returning the normalized
+      // value preserves the existing API while deliberately leaving disk untouched.
+      protectNewerSettingsBeforeSave();
+      if (protectedNewerSchema) return normalized;
       fileSystem.mkdirSync(path.dirname(filePath), { recursive: true });
       const temporaryPath = `${filePath}.${process.pid}.tmp`;
       fileSystem.writeFileSync(temporaryPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
@@ -123,6 +159,9 @@ function createSettingsStore({ filePath, fileSystem = fs } = {}) {
         try { fileSystem.rmSync(temporaryPath, { force: true }); } catch {}
       }
       return normalized;
+    },
+    isReadOnly() {
+      return Boolean(protectedNewerSchema);
     },
   };
 }

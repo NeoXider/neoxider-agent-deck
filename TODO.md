@@ -8,6 +8,12 @@ This backlog records planned work only. Items are not part of the current releas
 - Rebindable shortcuts for show/collapse, new session, both capture modes, Focus Chat, and opening Harness.
 - Three-session Avatar switcher with exact-session open and inline quick reply.
 
+## Shipped in 0.6.0
+
+- Authenticated native BridgeHost and UWP Xbox Game Bar companion protocol for pinned fullscreen status and exact-session actions.
+- Quiet background update download with digest verification and a header install action only when the release is ready.
+- Bounded renderer recovery plus downgrade-safe persistence for settings and independent Full, Avatar, and Edge positions.
+
 ## Epic: Desktop capture
 
 ### Feature: Attach clipboard image

@@ -128,6 +128,58 @@ test("corrupt primary and backup files fall back to all defaults", () => {
   });
 });
 
+test("an older build cannot overwrite a newer settings schema and a newer reader gets the original data", () => {
+  withTemporaryStore(({ filePath }) => {
+    const newerPreferences = {
+      ...completePreferences,
+      futurePreference: { animationProfile: "cinematic" },
+      windowState: { ...completePreferences.windowState, version: 3 },
+    };
+    fs.writeFileSync(filePath, `${JSON.stringify(newerPreferences, null, 2)}\n`, "utf8");
+    fs.writeFileSync(`${filePath}.bak`, `${JSON.stringify(completePreferences, null, 2)}\n`, "utf8");
+
+    const olderStore = createSettingsStore({ filePath });
+    const fallback = olderStore.load();
+    assert.deepEqual(fallback, completePreferences);
+    assert.equal(olderStore.isReadOnly(), true);
+
+    const attemptedSave = { ...fallback, opacity: 0.65, size: "compact" };
+    assert.deepEqual(olderStore.save(attemptedSave), normalizePreferences(attemptedSave));
+    assert.deepEqual(JSON.parse(fs.readFileSync(filePath, "utf8")), newerPreferences);
+    assert.deepEqual(JSON.parse(fs.readFileSync(`${filePath}.bak`, "utf8")), completePreferences);
+
+    const readAsNewerBuild = (candidate) => {
+      const value = JSON.parse(fs.readFileSync(candidate, "utf8"));
+      assert.equal(value.windowState.version, 3);
+      return value;
+    };
+    assert.equal(readAsNewerBuild(filePath).futurePreference.animationProfile, "cinematic");
+  });
+});
+
+for (const primaryState of ["absent", "corrupt"]) {
+  test(`direct save preserves a newer backup when the primary is ${primaryState}`, () => {
+    withTemporaryStore(({ filePath }) => {
+      const newerBackup = {
+        ...completePreferences,
+        futurePreference: { responseStyle: "adaptive" },
+        windowState: { ...completePreferences.windowState, version: 3 },
+      };
+      const backupPath = `${filePath}.bak`;
+      fs.writeFileSync(backupPath, `${JSON.stringify(newerBackup, null, 2)}\n`, "utf8");
+      if (primaryState === "corrupt") fs.writeFileSync(filePath, "{ corrupt primary", "utf8");
+
+      const olderStore = createSettingsStore({ filePath });
+      const attemptedSave = { ...completePreferences, opacity: 0.66 };
+      assert.deepEqual(olderStore.save(attemptedSave), normalizePreferences(attemptedSave));
+      assert.equal(olderStore.isReadOnly(), true);
+      assert.deepEqual(JSON.parse(fs.readFileSync(backupPath, "utf8")), newerBackup);
+      if (primaryState === "absent") assert.equal(fs.existsSync(filePath), false);
+      else assert.equal(fs.readFileSync(filePath, "utf8"), "{ corrupt primary");
+    });
+  });
+}
+
 test("legacy alwaysOnTop migrates without losing other user settings", () => {
   const migrated = normalizePreferences({
     alwaysOnTop: false,

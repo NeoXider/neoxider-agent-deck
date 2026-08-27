@@ -34,7 +34,6 @@ contextBridge.exposeInMainWorld("widget", {
   getAppInfo: () => ipcRenderer.invoke("app-info"),
   getUpdateState: () => ipcRenderer.invoke("get-update-state"),
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
-  downloadUpdate: () => ipcRenderer.invoke("download-update"),
   installUpdate: () => ipcRenderer.invoke("install-update"),
   setWindowMode: (mode) => ipcRenderer.invoke("set-window-mode", mode),
   setCompactStatus: (value) => ipcRenderer.invoke("set-compact-status", value),
@@ -55,4 +54,6 @@ contextBridge.exposeInMainWorld("widget", {
   onScreenshotCaptured: (listener) => ipcRenderer.on("screenshot-captured", (_event, value) => listener(value)),
   onUpdateState: (listener) => ipcRenderer.on("update-state", (_event, value) => listener(value)),
   notifyAgentComplete: () => ipcRenderer.send("agent-complete"),
+  selectGameBarSession: (sessionId) => ipcRenderer.send("gamebar-selected-session", sessionId),
+  onGameBarSelectSession: (listener) => ipcRenderer.on("gamebar-select-session", (_event, sessionId) => listener(sessionId)),
 });

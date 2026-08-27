@@ -48,6 +48,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="AgentStatus.cs" />
+    <Compile Include="BridgeClient.cs" />
+    <Compile Include="BridgeProtocol.cs" />
     <Compile Include="App.xaml.cs"><DependentUpon>App.xaml</DependentUpon></Compile>
     <Compile Include="MainPage.xaml.cs"><DependentUpon>MainPage.xaml</DependentUpon></Compile>
     <Compile Include="WidgetPage.xaml.cs"><DependentUpon>WidgetPage.xaml</DependentUpon></Compile>

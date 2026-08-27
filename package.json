@@ -2,7 +2,7 @@
   "name": "neoxider-agent-deck",
   "productName": "NeoXider Agent Deck",
   "desktopName": "dev.neoxider.agentdeck.desktop",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "A compact cross-platform desktop companion for DeepSeek Harness sessions, agents, and chat",
   "author": {
     "name": "NeoXider",
@@ -27,7 +27,8 @@
     "chat-smoke": "node scripts/chat-smoke.cjs",
     "tool-smoke": "node scripts/tool-call-smoke.cjs",
     "build": "npm run build:win",
-    "build:win": "npm run test && electron-builder --win nsis portable --x64 --publish never && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/packaged-launch-smoke.ps1",
+    "build:bridge-host:win": "powershell -NoProfile -ExecutionPolicy Bypass -File windows-gamebar/scripts/build-bridge-host.ps1 -Configuration Release",
+    "build:win": "npm run test && npm run build:bridge-host:win && electron-builder --win nsis portable --x64 --publish never && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/packaged-launch-smoke.ps1",
     "build:mac": "npm run test && electron-builder --mac dmg zip --publish never",
     "build:linux": "npm run test && electron-builder --linux AppImage deb --publish never",
     "test:input": "electron scripts/input-regression.cjs",
@@ -54,7 +55,13 @@
         "nsis",
         "portable"
       ],
-      "icon": "src/renderer/assets/neoxider-github.png"
+      "icon": "src/renderer/assets/neoxider-github.png",
+      "extraResources": [
+        {
+          "from": "windows-gamebar/artifacts/bridge-host/win-x64/NeoXiderAgentDeck.BridgeHost.exe",
+          "to": "gamebar/NeoXiderAgentDeck.BridgeHost.exe"
+        }
+      ]
     },
     "nsis": {
       "artifactName": "NeoXider-Agent-Deck-${version}-windows-${arch}-setup.${ext}",

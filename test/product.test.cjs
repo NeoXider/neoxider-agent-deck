@@ -13,6 +13,7 @@ const {
   REPOSITORY_URL,
   USER_DATA_SEGMENTS,
 } = require("../src/product.cjs");
+const { HOST_EXE, resolveGameBarBridgeHost } = require("../src/gamebar-controller.cjs");
 
 test("package metadata stays coherent with the product source of truth", () => {
   assert.equal(packageJson.name, PACKAGE_NAME);
@@ -66,11 +67,71 @@ test("platform packaging creates artifacts without implicit publishing", () => {
     assert.match(packageJson.scripts[script], /--publish never/);
   }
   assert.match(packageJson.scripts["build:win"], /packaged-launch-smoke\.ps1$/);
+  const windowsBuild = packageJson.scripts["build:win"];
+  const applicationTests = windowsBuild.indexOf("npm run test");
+  const bridgeBuild = windowsBuild.indexOf("npm run build:bridge-host:win");
+  const electronBuild = windowsBuild.indexOf("electron-builder");
+  const packagedSmoke = windowsBuild.indexOf("packaged-launch-smoke.ps1");
+  assert.ok(applicationTests >= 0 && applicationTests < bridgeBuild);
+  assert.ok(bridgeBuild < electronBuild);
+  assert.ok(electronBuild < packagedSmoke);
+  assert.match(packageJson.scripts["build:bridge-host:win"], /build-bridge-host\.ps1 -Configuration Release$/);
+  assert.doesNotMatch(packageJson.scripts["build:mac"], /bridge-host|dotnet/i);
+  assert.doesNotMatch(packageJson.scripts["build:linux"], /bridge-host|dotnet/i);
   const main = readFileSync(path.join(__dirname, "..", "src", "main.cjs"), "utf8");
   assert.doesNotMatch(main, /^const \{ attachScreenshotHarness \} = require/m);
   assert.match(main, /if \(screenshotPath\) \{\s+const \{ attachScreenshotHarness \} = require/);
   assert.match(main, /const ISOLATED_SMOKE_MODE = SCREENSHOT_MODE \|\| Boolean\(PACKAGED_SMOKE_PATH\)/);
   assert.match(main, /if \(!ISOLATED_SMOKE_MODE\) autoStartController\.migrateLegacy\(\)/);
+});
+
+test("Windows packages exactly the bridge host path resolved by the packaged controller", () => {
+  assert.deepEqual(packageJson.build.win.extraResources, [{
+    from: "windows-gamebar/artifacts/bridge-host/win-x64/NeoXiderAgentDeck.BridgeHost.exe",
+    to: `gamebar/${HOST_EXE}`,
+  }]);
+
+  const resourcesPath = path.win32.join("C:\\", "packaged-resources");
+  const embeddedHost = path.win32.join(resourcesPath, packageJson.build.win.extraResources[0].to);
+  assert.equal(resolveGameBarBridgeHost({
+    platform: "win32",
+    isPackaged: true,
+    resourcesPath,
+    fileExists: (candidate) => candidate === embeddedHost,
+  }), embeddedHost);
+
+  const publishScript = readFileSync(path.join(__dirname, "..", "windows-gamebar", "scripts", "build-bridge-host.ps1"), "utf8");
+  const hostProject = readFileSync(path.join(__dirname, "..", "windows-gamebar", "NeoXiderAgentDeck.BridgeHost", "NeoXiderAgentDeck.BridgeHost.csproj"), "utf8");
+  assert.match(publishScript, /--self-contained true/);
+  assert.match(publishScript, /PublishTrimmed=true/);
+  assert.match(hostProject, /<PublishSingleFile>true<\/PublishSingleFile>/);
+  assert.match(publishScript, /\$publishedBytes -le 0 -or \$publishedBytes -ge \$maximumPublishedBytes/);
+  assert.match(publishScript, /\$maximumPublishedBytes = 20MB/);
+
+  const packagedSmoke = readFileSync(path.join(__dirname, "..", "scripts", "packaged-launch-smoke.ps1"), "utf8");
+  assert.match(packagedSmoke, /\[string\]\$Executable = "release\\win-unpacked\\NeoXider Agent Deck\.exe"/);
+  assert.match(packagedSmoke, /Join-Path \(Split-Path -Parent \$target\) "resources\\gamebar\\NeoXiderAgentDeck\.BridgeHost\.exe"/);
+  assert.match(packagedSmoke, /resources\\gamebar\\NeoXiderAgentDeck\.BridgeHost\.exe/);
+  assert.match(packagedSmoke, /\$bridgeHostBytes -le 0 -or \$bridgeHostBytes -ge 20MB/);
+});
+
+test("Windows packaging workflows pin .NET 9 while Game Bar CI publishes bridge evidence", () => {
+  const setupDotnet = "actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9";
+  const ci = readFileSync(path.join(__dirname, "..", ".github", "workflows", "ci.yml"), "utf8");
+  const release = readFileSync(path.join(__dirname, "..", ".github", "workflows", "release.yml"), "utf8");
+  const gameBar = readFileSync(path.join(__dirname, "..", ".github", "workflows", "gamebar-ci.yml"), "utf8");
+
+  for (const workflow of [ci, release, gameBar]) {
+    assert.match(workflow, new RegExp(setupDotnet.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(workflow, /dotnet-version: 9\.0\.x/);
+  }
+  assert.match(ci, /if: runner\.os == 'Windows'[\s\S]+setup-dotnet@[0-9a-f]{40}[\s\S]+npm run \$\{\{ matrix\.script \}\}/);
+  assert.match(release, /if: runner\.os == 'Windows'[\s\S]+setup-dotnet@[0-9a-f]{40}[\s\S]+npm run \$\{\{ matrix\.script \}\}/);
+  const sidecarBuild = gameBar.indexOf("build-bridge-host.ps1 -Configuration Release");
+  const uwpBuild = gameBar.indexOf("windows-gamebar\\scripts\\build.ps1 -Configuration");
+  assert.ok(sidecarBuild >= 0 && sidecarBuild < uwpBuild);
+  assert.match(gameBar, /windows-gamebar\/artifacts\/bridge-host\/win-x64\/NeoXiderAgentDeck\.BridgeHost\.exe/);
+  assert.match(gameBar, /compilation only and does not deploy or run the widget/);
 });
 
 test("tag releases retain updater metadata and publish it with platform artifacts", () => {

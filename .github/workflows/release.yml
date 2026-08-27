@@ -71,6 +71,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - if: runner.os == 'Windows'
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 9.0.x
       - run: npm ci
       - if: matrix.interactionSmoke
         run: npm run test:input
@@ -83,8 +87,16 @@ jobs:
           path: ${{ matrix.files }}
           if-no-files-found: error
 
+  gamebar:
+    needs: validate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/gamebar-ci.yml
+    with:
+      release_package: true
+
   publish:
-    needs: build
+    needs: [build, gamebar]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -114,6 +126,10 @@ jobs:
             "NeoXider-Agent-Deck-${version}-macos-arm64.zip"
             "NeoXider-Agent-Deck-${version}-macos-x64.dmg"
             "NeoXider-Agent-Deck-${version}-macos-x64.zip"
+            "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.appx"
+            "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.cer"
+            "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.zip"
+            "Install-NeoXider-Agent-Deck-GameBar.ps1"
           )
           mapfile -t actual < <(find artifacts -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
           mapfile -t wanted < <(printf '%s\n' "${expected[@]}" | sort)

@@ -1,0 +1,272 @@
+name: Xbox Game Bar compile verification
+
+on:
+  workflow_call:
+    inputs:
+      release_package:
+        description: Upload the verified sideload kit as release-gamebar-x64
+        required: false
+        type: boolean
+        default: false
+  push:
+    paths:
+      - "windows-gamebar/**"
+      - "src/gamebar-*.cjs"
+      - "test/gamebar-*.test.cjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/gamebar-ci.yml"
+  pull_request:
+    paths:
+      - "windows-gamebar/**"
+      - "src/gamebar-*.cjs"
+      - "test/gamebar-*.test.cjs"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/gamebar-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Contract and x64 compile
+    runs-on: windows-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Build, test, and publish desktop bridge host
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $logRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\gamebar-ci-logs'
+          New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
+
+          & .\windows-gamebar\scripts\build-bridge-host.ps1 -Configuration Release *>&1 |
+            Tee-Object -FilePath (Join-Path $logRoot 'bridge-host.log')
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Verify desktop bridge protocol and snapshots
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm ci
+          node --test --test-concurrency=1 test/gamebar-protocol.test.cjs test/gamebar-snapshot.test.cjs
+
+      - name: Verify Game Bar contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $logRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\gamebar-ci-logs'
+          New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
+
+          & pwsh -NoLogo -NoProfile -File .\windows-gamebar\scripts\test-contract.ps1 *>&1 |
+            Tee-Object -FilePath (Join-Path $logRoot 'contract.log')
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Ensure Visual Studio UWP workload and Windows SDK 19041
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $logRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\gamebar-ci-logs'
+          $installerLogRoot = Join-Path $logRoot 'vs-installer'
+          New-Item -ItemType Directory -Path $installerLogRoot -Force | Out-Null
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $setup = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\setup.exe'
+          $workload = 'Microsoft.VisualStudio.Workload.Universal'
+          $sdkComponent = 'Microsoft.VisualStudio.Component.Windows10SDK.19041'
+          $sdkRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'
+          $sdkReference = Join-Path $sdkRoot 'References\10.0.19041.0\Windows.Foundation.FoundationContract\3.0.0.0\Windows.Foundation.FoundationContract.winmd'
+          $sdkPlatform = Join-Path $sdkRoot 'Platforms\UAP\10.0.19041.0\Platform.xml'
+
+          if (-not (Test-Path -LiteralPath $vswhere)) {
+            throw 'Visual Studio Installer / vswhere is unavailable on the runner.'
+          }
+
+          function Get-UwpInstance {
+            & $vswhere -latest -products * -requires $workload -property installationPath |
+              Select-Object -First 1
+          }
+
+          function Test-Toolchain {
+            $instance = Get-UwpInstance
+            if (-not $instance) {
+              return $false
+            }
+
+            $xamlTargets = Join-Path $instance 'MSBuild\Microsoft\WindowsXaml\v17.0\Microsoft.Windows.UI.Xaml.CSharp.targets'
+            return (Test-Path -LiteralPath $sdkReference) -and
+              (Test-Path -LiteralPath $sdkPlatform) -and
+              (Test-Path -LiteralPath $xamlTargets)
+          }
+
+          if (Test-Toolchain) {
+            "UWP workload and Windows SDK 10.0.19041.0 were already present." |
+              Set-Content -LiteralPath (Join-Path $logRoot 'toolchain.txt')
+            exit 0
+          }
+
+          $installStarted = Get-Date
+          $vs2022 = & $vswhere -latest -products * -version '[17.0,18.0)' -property installationPath |
+            Select-Object -First 1
+          $installerExitCode = -1
+
+          try {
+            if ($vs2022) {
+              if (-not (Test-Path -LiteralPath $setup)) {
+                throw 'Visual Studio Installer setup.exe is unavailable on the runner.'
+              }
+              $installer = $setup
+              $installerArguments = @(
+                'modify', '--installPath', $vs2022,
+                '--add', $workload,
+                '--add', $sdkComponent,
+                '--includeRecommended', '--quiet', '--wait', '--norestart'
+              )
+            } else {
+              $installer = Join-Path $env:RUNNER_TEMP 'vs_enterprise_2022.exe'
+              Invoke-WebRequest -Uri 'https://aka.ms/vs/17/release/vs_enterprise.exe' -OutFile $installer
+              $signature = Get-AuthenticodeSignature -LiteralPath $installer
+              if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft') {
+                throw 'The downloaded Visual Studio 2022 bootstrapper does not have a valid Microsoft signature.'
+              }
+
+              $vs2022 = Join-Path $env:ProgramFiles 'Microsoft Visual Studio\2022\Enterprise'
+              $installerArguments = @(
+                '--installPath', $vs2022,
+                '--add', $workload,
+                '--add', $sdkComponent,
+                '--includeRecommended', '--quiet', '--wait', '--norestart'
+              )
+            }
+
+            & $installer @installerArguments
+            $installerExitCode = $LASTEXITCODE
+          } finally {
+            Get-ChildItem -LiteralPath $env:TEMP -File -Filter 'dd_*' -ErrorAction SilentlyContinue |
+              Where-Object LastWriteTime -ge $installStarted |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 30 |
+              ForEach-Object {
+                $destination = Join-Path $installerLogRoot $_.Name
+                if ($_.Length -le 5MB) {
+                  Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
+                } else {
+                  Get-Content -LiteralPath $_.FullName -Tail 5000 |
+                    Set-Content -LiteralPath $destination
+                }
+              }
+          }
+
+          "Visual Studio Installer exit code: $installerExitCode (no reboot requested)." |
+            Set-Content -LiteralPath (Join-Path $logRoot 'toolchain.txt')
+          if ($installerExitCode -notin @(0, 3010)) {
+            throw "Visual Studio Installer failed with exit code $installerExitCode."
+          }
+          if (-not (Test-Toolchain)) {
+            throw 'The UWP workload, v17 XAML targets, or Windows SDK 10.0.19041.0 files are still missing after installation.'
+          }
+
+      - name: Build Debug and Release x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $logRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\gamebar-ci-logs'
+          New-Item -ItemType Directory -Path $logRoot -Force | Out-Null
+
+          # GitHub-hosted Windows Server runners do not provide the interactive
+          # Xbox Game Bar app. Its presence is a deployment/runtime prerequisite,
+          # not a compile prerequisite, so only that query is isolated here.
+          $gameBar = $null
+          if (Get-Command Get-AppxPackage -ErrorAction SilentlyContinue) {
+            $gameBar = Get-AppxPackage -Name Microsoft.XboxGamingOverlay -ErrorAction SilentlyContinue
+          }
+          if (-not $gameBar) {
+            Write-Warning 'Xbox Game Bar is absent; this job verifies compilation only and does not deploy or run the widget.'
+            function Get-AppxPackage {
+              [CmdletBinding()]
+              param([string]$Name)
+
+              if ($Name -ne 'Microsoft.XboxGamingOverlay') {
+                throw "Unexpected Appx package query in compile-only CI: $Name"
+              }
+              [pscustomobject]@{ Version = 'compile-only-runner' }
+            }
+          }
+
+          foreach ($configuration in @('Debug', 'Release')) {
+            & .\windows-gamebar\scripts\build.ps1 -Configuration $configuration *>&1 |
+              Tee-Object -FilePath (Join-Path $logRoot "msbuild-$($configuration.ToLowerInvariant()).log")
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
+
+      - name: Build and verify ephemeral-signed x64 sideload package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content -LiteralPath .\package.json -Raw | ConvertFrom-Json).version
+          & .\windows-gamebar\scripts\build-sideload-package.ps1 `
+            -Version $version `
+            -OutputDirectory .\windows-gamebar\artifacts\gamebar-sideload
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Upload verified sideload evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: windows-gamebar-sideload-${{ github.run_number }}
+          path: |
+            windows-gamebar/artifacts/gamebar-sideload/**
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Game Bar release payload
+        if: inputs.release_package == true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-gamebar-x64
+          path: |
+            windows-gamebar/artifacts/gamebar-sideload/NeoXider-Agent-Deck-GameBar-*-windows-x64.appx
+            windows-gamebar/artifacts/gamebar-sideload/NeoXider-Agent-Deck-GameBar-*-windows-x64.cer
+            windows-gamebar/artifacts/gamebar-sideload/NeoXider-Agent-Deck-GameBar-*-windows-x64.zip
+            windows-gamebar/artifacts/gamebar-sideload/Install-NeoXider-Agent-Deck-GameBar.ps1
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload compile evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: windows-gamebar-compile-${{ github.run_number }}
+          path: |
+            windows-gamebar/**/bin/**
+            windows-gamebar/**/AppPackages/**
+            windows-gamebar/artifacts/bridge-host/win-x64/NeoXiderAgentDeck.BridgeHost.exe
+            artifacts/gamebar-ci-logs/**
+          if-no-files-found: error
+          retention-days: 14

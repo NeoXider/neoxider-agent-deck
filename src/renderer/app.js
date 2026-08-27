@@ -113,31 +113,84 @@ function compactText(value, limit = 120) {
 
 const COMPOSER_INPUT_MIN_HEIGHT = 34;
 const COMPOSER_INPUT_MAX_VIEWPORT_RATIO = 1 / 3;
+const COMMAND_MENU_CHROME_HEIGHT = 46;
+const COMMAND_MENU_ROW_HEIGHT = 44;
+const COMMAND_MENU_MAX_ROWS = 4;
+const MODEL_PICKER_CHROME_HEIGHT = 57;
+const MODEL_PICKER_ROW_HEIGHT = 36;
+const MODEL_PICKER_MAX_ROWS = 6;
+const PICKER_MENU_OFFSET = 6;
+const PICKER_SURFACE_GAP = 7;
 let messageInputResizeFrame = null;
+
+function restoreMessageInputViewport(input, snapshot) {
+  if (!snapshot) return;
+  input.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd, snapshot.selectionDirection);
+  const maximumScrollTop = Math.max(0, input.scrollHeight - input.clientHeight);
+  const preservedScrollTop = input.classList.contains("is-scrollable")
+    ? Math.round(snapshot.scrollTop / snapshot.lineHeight) * snapshot.lineHeight
+    : snapshot.scrollTop;
+  input.scrollTop = snapshot.stickToBottom ? maximumScrollTop : Math.min(preservedScrollTop, maximumScrollTop);
+  input.scrollLeft = snapshot.scrollLeft;
+}
 
 function resizeMessageInput({ immediate = false } = {}) {
   const input = $("#messageInput");
   if (!input) return;
   if (messageInputResizeFrame) cancelAnimationFrame(messageInputResizeFrame);
-  const maximumHeight = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.floor(window.innerHeight * COMPOSER_INPUT_MAX_VIEWPORT_RATIO));
+  const style = getComputedStyle(input);
+  const lineHeight = Number.parseFloat(style.lineHeight) || 15;
+  const viewportMaximum = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.floor(window.innerHeight * COMPOSER_INPUT_MAX_VIEWPORT_RATIO));
+  const maximumHeight = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.floor(viewportMaximum / lineHeight) * lineHeight);
   const previousHeight = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.round(input.getBoundingClientRect().height));
-  input.style.setProperty("--composer-input-max-height", `${maximumHeight}px`);
+  const snapshot = {
+    selectionStart: input.selectionStart,
+    selectionEnd: input.selectionEnd,
+    selectionDirection: input.selectionDirection,
+    scrollTop: input.scrollTop,
+    scrollLeft: input.scrollLeft,
+    lineHeight,
+    stickToBottom: input === document.activeElement
+      && input.selectionEnd === input.value.length
+      && input.scrollTop + input.clientHeight >= input.scrollHeight - 2,
+  };
   input.style.height = "0px";
   const contentHeight = input.scrollHeight;
+  const isScrollable = contentHeight > maximumHeight;
+  input.classList.toggle("is-scrollable", isScrollable);
+  input.style.setProperty("--composer-input-max-height", `${maximumHeight}px`);
+  const normalizedContentHeight = input.scrollHeight;
   const targetHeight = input.value.length
-    ? Math.min(maximumHeight, Math.max(COMPOSER_INPUT_MIN_HEIGHT, contentHeight))
+    ? Math.min(maximumHeight, Math.max(COMPOSER_INPUT_MIN_HEIGHT, normalizedContentHeight))
     : COMPOSER_INPUT_MIN_HEIGHT;
-  input.classList.toggle("is-scrollable", contentHeight > maximumHeight);
   if (immediate) {
     input.style.height = `${targetHeight}px`;
+    restoreMessageInputViewport(input, snapshot);
     messageInputResizeFrame = null;
     return;
   }
   input.style.height = `${previousHeight}px`;
+  restoreMessageInputViewport(input, snapshot);
   messageInputResizeFrame = requestAnimationFrame(() => {
     input.style.height = `${targetHeight}px`;
+    restoreMessageInputViewport(input, snapshot);
     messageInputResizeFrame = null;
   });
+}
+
+function resizeCommandMenu() {
+  const menu = $("#commandMenu");
+  if (!menu) return;
+  const availableHeight = Math.min(
+    COMMAND_MENU_CHROME_HEIGHT + COMMAND_MENU_ROW_HEIGHT * COMMAND_MENU_MAX_ROWS,
+    Math.floor(window.innerHeight * 0.36),
+  );
+  const visibleRows = Math.max(1, Math.min(
+    COMMAND_MENU_MAX_ROWS,
+    menu.querySelectorAll(".command-row").length || 1,
+    Math.floor((availableHeight - COMMAND_MENU_CHROME_HEIGHT) / COMMAND_MENU_ROW_HEIGHT),
+  ));
+  menu.style.setProperty("--command-menu-max-height", `${COMMAND_MENU_CHROME_HEIGHT + visibleRows * COMMAND_MENU_ROW_HEIGHT}px`);
 }
 
 function closePickers(except = null, { restoreFocus = false } = {}) {
@@ -168,6 +221,27 @@ function positionPickerMenu(picker) {
   const menu = picker?.querySelector(".picker-menu");
   if (!button || !menu) return;
   const rect = button.getBoundingClientRect();
+  if (menu.classList.contains("model-menu")) {
+    const shell = $(".widget-shell").getBoundingClientRect();
+    const composer = $(".composer").getBoundingClientRect();
+    const topBoundary = shell.top + PICKER_SURFACE_GAP;
+    const bottomBoundary = Math.min(shell.bottom - PICKER_SURFACE_GAP, composer.top - PICKER_SURFACE_GAP);
+    const below = Math.max(0, bottomBoundary - rect.bottom - PICKER_MENU_OFFSET);
+    const above = Math.max(0, rect.top - PICKER_MENU_OFFSET - topBoundary);
+    const rowsFor = (space) => Math.max(0, Math.min(
+      MODEL_PICKER_MAX_ROWS,
+      Math.floor((space - MODEL_PICKER_CHROME_HEIGHT) / MODEL_PICKER_ROW_HEIGHT),
+    ));
+    const belowRows = rowsFor(below);
+    const aboveRows = rowsFor(above);
+    const opensUp = aboveRows > belowRows;
+    const visibleRows = Math.max(1, opensUp ? aboveRows : belowRows);
+    const menuHeight = MODEL_PICKER_CHROME_HEIGHT + visibleRows * MODEL_PICKER_ROW_HEIGHT;
+    picker.classList.toggle("open-up", opensUp);
+    menu.style.setProperty("--picker-max-height", `${menuHeight}px`);
+    menu.style.setProperty("--picker-options-height", `${visibleRows * MODEL_PICKER_ROW_HEIGHT}px`);
+    return;
+  }
   const below = Math.max(88, window.innerHeight - rect.bottom - 12);
   const above = Math.max(88, rect.top - 12);
   const opensUp = below < 176 && above > below;
@@ -1144,6 +1218,7 @@ function setCommandMenuOpen(open) {
   root.classList.toggle("open", Boolean(open));
   root.setAttribute("aria-hidden", String(!open));
   $("#commandsButton").setAttribute("aria-expanded", String(Boolean(open)));
+  if (open) resizeCommandMenu();
 }
 
 function chooseCommand(command) {
@@ -1216,6 +1291,7 @@ function renderCommands(query = commandQuery()) {
     options.append(row);
   }
   root.append(options);
+  resizeCommandMenu();
 }
 
 function queuedPromptsFor(sessionId = state.selectedSessionId) {
@@ -1487,6 +1563,7 @@ async function applyModelSelection() {
 async function selectSession(sessionId, openChat = false) {
   const previousSessionId = state.selectedSessionId;
   state.selectedSessionId = sessionId || null;
+  window.widget.selectGameBarSession(state.selectedSessionId);
   if (state.windowMode === "full") acknowledgeSessionError(state.selectedSessionId);
   if (previousSessionId !== state.selectedSessionId) {
     const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
@@ -2228,6 +2305,7 @@ async function performRefresh() {
     if (!selectionChangedWhileLoading && !state.selectedSessionId && dashboard.sessions?.length) {
       state.selectedSessionId = (dashboard.sessions.find((session) => session.running) || dashboard.sessions[0]).sessionId;
     }
+    window.widget.selectGameBarSession(state.selectedSessionId);
     if (dashboard.harness) {
       detectCompletedSessions(dashboard.sessions || []);
       if (state.windowMode === "full") acknowledgeSessionError(state.selectedSessionId);
@@ -2585,18 +2663,19 @@ function renderUpdateState(value) {
 
   const busy = ["checking", "downloading", "installing"].includes(value.status);
   $("#checkUpdateButton").disabled = busy;
-  $("#downloadUpdateButton").hidden = !(value.status === "available" && ["portable-replace", "managed"].includes(value.installMode));
-  $("#downloadUpdateButton").disabled = busy;
   const installButton = $("#installUpdateButton");
   installButton.hidden = !(value.status === "ready" || (["current", "available"].includes(value.status) && value.installMode === "manual"));
   installButton.disabled = busy;
   installButton.textContent = value.installMode === "manual" ? "Open release" : "Install & restart";
+  const headerInstallButton = $("#headerUpdateButton");
+  headerInstallButton.hidden = value.status !== "ready";
+  headerInstallButton.disabled = busy;
+  headerInstallButton.title = latest ? `Install ${latest} and restart` : "Install the verified update and restart";
 }
 
 async function runUpdateAction(action) {
   const methods = {
     check: "checkForUpdates",
-    download: "downloadUpdate",
     install: "installUpdate",
   };
   const method = methods[action];
@@ -2944,7 +3023,11 @@ document.addEventListener("mouseleave", () => {
 window.addEventListener("blur", () => {
   if (!compactDrag) setEdgePointerActive(false);
 });
-window.addEventListener("resize", () => resizeMessageInput({ immediate: true }));
+window.addEventListener("resize", () => {
+  resizeMessageInput({ immediate: true });
+  resizeCommandMenu();
+  $$(".picker.open").forEach(positionPickerMenu);
+});
 for (const target of [$(".brand")]) {
   target.addEventListener("pointerdown", beginFullDrag);
   target.addEventListener("pointermove", moveFullDrag);
@@ -3018,8 +3101,8 @@ $$('#sizeSwitch button').forEach((button) => button.addEventListener("click", as
   syncPressed($$('#sizeSwitch button'), value, "size");
 }));
 $("#checkUpdateButton").addEventListener("click", () => runUpdateAction("check"));
-$("#downloadUpdateButton").addEventListener("click", () => runUpdateAction("download"));
 $("#installUpdateButton").addEventListener("click", () => runUpdateAction("install"));
+$("#headerUpdateButton").addEventListener("click", () => runUpdateAction("install"));
 
 let dragDepth = 0;
 document.addEventListener("dragenter", (event) => {
@@ -3063,6 +3146,7 @@ window.widget.onScreenshotCaptured((result) => {
   try { handleScreenshotResult(result); } catch (error) { showError(error); }
 });
 window.widget.onUpdateState((value) => renderUpdateState(value));
+window.widget.onGameBarSelectSession((sessionId) => { selectSession(sessionId, true).catch(showError); });
 window.widget.onEdgeBounce(() => {
   const edge = $("#edgeMode");
   edge.classList.remove("bounce");
@@ -3267,8 +3351,8 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.4.3", latestVersion: "0.5.0", installMode: "portable-replace", progress: 100 }
-        : { status: "available", currentVersion: "0.4.3", latestVersion: "0.5.0", installMode: "managed", progress: 0 });
+        ? { status: "ready", currentVersion: "0.6.0", latestVersion: "0.6.1", installMode: "portable-replace", progress: 100 }
+        : { status: "available", currentVersion: "0.6.0", latestVersion: "0.6.1", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {
       setTab("chat");

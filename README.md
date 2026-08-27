@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.5.2-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.5.2-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.0-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.0-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -68,6 +68,14 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
     <td align="center"><strong>Reading position stays under user control</strong></td>
     <td align="center"><strong>Three window layers + adjustable glow</strong></td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/update-ready.png" alt="Verified background update ready to install from the header" /></td>
+    <td width="50%"><img src="docs/screenshots/empty-chat.png" alt="Empty session with a visible zero percent context ring" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Verified update, one-click restart</strong></td>
+    <td align="center"><strong>Complete UI before the first session</strong></td>
+  </tr>
 </table>
 
 <p align="center">
@@ -81,7 +89,7 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Chat-first navigation** — the real mini-chat is the default first page; the agent deck is one tap away.
 - **State-aware agent deck** — every session card changes its avatar, glow and label for working, idle or error state. Activity is cleared from authoritative turn events, so a completed or failed session does not remain falsely marked as working.
 - **Real Harness sessions** — session titles, running state, subagents and errors come from the live HTTP RPC API.
-- **Context pressure** — a compact ring shows projected tokens against the model context window.
+- **Context pressure** — a compact ring shows projected tokens against the model context window and remains a calm `0%` ring before the first session exists.
 - **Model routing** — use the searchable dark picker for every provider/model exposed by Harness; the active/local route (including LM Studio) stays first.
 - **Reasoning control** — effort options update dynamically for the selected model.
 - **Native commands** — the vertical `/` palette opens above the composer and is loaded from `commands/list`, so `/goal`, `/plan`, `/compact`, `/permission` and plugin commands stay current without covering the input.
@@ -114,7 +122,8 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Survives a renderer crash** — a frameless transparent window that loses its renderer is reloaded automatically instead of lingering as a dead shape that only the task manager can remove.
 - **Keyboard and screen reader support** — every reachable control draws a visible focus ring, dimmed labels hold WCAG AA contrast, and the conversation is exposed as an ARIA log region.
 - **Reliable portable autostart** — Start at login on Windows targets the stable portable launcher instead of Electron's temporary extracted child; existing stale startup entries are migrated automatically.
-- **In-app updates** — installer/AppImage builds use managed updates, while the Windows portable build downloads the exact versioned asset, bounds time and size, verifies GitHub's SHA-256 digest, stages beside the executable, and keeps rollback recovery.
+- **Quiet background updates** — supported builds check and download a stable release without interrupting the chat. Only after the file is fully verified does a compact **Update** action appear beside the version; installation and restart still require one click.
+- **Xbox Game Bar bridge** — the Windows package includes a bounded native sidecar for the separate Game Bar companion. The protocol authenticates the exact AppContainer package, exposes only snapshot, acknowledge, exact-session open and quick reply, and never injects into a game process.
 
 ## Install
 
@@ -200,7 +209,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.5.2-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.6.0-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
@@ -218,9 +227,9 @@ Screen capture, configurable global hotkeys, and the three-session pet switcher 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.5.2,
-keeps the verified 0.5.1 application while making the one-command Windows installer
-compatible with Windows PowerShell 5.1 and keeping HTTP response details out of its output.
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.0,
+adds the authenticated Xbox Game Bar bridge foundation, resilient renderer recovery,
+cross-process settings protection and quiet verified background updates.
 
 ## Platform support
 

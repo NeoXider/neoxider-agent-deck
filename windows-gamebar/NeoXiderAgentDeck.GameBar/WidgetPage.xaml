@@ -8,6 +8,24 @@
     mc:Ignorable="d">
 
     <Grid x:Name="Root" Background="Transparent" Loaded="OnLoaded">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup x:Name="WidthStates">
+                <VisualState x:Name="Wide">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="360" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="OpenButton.Visibility" Value="Visible" />
+                        <Setter Target="AckButton.Visibility" Value="Visible" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Narrow">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
         <Grid.Resources>
             <Storyboard x:Name="WaitingPulse">
                 <DoubleAnimation
@@ -27,28 +45,45 @@
                     Storyboard.TargetProperty="Opacity"
                     To="1" />
             </Storyboard>
+            <Style x:Key="CompactActionButton" TargetType="Button">
+                <Setter Property="MinWidth" Value="30" />
+                <Setter Property="Height" Value="26" />
+                <Setter Property="Padding" Value="7,0" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{StaticResource DeckTextPrimary}" />
+                <Setter Property="Background" Value="#281B2637" />
+                <Setter Property="BorderBrush" Value="#4A7987A8" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="9" />
+            </Style>
         </Grid.Resources>
 
         <Border
-            Margin="8"
-            Padding="14,12"
+            x:Name="WidgetFrame"
+            Margin="4"
+            Padding="8,6"
+            VerticalAlignment="Center"
             Background="#EA0D111A"
             BorderBrush="#4A7987A8"
             BorderThickness="1"
             CornerRadius="22">
-            <Grid>
+            <Grid x:Name="LayoutGrid" ColumnSpacing="4" RowSpacing="2">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="78" />
+                    <ColumnDefinition Width="48" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="32" />
+                    <RowDefinition Height="28" />
+                </Grid.RowDefinitions>
 
-                <Grid Width="68" Height="68" HorizontalAlignment="Left" VerticalAlignment="Center">
+                <Grid Grid.RowSpan="2" Width="46" Height="46" HorizontalAlignment="Left" VerticalAlignment="Center">
                     <Ellipse
                         x:Name="OuterGlow"
-                        Margin="-4"
+                        Margin="-3"
                         Opacity="0.35"
-                        StrokeThickness="6">
+                        StrokeThickness="5">
                         <Ellipse.Stroke>
                             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                                 <GradientStop Offset="0" Color="#FF42E7C0" />
@@ -57,34 +92,30 @@
                             </LinearGradientBrush>
                         </Ellipse.Stroke>
                     </Ellipse>
-                    <Ellipse Margin="3" Fill="#FF152031" Stroke="#A049E7C0" StrokeThickness="2" />
+                    <Ellipse Margin="2" Fill="#FF152031" Stroke="#A049E7C0" StrokeThickness="2" />
                     <Image
                         x:Name="Avatar"
-                        Width="52"
-                        Height="52"
+                        Width="36"
+                        Height="36"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Source="ms-appx:///Assets/AgentAvatar.png" />
                 </Grid>
 
-                <StackPanel Grid.Column="1" Margin="4,0,12,0" VerticalAlignment="Center" Spacing="3">
-                    <TextBlock
-                        FontSize="10"
-                        FontWeight="SemiBold"
-                        Foreground="#FF7F8DA6"
-                        CharacterSpacing="140"
-                        Text="NEOXIDER / AGENT DECK" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0">
                     <TextBlock
                         x:Name="SessionTitle"
-                        FontSize="16"
+                        FontSize="14"
                         FontWeight="SemiBold"
                         Foreground="{StaticResource DeckTextPrimary}"
-                        Text="Agent Deck" />
+                        MaxLines="1"
+                        Text="Agent Deck"
+                        TextTrimming="CharacterEllipsis" />
                     <TextBlock
                         x:Name="StatusDetail"
-                        MaxLines="1"
-                        FontSize="11"
+                        FontSize="10"
                         Foreground="{StaticResource DeckTextMuted}"
+                        MaxLines="1"
                         Text="Bridge is not connected"
                         TextTrimming="CharacterEllipsis" />
                 </StackPanel>
@@ -92,22 +123,125 @@
                 <Border
                     x:Name="StatusPill"
                     Grid.Column="2"
-                    Padding="10,5"
+                    Padding="5,3"
                     VerticalAlignment="Center"
                     Background="#2649E7C0"
                     BorderBrush="#6649E7C0"
                     BorderThickness="1"
-                    CornerRadius="12">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
+                    CornerRadius="11">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <Ellipse x:Name="UnreadDot" Width="5" Height="5" Fill="#FFFFC15E" Visibility="Collapsed" />
                         <Ellipse x:Name="StatusDot" Width="6" Height="6" Fill="#FF49E7C0" />
                         <TextBlock
                             x:Name="StatusLabel"
-                            FontSize="10"
+                            FontSize="9"
                             FontWeight="Bold"
                             Foreground="#FFC7FFF2"
-                            Text="WAITING" />
+                            Text="OFFLINE" />
                     </StackPanel>
                 </Border>
+
+                <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2">
+                    <Grid x:Name="ActionPanel" ColumnSpacing="3">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            x:Name="OpenButton"
+                            Style="{StaticResource CompactActionButton}"
+                            AutomationProperties.Name="Open this session in Agent Deck"
+                            Click="OnOpenClicked"
+                            Content="↗"
+                            IsEnabled="False"
+                            Visibility="Collapsed"
+                            ToolTipService.ToolTip="Open session" />
+                        <Button
+                            x:Name="AckButton"
+                            Grid.Column="1"
+                            Style="{StaticResource CompactActionButton}"
+                            AutomationProperties.Name="Acknowledge this update"
+                            Click="OnAckClicked"
+                            Content="✓"
+                            IsEnabled="False"
+                            Visibility="Collapsed"
+                            ToolTipService.ToolTip="Acknowledge" />
+                        <TextBox
+                            x:Name="QuickReplyInput"
+                            Grid.Column="2"
+                            Height="26"
+                            MinWidth="44"
+                            Padding="7,2"
+                            AutomationProperties.Name="Quick reply"
+                            Background="#D9152031"
+                            BorderBrush="#4A7987A8"
+                            BorderThickness="1"
+                            CornerRadius="9"
+                            FontSize="11"
+                            Foreground="{StaticResource DeckTextPrimary}"
+                            IsEnabled="False"
+                            KeyDown="OnQuickReplyKeyDown"
+                            MaxLength="4000"
+                            PlaceholderText="Quick reply"
+                            TextChanged="OnQuickReplyTextChanged" />
+                        <Button
+                            x:Name="SendReplyButton"
+                            Grid.Column="3"
+                            Style="{StaticResource CompactActionButton}"
+                            AutomationProperties.Name="Send quick reply"
+                            Click="OnSendReplyClicked"
+                            Content="→"
+                            IsEnabled="False"
+                            ToolTipService.ToolTip="Send reply" />
+                        <ProgressRing
+                            x:Name="ActionProgress"
+                            Grid.Column="4"
+                            Width="18"
+                            Height="18"
+                            VerticalAlignment="Center"
+                            Foreground="{StaticResource DeckAccent}"
+                            IsActive="False"
+                            Visibility="Collapsed" />
+                    </Grid>
+
+                    <Border
+                        x:Name="ActionError"
+                        Padding="7,2"
+                        Background="#F02A1821"
+                        BorderBrush="#88FF5B81"
+                        BorderThickness="1"
+                        CornerRadius="9"
+                        Visibility="Collapsed">
+                        <Grid ColumnSpacing="4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock
+                                x:Name="ActionErrorText"
+                                VerticalAlignment="Center"
+                                FontSize="10"
+                                Foreground="#FFFFCAD5"
+                                MaxLines="1"
+                                Text="Action failed"
+                                TextTrimming="CharacterEllipsis" />
+                            <Button
+                                Grid.Column="1"
+                                Width="24"
+                                Height="22"
+                                Padding="0"
+                                AutomationProperties.Name="Dismiss error"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Click="OnDismissErrorClicked"
+                                Content="×"
+                                Foreground="#FFFFCAD5" />
+                        </Grid>
+                    </Border>
+                </Grid>
             </Grid>
         </Border>
     </Grid>
