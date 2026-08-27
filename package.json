@@ -33,7 +33,8 @@
     "build:linux": "npm run test && electron-builder --linux AppImage deb --publish never",
     "test:input": "electron scripts/input-regression.cjs",
     "test:attachments-live": "electron scripts/attachment-preview-smoke.cjs",
-    "test:platforms": "node scripts/platform-matrix.cjs"
+    "test:platforms": "node scripts/platform-matrix.cjs",
+    "bench:encoding": "node scripts/encoding-block-bench.cjs"
   },
   "devDependencies": {
     "@electron/fuses": "1.8.0",

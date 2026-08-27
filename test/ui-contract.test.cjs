@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, "..");
 const html = readFileSync(path.join(root, "src", "renderer", "index.html"), "utf8");
 const renderer = readFileSync(path.join(root, "src", "renderer", "app.js"), "utf8");
 const main = readFileSync(path.join(root, "src", "main.cjs"), "utf8");
+const externalLinks = readFileSync(path.join(root, "src", "external-links.cjs"), "utf8");
 const platformCapabilities = readFileSync(path.join(root, "src", "platform-capabilities.cjs"), "utf8");
 const settingsStore = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
 const harnessApi = readFileSync(path.join(root, "src", "harness-api.cjs"), "utf8");
@@ -619,8 +620,9 @@ test("remote content can never replace the widget or open its own window", () =>
   assert.match(main, /setWindowOpenHandler\(\(\{ url \}\) => \{[\s\S]*?action: "deny"/);
   assert.match(main, /on\("will-navigate", \(event, url\) => \{[\s\S]*?event\.preventDefault\(\)/);
   assert.match(main, /on\("will-attach-webview", \(event\) => event\.preventDefault\(\)\)/);
-  assert.match(main, /EXTERNAL_LINK_PROTOCOLS = new Set\(\["http:", "https:", "mailto:"\]\)/);
-  assert.match(main, /function parseExternalUrl/);
+  assert.match(main, /createExternalLinkOpener/);
+  assert.match(externalLinks, /EXTERNAL_LINK_PROTOCOLS = new Set\(\["http:", "https:", "mailto:"\]\)/);
+  assert.match(externalLinks, /function parseExternalUrl/);
 });
 
 test("every dimmed label and focus ring keeps a readable contrast token", () => {
@@ -683,7 +685,9 @@ test("shutdown releases the tray and guards a destroyed window", () => {
   assert.match(main, /tray\?\.destroy\(\)/);
   assert.match(main, /rendererRecovery\?\.dispose\(\)/);
   assert.match(main, /app\.on\("activate", \(\) => quitCoordinator\.handleActivation/);
-  assert.match(main, /app\.on\("before-quit", \(\) => quitCoordinator\.beforeQuit\(\)\)/);
+  // The encoder pool has to be torn down before the coordinator runs, so this is a block
+  // now rather than a one-liner. Both calls must still be there, in that order.
+  assert.match(main, /app\.on\("before-quit", \(\) => \{[^}]*imageEncoder\.shutdown\(\);[^}]*quitCoordinator\.beforeQuit\(\);/);
   assert.match(main, /requestQuit\("tray"\)/);
   assert.match(main, /ipcMain\.on\("agent-complete"[\s\S]*?!windowRef \|\| windowRef\.isDestroyed\(\)/);
 });
@@ -749,7 +753,10 @@ test("attachment preparation is asynchronous and reports failures per file", () 
   const attachments = readFileSync(path.join(root, "src", "attachments.cjs"), "utf8");
   assert.doesNotMatch(attachments, /readFileSync\(resolved\)|statSync\(resolved\)/);
   assert.match(attachments, /await fileSystem\.stat\(resolved\)/);
-  assert.match(attachments, /await fileSystem\.readFile\(resolved\)/);
+  // Encoding is injected now, so the read lives in the default encoder rather than
+  // inline. What matters is unchanged: it is awaited, never synchronous.
+  assert.match(attachments, /await fileSystem\.readFile\(filePath\)/);
+  assert.match(attachments, /encodeImage/);
   assert.match(attachments, /Promise\.allSettled\(resolved\.map\(prepareFile\)\)/);
   assert.match(attachments, /return \{ attachments, failures \}/);
   assert.match(renderer, /prepared\.failures \|\| \[\]/);

@@ -47,7 +47,7 @@ test("sideload builder deletes private material and validates package identity b
 
   assert.match(build, /New-SelfSignedCertificate[\s\S]+-Subject 'CN=NeoXider'/);
   assert.match(build, /Export-PfxCertificate[\s\S]+Export-Certificate/);
-  assert.match(build, /Import-Certificate[\s\S]+Cert:\\CurrentUser\\TrustedPeople/);
+  assert.match(build, /Import-Certificate[\s\S]+Cert:\\LocalMachine\\TrustedPeople/);
   assert.match(build, /\[System\.IO\.Path\]::GetTempPath\(\)/);
   assert.match(build, /finally \{[\s\S]+Cert:\\CurrentUser\\My[\s\S]+Remove-Item[\s\S]+\$temporaryRoot/);
   assert.match(build, /verify-sideload-package\.ps1[\s\S]+Compress-Archive/);
@@ -60,9 +60,13 @@ test("sideload builder deletes private material and validates package identity b
   assert.match(build, /AppxPackageSigningEnabled=true/);
   assert.match(build, /Platform=x64/);
   assert.match(build, /UapAppxPackageBuildMode=SideloadOnly/);
+  assert.match(build, /signtool\.exe/);
+  assert.match(build, /verify \/pa \/all \/v/);
+  assert.match(build, /SignTool rejected/);
 
   assert.match(verify, /Get-AuthenticodeSignature/);
   assert.match(verify, /signature\.Status -ne 'Valid'/);
+  assert.match(verify, /signature\.StatusMessage/);
   assert.match(verify, /SignerCertificate\.Thumbprint -ne \$certificate\.Thumbprint/);
   assert.match(verify, /AppxManifest\.xml/);
   assert.match(verify, /ProcessorArchitecture -ne 'x64'/);
@@ -75,12 +79,18 @@ test("sideload builder deletes private material and validates package identity b
 test("sideload installer validates the signer before trusting the public certificate", () => {
   const installer = read("windows-gamebar", "scripts", "install-sideload-package.ps1");
   const signatureCheck = installer.indexOf("Get-AuthenticodeSignature");
+  const elevation = installer.indexOf("if (-not (Test-IsAdministrator))");
   const certificateImport = installer.indexOf("Import-Certificate");
   const packageInstall = installer.indexOf("Add-AppxPackage");
 
-  assert.ok(signatureCheck >= 0 && signatureCheck < certificateImport);
+  assert.ok(signatureCheck >= 0 && signatureCheck < elevation);
+  assert.ok(elevation < certificateImport);
   assert.ok(certificateImport < packageInstall);
-  assert.match(installer, /Cert:\\CurrentUser\\TrustedPeople/);
+  assert.match(installer, /Test-IsAdministrator/);
+  assert.match(installer, /Restart-Elevated/);
+  assert.match(installer, /-Verb RunAs/);
+  assert.match(installer, /Cert:\\LocalMachine\\TrustedPeople/);
+  assert.doesNotMatch(installer, /Cert:\\CurrentUser\\TrustedPeople/);
   assert.match(installer, /SignerCertificate\.Thumbprint -ne \$publicCertificate\.Thumbprint/);
   assert.match(installer, /trustedSignature\.Status -ne 'Valid'/);
   assert.match(installer, /HasPrivateKey/);

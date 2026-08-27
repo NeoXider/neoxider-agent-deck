@@ -54,7 +54,7 @@ $signature = Get-AuthenticodeSignature -LiteralPath $packages[0].FullName
 if ($signature.Status -ne 'Valid' -or
     -not $signature.SignerCertificate -or
     $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) {
-    throw "The package signature is not valid or does not match the public certificate (status: $($signature.Status))."
+    throw "The package signature is not valid or does not match the public certificate (status: $($signature.Status); message: $($signature.StatusMessage); signer: $($signature.SignerCertificate.Thumbprint); expected: $($certificate.Thumbprint))."
 }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem

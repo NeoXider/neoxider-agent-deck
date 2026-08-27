@@ -22,7 +22,7 @@ Download `NeoXider-Agent-Deck-GameBar-<version>-windows-x64.zip` from the same G
 .\Install-NeoXider-Agent-Deck-GameBar.ps1
 ```
 
-The installer verifies that the MSIX signature matches the supplied public certificate, trusts that public certificate for the current Windows user, installs only the packaged x64 dependencies, and installs the companion. It does not need administrator rights. Press `Win+G`, open **Widgets**, choose **NeoXider Agent Deck**, and pin it.
+The installer verifies that the MSIX signature matches the supplied public certificate before requesting elevation, then asks for one Windows administrator confirmation to trust that certificate in the local computer's **Trusted People** store. It re-verifies the trusted signature, installs only the packaged x64 dependencies, and installs the companion. Press `Win+G`, open **Widgets**, choose **NeoXider Agent Deck**, and pin it.
 
 The release certificate is a release-specific development/sideload certificate. GitHub Actions creates it only while building, deletes the private key and temporary PFX, and publishes only the signed MSIX plus public `.cer`. Never install a certificate or package obtained outside the official NeoXider release.
 

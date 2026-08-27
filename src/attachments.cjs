@@ -22,14 +22,24 @@ function createAttachmentReader({
   fileSystem = fsPromises,
   // Returns a base64 PNG, or "" when no preview can be produced.
   makeThumbnail = async () => "",
+  // (filePath, maxBytes) -> base64 string. Injected so the CPU-bound half can be moved to
+  // another thread without this module knowing that threads exist; the default below is
+  // the original inline encode, which is what keeps these rules testable against a fake
+  // disk and what the bench script uses as its "before" number.
+  encodeImage = null,
   maxImageBytes = MAX_IMAGE_BYTES,
   maxAttachments = MAX_ATTACHMENTS,
 } = {}) {
+  const encode = encodeImage
+    || (async (filePath) => (await fileSystem.readFile(filePath)).toString("base64"));
+
   async function prepareFile(filePath) {
     const resolved = path.resolve(String(filePath));
     // Asynchronous on purpose: the main process is single-threaded, and reading plus
     // base64-encoding up to twelve 8 MB files synchronously froze the window, the tray
-    // and every IPC handler for seconds while Windows painted "Not responding".
+    // and every IPC handler for seconds while Windows painted "Not responding". Async
+    // I/O alone was not enough — `toString("base64")` holds the thread for its whole
+    // duration whoever awaits it — so the caller injects an encoder that runs elsewhere.
     const info = await fileSystem.stat(resolved);
     if (!info.isFile()) throw new Error(`Not a file: ${resolved}`);
 
@@ -57,7 +67,7 @@ function createAttachmentReader({
     return {
       kind: "image",
       mediaType,
-      data: (await fileSystem.readFile(resolved)).toString("base64"),
+      data: await encode(resolved, maxImageBytes),
       name: path.basename(resolved),
       path: resolved,
       bytes: info.size,

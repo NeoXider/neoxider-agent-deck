@@ -6,6 +6,29 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Test-IsAdministrator {
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [System.Security.Principal.WindowsPrincipal]::new($identity)
+    return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Restart-Elevated {
+    $escapedScript = $PSCommandPath.Replace("'", "''")
+    $command = "& '$escapedScript'"
+    if ($PackagePath) {
+        $command += " -PackagePath '$($PackagePath.Replace("'", "''"))'"
+    }
+    if ($CertificatePath) {
+        $command += " -CertificatePath '$($CertificatePath.Replace("'", "''"))'"
+    }
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $windowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $process = Start-Process -FilePath $windowsPowerShell `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encodedCommand) `
+        -Verb RunAs -Wait -PassThru
+    exit $process.ExitCode
+}
+
 function Resolve-SingleArtifact {
     param(
         [string]$ExplicitPath,
@@ -39,18 +62,22 @@ if ($signature.Status -in @('NotSigned', 'HashMismatch', 'NotSupportedFileFormat
     throw 'The MSIX signature does not match the supplied public certificate.'
 }
 
-$trusted = Get-ChildItem -LiteralPath Cert:\CurrentUser\TrustedPeople |
+if (-not (Test-IsAdministrator)) {
+    Restart-Elevated
+}
+
+$trusted = Get-ChildItem -LiteralPath Cert:\LocalMachine\TrustedPeople |
     Where-Object Thumbprint -eq $publicCertificate.Thumbprint |
     Select-Object -First 1
 if (-not $trusted) {
-    Import-Certificate -FilePath $certificate -CertStoreLocation Cert:\CurrentUser\TrustedPeople | Out-Null
+    Import-Certificate -FilePath $certificate -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
 }
 
 $trustedSignature = Get-AuthenticodeSignature -LiteralPath $package
 if ($trustedSignature.Status -ne 'Valid' -or
     -not $trustedSignature.SignerCertificate -or
     $trustedSignature.SignerCertificate.Thumbprint -ne $publicCertificate.Thumbprint) {
-    throw "The trusted MSIX signature is not valid (status: $($trustedSignature.Status))."
+    throw "The trusted MSIX signature is not valid (status: $($trustedSignature.Status); message: $($trustedSignature.StatusMessage))."
 }
 
 $dependencyRoot = Join-Path $PSScriptRoot 'Dependencies\x64'
