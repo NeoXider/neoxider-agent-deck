@@ -5,6 +5,13 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] - 2026-08-29
+
+### Fixed
+
+- **The Edge line could not be moved to the other side of the screen.** The 0.6.4 fix for cumulative rightward drift froze the window's horizontal position for the whole drag, which stopped the drift but also meant the line could only ever slide up and down the side it started on. Edge drags now follow the pointer: the line stays flush against a screen edge while the side is re-derived from the cursor on every move, so crossing the middle of the display moves it across immediately, and dragging onto another monitor lands it there. Because the position is derived from the pointer rather than accumulated, the drift has nothing to build up from.
+- **Pressing the chat button in Avatar mode made the interface jump.** Opening quick reply resizes the native orb window from 172 px to 460 px in the main process, but the DOM had already switched to the wide layout — so for a few frames it was laid out inside the narrow window and then snapped. The panel now waits for the resize to be acknowledged and eases in at the correct size, with a bounded fallback so a hung or stubbed IPC shows the panel anyway instead of leaving a blank orb.
+
 ## [0.6.4] - 2026-08-28
 
 ### Added

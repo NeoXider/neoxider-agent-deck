@@ -58,6 +58,8 @@ const state = {
   compactSessionSignature: "",
   compactStatusDomSignature: "",
   compactStatusIpcSignature: "",
+  compactStatusExpanded: false,
+  compactResizeTimer: null,
   sessionListSignature: "",
   sessionSelectSignature: "",
   collapsedSessionGroupKeys: new Set(),
@@ -515,8 +517,34 @@ function syncCompactStatus() {
   const compactStatus = { active, expanded, label, text };
   const ipcSignature = JSON.stringify([active, expanded, label, text]);
   if (ipcSignature !== state.compactStatusIpcSignature) {
+    const previousExpanded = state.compactStatusExpanded;
+    state.compactStatusExpanded = expanded;
     state.compactStatusIpcSignature = ipcSignature;
-    window.widget.setCompactStatus(compactStatus).catch(() => {
+    // Opening quick reply takes the orb from 172 px to 460 px, and that resize happens in
+    // the main process. The DOM already showed the wide layout, so for a frame or two it
+    // was laid out inside the narrow window and then snapped — the visible jerk when the
+    // chat button is pressed in Avatar mode.
+    //
+    // setCompactStatus is an invoke, so the native resize can be awaited: the panel is
+    // held back until the window is the size it is going to be, then animates in.
+    const resizing = expanded !== previousExpanded;
+    let settled = !resizing;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(state.compactResizeTimer);
+      requestAnimationFrame(() => document.body.classList.remove("compact-resizing"));
+    };
+    if (resizing) {
+      document.body.classList.add("compact-resizing");
+      // A hung or stubbed IPC must never leave the panel invisible. The deadline is longer
+      // than a real resize and shorter than a user would notice as broken, so the worst
+      // case is the old jerk rather than a blank orb.
+      clearTimeout(state.compactResizeTimer);
+      state.compactResizeTimer = setTimeout(settle, COMPACT_RESIZE_SETTLE_TIMEOUT);
+    }
+    window.widget.setCompactStatus(compactStatus).then(settle, () => {
+      settle();
       if (state.compactStatusIpcSignature === ipcSignature) state.compactStatusIpcSignature = "";
     });
   }
@@ -730,6 +758,8 @@ function notifyCompletion(session) {
 const MODE_EXIT_DURATION = 145;
 const MODE_ENTER_DURATION = 390;
 const FIRST_VISIBLE_ENTRY_DURATION = 460;
+// Upper bound on waiting for the native compact resize before showing the panel anyway.
+const COMPACT_RESIZE_SETTLE_TIMEOUT = 320;
 let modeTransitionSequence = 0;
 let modeRequestSequence = 0;
 let firstVisibleEntryPlayed = false;
@@ -4720,8 +4750,8 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.3", latestVersion: "0.6.4", installMode: "portable-replace", progress: 100 }
-        : { status: "available", currentVersion: "0.6.3", latestVersion: "0.6.4", installMode: "managed", progress: 0 });
+        ? { status: "ready", currentVersion: "0.6.4", latestVersion: "0.6.5", installMode: "portable-replace", progress: 100 }
+        : { status: "available", currentVersion: "0.6.4", latestVersion: "0.6.5", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {
       setTab("chat");

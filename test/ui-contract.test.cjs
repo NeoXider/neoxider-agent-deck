@@ -445,7 +445,10 @@ test("compact modes preserve short clicks and start native drag only after the m
   assert.match(ipc, /begin-compact-drag/);
   assert.match(ipc, /move-compact-drag/);
   assert.match(ipc, /getCursorScreenPoint/);
-  assert.match(ipc, /const edgeLocked = getWindowMode\(\) === "edge"/);
+  // Edge drags take a dedicated pointer-following path rather than freezing x. The freeze
+  // stopped drift but made the opposite screen edge unreachable.
+  assert.match(ipc, /if \(getWindowMode\(\) === "edge"\) \{\s*\n\s*const moved = moveEdgeDragToPointer\(/);
+  assert.doesNotMatch(ipc, /edgeLocked \? compactDragOrigin\.bounds\.x/);
   assert.match(ipc, /end-compact-drag/);
   assert.match(ipc, /wasActive !== compactStatus\.active \|\| wasExpanded !== compactStatus\.expanded/);
   assert.match(ipc, /setCompactStatusResizePending\(true\)/);

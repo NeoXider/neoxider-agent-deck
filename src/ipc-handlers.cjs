@@ -137,6 +137,7 @@ function registerIpcHandlers({
   schedulePreferenceSave,
   snapCompactWindow,
   moveWithinNearestDisplay,
+  moveEdgeDragToPointer,
   traceCompactDrag,
   setWindowLayer,
   captureScreenshot,
@@ -456,9 +457,17 @@ function registerIpcHandlers({
     if (getWindowMode() === "full" || !compactDragOrigin) return;
     const { x: screenX, y: screenY } = compactPointer(value);
     if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
-    const edgeLocked = getWindowMode() === "edge";
+    // Edge keeps the line flush to a screen side while the SIDE follows the pointer, so
+    // crossing the middle of the display moves it to the other edge. Freezing x here
+    // instead did stop the drift it was aimed at, but it also left the opposite edge
+    // unreachable: the line could only ever slide up and down the side it started on.
+    if (getWindowMode() === "edge") {
+      const moved = moveEdgeDragToPointer(compactDragOrigin.bounds, { x: screenX, y: screenY });
+      traceCompactDrag("move", { screenX, screenY, x: moved.x, y: moved.y, side: moved.side });
+      return;
+    }
     const candidate = {
-      x: edgeLocked ? compactDragOrigin.bounds.x : compactDragOrigin.bounds.x + screenX - compactDragOrigin.screenX,
+      x: compactDragOrigin.bounds.x + screenX - compactDragOrigin.screenX,
       y: compactDragOrigin.bounds.y + screenY - compactDragOrigin.screenY,
     };
     const moved = moveWithinNearestDisplay(compactDragOrigin.bounds, candidate);

@@ -34,7 +34,7 @@ const { createMuxClient } = require("./mux-client.cjs");
 const { createStreamPublisher } = require("./stream-publisher.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
 const { configureProductUserData } = require("./user-data-migration.cjs");
-const { moveCompactBounds, snapCompactBounds } = require("./window-geometry.cjs");
+const { edgeDragBounds, moveCompactBounds, snapCompactBounds } = require("./window-geometry.cjs");
 const { captureModeBounds, fitFullBounds, resizeCompactAnchor, restoreCompactBounds } = require("./window-state.cjs");
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
@@ -379,6 +379,21 @@ function moveWindowWithinNearestDisplay(bounds, candidate, preserveSize = false)
   return moved;
 }
 
+// The display is chosen from the POINTER, not from the window, so dragging the line onto
+// another monitor moves it there instead of pinning it to the edge of the one it left.
+function moveEdgeWindowToPointer(bounds, pointer) {
+  if (!PLATFORM_CAPABILITIES.programmaticPosition) return bounds;
+  const display = screen.getDisplayNearestPoint({ x: Math.round(pointer.x), y: Math.round(pointer.y) }).workArea;
+  const flush = edgeDragBounds(bounds, pointer, display);
+  const moved = moveCompactBounds(flush, { x: flush.x, y: pointer.y - bounds.height / 2 }, display);
+  windowRef.setPosition(moved.x, moved.y, false);
+  if (flush.side !== preferences.compactSide) {
+    preferences.compactSide = flush.side;
+    sendToRenderer("compact-side", flush.side);
+  }
+  return { ...moved, side: flush.side };
+}
+
 function snapCurrentCompactWindow({ traceEnd = false } = {}) {
   if (!windowRef || windowMode === "full") return windowRef?.getBounds();
   const bounds = windowRef.getBounds();
@@ -658,6 +673,7 @@ function registerWidgetIpc() {
     schedulePreferenceSave,
     snapCompactWindow: snapCurrentCompactWindow,
     moveWithinNearestDisplay: moveWindowWithinNearestDisplay,
+    moveEdgeDragToPointer: moveEdgeWindowToPointer,
     traceCompactDrag,
     setWindowLayer: setWindowLayerPreference,
     captureScreenshot: captureScreenshotForChat,

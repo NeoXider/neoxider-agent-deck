@@ -170,9 +170,9 @@ test("release documentation uses the current window-layer label and previews eve
 test("the update-ready visual fixture shows the released upgrade path", () => {
   const renderer = readFileSync(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
   const visualSmoke = readFileSync(path.join(__dirname, "..", "scripts", "ui-visual-smoke.cjs"), "utf8");
-  assert.match(renderer, /status: "ready", currentVersion: "0\.6\.3", latestVersion: "0\.6\.4"/);
-  assert.match(visualSmoke, /updateStatus: "v0\.6\.4 is verified and ready"/);
-  assert.equal(packageJson.version, "0.6.4");
+  assert.match(renderer, /status: "ready", currentVersion: "0\.6\.4", latestVersion: "0\.6\.5"/);
+  assert.match(visualSmoke, /updateStatus: "v0\.6\.5 is verified and ready"/);
+  assert.equal(packageJson.version, "0.6.5");
 });
 
 test("the Windows installer follows the canonical repository, artifact, and product name", () => {

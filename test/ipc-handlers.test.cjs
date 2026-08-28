@@ -228,11 +228,17 @@ test("send validates attachments before privileged Harness calls", async () => {
   assert.equal(calls.length, 1, "invalid payload must not reach Harness");
 });
 
-test("compact dragging uses the native cursor and Edge stays locked to its physical side", () => {
+// Edge no longer freezes x for the whole drag. Freezing it did stop the cumulative
+// rightward drift, but it also made the opposite screen edge unreachable, which is what a
+// user hit first: the line could only slide up and down the side it started on. Edge drags
+// now take their own pointer-following path, which keeps the line flush to a side while
+// letting that side change.
+test("compact dragging uses the native cursor and Edge follows the pointer across sides", () => {
   let dragOrigin = null;
   let cursor = { x: 1000, y: 300 };
   let mode = "edge";
   const moveCalls = [];
+  const edgeCalls = [];
   const { ipcMain, window } = register({
     getWindowMode: () => mode,
     getCursorScreenPoint: () => cursor,
@@ -242,14 +248,27 @@ test("compact dragging uses the native cursor and Edge stays locked to its physi
       moveCalls.push(candidate);
       return candidate;
     },
+    moveEdgeDragToPointer: (_bounds, pointer) => {
+      edgeCalls.push(pointer);
+      const side = pointer.x < 960 ? "left" : "right";
+      return { x: side === "left" ? 0 : 1832, y: pointer.y, side };
+    },
   });
   const event = { sender: window.webContents, senderFrame: { parent: null } };
 
   ipcMain.emit("begin-compact-drag", event, { x: -500, y: -500 });
   assert.deepEqual({ x: dragOrigin.screenX, y: dragOrigin.screenY }, cursor);
+
+  // An edge drag hands the raw pointer to the edge path, not a delta-derived candidate.
   cursor = { x: 1350, y: 360 };
   ipcMain.emit("move-compact-drag", event, { x: 9000, y: 9000 });
-  assert.deepEqual(moveCalls.at(-1), { x: 0, y: 60 });
+  assert.deepEqual(edgeCalls.at(-1), { x: 1350, y: 360 });
+  assert.equal(moveCalls.length, 0, "edge drags must not go through the generic mover");
+
+  // Crossing the middle of the display must be able to reach the other edge.
+  cursor = { x: 300, y: 400 };
+  ipcMain.emit("move-compact-drag", event, { x: 9000, y: 9000 });
+  assert.deepEqual(edgeCalls.at(-1), { x: 300, y: 400 });
 
   mode = "orb";
   dragOrigin = null;

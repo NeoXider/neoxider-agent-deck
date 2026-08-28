@@ -18,6 +18,25 @@ function moveCompactBounds(bounds, requested, workArea) {
   };
 }
 
+// Edge mode is a thin line flush against a screen side, so a drag cannot simply follow the
+// pointer — the line would float in the middle of the screen and look broken. The previous
+// fix froze x for the whole drag instead. That stopped the drift it was aimed at, but it
+// also made the opposite edge unreachable, because the side could then never change.
+//
+// So the line stays flush and the SIDE follows the pointer: cross the middle of the
+// display and it moves to the other edge at once. x is derived from the pointer on every
+// move rather than accumulated, so the drift has nothing to build up from.
+function edgeDragBounds(bounds, pointer, workArea) {
+  const pointerX = Number(pointer?.x);
+  const middle = workArea.x + workArea.width / 2;
+  const side = Number.isFinite(pointerX) && pointerX < middle ? "left" : "right";
+  return {
+    ...bounds,
+    side,
+    x: side === "left" ? workArea.x : workArea.x + workArea.width - bounds.width,
+  };
+}
+
 function snapCompactBounds(bounds, workArea, mode) {
   const side = bounds.x + bounds.width / 2 < workArea.x + workArea.width / 2 ? "left" : "right";
   const margin = compactMargin(mode);
@@ -29,4 +48,4 @@ function snapCompactBounds(bounds, workArea, mode) {
   };
 }
 
-module.exports = { clamp, compactMargin, moveCompactBounds, snapCompactBounds };
+module.exports = { clamp, compactMargin, edgeDragBounds, moveCompactBounds, snapCompactBounds };

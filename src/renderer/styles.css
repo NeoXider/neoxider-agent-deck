@@ -606,6 +606,14 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .orb-status-closing .orb-status { width:0; padding-right:0; padding-left:0; border-width:0; opacity:0; transform:translateX(14px) scale(.96); }
 .orb-status-card { width:100%; height:100%; display:flex; flex-direction:column; justify-content:center; min-width:0; padding:0; border:0; background:transparent; color:inherit; cursor:pointer; }
 .orb-status-card[hidden], .orb-session-list[hidden], .orb-reply-form[hidden] { display:none; }
+
+/* Expanding quick reply resizes the native orb window from 172px to 460px, and the DOM
+   reaches the wide layout before that resize lands. Holding the panel back for those few
+   frames is what removes the jerk: it is hidden while the window is still the wrong size,
+   then eases in once the main process has acknowledged the new bounds. */
+.compact-resizing .orb-session-list, .compact-resizing .orb-reply-form { opacity:0; transform:translateY(4px) scale(.985); }
+.orb-session-list, .orb-reply-form { opacity:1; transform:none; transition:opacity .2s cubic-bezier(.22,1,.36,1),transform .26s cubic-bezier(.22,1,.36,1); }
+.compact-resizing .orb-status { transition:width .26s cubic-bezier(.22,1,.36,1),height .26s cubic-bezier(.22,1,.36,1),padding .26s ease,opacity .18s ease,transform .26s cubic-bezier(.22,1,.36,1); }
 .orb-status-card:disabled { cursor:default; }
 .orb-status b, .orb-status small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
 .orb-status-card b { color:#c7fff3; font-size:9px; letter-spacing:.04em; }
@@ -830,6 +838,7 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 }
 
 @media (prefers-reduced-motion:reduce) {
+  .orb-session-list, .orb-reply-form, .compact-resizing .orb-session-list, .compact-resizing .orb-reply-form { transition:none; transform:none; opacity:1; }
   *, *::before, *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
   .live-assistant::after { animation:none !important; opacity:.72; }
 }

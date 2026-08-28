@@ -51,7 +51,12 @@ This backlog records planned work only. Items are not part of the current releas
 - Added native `Ctrl+V` file/image preparation, content-deduplicated clipboard bitmaps, and compact sent image/file/video previews, including attachment-only messages.
 - Made a successful queued-message checkmark leave edit mode even across an authoritative snapshot race, while failed saves remain open for retry.
 
-## Known gaps at 0.6.4
+## Shipped in 0.6.5
+
+- Restored the ability to move the Edge line to the opposite screen edge: the side now follows the pointer instead of x being frozen for the drag, so crossing the middle of the display moves the line across and another monitor is reachable; covered by geometry and IPC regressions.
+- Removed the Avatar-mode jump when quick reply opens by waiting for the native orb resize before easing the panel in, with a bounded fallback so a hung IPC cannot leave the orb blank; covered by renderer and visual regressions.
+
+## Known gaps at 0.6.5
 
 Recorded rather than quietly dropped. None of these block the release; all of them are
 things a reader of the verification folder would otherwise have to infer.
