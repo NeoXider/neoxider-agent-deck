@@ -3,6 +3,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { REPOSITORY_SLUG } = require("./product.cjs");
+const { recoverStagedUpdate } = require("./portable-update-stage.cjs");
 
 const DEFAULT_MAX_UPDATE_BYTES = 256 * 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -24,7 +25,7 @@ const TRANSITIONS = Object.freeze({
   idle: new Set(["checking"]),
   checking: new Set(["current", "available", "error"]),
   current: new Set(["checking"]),
-  available: new Set(["checking", "downloading", "error"]),
+  available: new Set(["checking", "downloading", "ready", "error"]),
   downloading: new Set(["available", "ready", "error"]),
   ready: new Set(["installing", "error"]),
   installing: new Set(["error"]),
@@ -391,6 +392,7 @@ function createUpdateService({
   }
 
   async function runCheck() {
+    stagedPath = null;
     transition("checking", {
       progress: null,
       receivedBytes: 0,
@@ -434,7 +436,7 @@ function createUpdateService({
       const asset = selectWindowsPortableAsset(release, latestVersion, { repository, maxBytes });
       installContext = await evaluateInstallContext();
       candidate = Object.freeze({ version: latestVersion, releaseUrl, asset });
-      return transition("available", {
+      const available = transition("available", {
         latestVersion,
         releaseUrl,
         assetName: asset.name,
@@ -443,6 +445,15 @@ function createUpdateService({
         manualReason: installContext.reason,
         progress: null,
         receivedBytes: 0,
+        totalBytes: asset.size,
+      });
+      if (!installContext.target) return available;
+      const recovered = await recoverStagedUpdate(fileSystem, installContext.target, latestVersion, asset, hashFactory);
+      if (!recovered) return available;
+      stagedPath = recovered;
+      return transition("ready", {
+        progress: 100,
+        receivedBytes: asset.size,
         totalBytes: asset.size,
       });
     } catch (error) {

@@ -147,6 +147,8 @@ function attachScreenshotHarness({
             orbHistoryOpen: document.body.classList.contains('orb-history-open'),
             orbQuickReplyOpen: document.body.classList.contains('orb-reply-open'),
             orbReplyTarget: document.querySelector('#orbReplyTitle')?.textContent || '',
+            orbStatusLabel: document.querySelector('#orbStatusLabel')?.textContent || '',
+            orbStatusText: document.querySelector('#orbStatusText')?.textContent || '',
             orbReplyInputVisible: (() => {
               const input = document.querySelector('#orbReplyInput');
               const rect = input?.getBoundingClientRect();
@@ -186,7 +188,7 @@ function attachScreenshotHarness({
             composerUtilitiesStacked: (() => {
               const attach = document.querySelector('#attachButton').getBoundingClientRect();
               const commands = document.querySelector('#commandsButton').getBoundingClientRect();
-              return Math.abs((attach.left + attach.right - commands.left - commands.right) / 2) <= 1 && attach.bottom <= commands.top + 1;
+              return Math.abs((attach.left + attach.right - commands.left - commands.right) / 2) <= 1 && commands.bottom <= attach.top + 1;
             })(),
             composerViewStacked: (() => {
               const focus = document.querySelector('#focusChatButton').getBoundingClientRect();
@@ -194,6 +196,11 @@ function attachScreenshotHarness({
               return Math.abs((focus.left + focus.right - context.left - context.right) / 2) <= 1 && focus.bottom <= context.top + 1;
             })(),
             composerRestingHeight: Math.round(document.querySelector('.composer').getBoundingClientRect().height),
+            sendUtilityCenterDelta: (() => {
+              const send = document.querySelector('#sendButton').getBoundingClientRect();
+              const utilities = document.querySelector('.composer-utility-stack').getBoundingClientRect();
+              return Math.round(Math.abs((send.top + send.bottom - utilities.top - utilities.bottom) / 2));
+            })(),
             contextRingSize: Math.round(document.querySelector('#contextMeter svg').getBoundingClientRect().width),
             contextUnavailable: document.querySelector('#contextMeter').classList.contains('unavailable'),
             contextValue: document.querySelector('#contextValue')?.textContent || '',

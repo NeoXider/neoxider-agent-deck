@@ -122,6 +122,7 @@ function registerIpcHandlers({
   getEdgeHitTracker,
   getScreenshotService,
   getUpdateService,
+  checkForUpdates = () => getUpdateService()?.check() || null,
   getGameBarController = () => null,
   readDashboard,
   // Window-manager behaviour that stays in main.cjs, where the window state lives.
@@ -329,7 +330,7 @@ function registerIpcHandlers({
   });
   handle("app-info", () => ({ version: getAppVersion(), repository: repositoryUrl, productName }));
   handle("get-update-state", () => getUpdateService()?.getState() || null);
-  handle("check-for-updates", () => getUpdateService()?.check() || null);
+  handle("check-for-updates", () => checkForUpdates());
   handle("install-update", () => getUpdateService()?.install() || null);
   handle("set-window-mode", (_event, mode) => {
     applyWindowMode(mode);

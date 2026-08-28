@@ -6,6 +6,7 @@ const packageJson = require(path.join("..", "package.json"));
 const packageLock = require(path.join("..", "package-lock.json"));
 const readme = readFileSync(path.join(__dirname, "..", "README.md"), "utf8");
 const changelog = readFileSync(path.join(__dirname, "..", "CHANGELOG.md"), "utf8");
+const todo = readFileSync(path.join(__dirname, "..", "TODO.md"), "utf8");
 const {
   APP_ID,
   PACKAGE_NAME,
@@ -149,6 +150,29 @@ test("tag releases retain updater metadata and publish it with platform artifact
   assert.match(workflow, /gh release create[^\n]+--draft/);
   assert.match(workflow, /gh release edit[^\n]+--draft=false --latest/);
   assert.match(workflow, /SHA256SUMS\.txt/);
+  assert.match(workflow, /! -name 'SHA256SUMS\.txt'/);
+  assert.match(workflow, /sha256sum -c SHA256SUMS\.txt/);
+});
+
+test("release documentation uses the current window-layer label and previews every window mode", () => {
+  for (const document of [readme, changelog, todo]) {
+    assert.doesNotMatch(document, /\bNormal window layer\b|window layers: Normal/);
+  }
+  assert.match(readme, /every ordinary window covers the widget/);
+  for (const preview of ["Full", "Focus Mini", "Orb", "Edge", "Minimum 360 px"]) {
+    assert.match(readme, new RegExp(`<strong>${preview}<\\/strong>`));
+  }
+  for (const screenshot of ["chat.png", "focus-chat.png", "recent-sessions-orb.png", "edge-mode.png", "small-chat-360.png"]) {
+    assert.match(readme, new RegExp(`docs/screenshots/${screenshot.replace(".", "\\.")}`));
+  }
+});
+
+test("the update-ready visual fixture shows the released upgrade path", () => {
+  const renderer = readFileSync(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
+  const visualSmoke = readFileSync(path.join(__dirname, "..", "scripts", "ui-visual-smoke.cjs"), "utf8");
+  assert.match(renderer, /status: "ready", currentVersion: "0\.6\.2", latestVersion: "0\.6\.3"/);
+  assert.match(visualSmoke, /updateStatus: "v0\.6\.3 is verified and ready"/);
+  assert.equal(packageJson.version, "0.6.3");
 });
 
 test("the Windows installer follows the canonical repository, artifact, and product name", () => {

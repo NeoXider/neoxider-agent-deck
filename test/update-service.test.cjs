@@ -244,6 +244,43 @@ test("verified download streams into the target directory and reports progress",
   assert.ok(observed.some((state) => state.status === "downloading" && state.progress > 0));
 });
 
+test("a verified portable stage is restored after restart without another download", async (t) => {
+  const fixture = portableService();
+  t.after(fixture.temporary.cleanup);
+  const staged = path.join(
+    fixture.temporary.directory,
+    `.${path.basename(fixture.target)}.1.1.0.survived-restart.update`,
+  );
+  fs.writeFileSync(staged, fixture.body);
+
+  const result = await fixture.service.check();
+  assert.equal(result.status, "ready");
+  assert.equal(result.progress, 100);
+  assert.equal(result.receivedBytes, fixture.body.length);
+  assert.equal(fixture.calls.length, 1);
+  assert.equal(fs.existsSync(staged), true);
+});
+
+test("portable stage recovery rejects size and digest mismatches after the release check", async (t) => {
+  for (const [name, stagedBody] of [
+    ["size", Buffer.from("short")],
+    ["digest", Buffer.alloc(Buffer.byteLength("new portable binary"), 0x78)],
+  ]) {
+    await t.test(name, async () => {
+      const fixture = portableService();
+      t.after(fixture.temporary.cleanup);
+      const staged = path.join(
+        fixture.temporary.directory,
+        `.${path.basename(fixture.target)}.1.1.0.invalid-${name}.update`,
+      );
+      fs.writeFileSync(staged, stagedBody);
+      const result = await fixture.service.check();
+      assert.equal(result.status, "available");
+      assert.equal(fixture.calls.length, 1);
+    });
+  }
+});
+
 test("concurrent downloads perform one transfer", async (t) => {
   const body = Buffer.from("concurrent body");
   const temporary = temporaryDirectory();

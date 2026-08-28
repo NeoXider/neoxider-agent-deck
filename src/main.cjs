@@ -13,6 +13,7 @@ const { createRegionSelector } = require("./region-selector.cjs");
 const { createRendererRecoveryController } = require("./renderer-recovery.cjs");
 const { createScreenshotCaptureGate, createScreenshotService } = require("./screenshot-service.cjs");
 const { createInstalledUpdateService } = require("./installed-update-service.cjs");
+const { createUpdateOrchestrator } = require("./update-orchestrator.cjs");
 const { createUpdateService } = require("./update-service.cjs");
 const {
   applyPlatformOpacity,
@@ -86,6 +87,7 @@ let hotkeyManager;
 let quitCoordinator;
 let screenshotService;
 let updateService;
+let updateOrchestrator;
 let selectRegion;
 let hotkeyRegistrationError = null;
 let preferenceSaveTimer = null;
@@ -120,6 +122,7 @@ function cleanupApplication() {
   hotkeyManager?.dispose();
   selectRegion?.dispose();
   screenshotService?.cleanupCaptures({ maxAgeMs: 0, maxFiles: 0 });
+  updateOrchestrator?.stop();
   tray?.destroy();
   tray = null;
 }
@@ -211,12 +214,6 @@ function createApplicationUpdateService() {
     isWindowsStore: Boolean(process.windowsStore),
     isMacSigned: false,
   });
-}
-async function checkAndStageUpdate() {
-  const result = await updateService?.check();
-  return result?.status === "available" && ["portable-replace", "managed"].includes(result.installMode)
-    ? updateService.download()
-    : result || null;
 }
 function screenshotDisplayPoint() {
   if (!windowRef || windowRef.isDestroyed()) return undefined;
@@ -634,6 +631,7 @@ function registerWidgetIpc() {
     getEdgeHitTracker: () => edgeHitTracker,
     getScreenshotService: () => screenshotService,
     getUpdateService: () => updateService,
+    checkForUpdates: () => updateOrchestrator?.checkAndStage() || null,
     getGameBarController: () => gameBarController,
     readDashboard: dashboardReader.read,
     applyWindowMode,
@@ -707,6 +705,10 @@ app.whenReady().then(() => {
   });
   screenshotService.cleanupCaptures();
   updateService = createApplicationUpdateService();
+  updateOrchestrator = createUpdateOrchestrator({
+    getService: () => updateService,
+    onError: (error) => console.error("Update check failed", error),
+  });
   hotkeyManager = createHotkeyManager({
     app,
     globalShortcut,
@@ -749,10 +751,7 @@ app.whenReady().then(() => {
     readDashboard: dashboardReader.read, onOpenSession: openGameBarSession,
   });
   gameBarController.start();
-  if (!ISOLATED_SMOKE_MODE) {
-    const updateCheckTimer = setTimeout(() => checkAndStageUpdate().catch((error) => console.error("Update check failed", error)), 4000);
-    updateCheckTimer.unref?.();
-  }
+  if (!ISOLATED_SMOKE_MODE) updateOrchestrator.start();
   // A screenshot run must capture a fixture, not whatever a live Harness pushes.
   if (!ISOLATED_SMOKE_MODE) {
     muxClient.connect();

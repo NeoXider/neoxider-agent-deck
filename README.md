@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.2-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.2-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.3-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.3-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -20,6 +20,27 @@ Agent Deck keeps [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 The NeoXider avatar reacts to agent state: breathing while idle, typing while working, floating while waiting, shaking on errors and celebrating completion. A subtle inner chat glow independently distinguishes model thinking, answer generation, and tool execution; idle chat has no glow. Short spring transitions make buttons, Send, view changes, avatar collapse, and edge docking feel responsive without ignoring Windows reduced-motion preferences.
 
 ## Preview
+
+### Modes at a glance
+
+<table>
+  <tr>
+    <td width="20%"><img src="docs/screenshots/chat.png" alt="Full NeoXider Agent Deck chat" /></td>
+    <td width="20%"><img src="docs/screenshots/focus-chat.png" alt="Focus Mini chat-only mode" /></td>
+    <td width="20%"><img src="docs/screenshots/recent-sessions-orb.png" alt="Orb mode with recent sessions" /></td>
+    <td width="20%"><img src="docs/screenshots/edge-mode.png" alt="Edge mode docked to the physical screen edge" /></td>
+    <td width="20%"><img src="docs/screenshots/small-chat-360.png" alt="Minimum 360 pixel chat layout" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Full</strong></td>
+    <td align="center"><strong>Focus Mini</strong></td>
+    <td align="center"><strong>Orb</strong></td>
+    <td align="center"><strong>Edge</strong></td>
+    <td align="center"><strong>Minimum 360 px</strong></td>
+  </tr>
+</table>
+
+### Feature gallery
 
 <table>
   <tr>
@@ -140,7 +161,7 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Click-or-drag brand** — click the full-size avatar to collapse, click the NeoXider title to open the repository, or drag anywhere across the brand area to move the full widget. Brand text is non-selectable, so a drag cannot turn into a text selection.
 - **Exact-session pet reply** — collapsed pet mode keeps one useful reply button instead of create/command/attachment clutter; it opens the agent and session that produced the reply.
 - **Session-aware notifications** — a completed reply slides out for about 2.7 seconds with its session name and answer preview; clicking it restores that exact session. The edge handle still bounces when work finishes.
-- **Three window layers** — choose Normal, the default Above layer, or the strongest available Game layer. Game is best-effort: exclusive fullscreen and anti-cheat overlays can still win, and unsupported Linux desktops disable the choice instead of silently pretending it worked.
+- **Three window layers** — choose Desktop, where every ordinary window covers the widget; the default Above layer; or the strongest available Game layer. Game is best-effort: exclusive fullscreen and anti-cheat overlays can still win, and unsupported Linux desktops disable the choice instead of silently pretending it worked.
 - **No close button** — window close gestures dock the widget to the screen edge. Quit remains available from the tray menu.
 - **Single-instance launch** — repeated shortcut clicks focus the existing widget instead of stacking translucent windows.
 - **Personal controls** — opacity, compact/standard/large size, chat glow intensity, window layer and Start at login where the platform supports them.
@@ -238,11 +259,11 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.6.2-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.6.3-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
-The 0.6.2 acceptance run also used the exact local `lmstudio/qwen3.8-27b-unleashed` route. One Harness session produced 1,626 streamed reasoning deltas, 221 streamed answer deltas, a TODO projection, three successful tools, highlighted Markdown, and a clean `turn/end`; the widget transform preserved the Russian answer and semantic token. A separate read-only run exercised Dynamic MCP search → inspect → enable → tools → call → skill.load → disable with zero tool errors. Durable receipts: [widget parity](docs/verification/qwen3.8-27b-widget-parity.json) and [Dynamic MCP](docs/verification/qwen3.8-27b-dynamic-mcp.json).
+The 0.6.3 acceptance run used the exact local `lmstudio/qwen3.8-27b-unleashed` route. A fresh read-only turn emitted three correlated tool calls and results (`glob`, `grep`, `read`); the widget transform produced three separate completed cards, cleared live activity on `turn/end`, and preserved the final Russian answer. A second fresh run exercised Dynamic MCP through search → inspect → enable → tools → call → skill.load → status → disable → status with zero tool errors and confirmed that the child process stopped. Durable receipts: [v0.6.3 multi-tool parity](docs/verification/qwen3.8-27b-multi-tool-parity.json), [v0.6.3 Dynamic MCP](docs/verification/qwen3.8-27b-dynamic-mcp-v063.json), and the deeper [widget streaming parity](docs/verification/qwen3.8-27b-widget-parity.json).
 
 ## Security
 
@@ -258,11 +279,10 @@ Screen capture, configurable global hotkeys, and the three-session pet switcher 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.2,
-adds the chat-first 360 px interface, native commands and TODOs, streamed reasoning and answers,
-an editable no-duplicate queue, mixed-result tool cards, three-session Orb replies, persistent
-window/settings state, capture and hotkeys, quiet staged updates, and verified Qwen 3.8 27B
-plus Dynamic MCP parity.
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.3,
+keeps the compact chat-first interface while splitting live tool-heavy turns into named cards,
+reducing thinking to one line, smoothing drag and mode transitions, hardening quiet staged updates,
+and removing legacy startup entries that could relaunch an old build.
 
 ## Platform support
 

@@ -47,6 +47,16 @@ function createStreamPublisher({ queueSnapshots, send }) {
       data = { name: String(event.data?.name || "tool"), callId: String(event.data?.callId || "") };
     } else if (event.type === "tool/result") {
       data = { callId: String(event.data?.callId || event.data?.toolCallId || "") };
+    } else if (event.type === "tool/code-dispatch-start") {
+      data = {
+        name: String(event.data?.name || "tool"),
+        callId: String(event.data?.subCallId || event.data?.callId || ""),
+      };
+    } else if (event.type === "tool/code-dispatch") {
+      data = {
+        callId: String(event.data?.subCallId || event.data?.callId || ""),
+        isError: Boolean(event.data?.isError),
+      };
     } else if (event.type === "turn/end") {
       data = { reason: { kind: String(event.data?.reason?.kind || "stop") } };
     } else if (event.type === "todo/write") {

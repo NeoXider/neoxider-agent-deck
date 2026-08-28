@@ -66,6 +66,7 @@ function register(overrides = {}) {
     getScreenshotService: () => ({ capture: async () => ({}) }),
     getUpdateState: () => ({ status: "idle" }),
     getUpdateService: () => ({ snapshot: () => ({ status: "idle" }), check: async () => ({}), download: async () => ({}), install: async () => ({}) }),
+    checkForUpdates: async () => ({}),
     applyWindowMode: () => {},
     applyEdgePointerHit: () => {},
     captureFullBounds: () => {},
@@ -124,6 +125,25 @@ test("the real window is accepted", async () => {
   const legitimate = { sender: window.webContents, senderFrame: { parent: null } };
   const info = await ipcMain.invoke("app-info", legitimate);
   assert.equal(info.version, "0.0.0-test");
+});
+
+test("manual update checks use the shared check-and-stage path", async () => {
+  let calls = 0;
+  const expected = { status: "ready", latestVersion: "1.1.0" };
+  const { ipcMain, window } = register({
+    checkForUpdates: async () => {
+      calls += 1;
+      return expected;
+    },
+    getUpdateService: () => ({
+      getState: () => ({ status: "idle" }),
+      check: () => { throw new Error("raw check must not be called"); },
+      install: async () => ({}),
+    }),
+  });
+  const event = { sender: window.webContents, senderFrame: { parent: null } };
+  assert.deepEqual(await ipcMain.invoke("check-for-updates", event), expected);
+  assert.equal(calls, 1);
 });
 
 test("slash command IPC forwards image payloads through the widget command boundary", async () => {

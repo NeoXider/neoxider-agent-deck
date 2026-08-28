@@ -141,6 +141,11 @@ function compactText(value, limit = 120) {
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}…` : normalized;
 }
 
+function compactRecentText(value, limit = 110) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  return normalized.length > limit ? `…${normalized.slice(-(limit - 1))}` : normalized;
+}
+
 const COMPOSER_INPUT_MIN_HEIGHT = 34;
 const COMPOSER_INPUT_MAX_VIEWPORT_RATIO = 1 / 3;
 const COMMAND_MENU_CHROME_HEIGHT = 46;
@@ -197,6 +202,7 @@ function resizeMessageInput({ immediate = false } = {}) {
   const targetHeight = input.value.length
     ? Math.min(maximumHeight, Math.max(COMPOSER_INPUT_MIN_HEIGHT, normalizedContentHeight))
     : COMPOSER_INPUT_MIN_HEIGHT;
+  $("#chatForm")?.classList.toggle("composer-multiline", targetHeight > COMPOSER_INPUT_MIN_HEIGHT);
   if (immediate) {
     input.style.height = `${targetHeight}px`;
     restoreMessageInputViewport(input, snapshot);
@@ -422,9 +428,11 @@ function syncCompactStatus() {
   const preview = compactPreviewEntry();
   const compactSessions = renderCompactSessions();
   const expanded = state.compactHistoryOpen || state.compactReplyOpen;
-  const active = Boolean(expanded || state.compactStatusClosing || preview || activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
-  const label = preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
-  const text = compactText(preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
+  const offline = state.harnessOffline;
+  const active = Boolean(offline || expanded || state.compactStatusClosing || preview || activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
+  const label = offline ? "Harness offline" : preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
+  const text = compactText(offline ? "Start Harness to reconnect." : preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
+  const statusKind = offline ? "error" : preview?.kind || "";
   const compactButton = $("#orbHistoryButton");
   const replySession = state.dashboard?.sessions?.find((session) => session.sessionId === state.compactReplySessionId);
   const compactButtonLabel = expanded ? "Close recent replies" : `Recent replies${compactSessions.length ? ` (${compactSessions.length})` : ""}`;
@@ -434,7 +442,7 @@ function syncCompactStatus() {
     expanded,
     label,
     text,
-    preview?.kind || "",
+    statusKind,
     state.compactStatusClosing,
     state.compactHistoryOpen,
     state.compactReplyOpen,
@@ -448,7 +456,7 @@ function syncCompactStatus() {
   if (domSignature !== state.compactStatusDomSignature) {
     state.compactStatusDomSignature = domSignature;
     document.body.classList.toggle("orb-has-status", active);
-    document.body.classList.toggle("orb-has-notification", preview?.kind === "notification");
+    document.body.classList.toggle("orb-has-notification", statusKind === "notification");
     document.body.classList.toggle("orb-status-closing", state.compactStatusClosing);
     document.body.classList.toggle("orb-history-open", state.compactHistoryOpen);
     document.body.classList.toggle("orb-reply-open", state.compactReplyOpen);
@@ -491,13 +499,18 @@ function syncActivityCard() {
   const hasActivity = Boolean(activity?.text);
   const hasWritingBubble = activity?.kind === "writing" && Boolean($("#messages .live-assistant"));
   const showCard = hasActivity && !hasWritingBubble;
-  const signature = showCard ? JSON.stringify([true, activity?.label || "", activity?.text || ""]) : "hidden";
+  const compactThinking = showCard && activity?.kind === "thinking";
+  const signature = showCard ? JSON.stringify([true, activity?.kind || "", activity?.label || "", activity?.text || ""]) : "hidden";
   if (signature === state.activityCardSignature) return false;
   state.activityCardSignature = signature;
   card.classList.toggle("has-activity", showCard);
+  card.classList.toggle("thinking-compact", compactThinking);
+  if (compactThinking) card.open = false;
   if (showCard) {
     $("#activityLabel").textContent = activity.label || "Activity";
-    $("#activityPreview").textContent = compactText(activity.text, 110);
+    $("#activityPreview").textContent = compactThinking
+      ? compactRecentText(activity.text, 92)
+      : compactText(activity.text, 110);
     $("#activityBody").textContent = activity.text;
   }
   return true;
@@ -660,8 +673,8 @@ function notifyCompletion(session) {
   return true;
 }
 
-const MODE_EXIT_DURATION = 105;
-const MODE_ENTER_DURATION = 420;
+const MODE_EXIT_DURATION = 145;
+const MODE_ENTER_DURATION = 390;
 let modeTransitionSequence = 0;
 let modeRequestSequence = 0;
 
@@ -756,6 +769,10 @@ function applyCompactSide(side) {
 let compactDrag = null;
 let suppressCompactClick = false;
 let fullDrag = null;
+let compactDragMoveFrame = 0;
+let compactDragPendingPoint = null;
+let fullDragMoveFrame = 0;
+let fullDragPendingPoint = null;
 let suppressProjectClick = false;
 let suppressProjectClickTimer = null;
 let edgePointerActive = false;
@@ -829,13 +846,32 @@ function beginFullDrag(event) {
   window.widget.beginFullDrag({ x: event.screenX, y: event.screenY });
 }
 
+function scheduleFullDragMove(point) {
+  fullDragPendingPoint = point;
+  if (fullDragMoveFrame) return;
+  fullDragMoveFrame = requestAnimationFrame(() => {
+    fullDragMoveFrame = 0;
+    const next = fullDragPendingPoint;
+    fullDragPendingPoint = null;
+    if (next && fullDrag) window.widget.moveFullDrag(next);
+  });
+}
+
+function flushFullDragMove() {
+  if (fullDragMoveFrame) cancelAnimationFrame(fullDragMoveFrame);
+  fullDragMoveFrame = 0;
+  const next = fullDragPendingPoint;
+  fullDragPendingPoint = null;
+  if (next && fullDrag) window.widget.moveFullDrag(next);
+}
+
 function moveFullDrag(event) {
   if (!fullDrag || fullDrag.pointerId !== event.pointerId) return;
   if (!fullDrag.moved && Math.hypot(event.screenX - fullDrag.startX, event.screenY - fullDrag.startY) < 4) return;
   fullDrag.moved = true;
   suppressBrandClickAfterDrag();
   event.preventDefault();
-  window.widget.moveFullDrag({ x: event.screenX, y: event.screenY });
+  scheduleFullDragMove({ x: event.screenX, y: event.screenY });
 }
 
 function endFullDrag(event) {
@@ -843,6 +879,7 @@ function endFullDrag(event) {
   const moved = fullDrag.moved;
   const origin = fullDrag.origin;
   fullDrag.target.releasePointerCapture?.(event.pointerId);
+  flushFullDragMove();
   fullDrag = null;
   if (moved) {
     event.preventDefault();
@@ -872,6 +909,25 @@ function beginCompactDrag(event) {
   };
 }
 
+function scheduleCompactDragMove(point) {
+  compactDragPendingPoint = point;
+  if (compactDragMoveFrame) return;
+  compactDragMoveFrame = requestAnimationFrame(() => {
+    compactDragMoveFrame = 0;
+    const next = compactDragPendingPoint;
+    compactDragPendingPoint = null;
+    if (next && compactDrag) window.widget.moveCompactDrag(next);
+  });
+}
+
+function flushCompactDragMove() {
+  if (compactDragMoveFrame) cancelAnimationFrame(compactDragMoveFrame);
+  compactDragMoveFrame = 0;
+  const next = compactDragPendingPoint;
+  compactDragPendingPoint = null;
+  if (next && compactDrag) window.widget.moveCompactDrag(next);
+}
+
 function moveCompactDrag(event) {
   if (!compactDrag || compactDrag.pointerId !== event.pointerId) return;
   const dx = event.screenX - compactDrag.startX;
@@ -884,7 +940,7 @@ function moveCompactDrag(event) {
     window.widget.beginCompactDrag({ x: compactDrag.startX, y: compactDrag.startY });
   }
   event.preventDefault();
-  window.widget.moveCompactDrag({ x: event.screenX, y: event.screenY });
+  scheduleCompactDragMove({ x: event.screenX, y: event.screenY });
 }
 
 async function endCompactDrag(event) {
@@ -892,6 +948,7 @@ async function endCompactDrag(event) {
   const moved = compactDrag.moved;
   const nativeStarted = compactDrag.nativeStarted;
   if (nativeStarted) compactDrag.target.releasePointerCapture?.(event.pointerId);
+  if (nativeStarted) flushCompactDragMove();
   compactDrag = null;
   // The click event fires synchronously right after pointerup, long before this IPC
   // round trip resolves. Arming the guard after the await let every drag release
@@ -2043,13 +2100,15 @@ function appendActivityRun(root, run) {
   const label = document.createElement("b");
   label.textContent = `${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;
   const meta = document.createElement("small");
-  meta.textContent = running
+  const names = [...new Set(run.map((message) => message.name).filter(Boolean))].slice(0, 3).join(" · ");
+  const statusText = running
     ? `running${failedCount ? ` · ${failedCount} failed` : ""}`
     : allFailed
       ? "all failed"
       : partialFailure
         ? `${toolCount - failedCount} completed · ${failedCount} failed`
         : "completed";
+  meta.textContent = names ? `${names} · ${statusText}` : statusText;
   identity.append(label, meta);
   summary.append(identity, createIcon("chevron", "ui-icon tool-chevron"));
   const body = document.createElement("div");
@@ -2588,7 +2647,7 @@ async function handleLiveEvent(payload) {
   let stream = state.liveStreamsBySession.get(sessionId) || { text: "", reasoning: "", lastSeq: 0 };
   if (Number(event.seq) && Number(event.seq) <= Number(stream.lastSeq)) return;
   if (Number(event.seq)) stream.lastSeq = Number(event.seq);
-  if (["turn/start", "assistant/chunk", "tool/call", "turn/end", "todo/write"].includes(event.type)) bumpLiveSessionRevision(sessionId);
+  if (["turn/start", "assistant/chunk", "tool/call", "tool/result", "tool/code-dispatch-start", "tool/code-dispatch", "turn/end", "todo/write"].includes(event.type)) bumpLiveSessionRevision(sessionId);
 
   if (event.type === "todo/write") {
     const todos = normalizedTodos(event.data?.todos);
@@ -2638,8 +2697,8 @@ async function handleLiveEvent(payload) {
   if (event.type === "assistant/chunk") {
     const chunk = event.data?.chunk || {};
     if (chunk.type === "reasoning-delta" && chunk.text) {
-      stream.reasoning += chunk.text;
-      const activity = { active: true, kind: "thinking", label: "Thinking", text: stream.reasoning.trim() };
+      stream.reasoning = `${stream.reasoning || ""}${chunk.text}`.slice(-1200);
+      const activity = { active: true, kind: "thinking", label: "Thinking", text: compactRecentText(stream.reasoning, 110) };
       stream.active = true;
       stream.activity = activity;
       state.liveStreamsBySession.set(sessionId, stream);
@@ -2657,8 +2716,10 @@ async function handleLiveEvent(payload) {
     return;
   }
 
-  if (event.type === "tool/call") {
+  if (["tool/call", "tool/code-dispatch-start"].includes(event.type)) {
     const activity = { active: true, kind: "tool", label: "Using tool", text: event.data?.name || "tool" };
+    stream.text = "";
+    stream.reasoning = "";
     stream.active = true;
     stream.activity = activity;
     state.liveStreamsBySession.set(sessionId, stream);
@@ -2666,7 +2727,23 @@ async function handleLiveEvent(payload) {
     if (sessionId === state.selectedSessionId) {
       setAvatar("working", "using tool");
       setActivity(activity);
+      await refreshHistoryAfterLiveMessage(sessionId);
     }
+    return;
+  }
+
+  if (["tool/result", "tool/code-dispatch"].includes(event.type)) {
+    stream.text = "";
+    stream.reasoning = "";
+    stream.active = true;
+    stream.activity = null;
+    state.liveStreamsBySession.set(sessionId, stream);
+    updateLiveSessionState(sessionId, true, null, "working", { render: false });
+    if (sessionId === state.selectedSessionId) {
+      setActivity(null);
+      await refreshHistoryAfterLiveMessage(sessionId);
+    }
+    scheduleLivePaint();
     return;
   }
 
@@ -3953,10 +4030,13 @@ if (screenshotFixture) {
       setTab("chat");
       if (screenshotFixture === "focus-offline") setFocusMode(true);
       state.dashboard = { harness: false, sessions: [] };
+      state.harnessOffline = true;
+      document.body.classList.add("harness-offline");
       state.selectedSessionId = null;
       if (state.focusMode) setFocusMode(false);
       $("#offlineBanner").classList.add("show");
       setAvatar("error", "");
+      syncCompactStatus();
       renderSessions();
       renderSessionSelect();
       renderContext();
@@ -4105,8 +4185,8 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.0", latestVersion: "0.6.1", installMode: "portable-replace", progress: 100 }
-        : { status: "available", currentVersion: "0.6.0", latestVersion: "0.6.1", installMode: "managed", progress: 0 });
+        ? { status: "ready", currentVersion: "0.6.2", latestVersion: "0.6.3", installMode: "portable-replace", progress: 100 }
+        : { status: "available", currentVersion: "0.6.2", latestVersion: "0.6.3", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {
       setTab("chat");

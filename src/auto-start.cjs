@@ -178,6 +178,19 @@ function createAutoStartController({
   const disableLegacy = (items) => {
     for (const item of items) writeItem(item.name, { path: item.path, args: item.args || [] }, false);
   };
+  const cleanupLegacyItems = () => {
+    const knownLegacy = legacyItems();
+    disableLegacy(knownLegacy.filter((item) => item.enabled !== false));
+    const failures = [];
+    for (const name of LEGACY_LOGIN_ITEM_NAMES) {
+      const rawPath = readRunItemPath(name);
+      if (!rawPath) continue;
+      if (!knownLegacy.some((item) => item.name === name)) writeItem(name, { path: rawPath, args: [] }, false);
+      const result = deleteRunItem(name);
+      if (!result?.ok) failures.push(result || { ok: false, deleted: false, name, reason: "unknown" });
+    }
+    return failures;
+  };
   let lastMigrationResult = { status: "not-run", migrated: false };
 
   return {
@@ -188,27 +201,18 @@ function createAutoStartController({
     },
     setEnabled(enabled) {
       writeItem(LOGIN_ITEM_NAME, target, enabled);
-      if (!enabled) {
-        const knownLegacy = legacyItems();
-        disableLegacy(knownLegacy.filter((item) => item.enabled !== false));
-        for (const name of LEGACY_LOGIN_ITEM_NAMES) {
-          const rawPath = readRunItemPath(name);
-          if (!rawPath) continue;
-          if (!knownLegacy.some((item) => item.name === name)) writeItem(name, { path: rawPath, args: [] }, false);
-          deleteRunItem(name);
-        }
+      const currentEnabled = this.getEnabled();
+      if (enabled && !currentEnabled) return false;
+      const cleanupFailures = cleanupLegacyItems();
+      if (cleanupFailures.length) {
+        reportMigrationIssue({ step: "set-enabled-legacy-cleanup", enabled: Boolean(enabled), cleanupFailures });
       }
-      return this.getEnabled();
+      return enabled ? currentEnabled : this.getEnabled();
     },
     getLastMigrationResult() {
       return lastMigrationResult;
     },
     migrateLegacy() {
-      if (!env.PORTABLE_EXECUTABLE_FILE) {
-        const enabled = this.getEnabled();
-        lastMigrationResult = { status: "not-portable", migrated: false, enabled };
-        return enabled;
-      }
       const knownLegacy = legacyItems();
       const enabledRelocatedCurrent = relocatedCurrentItems().filter((item) => item.enabled !== false);
       const rawCurrentPath = readRunItemPath(LOGIN_ITEM_NAME);

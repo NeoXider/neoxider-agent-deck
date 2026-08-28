@@ -102,6 +102,32 @@ test("disabling autostart removes a raw legacy Run fallback so restart cannot re
   assert.equal(app.getLoginItemSettings({ path: portableLauncher, args: [] }).openAtLogin, false);
 });
 
+test("enabling autostart removes a competing legacy entry before the next login", () => {
+  const app = createFakeApp({
+    launchItems: [{ name: legacyName, path: temporaryChild, args: [], enabled: true, scope: "user" }],
+  });
+  const rawEntries = new Map([[legacyName, temporaryChild]]);
+  const deleted = [];
+  const controller = createAutoStartController({
+    app,
+    env: { PORTABLE_EXECUTABLE_FILE: portableLauncher },
+    execPath: temporaryChild,
+    platform: "win32",
+    readRunItemPath: (name) => rawEntries.get(name) || "",
+    deleteRunItem: (name) => {
+      rawEntries.delete(name);
+      deleted.push(name);
+      return { ok: true, deleted: true, name };
+    },
+  });
+
+  assert.equal(controller.setEnabled(true), true);
+  assert.deepEqual(deleted, [legacyName]);
+  assert.equal(rawEntries.size, 0);
+  assert.equal(app.getLoginItemSettings({ path: temporaryChild, args: [] }).openAtLogin, false);
+  assert.equal(app.getLoginItemSettings({ path: portableLauncher, args: [] }).openAtLogin, true);
+});
+
 test("an unpackaged run uses Electron plus the app path", () => {
   assert.deepEqual(resolveLoginItemTarget({
     env: {},
@@ -167,6 +193,31 @@ test("enabled legacy item migrates to the new target and is disabled only after 
     [legacyName, false],
   ]);
   assert.deepEqual(deleted, [legacyName]);
+  assert.equal(controller.getLastMigrationResult().status, "migrated");
+});
+
+test("an installed build also migrates a legacy portable startup entry", () => {
+  const installedTarget = "C:\\Users\\User\\AppData\\Local\\Programs\\NeoXider Agent Deck\\NeoXider Agent Deck.exe";
+  const app = createFakeApp({
+    launchItems: [{ name: legacyName, path: temporaryChild, args: [], enabled: true, scope: "user" }],
+  });
+  const deleted = [];
+  const controller = createAutoStartController({
+    app,
+    env: {},
+    execPath: installedTarget,
+    platform: "win32",
+    readRunItemPath: (name) => name === legacyName ? temporaryChild : "",
+    deleteRunItem: (name) => {
+      deleted.push(name);
+      return { ok: true, deleted: true, name };
+    },
+  });
+
+  assert.equal(controller.migrateLegacy(), true);
+  assert.equal(controller.getEnabled(), true);
+  assert.deepEqual(deleted, [legacyName]);
+  assert.deepEqual(controller.target, { path: installedTarget, args: [] });
   assert.equal(controller.getLastMigrationResult().status, "migrated");
 });
 

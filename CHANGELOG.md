@@ -5,6 +5,22 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-08-28
+
+### Changed
+
+- Thinking is now a single collapsed one-line hint while the growing Markdown answer remains the primary live surface.
+- Edge, Orb, and Full transitions use a softer GPU-friendly spring with staged Full-mode content entry.
+- High-frequency Full and compact dragging is coalesced to one native window move per animation frame.
+
+### Fixed
+
+- Live Harness tool calls and results refresh into separate named cards as they happen instead of growing one ambiguous assistant bubble across multiple tools.
+- Mixed tool groups keep only the failed row red and summarize the successful and failed tools independently.
+- Manual and scheduled update checks now share one background check/download pipeline; a verified portable update survives restart and appears as **Update** only when its exact version, size, and SHA-256 match the live release.
+- The release checksum manifest no longer hashes itself and is verified before publication.
+- Enabling Start at login removes a competing legacy widget entry after the current NeoXider target has been verified, preventing an old build from returning after reboot.
+
 ## [0.6.2] - 2026-08-28
 
 ### Added
@@ -28,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Transient settings-file locks retain the latest preferences and retry the atomic write instead of silently losing the change.
 - A temporary Harness history failure no longer leaves a finished session cached as working.
-- Normal window layer now stays below ordinary windows in Full, Avatar, and Edge modes.
+- Desktop window layer now stays below ordinary windows in Full, Avatar, and Edge modes.
 - Start at login, opacity, glow, hotkeys, window layer, size, and all per-mode bounds survive restart without resetting one another.
 - Stable polling no longer rebuilds unchanged DOM, moves the window, changes focus, forces chat scroll, or causes the periodic UI twitch.
 - Completed turns clear Stop and live activity from authoritative turn events; a late cancel response cannot hide a newer running turn.
@@ -135,7 +151,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   noreply address is now supplied as the package maintainer, so both AppImage and `.deb`
   artifacts can be produced in CI.
 
-## [0.4.2] - 2026-08-26
+## 0.4.2 - 2026-08-26
 
 ### Fixed
 
@@ -153,7 +169,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   invisible on the developer's own OS — which is exactly how this one survived several
   releases while CI was failing.
 
-## [0.4.1] - 2026-08-26
+## 0.4.1 - 2026-08-26
 
 Closes the remaining findings from the reliability audit.
 
@@ -173,7 +189,7 @@ Closes the remaining findings from the reliability audit.
   now writes a freedesktop `.desktop` entry under `$XDG_CONFIG_HOME/autostart`, falling
   back to `~/.config`, and never calls the unsupported Electron API.
 
-## [0.4.0] - 2026-08-26
+## 0.4.0 - 2026-08-26
 
 A reliability pass over the main process. Every item below was verified against the
 running code before it was changed, and the whole set is covered by new tests.
@@ -217,7 +233,7 @@ running code before it was changed, and the whole set is covered by new tests.
   `move-compact-window`, `snap-compact-window`) along with their preload bridges. A test
   now fails if a bridged channel loses its handler, or if a handler loses every caller.
 
-## [0.3.2] - 2026-08-26
+## 0.3.2 - 2026-08-26
 
 ### Added
 
@@ -245,7 +261,7 @@ running code before it was changed, and the whole set is covered by new tests.
 - A timed-out Harness launch is retained and re-probed, so Retry cannot spawn a duplicate
   owned process. Definite launch failures still use the bounded Windows batch fallback.
 
-## [0.3.1] - 2026-08-26
+## 0.3.1 - 2026-08-26
 
 ### Fixed
 
@@ -266,7 +282,7 @@ running code before it was changed, and the whole set is covered by new tests.
 - `npm run test:input` — a physical-input regression that drives real mouse events
   against the compact-mode gestures, which synthetic `click()` calls cannot reproduce.
 
-## [0.3.0] - 2026-08-26
+## 0.3.0 - 2026-08-26
 
 The project is renamed from **DeepSeek Harness Widget** to **NeoXider Agent Deck**,
 and this release closes the security, accessibility and resilience findings from a
@@ -332,7 +348,7 @@ full audit of the main process, the renderer and the UI.
   notification area, `agent-complete` no longer writes to a destroyed window, and
   macOS dock activation handles a destroyed-but-not-null window.
 
-## [0.2.4] - 2026-08-25
+## 0.2.4 - 2026-08-25
 
 - Click-through edge glow: only the visible edge line accepts input, so the wider
   transparent halo no longer blocks clicks in applications underneath.
@@ -357,12 +373,13 @@ full audit of the main process, the renderer and the UI.
 ## [0.2.0] - 2026-08-25
 
 - Draggable compact modes with edge magnetisation and per-mode placement memory.
-- Three window layers: Normal, Above and Game.
+- Three window layers: Desktop, Above and Game.
 
 ## [0.1.0] - 2026-08-25
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.6.3]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.3
 [0.6.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.2
 [0.6.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.1
 [0.6.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.0
@@ -370,13 +387,6 @@ full audit of the main process, the renderer and the UI.
 [0.5.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.5.1
 [0.5.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.5.0
 [0.4.3]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.3
-[0.4.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.2
-[0.4.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.1
-[0.4.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.4.0
-[0.3.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.2
-[0.3.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.1
-[0.3.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.3.0
-[0.2.4]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.2.4
 [0.2.3]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.2.3
 [0.2.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.2.2
 [0.2.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.2.1

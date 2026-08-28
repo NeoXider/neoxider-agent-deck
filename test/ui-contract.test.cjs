@@ -14,6 +14,7 @@ const ipc = readFileSync(path.join(root, "src", "ipc-handlers.cjs"), "utf8");
 const platformCapabilities = readFileSync(path.join(root, "src", "platform-capabilities.cjs"), "utf8");
 const settingsStore = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
 const harnessApi = readFileSync(path.join(root, "src", "harness-api.cjs"), "utf8");
+const updateOrchestrator = readFileSync(path.join(root, "src", "update-orchestrator.cjs"), "utf8");
 
 test("visible widget copy is English and required controls are present", () => {
   assert.doesNotMatch(`${html}\n${renderer}`, /[\u0400-\u04ff]/);
@@ -59,18 +60,18 @@ test("composer stacks attachment and commands beside a smaller context ring and 
   const input = html.indexOf('id="messageInput"');
   const stop = html.indexOf('id="cancelButton"');
   const send = html.indexOf('id="sendButton"');
-  assert.ok(focus > 0 && focus < context && context < attach && attach < commands && commands < input && input < stop && stop < send);
+  assert.ok(focus > 0 && focus < context && context < commands && commands < attach && attach < input && input < stop && stop < send);
   assert.match(html, /class="composer-view-stack"[\s\S]+id="focusChatButton"[\s\S]+id="contextMeter"/);
-  assert.match(html, /class="composer-utility-stack"[\s\S]+id="attachButton"[\s\S]+id="commandsButton"/);
-  assert.match(css, /\.composer-utility-stack \{[^}]+width:28px[^}]+height:46px[^}]+grid-template-rows:repeat\(2,22px\)/);
-  assert.match(css, /\.composer-utility-stack \.composer-action \{[^}]+width:28px[^}]+height:22px/);
-  assert.match(css, /\.composer-view-stack \{[^}]+height:46px[^}]+grid-template-rows:repeat\(2,22px\)/);
-  assert.match(css, /\.composer-view-stack \.focus-chat-button \{[^}]+width:28px[^}]+height:22px/);
-  assert.match(css, /\.context-meter \{[^}]+width:28px[^}]+height:22px/);
-  assert.match(css, /\.composer #sendButton \{[^}]+width:38px[^}]+height:38px/);
+  assert.match(html, /class="composer-utility-stack"[\s\S]+id="commandsButton"[\s\S]+id="attachButton"/);
+  assert.match(css, /\.composer-utility-stack \{[^}]+width:28px[^}]+height:36px[^}]+grid-template-rows:repeat\(2,17px\)/);
+  assert.match(css, /\.composer-utility-stack \.composer-action \{[^}]+width:28px[^}]+height:17px/);
+  assert.match(css, /\.composer-view-stack \{[^}]+height:36px[^}]+grid-template-rows:repeat\(2,17px\)/);
+  assert.match(css, /\.composer-view-stack \.focus-chat-button \{[^}]+width:28px[^}]+height:17px/);
+  assert.match(css, /\.context-meter \{[^}]+width:28px[^}]+height:17px/);
+  assert.match(css, /\.composer #sendButton \{[^}]+width:36px[^}]+height:36px[^}]+align-self:center/);
   assert.match(css, /\.context-meter svg \{[^}]+top:50%[^}]+left:50%[^}]+translate\(-50%,-50%\)/);
   assert.match(css, /\.context-meter span \{[^}]+position:absolute[^}]+inset:0[^}]+place-items:center/);
-  assert.match(css, /\.composer\.context-unavailable \{[^}]+grid-template-columns:28px 28px minmax\(0,1fr\) 38px/);
+  assert.match(css, /\.composer\.context-unavailable \{[^}]+grid-template-columns:28px 28px minmax\(0,1fr\) 36px/);
   assert.match(css, /\.context-meter\.unavailable \{ display:grid; opacity:\.64; \}/);
   assert.match(renderer, /classList\.toggle\("context-unavailable", !pressure\)/);
   assert.match(renderer, /\$\("#contextValue"\)\.textContent = "0%"/);
@@ -102,6 +103,7 @@ test("main composer starts on one line, grows to one third of the viewport, scro
   assert.match(renderer, /Math\.round\(snapshot\.scrollTop \/ snapshot\.lineHeight\) \* snapshot\.lineHeight/);
   assert.match(renderer, /input\.setSelectionRange\(snapshot\.selectionStart, snapshot\.selectionEnd, snapshot\.selectionDirection\)/);
   assert.match(renderer, /classList\.toggle\("is-scrollable", isScrollable\)/);
+  assert.match(renderer, /classList\.toggle\("composer-multiline", targetHeight > COMPOSER_INPUT_MIN_HEIGHT\)/);
   assert.match(renderer, /input\.value = "";\s*\n\s*resizeMessageInput\(\);/);
   assert.match(renderer, /input\.value = text;\s*\n\s*resizeMessageInput\(\);/);
   assert.match(renderer, /window\.addEventListener\("resize", \(\) => \{[\s\S]+resizeMessageInput\(\{ immediate: true \}\)/);
@@ -203,7 +205,7 @@ test("live assistant deltas grow a bubble instead of leaving a Writing reasoning
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   const chunkHandler = renderer.slice(
     renderer.indexOf('if (event.type === "assistant/chunk")'),
-    renderer.indexOf('if (event.type === "tool/call")'),
+    renderer.indexOf('if (["tool/call", "tool/code-dispatch-start"].includes(event.type))'),
   );
   assert.match(renderer, /onLiveEvent/);
   assert.match(renderer, /function handleLiveEvent/);
@@ -219,6 +221,24 @@ test("live assistant deltas grow a bubble instead of leaving a Writing reasoning
   assert.match(renderer, /hasWritingBubble/);
   assert.match(css, /\.live-assistant::after \{[^}]+width:4px[^}]+animation:live-caret/);
   assert.match(css, /prefers-reduced-motion[\s\S]+\.live-assistant::after \{ animation:none !important/);
+});
+
+test("live tool calls become named cards and split the streaming answer around tool work", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const toolHandler = renderer.slice(
+    renderer.indexOf('if (["tool/call", "tool/code-dispatch-start"].includes(event.type))'),
+    renderer.indexOf('if (event.type === "turn/end")'),
+  );
+  assert.match(toolHandler, /stream\.text = ""/);
+  assert.match(toolHandler, /refreshHistoryAfterLiveMessage\(sessionId\)/);
+  assert.match(toolHandler, /\["tool\/result", "tool\/code-dispatch"\]\.includes\(event\.type\)/);
+  assert.match(toolHandler, /tool\/code-dispatch-start/);
+  assert.match(toolHandler, /tool\/code-dispatch/);
+  assert.match(renderer, /const names = \[\.\.\.new Set\(run\.map/);
+  assert.match(renderer, /`\$\{names\} · \$\{statusText\}`/);
+  assert.match(renderer, /compactRecentText\(stream\.reasoning, 110\)/);
+  assert.match(css, /\.activity-card\.thinking-compact > summary \{[^}]+height:26px/);
+  assert.match(css, /\.activity-card\.thinking-compact \.activity-chevron, \.activity-card\.thinking-compact \.activity-body \{ display:none; \}/);
 });
 
 test("compact status IPC is skipped while its bounded presentation is unchanged", () => {
@@ -344,6 +364,9 @@ test("compact modes preserve short clicks and start native drag only after the m
   assert.match(renderer, /Math\.hypot\(dx, dy\) < 4/);
   assert.match(renderer, /if \(!compactDrag\.nativeStarted\)/);
   assert.match(renderer, /window\.widget\.beginCompactDrag\(\{ x: compactDrag\.startX, y: compactDrag\.startY \}\)/);
+  assert.match(renderer, /function scheduleCompactDragMove\(point\)[\s\S]+?requestAnimationFrame/);
+  assert.match(renderer, /function flushCompactDragMove\(\)[\s\S]+?cancelAnimationFrame/);
+  assert.match(renderer, /scheduleCompactDragMove\(\{ x: event\.screenX, y: event\.screenY \}\)/);
   assert.match(renderer, /if \(!nativeStarted\) return/);
   const begin = renderer.slice(renderer.indexOf("function beginCompactDrag"), renderer.indexOf("function moveCompactDrag"));
   assert.doesNotMatch(begin, /setPointerCapture|window\.widget\.beginCompactDrag/);
@@ -414,6 +437,9 @@ test("the custom titlebar drag excludes header controls and avoids Chromium nati
   assert.match(renderer, /beginFullDrag/);
   assert.match(renderer, /moveFullDrag/);
   assert.match(renderer, /endFullDrag/);
+  assert.match(renderer, /function scheduleFullDragMove\(point\)[\s\S]+?requestAnimationFrame/);
+  assert.match(renderer, /function flushFullDragMove\(\)[\s\S]+?cancelAnimationFrame/);
+  assert.match(renderer, /scheduleFullDragMove\(\{ x: event\.screenX, y: event\.screenY \}\)/);
   assert.match(renderer, /suppressProjectClick/);
   assert.match(ipc, /begin-full-drag/);
   assert.match(ipc, /move-full-drag/);
@@ -609,9 +635,12 @@ test("updates download in the background and expose install only after verificat
   assert.match(main, /createUpdateService/);
   assert.match(main, /createInstalledUpdateService/);
   assert.match(main, /sendToRenderer\("update-state", state\)/);
-  assert.match(main, /async function checkAndStageUpdate\(\)/);
-  assert.match(main, /result\?\.status === "available"[\s\S]+\["portable-replace", "managed"\]\.includes\(result\.installMode\)[\s\S]+updateService\.download\(\)/);
-  assert.match(main, /setTimeout\(\(\) => checkAndStageUpdate\(\)/);
+  assert.match(main, /createUpdateOrchestrator/);
+  assert.match(main, /checkForUpdates: \(\) => updateOrchestrator\?\.checkAndStage\(\)/);
+  assert.match(main, /updateOrchestrator\.start\(\)/);
+  assert.match(main, /updateOrchestrator\?\.stop\(\)/);
+  assert.match(updateOrchestrator, /result\?\.status === "available"[\s\S]+\["portable-replace", "managed"\]\.includes\(result\.installMode\)[\s\S]+service\.download\(\)/);
+  assert.match(updateOrchestrator, /6 \* 60 \* 60_000/);
   assert.match(renderer, /function renderUpdateState\(value\)/);
   assert.match(renderer, /Install & restart/);
   assert.match(renderer, /headerInstallButton\.hidden = value\.status !== "ready"/);
@@ -624,7 +653,7 @@ test("updates download in the background and expose install only after verificat
 
 test("full, avatar, and edge transitions use a short renderer handoff without touching saved geometry", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
-  assert.match(renderer, /MODE_EXIT_DURATION = 105/);
+  assert.match(renderer, /MODE_EXIT_DURATION = 145/);
   assert.match(renderer, /await animateModeExit\(mode, requestSequence\)/);
   assert.match(renderer, /requestSequence !== modeRequestSequence/);
   assert.match(renderer, /function applyAuthoritativeWindowMode\(mode\)/);
@@ -636,6 +665,9 @@ test("full, avatar, and edge transitions use a short renderer handoff without to
   assert.match(css, /@keyframes mode-enter-full/);
   assert.match(css, /@keyframes mode-enter-orb/);
   assert.match(css, /@keyframes mode-enter-edge/);
+  assert.match(css, /@keyframes mode-content-enter/);
+  assert.match(css, /\.mode-transition-in\.mode-full \.composer \{ animation:mode-content-enter/);
+  assert.doesNotMatch(css, /@keyframes mode-(?:exit|enter)-(?:full|orb|edge) \{[^}]*filter:/);
   assert.match(css, /@media \(prefers-reduced-motion:reduce\)/);
   assert.doesNotMatch(css, /(?:^|\n)\.mode-full \.widget-shell \{[^}]*animation:/);
   assert.doesNotMatch(css, /(?:^|\n)\.mode-orb \.orb-mode \{[^}]*animation:/);
@@ -696,6 +728,8 @@ test("offline status is shown once with an explicit guarded Start action", () =>
   assert.match(renderer, /await window\.widget\.startHarness\(\)/);
   assert.match(renderer, /setAvatar\("error", ""\)/);
   assert.doesNotMatch(renderer, /setAvatar\("error", "Harness offline"\)/);
+  assert.match(renderer, /offline \? "Harness offline"/);
+  assert.match(renderer, /offline \? "Start Harness to reconnect\."/);
   assert.match(renderer, /Start Harness to load sessions\./);
   assert.match(renderer, /!dashboard\.harness && state\.focusMode\) setFocusMode\(false\)/);
   assert.doesNotMatch(renderer, /empty\.textContent = [^\n]+: "Harness is offline\."/);

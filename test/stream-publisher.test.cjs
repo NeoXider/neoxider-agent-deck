@@ -29,6 +29,23 @@ test("live publisher bounds TODOs and exposes the durable steering handoff", () 
   assert.equal(publishLiveEvent({ sessionId: "s1", event: { type: "unknown", seq: 3 } }), false);
 });
 
+test("live publisher exposes nested Code Mode tool starts and completions without raw payloads", () => {
+  const sent = [];
+  const publisher = createStreamPublisher({ queueSnapshots: new Map(), send: (channel, value) => sent.push([channel, value]) });
+  assert.equal(publisher.publishLiveEvent({
+    sessionId: "session-1",
+    event: { type: "tool/code-dispatch-start", seq: 8, data: { subCallId: "root:code:1", name: "read", arguments: { path: "secret" } } },
+  }), true);
+  assert.equal(publisher.publishLiveEvent({
+    sessionId: "session-1",
+    event: { type: "tool/code-dispatch", seq: 9, data: { subCallId: "root:code:1", isError: false, content: [{ type: "text", text: "private result" }] } },
+  }), true);
+  assert.deepEqual(sent, [
+    ["live-event", { sessionId: "session-1", event: { type: "tool/code-dispatch-start", seq: 8, data: { name: "read", callId: "root:code:1" } } }],
+    ["live-event", { sessionId: "session-1", event: { type: "tool/code-dispatch", seq: 9, data: { callId: "root:code:1", isError: false } } }],
+  ]);
+});
+
 test("user content flattening is safe and bounded", () => {
   assert.equal(textFromContent([{ type: "image" }, { type: "text", text: "hello" }]), "hello");
   assert.equal(textFromContent([{ type: "text", text: "x".repeat(5000) }]).length, 4000);

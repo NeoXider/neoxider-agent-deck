@@ -23,7 +23,7 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Retried atomic preference writes after transient file-lock failures without discarding the latest settings.
 - Cleared stale working state after temporary Harness history failures once the authoritative session state was idle.
-- Applied Normal window layer consistently across Full, Avatar, and Edge modes.
+- Applied Desktop window layer consistently across Full, Avatar, and Edge modes.
 - Added chat-first navigation, state-aware Agents, Focus Chat, a searchable model picker, native slash commands, structured goals, live TODOs, and compact mixed-status tool groups.
 - Added authoritative queue Edit/Delete/Send-now behavior with durable steering handoff and no duplicate or ghost requests.
 - Added streamed reasoning plus a growing Markdown answer bubble, respectful manual scrolling, and a jump-to-latest action.
@@ -31,6 +31,12 @@ This backlog records planned work only. Items are not part of the current releas
 - Added three-session Orb history and reply, exact-session notifications, smoother completion/error states, and reduced-motion-safe mode transitions.
 - Fixed the Orb recent-session race so clicking a message reliably restores Full and opens that exact session.
 - Added 360 px minimum layouts, smaller horizontal attachment previews, a one-line composer that grows to one third, and current README screenshots/cover.
+
+## Shipped in 0.6.3
+
+- Split live multi-tool turns into named per-call cards and reduced live thinking to one compact line.
+- Coalesced drag moves to the display frame rate and polished the Full/Orb/Edge transition spring.
+- Repaired background update staging, restart recovery, checksum publication, and legacy Start-at-login cleanup.
 
 ## Epic: Desktop capture
 

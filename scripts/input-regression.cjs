@@ -75,7 +75,7 @@ function registerStubs() {
   ipcMain.handle("download-update", () => null);
   ipcMain.handle("install-update", () => {
     installUpdateCalls += 1;
-    return { status: "ready", currentVersion: "0.0.0", latestVersion: "0.6.1", progress: 100, installMode: "portable-replace" };
+    return { status: "ready", currentVersion: "0.6.2", latestVersion: "0.6.3", progress: 100, installMode: "portable-replace" };
   });
   ipcMain.handle("set-compact-status", (event, payload) => {
     compactStatusPayloads.push(payload);
@@ -205,14 +205,14 @@ async function main() {
   }
 
   // --- 1c. Update remains clickable and never begins a full drag -----------
-  updateState = { status: "ready", currentVersion: "0.0.0", latestVersion: "0.6.1", progress: 100, installMode: "portable-replace" };
+  updateState = { status: "ready", currentVersion: "0.6.2", latestVersion: "0.6.3", progress: 100, installMode: "portable-replace" };
   await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
     query: { screenshotFixture: "update-ready", screenshotStatic: "1" },
   });
   win.show();
   win.focus();
   await wait(1200);
-  await contents.executeJavaScript('setSettingsOpen(false, { restoreFocus: false }); renderUpdateState({ status: "ready", currentVersion: "0.0.0", latestVersion: "0.6.1", progress: 100, installMode: "portable-replace" })');
+  await contents.executeJavaScript('setSettingsOpen(false, { restoreFocus: false }); renderUpdateState({ status: "ready", currentVersion: "0.6.2", latestVersion: "0.6.3", progress: 100, installMode: "portable-replace" })');
   await wait(100);
   installUpdateCalls = 0;
   const headerUpdateState = await contents.executeJavaScript(`(() => {
@@ -349,7 +349,7 @@ async function main() {
   modeResponseDelays.set("full", 5);
   const rapidMode = await contents.executeJavaScript(`(async () => {
     const first = setWindowMode("orb");
-    await new Promise((resolve) => setTimeout(resolve, 130));
+    await new Promise((resolve) => setTimeout(resolve, 175));
     const second = setWindowMode("full");
     await Promise.all([first, second]);
     return { stateMode: state.windowMode, bodyMode: document.body.className };
@@ -744,6 +744,63 @@ async function main() {
   if (streamAfterHistory.live !== "next" || streamAfterHistory.bubble !== "next" || !streamAfterHistory.history.includes("Authoritative first turn")) {
     failures.push(`first turn history cleanup deleted or replaced the subsequent stream: ${JSON.stringify(streamAfterHistory)}`);
   }
+
+  const toolLiveHistories = [
+    { messages: [{ role: "user", text: "Use two tools." }, { role: "assistant", text: "Before tool" }, { role: "tool", callId: "read-live", name: "read", status: "running", arguments: "README.md" }], activity: { active: true, kind: "tool", label: "Using tool", text: "read" } },
+    { messages: [{ role: "user", text: "Use two tools." }, { role: "assistant", text: "Before tool" }, { role: "tool", callId: "read-live", name: "read", status: "done", result: "ok", isError: false }], activity: null },
+    { messages: [{ role: "user", text: "Use two tools." }, { role: "assistant", text: "Before tool" }, { role: "tool", callId: "read-live", name: "read", status: "done", result: "ok", isError: false }, { role: "tool", callId: "grep-live", name: "grep", status: "running", arguments: "NeoXider" }], activity: { active: true, kind: "tool", label: "Using tool", text: "grep" } },
+    { messages: [{ role: "user", text: "Use two tools." }, { role: "assistant", text: "Before tool" }, { role: "tool", callId: "read-live", name: "read", status: "done", result: "ok", isError: false }, { role: "tool", callId: "grep-live", name: "grep", status: "done", result: "found", isError: false }], activity: null },
+    { messages: [{ role: "user", text: "Use two tools." }, { role: "assistant", text: "Before tool" }, { role: "tool", callId: "read-live", name: "read", status: "done", result: "ok", isError: false }, { role: "tool", callId: "grep-live", name: "grep", status: "done", result: "found", isError: false }, { role: "assistant", text: "After tools" }], activity: null },
+  ];
+  let toolLiveHistoryIndex = 0;
+  deferredSessionRequests.history.set("tool-live", {
+    take: () => Promise.resolve(toolLiveHistories[Math.min(toolLiveHistoryIndex++, toolLiveHistories.length - 1)]),
+  });
+  const liveToolSequence = await contents.executeJavaScript(`(async () => {
+    state.selectedSessionId = "tool-live";
+    state.dashboard = { harness: true, sessions: [{ sessionId: "tool-live", title: "Live tools", running: true, state: "working", projections: { values: {} }, subagents: [] }] };
+    state.currentMessages = [{ role: "user", text: "Use two tools." }];
+    state.historySignature = "";
+    state.liveStreamsBySession.delete("tool-live");
+    renderMessages(state.currentMessages);
+    await handleLiveEvent({ sessionId: "tool-live", event: { type: "turn/start", seq: 20, data: {} } });
+    await handleLiveEvent({ sessionId: "tool-live", event: { type: "assistant/chunk", seq: 21, data: { chunk: { type: "text-delta", text: "Before tool" } } } });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await handleLiveEvent({ sessionId: "tool-live", event: { type: "tool/call", seq: 22, data: { name: "read", callId: "read-live" } } });
+    const first = {
+      cards: [...document.querySelectorAll(".tool-call .tool-identity b")].map((node) => node.textContent),
+      live: document.querySelector(".live-assistant")?.textContent || "",
+    };
+    await handleLiveEvent({ sessionId: "tool-live", event: { type: "tool/result", seq: 23, data: { callId: "read-live", isError: false } } });
+    await handleLiveEvent({ sessionId: "tool-live", event: { type: "tool/call", seq: 24, data: { name: "grep", callId: "grep-live" } } });
+    const second = {
+      cards: [...document.querySelectorAll(".tool-call .tool-identity b")].map((node) => node.textContent),
+      running: [...document.querySelectorAll(".tool-call .tool-identity small")].filter((node) => node.textContent === "running").length,
+      live: document.querySelector(".live-assistant")?.textContent || "",
+    };
+    await handleLiveEvent({ sessionId: "tool-live", event: { type: "tool/result", seq: 25, data: { callId: "grep-live", isError: false } } });
+    await handleLiveEvent({ sessionId: "tool-live", event: { type: "assistant/chunk", seq: 26, data: { chunk: { type: "text-delta", text: "After tools" } } } });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const writing = document.querySelector(".live-assistant")?.textContent || "";
+    await handleLiveEvent({ sessionId: "tool-live", event: { type: "turn/end", seq: 27, data: {} } });
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    return {
+      first,
+      second,
+      writing,
+      finalCards: [...document.querySelectorAll(".tool-call .tool-identity b")].map((node) => node.textContent),
+      finalLive: document.querySelector(".live-assistant")?.textContent || "",
+      finalText: document.querySelector("#messages")?.textContent || "",
+      activity: state.currentActivity?.kind || "",
+    };
+  })()`);
+  deferredSessionRequests.history.delete("tool-live");
+  if (liveToolSequence.first.cards.join() !== "read" || liveToolSequence.first.live
+      || liveToolSequence.second.cards.join() !== "read,grep" || liveToolSequence.second.running !== 1 || liveToolSequence.second.live
+      || liveToolSequence.writing !== "After tools" || liveToolSequence.finalCards.join() !== "read,grep"
+      || liveToolSequence.finalLive || !liveToolSequence.finalText.includes("After tools") || liveToolSequence.activity) {
+    failures.push(`live multi-tool turn did not split bubbles into named cards: ${JSON.stringify(liveToolSequence)}`);
+  }
   await contents.executeJavaScript(`clearCompletionSignal(); schedulePolling()`);
 
   const switchedError = await contents.executeJavaScript(`(async () => {
@@ -920,7 +977,7 @@ async function main() {
     const group = document.querySelector("#messages .tool-group");
     return { className: group?.className || "", meta: group?.querySelector(".tool-group-identity small")?.textContent || "", failedRows: group?.querySelectorAll(".tool-call.failed").length || 0 };
   })()`);
-  if (!mixedTools.className.includes("partial-failure") || mixedTools.className.includes("tool-group failed") || mixedTools.meta !== "1 completed · 1 failed" || mixedTools.failedRows !== 1) {
+  if (!mixedTools.className.includes("partial-failure") || mixedTools.className.includes("tool-group failed") || mixedTools.meta !== "read · write · 1 completed · 1 failed" || mixedTools.failedRows !== 1) {
     failures.push(`one failed tool painted the whole group as failed: ${JSON.stringify(mixedTools)}`);
   }
 
@@ -1354,7 +1411,7 @@ async function main() {
   }
 
   for (const failure of failures) console.error(`FAIL ${failure}`);
-  if (failures.length === 0) console.log("PASS stable rendering, bounded live-stream paints, last-intent modes, compact drag, exact-session open, and inline quick reply behave correctly");
+  if (failures.length === 0) console.log("PASS stable rendering, bounded live-stream paints, named live tool cards, last-intent modes, compact drag, exact-session open, and inline quick reply behave correctly");
   app.exit(failures.length === 0 ? 0 : 1);
 }
 
