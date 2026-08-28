@@ -192,9 +192,20 @@ async function main() {
   const failures = [];
 
   // --- 0. first entry begins only after the native show acknowledgement ---
+  //
+  // The invariant under test is the WAIT: the window must not animate itself in before
+  // the native show, or the first frame jumps. Whether an animation then plays is a
+  // separate, deliberately conditional behaviour — playFirstVisibleEntry honours
+  // prefers-reduced-motion and returns without adding the class.
+  //
+  // Asserting `animating` unconditionally passed locally and failed on the CI runner,
+  // which reports reduced motion. That was the check calling correct behaviour a bug, so
+  // the reduced-motion state is now read from the same page and the animation assertion
+  // applies only where an animation is actually meant to happen.
   const entryBeforeShow = await contents.executeJavaScript(`({
     pending: document.body.classList.contains("pre-native-visible"),
     animating: document.body.classList.contains("first-visible-entry"),
+    reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   })`);
   contents.send("first-visible-entry");
   await wait(30);
@@ -202,7 +213,10 @@ async function main() {
     pending: document.body.classList.contains("pre-native-visible"),
     animating: document.body.classList.contains("first-visible-entry"),
   })`);
-  if (!entryBeforeShow.pending || entryBeforeShow.animating || entryAfterShow.pending || !entryAfterShow.animating) {
+  const waitedForNativeShow =
+    entryBeforeShow.pending && !entryBeforeShow.animating && !entryAfterShow.pending;
+  const animatedAsExpected = entryBeforeShow.reducedMotion ? !entryAfterShow.animating : entryAfterShow.animating;
+  if (!waitedForNativeShow || !animatedAsExpected) {
     failures.push(`first-visible animation did not wait for the native acknowledgement: ${JSON.stringify({ entryBeforeShow, entryAfterShow })}`);
   }
 

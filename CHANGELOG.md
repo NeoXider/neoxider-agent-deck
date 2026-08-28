@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Saving a queued-message edit now always closes the editor after success, including when a newer authoritative queue snapshot arrives during the request; failed saves remain editable for retry.
 - The IPC parity check matched `invoke` and `send` but not `sendSync`, so it reported the privileged `register-selected-file` channel as orphaned while the preload was calling it — a blind spot on precisely the synchronous channels that check exists to watch.
 - The release-artifact test built an absolute temp path, which passed on Windows and turned the platform matrix red on macOS and Linux: simulated POSIX rules do not treat a drive letter as absolute, so the verifier resolved `C:\repo\C:\Users\...`. The test now uses a working-directory-relative path that resolves identically under both rule sets. `verifyReleaseArtifacts` was correct and is unchanged.
+- The first-visible input regression asserted that an entry animation always plays, which failed the Windows release runner because it reports `prefers-reduced-motion: reduce` and `playFirstVisibleEntry` correctly declines to animate. The check now reads the reduced-motion state from the same page and only requires an animation where one is meant to happen; the invariant it exists for — that nothing animates before the native show acknowledgement — is asserted unconditionally and held on CI all along.
 
 ## [0.6.3] - 2026-08-28
 
