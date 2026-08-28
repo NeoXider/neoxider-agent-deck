@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.3-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.3-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.4-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.4-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -50,6 +50,14 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
   <tr>
     <td align="center"><strong>Live agent overview</strong></td>
     <td align="center"><strong>Full Harness mini-chat</strong></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/workspace-groups.png" alt="Agents grouped by exact Harness workspace and Ungrouped" /></td>
+    <td width="50%"><img src="docs/screenshots/workspace-groups-chat.png" alt="Chat session picker with collapsible Harness workspaces" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Exact Workspaces / Ungrouped agent deck</strong></td>
+    <td align="center"><strong>Start inside a folder or ungrouped</strong></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/model-picker.png" alt="Searchable dark model picker with LM Studio first" /></td>
@@ -136,26 +144,28 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Chat-first navigation** — the real mini-chat is the default first page; the agent deck is one tap away.
 - **State-aware agent deck** — every session card changes its avatar, glow and label for working, idle or error state. Activity is cleared from authoritative turn events, so a completed or failed session does not remain falsely marked as working.
 - **Real Harness sessions** — session titles, running state, subagents and errors come from the live HTTP RPC API.
+- **Complete long conversations** — history follows Harness backward pagination to the first event, then reuses cached older pages while polling only the newest tail; no silent 80-message cutoff remains.
 - **Context pressure** — a compact ring shows projected tokens against the model context window and remains a calm `0%` ring before the first session exists.
 - **Model routing** — use the searchable dark picker for every provider/model exposed by Harness; the active/local route (including LM Studio) stays first.
 - **Reasoning control** — effort options update dynamically for the selected model.
 - **Native commands** — the vertical `/` palette opens above the composer and is loaded from `commands/list`, so `/goal`, `/plan`, `/compact`, `/permission` and plugin commands stay current without covering the input.
-- **Workspace switching** — select an existing Harness workspace or add a folder; the widget starts the next session there.
+- **Harness session groups** — Agents and Chat use exact Harness `Workspaces` membership plus `Ungrouped`, keep each folder collapsible in one line, and offer a compact action for starting a session inside that group or outside every workspace.
 - **Safe, colorful Markdown** — headings, emphasis, links, quotes, tables, inline code and fenced code use a restrained dark palette, with Highlight.js syntax colors for supported languages; executable HTML and unsafe link protocols are blocked.
 - **Collapsed tool runs** — consecutive native `tool/call`, `tool/result`, and nested Code Mode dispatches become one expandable group; each child still exposes input, result, timing, and error state.
 - **Live answer bubble** — streamed assistant text grows inside the real chat bubble as it arrives; the activity card remains reserved for reasoning and tool state instead of mislabeling an answer as thinking.
-- **Ephemeral reasoning** — live reasoning stays in one collapsed activity card while the model is generating, then disappears when the turn is complete instead of cluttering chat history.
+- **Optional ephemeral reasoning** — live reasoning stays in one compact overlay while the model is generating, never shifts the conversation viewport, and can be hidden persistently with **Show live Think** without hiding tool or writing status.
 - **Authoritative Harness queue** — messages sent during a running turn appear as compact one-line queued items from Harness itself, with Edit, Delete and Send now actions.
-- **Respectful scrolling** — reading older messages is never interrupted by forced auto-scroll; a compact jump-to-latest control appears when new content arrives below.
-- **Files and drag-and-drop** — PNG, JPEG, WebP and GIF files use official image content blocks. Image and video attachments get visible previews without shifting the composer; other files become explicit local `@path` references.
+- **Respectful scrolling** — reading older messages is never interrupted by forced auto-scroll; a compact jump-to-latest control remains available whenever the chat is away from the bottom, even before another message arrives.
+- **Compact 2×2 composer** — context/expand and command/attachment actions stay in two vertical pairs, with `/` above the paperclip and a tightly fitted Send button that leaves the input wide.
+- **Files, paste and drag-and-drop** — `Ctrl+V` adds copied files or clipboard images for review without auto-sending. PNG, JPEG, WebP and GIF files use official image content blocks; sent messages retain tiny image previews or compact file/video chips, while other files become explicit local `@path` references.
 - **Instant screenshots** — capture a selected region or the current display from the header or a global shortcut, inspect the PNG preview above the composer, then decide whether to send it.
 - **Rebindable global shortcuts** — show/collapse the deck, create a session, capture a region or display, focus chat, and open Harness; every binding can be disabled, changed, reset, and survives restart.
 - **Live chat aura** — brighter-by-default, distinct inner glows indicate thinking, writing, and tool execution. No activity means no glow, and glow intensity is adjustable in settings.
 - **Focus Chat** — one compact composer button hides all chrome and setup surfaces, leaving only messages, optional attachment previews, the input, context and actions; tap it again to restore everything.
 - **Three window states** — full deck, notification avatar, or an iridescent edge handle.
-- **Draggable compact modes** — where the desktop compositor permits window positioning, drag either the avatar or the edge handle across displays and release to magnetize it to the nearest screen edge.
+- **Draggable compact modes** — where the desktop compositor permits window positioning, drag either the avatar or the edge handle with native cursor tracking and release to magnetize it to the nearest screen edge; Edge stays physically locked to the chosen side during the gesture.
 - **Persistent per-mode placement** — full, avatar and edge modes remember their own monitor, side and vertical position across restarts; missing displays are handled by safely clamping the window into the current work area.
-- **Click-through edge glow** — on supported native desktops, only the visible 8 px edge line (plus a small comfort margin) accepts hover, restore, and drag input; the wider transparent glow does not block clicks in apps underneath. Linux X11 exposes an honestly labeled wider interactive edge, while Wayland disables Edge mode.
+- **Click-through edge glow** — on supported native desktops, only the visible 8 px edge line (plus a small comfort margin) accepts hover, restore, and drag input; hover springs inward with bloom, idle shimmers cyan-green, and active work accelerates in green-yellow. Linux X11 exposes an honestly labeled wider interactive edge, while Wayland disables Edge mode.
 - **Smooth pet status glow** — the collapsed avatar now eases between idle, thinking, writing, tool, waiting, error, and done palettes instead of switching its ring abruptly.
 - **Classic NeoXider slimes** — idle, working, waiting, error, and done now use the original soft-bottom mascot shapes from NeoXider Video Studio instead of the round variants.
 - **Click-or-drag brand** — click the full-size avatar to collapse, click the NeoXider title to open the repository, or drag anywhere across the brand area to move the full widget. Brand text is non-selectable, so a drag cannot turn into a text selection.
@@ -259,11 +269,11 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.6.3-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.6.4-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
-The 0.6.3 acceptance run used the exact local `lmstudio/qwen3.8-27b-unleashed` route. A fresh read-only turn emitted three correlated tool calls and results (`glob`, `grep`, `read`); the widget transform produced three separate completed cards, cleared live activity on `turn/end`, and preserved the final Russian answer. A second fresh run exercised Dynamic MCP through search → inspect → enable → tools → call → skill.load → status → disable → status with zero tool errors and confirmed that the child process stopped. Durable receipts: [v0.6.3 multi-tool parity](docs/verification/qwen3.8-27b-multi-tool-parity.json), [v0.6.3 Dynamic MCP](docs/verification/qwen3.8-27b-dynamic-mcp-v063.json), and the deeper [widget streaming parity](docs/verification/qwen3.8-27b-widget-parity.json).
+The 0.6.4 acceptance includes an exact local `lmstudio/qwen3.8-27b-unleashed` Dynamic MCP run through search → inspect → enable → tools → call → skill.load → status → disable → status with zero tool errors and a confirmed stopped Playwright child. During the final repeat, that 27B route failed honestly at LM Studio model startup (`Engine protocol startup was aborted`), so the same fresh read-only three-tool parity turn was repeated on the available `lmstudio/ling-3.0-tiny` route: Harness emitted three correlated `glob`, `grep`, and `read` calls/results; the widget produced separate completed cards, cleared live activity on `turn/end`, and preserved the final Russian answer. Durable receipts: [v0.6.4 Dynamic MCP on Qwen 27B](docs/verification/qwen3.8-27b-dynamic-mcp-v064.json), [final Tiny multi-tool parity](docs/verification/ling-3.0-tiny-multi-tool-parity-v064.json), [final Qwen 27B load failure](docs/verification/qwen3.8-27b-multi-tool-parity-v064-failed-load.json), and the deeper [widget streaming parity](docs/verification/qwen3.8-27b-widget-parity.json). The automated acceptance suite additionally covers exact workspace grouping and order, complete 160-to-161-message history pagination, grouped layouts at compact widths, the persistent jump-to-latest affordance, the non-shifting optional Think overlay, 2×2 composer geometry, native compact drag, and every Edge state.
 
 ## Security
 
@@ -275,14 +285,15 @@ Reduce MCP schema overhead with one lazy tool: [NeoXider MCP Hub](https://github
 
 ## Roadmap
 
-Screen capture, configurable global hotkeys, and the three-session pet switcher ship in 0.5.0. Remaining overlay diagnostics, clipboard capture, per-game profiles, and quiet-notification work is tracked in [TODO.md](TODO.md).
+Screen capture, configurable global hotkeys, and the three-session pet switcher ship in 0.5.0; clipboard file/image paste ships in 0.6.4. Remaining overlay diagnostics, per-game profiles, and quiet-notification work is tracked in [TODO.md](TODO.md).
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.3,
-keeps the compact chat-first interface while splitting live tool-heavy turns into named cards,
-reducing thinking to one line, smoothing drag and mode transitions, hardening quiet staged updates,
-and removing legacy startup entries that could relaunch an old build.
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.4,
+mirrors Harness Workspaces and Ungrouped sessions across both main views, keeps folder creation
+compact, restores complete long-session history and the always-available jump to the latest
+message, adds the optional non-shifting Think overlay and clipboard attachment previews,
+tightens the 2×2 composer, and repairs compact drag plus Edge state feedback.
 
 ## Platform support
 

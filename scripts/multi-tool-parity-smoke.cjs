@@ -46,7 +46,7 @@ async function main() {
   }, {});
   const report = {
     schemaVersion: 1,
-    audit: "qwen27-multi-tool-live-parity",
+    audit: model.includes("qwen3.8-27b") ? "qwen27-multi-tool-live-parity" : "lmstudio-multi-tool-live-parity",
     sessionId,
     provider,
     model,

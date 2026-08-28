@@ -9,9 +9,15 @@ contextBridge.exposeInMainWorld("widget", {
   workspaces: () => ipcRenderer.invoke("workspaces"),
   pickWorkspace: () => ipcRenderer.invoke("pick-workspace"),
   pickFiles: () => ipcRenderer.invoke("pick-files"),
-  prepareFiles: (filePaths) => ipcRenderer.invoke("prepare-files", filePaths),
+  prepareFiles: (fileHandles) => ipcRenderer.invoke("prepare-files", fileHandles),
   captureScreenshot: (kind) => ipcRenderer.invoke("capture-screenshot", kind),
-  pathForFile: (file) => webUtils.getPathForFile(file),
+  // Kept under the existing renderer-facing name to avoid a UI migration. webUtils is
+  // evaluated inside the isolated preload and the page receives only an opaque handle.
+  pathForFile: (file) => {
+    let filePath = "";
+    try { filePath = webUtils.getPathForFile(file); } catch {}
+    return filePath ? ipcRenderer.sendSync("register-selected-file", filePath) : "";
+  },
   createSession: (options) => ipcRenderer.invoke("create-session", options),
   selectModel: (payload) => ipcRenderer.invoke("select-model", payload),
   send: (payload) => ipcRenderer.invoke("send", payload),
@@ -26,6 +32,7 @@ contextBridge.exposeInMainWorld("widget", {
   setWindowLayer: (value) => ipcRenderer.invoke("set-window-layer", value),
   setOpacity: (value) => ipcRenderer.invoke("set-opacity", value),
   setGlowIntensity: (value) => ipcRenderer.invoke("set-glow-intensity", value),
+  setShowThinking: (value) => ipcRenderer.invoke("set-show-thinking", Boolean(value)),
   setSize: (preset) => ipcRenderer.invoke("set-size", preset),
   setAutoStart: (enabled) => ipcRenderer.invoke("set-auto-start", enabled),
   setHotkeys: (bindings) => ipcRenderer.invoke("set-hotkeys", bindings),
@@ -45,6 +52,7 @@ contextBridge.exposeInMainWorld("widget", {
   moveFullDrag: (value) => ipcRenderer.send("move-full-drag", value),
   endFullDrag: () => ipcRenderer.invoke("end-full-drag"),
   onWindowMode: (listener) => ipcRenderer.on("window-mode", (_event, mode) => listener(mode)),
+  onFirstVisible: (listener) => ipcRenderer.on("first-visible-entry", () => listener()),
   onCompactSide: (listener) => ipcRenderer.on("compact-side", (_event, side) => listener(side)),
   onEdgeBounce: (listener) => ipcRenderer.on("edge-bounce", () => listener()),
   onQueueUpdate: (listener) => ipcRenderer.on("queue-update", (_event, value) => listener(value)),

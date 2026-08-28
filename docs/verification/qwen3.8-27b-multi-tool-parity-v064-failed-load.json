@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "audit": "qwen27-multi-tool-live-parity",
+  "sessionId": "session-9e8bd047-8faa-43f3-8c82-6b31464fa398",
+  "provider": "lmstudio",
+  "model": "qwen3.8-27b-unleashed",
+  "runningAfterTurn": false,
+  "eventTypeCounts": {
+    "permission/preset": 1,
+    "sandbox/mode": 1,
+    "approval/policy": 1,
+    "command/run": 1,
+    "command/done": 1,
+    "session/title": 1,
+    "agent/inbox/spliced": 2,
+    "turn/start": 1,
+    "step/start": 1,
+    "user/message": 3,
+    "request/header": 1,
+    "request/context": 1,
+    "assistant/chunk": 2,
+    "step/end": 1,
+    "turn/end": 1
+  },
+  "rawToolCalls": 0,
+  "rawToolResults": 0,
+  "widgetTools": [],
+  "finalActivity": null,
+  "assistantToken": false,
+  "assistantText": ""
+}

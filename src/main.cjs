@@ -26,6 +26,8 @@ const {
 const { APP_ID, PRODUCT_NAME, REPOSITORY_URL } = require("./product.cjs");
 const { renderMarkdown } = require("./markdown.cjs");
 const { createAttachmentReader, MAX_IMAGE_BYTES } = require("./attachments.cjs");
+const { createAttachmentRegistry } = require("./attachment-registry.cjs");
+const { createFileSelectionBroker } = require("./file-selection-broker.cjs");
 const { createBase64Encoder } = require("./base64-encoder.cjs");
 const { createExternalLinkOpener, parseExternalUrl } = require("./external-links.cjs");
 const { createMuxClient } = require("./mux-client.cjs");
@@ -47,12 +49,21 @@ const dashboardReader = createSharedDashboardReader({ api });
 // nativeImage is the only Electron dependency attachment reading has, so it is injected
 // rather than reached for. So is base64 encoding: base64-encoder.cjs owns that decision.
 const imageEncoder = createBase64Encoder({ strategy: process.env.DSH_WIDGET_B64_STRATEGY });
-const { prepareFiles } = createAttachmentReader({
+const { prepareFiles: prepareFilesFromDisk } = createAttachmentReader({
   encodeImage: (filePath) => imageEncoder.encodeFile(filePath, MAX_IMAGE_BYTES),
   async makeThumbnail(filePath) {
     const thumbnail = await nativeImage.createThumbnailFromPath(filePath, { width: 160, height: 100 });
     return thumbnail.isEmpty() ? "" : thumbnail.toPNG().toString("base64");
   },
+});
+const attachmentRegistry = createAttachmentRegistry();
+async function prepareFiles(filePaths) {
+  return attachmentRegistry.registerPrepared(await prepareFilesFromDisk(filePaths));
+}
+const selectedFiles = createFileSelectionBroker({
+  getPathForFile: (filePath) => filePath,
+  preparePaths: prepareFiles,
+  allowFixturePaths: SCREENSHOT_MODE,
 });
 const SIZE_PRESETS = {
   compact: [380, 400],
@@ -122,6 +133,7 @@ function cleanupApplication() {
   hotkeyManager?.dispose();
   selectRegion?.dispose();
   screenshotService?.cleanupCaptures({ maxAgeMs: 0, maxFiles: 0 });
+  attachmentRegistry.clear();
   updateOrchestrator?.stop();
   tray?.destroy();
   tray = null;
@@ -547,6 +559,7 @@ function createWindow() {
     },
   });
   windowRef.once("ready-to-show", () => {
+    windowRef.once("show", () => sendToRenderer("first-visible-entry"));
     if (screenshotPath) applyWindowMode("full", { captureCurrent: false, persist: false });
     else applyWindowMode(preferences.windowState.mode, { captureCurrent: false, persist: false });
     if (PACKAGED_SMOKE_PATH) {
@@ -604,6 +617,8 @@ function registerWidgetIpc() {
     api,
     queueSnapshots,
     prepareFiles,
+    attachmentRegistry,
+    selectedFiles,
     parseExternalUrl,
     harnessUrl: HARNESS_URL,
     repositoryUrl: REPOSITORY_URL,
@@ -633,6 +648,7 @@ function registerWidgetIpc() {
     getUpdateService: () => updateService,
     checkForUpdates: () => updateOrchestrator?.checkAndStage() || null,
     getGameBarController: () => gameBarController,
+    getCursorScreenPoint: () => screen.getCursorScreenPoint(),
     readDashboard: dashboardReader.read,
     applyWindowMode,
     applyEdgePointerHit,

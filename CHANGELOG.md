@@ -5,6 +5,32 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-08-28
+
+### Added
+
+- Agents and Chat now mirror exact Harness `Workspaces` membership plus `Ungrouped`, with one-line collapsible group headings and a compact action to create a session inside any group.
+- Settings now persist a **Show live Think** toggle; disabling it hides the reasoning overlay without hiding writing or tool status.
+- `Ctrl+V` now adds copied files and pathless clipboard images to the existing reviewable attachment strip; sent user bubbles retain tiny safe image previews or compact file/video chips.
+
+### Changed
+
+- The compact composer keeps its actions in two vertical pairs, places `/` above the paperclip, and trims the Send button's vertical footprint without narrowing the message field.
+- Idle Edge keeps a calm cyan-green shimmer, while active work switches to a faster green-yellow energy pass; hover and drag release use a bounded spring and bloom.
+- The full-chat mascot aura is wider and brighter while remaining circular and inside its 44 px hit target.
+
+### Fixed
+
+- The jump-to-latest control remains visible whenever the user has scrolled away from the bottom, even when no unseen message has arrived yet.
+- Compact transitions no longer expose a transient stale red Edge state before returning to the neutral cyan-green line.
+- Appearing, streaming, and disappearing Think text no longer changes the conversation viewport or its manual scroll position.
+- Long sessions now follow Harness `hasMore` / `beforeSeq` pagination to the first event instead of silently stopping at the latest 80 messages; older pages are cached and deduplicated by sequence.
+- Avatar and Edge drag use the native desktop cursor, and Edge remains locked to its physical screen side, eliminating cumulative rightward drift and off-screen movement.
+- A transient workspace refresh no longer drops folders or resurrects archived sessions, and viewed command errors no longer repaint the compact handle red.
+- Saving a queued-message edit now always closes the editor after success, including when a newer authoritative queue snapshot arrives during the request; failed saves remain editable for retry.
+- The IPC parity check matched `invoke` and `send` but not `sendSync`, so it reported the privileged `register-selected-file` channel as orphaned while the preload was calling it — a blind spot on precisely the synchronous channels that check exists to watch.
+- The release-artifact test built an absolute temp path, which passed on Windows and turned the platform matrix red on macOS and Linux: simulated POSIX rules do not treat a drive letter as absolute, so the verifier resolved `C:\repo\C:\Users\...`. The test now uses a working-directory-relative path that resolves identically under both rule sets. `verifyReleaseArtifacts` was correct and is unchanged.
+
 ## [0.6.3] - 2026-08-28
 
 ### Changed
@@ -379,6 +405,7 @@ full audit of the main process, the renderer and the UI.
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.6.4]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.4
 [0.6.3]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.3
 [0.6.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.2
 [0.6.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.1

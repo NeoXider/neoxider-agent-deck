@@ -92,6 +92,8 @@ test("main composer starts on one line, grows to one third of the viewport, scro
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   assert.match(css, /\.composer textarea \{[^}]+min-height:34px[^}]+height:34px[^}]+max-height:var\(--composer-input-max-height,33vh\)[^}]+overflow-y:hidden[^}]+transition:height/);
   assert.match(css, /\.composer textarea\.is-scrollable \{[^}]+overflow-y:auto/);
+  const scrollableComposer = css.match(/\.composer textarea\.is-scrollable \{([^}]+)\}/)?.[1] || "";
+  assert.doesNotMatch(scrollableComposer, /padding/);
   assert.match(renderer, /COMPOSER_INPUT_MIN_HEIGHT = 34/);
   assert.match(renderer, /COMPOSER_INPUT_MAX_VIEWPORT_RATIO = 1 \/ 3/);
   assert.match(renderer, /function resizeMessageInput\(\{ immediate = false \} = \{\}\)/);
@@ -107,6 +109,10 @@ test("main composer starts on one line, grows to one third of the viewport, scro
   assert.match(renderer, /input\.value = "";\s*\n\s*resizeMessageInput\(\);/);
   assert.match(renderer, /input\.value = text;\s*\n\s*resizeMessageInput\(\);/);
   assert.match(renderer, /window\.addEventListener\("resize", \(\) => \{[\s\S]+resizeMessageInput\(\{ immediate: true \}\)/);
+  assert.match(renderer, /function captureMessageLayoutSnapshot\(\)/);
+  assert.match(renderer, /function restoreMessageLayoutSnapshot\(snapshot\)/);
+  assert.match(renderer, /snapshot\.pinned[\s\S]+snapshot\.root\.scrollTop = snapshot\.root\.scrollHeight/);
+  assert.match(renderer, /function renderAttachments\(\) \{\s*const messageLayout = captureMessageLayoutSnapshot\(\)/);
 });
 
 test("the full chat has a verified 360px minimum height and a 380 by 400 compact preset", () => {
@@ -189,6 +195,10 @@ test("slash commands render as a vertical filtered palette immediately above the
 });
 
 test("busy-session messages use the authoritative Harness queue with compact edit, delete, and steer controls", () => {
+  const queueUpdater = renderer.slice(
+    renderer.indexOf("async function updateQueuedPrompt"),
+    renderer.indexOf("function renderQueuedPrompts"),
+  );
   assert.match(harnessApi, /mode: "queue"/);
   assert.match(renderer, /queueingBehindTurn/);
   assert.match(renderer, /trackQueuedPrompt/);
@@ -199,6 +209,40 @@ test("busy-session messages use the authoritative Harness queue with compact edi
   assert.match(renderer, /kind: "steer"/);
   assert.match(harnessApi, /session\.updateQueue/);
   assert.doesNotMatch(html, /queue-dock-heading/);
+  assert.ok(
+    queueUpdater.indexOf("await window.widget.updateQueue") < queueUpdater.indexOf("state.queueEditingId = null")
+      && queueUpdater.indexOf("state.queueEditingId = null") < queueUpdater.indexOf("queueSnapshotRevision(sessionId) !== expectedSnapshotRevision"),
+    "a successful edit must leave edit mode before an authoritative snapshot can short-circuit local reconciliation",
+  );
+  assert.doesNotMatch(
+    queueUpdater.slice(queueUpdater.indexOf("} catch (error)"), queueUpdater.indexOf("} finally")),
+    /queueEditingId\s*=\s*null/,
+    "a failed queue update must keep the editable row available for retry",
+  );
+  assert.match(renderer, /queueEditingSessionId/);
+  assert.match(renderer, /state\.queueEditingSessionId === state\.selectedSessionId && state\.queueEditingId === item\.id/);
+  assert.match(renderer, /const QUEUE_RECOVERY_DELAYS = \[180, 540, 1080\]/);
+  assert.match(renderer, /recoverOptimisticQueue\(sessionId\)/);
+  assert.match(renderer, /replaceOptimistic: index === delays\.length - 1/);
+  assert.match(renderer, /replacesSameRevisionOptimism/);
+});
+
+test("Ctrl+V attachments reuse reviewed preparation while sent history stays compact", () => {
+  const html = readFileSync(path.join(root, "src", "renderer", "index.html"), "utf8");
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const clipboard = readFileSync(path.join(root, "src", "renderer", "clipboard-attachments.js"), "utf8");
+  assert.match(html, /<script src="clipboard-attachments\.js"><\/script>/);
+  assert.match(renderer, /messageInput"\)\.addEventListener\("paste"/);
+  assert.match(renderer, /window\.widget\.pathForFile\(file\)/);
+  assert.match(renderer, /window\.widget\.prepareFiles\(paths\)/);
+  assert.match(clipboard, /if \(!files\.length\) return null/);
+  assert.match(clipboard, /MAX_IMAGE_BYTES = 8 \* 1024 \* 1024/);
+  assert.match(clipboard, /path: `clipboard:\$\{digest\}`/);
+  assert.doesNotMatch(renderer, /handleComposerPaste[\s\S]{0,900}requestSubmit/);
+  assert.match(renderer, /createMessageAttachmentStrip/);
+  assert.match(renderer, /attachment-only/);
+  assert.match(css, /\.message-attachment \{[^}]+max-width:116px[^}]+height:30px/);
+  assert.match(css, /\.message-attachment-preview \{[^}]+width:30px[^}]+height:26px/);
 });
 
 test("live assistant deltas grow a bubble instead of leaving a Writing reasoning card", () => {
@@ -250,12 +294,22 @@ test("compact status IPC is skipped while its bounded presentation is unchanged"
   assert.match(sync, /window\.widget\.setCompactStatus\(compactStatus\)/);
 });
 
-test("manual chat scrolling is preserved and a jump-to-latest control appears for new output", () => {
+test("manual chat scrolling is preserved and jump-to-latest stays visible away from the bottom", () => {
   assert.match(html, /id="scrollLatestButton"/);
+  assert.match(html, /class="messages-wrap">[\s\S]+id="messages"[\s\S]+id="scrollLatestButton"/);
   assert.match(renderer, /messagesStickToBottom/);
   assert.match(renderer, /messagesNearBottom/);
   assert.match(renderer, /previousTop/);
   assert.match(renderer, /scrollLatestButton/);
+  assert.match(renderer, /const visible = !state\.messagesStickToBottom/);
+  assert.match(renderer, /state\.unseenMessages === 1 \? "New" : "Latest"/);
+  assert.match(renderer, /function animateScrollLatestCompletion\(sessionId\)/);
+  assert.match(renderer, /scrollLatestAutoScrolling: false/);
+  assert.match(renderer, /function finishScrollLatestAutoScroll\(\)/);
+  assert.match(renderer, /if \(state\.scrollLatestAutoScrolling\) \{[\s\S]+?if \(nearBottom\) finishScrollLatestAutoScroll\(\);[\s\S]+?return;/);
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(css, /\.scroll-latest\s*\{[^}]*position:absolute;[^}]*right:7px;[^}]*bottom:7px/);
+  assert.match(css, /\.scroll-latest\.completion-pop/);
   assert.doesNotMatch(renderer, /root\.scrollTop = root\.scrollHeight;\s*\}/);
 });
 
@@ -268,6 +322,24 @@ test("activity glow intensity is brighter by default, adjustable, and persisted"
   assert.match(renderer, /setGlowIntensity/);
   assert.match(settingsStore, /glowIntensity: 0\.82/);
   assert.match(ipc, /set-glow-intensity/);
+});
+
+test("live Think is a persistent optional overlay that cannot move the conversation viewport", () => {
+  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(html, /id="showThinkingToggle"[^>]+type="checkbox"[^>]+checked/);
+  assert.match(settingsStore, /showThinking: true/);
+  assert.match(settingsStore, /showThinking: source\.showThinking !== false/);
+  assert.match(ipc, /handle\("set-show-thinking"/);
+  assert.match(ipc, /showThinking: preferences\.showThinking !== false/);
+  assert.match(preload, /setShowThinking: \(value\) => ipcRenderer\.invoke\("set-show-thinking"/);
+  assert.match(renderer, /activity\?\.kind !== "thinking" \|\| state\.showThinking/);
+  assert.match(renderer, /const messageLayout = captureMessageLayoutSnapshot\(\)/);
+  assert.match(renderer, /restoreMessageLayoutSnapshot\(messageLayout\)/);
+  assert.match(css, /\.activity-card\.thinking-compact \{ position:absolute;/);
+  assert.match(renderer, /if \(compactThinking && card\.parentElement !== messagesWrap\) messagesWrap\.prepend\(card\)/);
+  assert.match(renderer, /else if \(!compactThinking && card\.parentElement === messagesWrap\) messagesWrap\.before\(card\)/);
+  assert.match(renderer, /applyShowThinking\(await window\.widget\.setShowThinking\(requested\)\)/);
 });
 
 test("collapsed pet exposes three exact recent sessions and inline quick reply without restoring full mode", () => {
@@ -372,6 +444,8 @@ test("compact modes preserve short clicks and start native drag only after the m
   assert.doesNotMatch(begin, /setPointerCapture|window\.widget\.beginCompactDrag/);
   assert.match(ipc, /begin-compact-drag/);
   assert.match(ipc, /move-compact-drag/);
+  assert.match(ipc, /getCursorScreenPoint/);
+  assert.match(ipc, /const edgeLocked = getWindowMode\(\) === "edge"/);
   assert.match(ipc, /end-compact-drag/);
   assert.match(ipc, /wasActive !== compactStatus\.active \|\| wasExpanded !== compactStatus\.expanded/);
   assert.match(ipc, /setCompactStatusResizePending\(true\)/);
@@ -392,8 +466,11 @@ test("edge mode only captures the visible handle and passes transparent glow cli
   assert.match(css, /--edge-primary:#49e7c6/);
   assert.match(css, /--edge-secondary:#48bfff/);
   assert.match(css, /--edge-halo-opacity:\.22/);
-  assert.doesNotMatch(css, /\.mode-edge\.state-idle \.edge-line[^\{]*\{[^\}]*animation/);
+  assert.match(css, /\.mode-edge\.state-idle \.edge-line\s*\{[^}]*animation:edge-flow 5\.4s/);
   assert.match(css, /\.edge-hit-active \.edge-line::after, \.edge-mode:focus-visible \.edge-line::after/);
+  assert.match(css, /\.edge-mode\.edge-hit-active\s*\{[^}]*edge-hover-spring-right/);
+  assert.match(css, /\.edge-mode\.edge-drop\s*\{[^}]*edge-drop-right/);
+  assert.match(renderer, /function animateEdgeDrop\(\)/);
   assert.doesNotMatch(css, /\.edge-hit-active \.edge-line[^}]+scaleY/);
   assert.doesNotMatch(css, /\.edge-hit-active \.edge-line[^}]+translateX/);
   const endCompactDrag = renderer.match(/async function endCompactDrag\(event\) \{[\s\S]+?\n\}/)?.[0] || "";
@@ -403,10 +480,11 @@ test("edge mode only captures the visible handle and passes transparent glow cli
   );
 });
 
-test("edge line mirrors thinking, writing, tool, waiting, done, and error states", () => {
+test("edge line keeps idle subtle and makes working, thinking, writing, tool, waiting, done, and error distinct", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(css, /\.mode-edge\.state-working\s*\{[^}]*--edge-primary:#72efa0;[^}]*--edge-secondary:#ffd45f/);
   assert.match(css, /\.mode-edge\.activity-thinking\s*\{/);
-  assert.match(css, /\.mode-edge\.activity-writing\s*\{/);
+  assert.match(css, /\.mode-edge\.activity-writing\s*\{[^}]*--edge-primary:#72efa0/);
   assert.match(css, /\.mode-edge\.activity-tool\s*\{/);
   assert.match(css, /\.mode-edge\.state-waiting\s*\{/);
   assert.match(css, /\.mode-edge\.state-done\s*\{/);
@@ -415,13 +493,15 @@ test("edge line mirrors thinking, writing, tool, waiting, done, and error states
   assert.match(css, /transition:--edge-primary \.58s ease,--edge-secondary \.58s ease/);
   assert.match(css, /\.edge-mode\.bounce \.edge-line/);
   assert.match(css, /@keyframes edge-done-pulse/);
+  assert.match(css, /@keyframes edge-working-energy/);
   assert.match(css, /@media \(prefers-reduced-motion:reduce\)/);
 });
 
-test("orb activity glow eases between idle, thinking, writing, tool, waiting, error, and done palettes", () => {
+test("orb activity glow distinguishes generic work and eases between all activity palettes", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   assert.match(css, /@property --orb-ring-primary/);
   assert.match(css, /\.orb-glow[^}]+transition:--orb-ring-primary \.58s ease/);
+  assert.match(css, /\.mode-orb\.state-working\s*\{[^}]*--orb-ring-primary:#72efa0;[^}]*--orb-ring-secondary:#ffd45f/);
   assert.match(css, /\.mode-orb\.activity-thinking\s*\{/);
   assert.match(css, /\.mode-orb\.activity-writing\s*\{/);
   assert.match(css, /\.mode-orb\.activity-tool\s*\{/);
@@ -457,10 +537,38 @@ test("the custom titlebar drag excludes header controls and avoids Chromium nati
   assert.doesNotMatch(css, /\.drag-region\s*\{[^}]+-webkit-app-region:drag/);
 });
 
+test("first entry waits for the native show acknowledgement and honors reduced motion", () => {
+  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const readyToShow = main.slice(main.indexOf('windowRef.once("ready-to-show"'), main.indexOf('windowRef.on("close"'));
+  assert.ok(readyToShow.indexOf('windowRef.once("show"') < readyToShow.indexOf('applyWindowMode('));
+  assert.match(readyToShow, /sendToRenderer\("first-visible-entry"\)/);
+  assert.match(preload, /onFirstVisible:[^\n]+first-visible-entry/);
+  assert.match(html, /<body class="mode-full pre-native-visible">/);
+  assert.match(renderer, /function playFirstVisibleEntry\(\)[\s\S]+classList\.remove\("pre-native-visible"\)[\s\S]+prefersReducedMotion\(\)/);
+  assert.match(renderer, /window\.widget\.onFirstVisible\(playFirstVisibleEntry\)/);
+  assert.match(css, /\.pre-native-visible \.panel\.active \{ animation:none; \}/);
+  assert.match(css, /\.first-visible-entry\.mode-full \.widget-shell/);
+});
+
+test("crowded compact chat has an explicit combined fixture and bounded surface budgets", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  assert.match(renderer, /function syncCrowdedChatState\(\)[\s\S]+window\.innerHeight <= 420/);
+  assert.match(renderer, /screenshotFixture === "crowded-chat"/);
+  assert.match(renderer, /messagesWrap\.classList\.toggle\("has-thinking-overlay", compactThinking\)/);
+  assert.match(css, /\.chat-crowded \.messages-wrap \{ min-height:62px; \}/);
+  assert.match(css, /\.chat-crowded \.todo-list \{ max-height:26px/);
+  assert.match(css, /\.chat-crowded \.queue-list \{ max-height:30px/);
+  assert.match(css, /\.chat-crowded \.attachment-bar \{ height:32px/);
+  assert.match(visualSmoke, /crowded-chat-400/);
+  assert.match(visualSmoke, /crowded-chat-360/);
+});
+
 test("the full-size avatar hit target uses a contained circular aura instead of a plate", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   assert.match(css, /\.avatar-shell \{[^}]+width:44px;[^}]+height:44px;[^}]+border-radius:50%;[^}]+background:transparent/);
-  assert.match(css, /\.avatar-shell::before \{[^}]+inset:2px;[^}]+border-radius:50%;[^}]+radial-gradient/);
+  assert.match(css, /\.avatar-shell::before \{[^}]+inset:0;[^}]+border-radius:50%;[^}]+radial-gradient/);
   assert.match(css, /\.avatar-shell\.working::before \{[^}]+avatar-aura-working/);
   assert.match(css, /\.avatar-shell\.error::before \{[^}]+avatar-aura-error/);
   assert.match(css, /\.avatar-shell\.done::before \{[^}]+avatar-aura-done/);
@@ -502,8 +610,20 @@ test("Harness TODO projections render as a compact collapsible current plan", ()
   assert.match(renderer, /projections\?\.values\?\.todos/);
   assert.match(renderer, /event\.type === "todo\/write"/);
   assert.match(renderer, /event\.type === "turn\/start"[\s\S]+?renderTodos/);
+  assert.match(renderer, /function clearLiveTodos\(sessionId\)/);
+  assert.match(renderer, /event\.type === "turn\/end"[\s\S]+?clearLiveTodos\(sessionId\)/);
+  assert.match(renderer, /state\.liveStreamsBySession\.delete\(sessionId\);\s*\n\s*clearLiveTodos\(sessionId\)/);
   assert.match(css, /\.todo-row\.in_progress/);
   assert.match(css, /@keyframes todo-active-pulse/);
+});
+
+test("successful Stop cleanup survives a failed follow-up refresh", () => {
+  const stop = renderer.slice(renderer.indexOf("async function stopCurrentTurn"), renderer.indexOf("async function createNewSession"));
+  const cancelCatch = stop.indexOf('showTransientActivityError(error, "Could not stop")');
+  const cleanup = stop.indexOf("clearLiveTodos(sessionId)");
+  const guardedRefresh = stop.indexOf("await refresh({ afterCurrent: true }).catch(() => {})", cleanup);
+  assert.ok(cancelCatch >= 0 && cleanup > cancelCatch && guardedRefresh > cleanup);
+  assert.doesNotMatch(stop.slice(cleanup, guardedRefresh), /Could not stop/);
 });
 
 test("command execution stays visible in full and compact modes until it settles", () => {
@@ -514,6 +634,22 @@ test("command execution stays visible in full and compact modes until it settles
   assert.match(renderer, /settleCommandFeedback/);
   assert.match(renderer, /commandFeedbackFor\(sessionId\)\?\.activity \|\| view\.activity/);
   assert.match(css, /\.bubble\.command \{[^}]+max-height:140px;[^}]+overflow:auto/);
+});
+
+test("session picker uses the same idle, working, and error state as the Agents list", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(renderer, /function updatePickerSessionOption[\s\S]+const agentState = sessionAgentState\(session\)/);
+  assert.match(renderer, /option\.classList\.add\(`state-\$\{agentState\}`\)/);
+  assert.match(renderer, /agentState === "error"[\s\S]+\? "error"/);
+  const pickerRender = renderer.slice(renderer.indexOf("function renderSessionSelect"), renderer.indexOf("function modelSelectionValue"));
+  assert.match(pickerRender, /sessionAgentState\(session\)/);
+  assert.match(css, /\.picker-session-group \.picker-option\.state-error small/);
+});
+
+test("a transient workspace picker refresh preserves the last successful projection", () => {
+  const loadWorkspaces = renderer.slice(renderer.indexOf("async function loadWorkspaces"), renderer.indexOf("function renderAttachments"));
+  assert.doesNotMatch(loadWorkspaces, /catch \{\s*state\.workspaces = \[\]/);
+  assert.match(loadWorkspaces, /catch \{\s*state\.workspacesLoaded = true/);
 });
 
 test("queue snapshots win send races and steer interrupts the previous live bubble", () => {
@@ -688,6 +824,10 @@ test("compact errors are acknowledged in full chat and completion feedback is fi
   assert.match(renderer, /acknowledgeSessionError\(state\.selectedSessionId\)/);
   assert.match(renderer, /await setWindowMode\("full"\);\s*await selectSession\(sessionId, true\)/);
   assert.match(renderer, /state\.avatarMode === "error" && !state\.compactErrorUnread && !state\.harnessOffline/);
+  const clearError = renderer.slice(renderer.indexOf("function clearAcknowledgedErrorPresentation"), renderer.indexOf("function signalSessionError"));
+  assert.doesNotMatch(clearError, /state\.currentActivity\?\.kind !== "error"/);
+  assert.match(clearError, /commandFeedback\?\.avatarMode === "error"[\s\S]+setCommandFeedback\(state\.selectedSessionId, null\)/);
+  assert.match(renderer, /if \(mode !== "full"\) clearAcknowledgedErrorPresentation\(\);[\s\S]+?window\.widget\.setWindowMode\(mode\)/);
   assert.match(renderer, /session\?\.state === "error"\) signalSessionError\(session\)/);
   assert.match(renderer, /if \(state\.windowMode === "full"\) \{[\s\S]+?if \(latest\?\.role === "error"\) setAvatar\("error", "model error"\)/);
   assert.match(renderer, /function clearCompletionSignal\(\)/);
@@ -837,6 +977,20 @@ test("the settings swap never deletes the destination first", () => {
   assert.doesNotMatch(write, /rmSync\(filePath/);
 });
 
+test("visible polling skips stable or actively streamed history while priority events stay authoritative", () => {
+  const history = renderer.slice(renderer.indexOf("function invalidateSelectedHistoryVersion"), renderer.indexOf("function updateLiveSessionState"));
+  const refresh = renderer.slice(renderer.indexOf("async function performRefresh"), renderer.indexOf("function startRefreshPass"));
+  const live = renderer.slice(renderer.indexOf("async function handleLiveEvent"), renderer.indexOf("function setTab"));
+  assert.match(history, /historyLoadedSessionId/);
+  assert.match(history, /historyLoadedUpdatedAt/);
+  assert.match(history, /historyLoadedRevision/);
+  assert.match(history, /view\.unchanged === true \|\| sameRevision/);
+  assert.match(history, /if \(skipReconciliation\) return "unchanged"/);
+  assert.match(refresh, /!selectedLiveStreamIsActive\(\) && !selectedHistoryIsCurrent\(selectedSession\)/);
+  assert.match(live, /event\.type === "user\/message"[\s\S]+refreshHistoryAfterLiveMessage\(sessionId\)/);
+  assert.match(live, /event\.type === "turn\/end"[\s\S]+refreshHistory\(\{ priority: true \}\)/);
+});
+
 test("a tap on the brand is resolved by the drag handler, not by a stolen click", () => {
   // Pointer capture on .titlebar retargets the click away from the child button, so the
   // gesture end must act on the element the pointer went down on.
@@ -866,7 +1020,12 @@ test("releasing a compact drag arms the click guard before any await", () => {
 
 test("every bridged IPC channel has a handler and no handler is orphaned", () => {
   const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
-  const bridged = [...preload.matchAll(/ipcRenderer\.(?:invoke|send)\("([^"]+)"/g)].map((match) => match[1]);
+  // `sendSync` comes before `send` because the alternation is tried left to right and
+  // `send` would match the prefix of `sendSync` and then fail on the paren. Omitting it is
+  // what made this check call `register-selected-file` orphaned while the preload was
+  // calling it — a blind spot on exactly the synchronous, privileged channels this test
+  // exists to watch.
+  const bridged = [...preload.matchAll(/ipcRenderer\.(?:invoke|sendSync|send)\("([^"]+)"/g)].map((match) => match[1]);
   // Registration goes through the guarded handle()/on() helpers, so a channel that is
   // wired any other way — and therefore unguarded — would not be counted as handled.
   const handled = new Set([...ipc.matchAll(/^\s*(?:handle|on)\("([^"]+)"/gm)].map((match) => match[1]));

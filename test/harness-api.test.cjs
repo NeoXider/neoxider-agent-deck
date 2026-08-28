@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { HarnessApi, activityFromHistory, messagesFromHistory, sessionStateFromHistory, titleFromSession, toolMessagesFromHistory } = require("../src/harness-api.cjs");
+const { HISTORY_PREVIEW_BYTES_BUDGET, HarnessApi, activityFromHistory, boundedHistoryEntries, messagesFromHistory, sessionStateFromHistory, titleFromSession, toolMessagesFromHistory } = require("../src/harness-api.cjs");
 
 test("RPC carrier sends the official envelope and unwraps the value", async () => {
   let request;
@@ -23,6 +23,208 @@ test("history keeps human and assistant text while hiding injected context and c
     { role: "user", text: "Привет" },
     { role: "assistant", text: "Готово" },
   ]);
+});
+
+test("history preserves compact sent attachment metadata including attachment-only messages", () => {
+  const result = messagesFromHistory([
+    { event: { type: "user/message", seq: 1, data: { source: { kind: "user" }, content: [
+      { type: "text", text: "Review this\n\n@C:\\clips\\demo.mp4\n\n@C:\\docs\\notes.txt" },
+      { type: "image", mediaType: "image/png", data: "AA==", name: "shot.png" },
+    ] } } },
+    { event: { type: "user/message", seq: 2, data: { source: { kind: "user-rpc" }, content: [
+      { type: "image", mediaType: "image/jpeg", data: "AQ==", name: "only.jpg" },
+    ] } } },
+  ]);
+  assert.equal(result.length, 2);
+  assert.equal(result[0].text, "Review this");
+  assert.deepEqual(result[0].attachments.map(({ kind, previewKind, name }) => ({ kind, previewKind, name })), [
+    { kind: "image", previewKind: undefined, name: "shot.png" },
+    { kind: "reference", previewKind: "video", name: "demo.mp4" },
+    { kind: "reference", previewKind: "file", name: "notes.txt" },
+  ]);
+  assert.equal(result[1].text, "");
+  assert.equal(result[1].attachments[0].name, "only.jpg");
+});
+
+test("history retains only a strict aggregate of newest preview bytes and falls back to icons", () => {
+  const eachBytes = Math.floor(HISTORY_PREVIEW_BYTES_BUDGET * 0.6);
+  const preview = Buffer.alloc(eachBytes, 7).toString("base64");
+  const entries = [1, 2].map((seq) => ({ event: {
+    type: "user/message",
+    seq,
+    data: { source: { kind: "user" }, content: [{
+      type: "image", mediaType: "image/png", data: preview, name: `${seq}.png`,
+    }] },
+  } }));
+  const bounded = boundedHistoryEntries(entries);
+  assert.equal(bounded[0].event.data.content[0].data, undefined, "older preview must become metadata-only");
+  assert.equal(bounded[1].event.data.content[0].data, preview, "newest valid small preview must remain visible");
+  assert.equal(entries[0].event.data.content[0].data, preview, "bounding must not mutate the RPC response");
+
+  const messages = messagesFromHistory(entries);
+  assert.equal(messages[0].attachments[0].data, undefined);
+  assert.equal(messages[0].attachments[0].name, "1.png");
+  assert.equal(messages[1].attachments[0].data, preview);
+});
+
+test("history paginates to the first message and reuses older pages on refresh", async () => {
+  const api = new HarnessApi();
+  const calls = [];
+  const entries = (first, last) => Array.from({ length: last - first + 1 }, (_, offset) => {
+    const seq = first + offset;
+    return {
+      event: {
+        type: "user/message",
+        seq,
+        data: { source: { kind: "user" }, content: [{ type: "text", text: `message-${seq}` }] },
+      },
+    };
+  });
+  api.rpc = async (method, payload) => {
+    assert.equal(method, "session.history");
+    calls.push(payload);
+    if (calls.length === 1) return { events: entries(81, 160), hasMore: true };
+    if (calls.length === 2) return { events: entries(1, 80), hasMore: false };
+    if (calls.length === 3) return { events: entries(82, 161), hasMore: true };
+    throw new Error(`Unexpected history page ${calls.length}`);
+  };
+
+  const initial = await api.history("long-session");
+  assert.equal(initial.messages.length, 160);
+  assert.equal(initial.messages[0].text, "message-1");
+  assert.equal(initial.messages.at(-1).text, "message-160");
+  assert.deepEqual(calls.slice(0, 2), [
+    { sessionId: "long-session", maxMessages: 80 },
+    { sessionId: "long-session", beforeSeq: 81, maxMessages: 80 },
+  ]);
+
+  const refreshed = await api.history("long-session");
+  assert.equal(refreshed.messages.length, 161);
+  assert.equal(refreshed.messages[0].text, "message-1");
+  assert.equal(refreshed.messages.at(-1).text, "message-161");
+  assert.equal(calls.length, 3, "a tail page overlapping the complete cache must not reload older pages");
+});
+
+test("a truncated history cache repaginates so long conversations remain complete", async () => {
+  const api = new HarnessApi("http://127.0.0.1:3080", globalThis.fetch, {
+    historyCacheEventLimit: 2,
+    historyCacheBytesLimit: 4096,
+  });
+  const calls = [];
+  const entries = (first, last) => Array.from({ length: last - first + 1 }, (_, offset) => {
+    const seq = first + offset;
+    return { event: { type: "user/message", seq, data: { source: { kind: "user" }, content: [{ type: "text", text: `message-${seq}` }] } } };
+  });
+  api.rpc = async (_method, payload) => {
+    calls.push(payload);
+    if (calls.length === 1) return { events: entries(4, 5), hasMore: true };
+    if (calls.length === 2) return { events: entries(1, 3), hasMore: false };
+    if (calls.length === 3) return { events: entries(5, 6), hasMore: true };
+    if (calls.length === 4) return { events: entries(1, 4), hasMore: false };
+    throw new Error(`Unexpected history page ${calls.length}`);
+  };
+
+  const initial = await api.history("bounded-long-session");
+  assert.deepEqual(initial.messages.map(({ text }) => text), entries(1, 5).map((entry) => `message-${entry.event.seq}`));
+  assert.deepEqual(initial.cache, { bytes: initial.cache.bytes, complete: false, eventCount: 2 });
+
+  const refreshed = await api.history("bounded-long-session");
+  assert.deepEqual(refreshed.messages.map(({ text }) => text), entries(1, 6).map((entry) => `message-${entry.event.seq}`));
+  assert.deepEqual(calls.map(({ beforeSeq }) => beforeSeq ?? null), [null, 4, null, 5]);
+  assert.equal(api.historyCache.get("bounded-long-session").events.length, 2);
+});
+
+test("history cache enforces byte bounds without truncating the current response", async () => {
+  const api = new HarnessApi("http://127.0.0.1:3080", globalThis.fetch, {
+    historyCacheEventLimit: 20,
+    historyCacheBytesLimit: 700,
+  });
+  const events = [1, 2, 3].map((seq) => ({ event: {
+    type: "user/message",
+    seq,
+    data: { source: { kind: "user" }, content: [{ type: "text", text: `${seq}-${"x".repeat(300)}` }] },
+  } }));
+  api.rpc = async () => ({ events, hasMore: false });
+
+  const result = await api.history("byte-bounded");
+  const cached = api.historyCache.get("byte-bounded");
+  assert.equal(result.messages.length, 3, "the fetched response remains complete");
+  assert.ok(cached.bytes <= 700);
+  assert.ok(cached.events.length < events.length);
+  assert.equal(cached.complete, false);
+  assert.equal(result.cache.complete, false);
+});
+
+test("older pages strip repeated base64 before entering the bounded cache", async () => {
+  const api = new HarnessApi("http://127.0.0.1:3080", globalThis.fetch, {
+    historyCacheEventLimit: 10,
+    historyCacheBytesLimit: 64 * 1024,
+  });
+  const repeatedPreview = Buffer.alloc(128 * 1024, 7).toString("base64");
+  const olderPage = [1, 2].map((seq) => ({ event: {
+    type: "user/message",
+    seq,
+    data: { source: { kind: "user" }, content: [{
+      type: "image", mediaType: "image/png", name: `${seq}.png`, data: repeatedPreview,
+    }] },
+  } }));
+  let call = 0;
+  api.rpc = async () => {
+    call += 1;
+    return call === 1
+      ? { events: [{ event: { type: "assistant/message", seq: 3, data: { message: { content: [{ type: "text", text: "done" }] } } } }], hasMore: true }
+      : { events: olderPage, hasMore: false };
+  };
+
+  const result = await api.history("image-pages");
+  const cachedJson = JSON.stringify(api.historyCache.get("image-pages"));
+  assert.equal(result.messages[0].attachments[0].data, undefined);
+  assert.equal(result.messages[1].attachments[0].data, undefined);
+  assert.equal(cachedJson.includes(repeatedPreview), false);
+  assert.equal(olderPage[0].event.data.content[0].data, repeatedPreview, "the RPC response is not mutated");
+});
+
+test("history revisions are stable and the per-session cache uses LRU eviction", async () => {
+  const api = new HarnessApi("http://127.0.0.1:3080", globalThis.fetch, {
+    historyCacheSessionLimit: 2,
+    historyCacheEventLimit: 10,
+    historyCacheBytesLimit: 4096,
+  });
+  const versions = new Map();
+  api.rpc = async (_method, { sessionId }) => {
+    const count = versions.get(sessionId) || 1;
+    return {
+      events: Array.from({ length: count }, (_, index) => ({ event: {
+        type: "assistant/message",
+        seq: index + 1,
+        data: { message: { content: [{ type: "text", text: `${sessionId}-${index + 1}` }] } },
+      } })),
+      hasMore: false,
+    };
+  };
+
+  const first = await api.history("a");
+  const unchanged = await api.history("a");
+  assert.equal(first.unchanged, false);
+  assert.equal(unchanged.unchanged, true);
+  assert.equal(unchanged.revision, first.revision);
+
+  versions.set("a", 2);
+  const changed = await api.history("a");
+  assert.equal(changed.unchanged, false);
+  assert.notEqual(changed.revision, first.revision);
+
+  await api.history("b");
+  await api.history("a");
+  await api.history("c");
+  assert.deepEqual([...api.historyCache.keys()], ["a", "c"], "the least recently used session is evicted");
+
+  api.fullAccessSessions.add("a");
+  api.sessionStateCache.set("a", { updatedAt: 1 });
+  api.forgetSession("a");
+  assert.equal(api.historyCache.has("a"), false);
+  assert.equal(api.sessionStateCache.has("a"), false);
+  assert.equal(api.fullAccessSessions.has("a"), false);
 });
 
 test("completed reasoning disappears with the live activity card after turn end", () => {
@@ -141,6 +343,136 @@ test("dashboard retries a transient history failure instead of caching a stale w
   assert.equal(third.sessions[0].running, false);
   assert.equal(third.sessions[0].degraded, false);
   assert.equal(historyCalls, 3);
+});
+
+test("dashboard keeps every root session while workspace membership and enrichment stay bounded", async () => {
+  const api = new HarnessApi();
+  const rootSessions = Array.from({ length: 23 }, (_, index) => ({
+    sessionId: `root-${index}`,
+    running: index === 21,
+    updatedAt: 100 + index,
+    cwd: index === 3 ? "C:\\AI\\shared-worktree" : `C:\\AI\\root-${index}`,
+  }));
+  rootSessions[2].cwd = "C:\\AI\\shared-worktree";
+
+  const workspaces = [
+    {
+      workspaceId: "workspace-exact",
+      name: "Exact membership",
+      sessionIds: ["root-2", "root-20"],
+    },
+    {
+      workspaceId: "workspace-second",
+      name: "Second workspace",
+      sessionIds: ["root-20", "root-22"],
+    },
+  ];
+  const archivedSessionIds = ["archived-root"];
+  const expensiveCalls = [];
+
+  api.rpc = async (method, payload) => {
+    if (method === "host.describe") return { version: "test" };
+    if (method === "session.list") {
+      return {
+        items: [
+          ...rootSessions,
+          { sessionId: "archived-root", running: false, updatedAt: 1, cwd: "C:\\AI\\archived" },
+          { sessionId: "nested-agent", origin: "subagent", running: true, updatedAt: 1, cwd: "C:\\AI\\nested" },
+        ],
+      };
+    }
+    if (method === "workspace.list") return { items: workspaces, archivedSessionIds };
+    if (method === "subagent.list" || method === "session.history") {
+      expensiveCalls.push({ method, payload });
+      return method === "subagent.list" ? { entries: [] } : { events: [] };
+    }
+    throw new Error(`Unexpected RPC ${method}`);
+  };
+
+  const dashboard = await api.dashboard();
+
+  assert.equal(dashboard.sessions.length, 23, "the dashboard must not truncate root sessions at 18");
+  assert.deepEqual(dashboard.sessions.map((session) => session.sessionId), rootSessions.map((session) => session.sessionId));
+  assert.deepEqual(dashboard.workspaces, workspaces);
+  assert.deepEqual(dashboard.archivedSessionIds, archivedSessionIds);
+  assert.equal(dashboard.sessions.some((session) => session.sessionId === "archived-root"), false);
+  assert.equal(dashboard.sessions.some((session) => session.sessionId === "nested-agent"), false);
+
+  const byId = new Map(dashboard.sessions.map((session) => [session.sessionId, session]));
+  assert.equal(byId.get("root-2").workspaceId, "workspace-exact");
+  assert.equal(byId.get("root-20").workspaceId, "workspace-exact", "first explicit workspace membership wins");
+  assert.equal(byId.get("root-22").workspaceId, "workspace-second");
+  assert.equal(byId.get("root-3").workspaceId, undefined, "matching cwd must not imply workspace membership");
+
+  const historyCalls = expensiveCalls.filter(({ method }) => method === "session.history");
+  const subagentCalls = expensiveCalls.filter(({ method }) => method === "subagent.list");
+  const expectedEnrichedIds = [...rootSessions.slice(0, 18).map((session) => session.sessionId), "root-21"];
+  assert.deepEqual(historyCalls.map(({ payload }) => payload.sessionId), expectedEnrichedIds);
+  assert.deepEqual(subagentCalls.map(({ payload }) => payload.parentSessionId), expectedEnrichedIds);
+  assert.equal(historyCalls.length, 19, "only the first 18 sessions and later running sessions are enriched");
+  assert.equal(subagentCalls.length, 19, "subagent enrichment follows the same bound");
+  assert.equal(historyCalls.find(({ payload }) => payload.sessionId === "root-21").payload.maxMessages, 120);
+});
+
+test("dashboard preserves the last workspace and archive snapshot across a transient workspace failure", async () => {
+  const api = new HarnessApi();
+  let workspacePoll = 0;
+  const workspaces = [{ workspaceId: "workspace-stable", path: "C:\\AI\\stable", sessionIds: ["member"] }];
+  const archivedSessionIds = ["archived"];
+  api.rpc = async (method) => {
+    if (method === "host.describe") return { version: "test" };
+    if (method === "session.list") {
+      return {
+        items: [
+          { sessionId: "member", running: false, updatedAt: 1, cwd: "C:\\AI\\stable" },
+          { sessionId: "archived", running: false, updatedAt: 1, cwd: "C:\\AI\\archived" },
+        ],
+      };
+    }
+    if (method === "workspace.list") {
+      workspacePoll += 1;
+      if (workspacePoll === 2) throw new Error("temporary workspace outage");
+      return { items: workspaces, archivedSessionIds };
+    }
+    if (method === "subagent.list") return { entries: [] };
+    if (method === "session.history") return { events: [] };
+    throw new Error(`Unexpected RPC ${method}`);
+  };
+
+  const first = await api.dashboard();
+  const degraded = await api.dashboard();
+
+  assert.equal(first.workspaceDegraded, false);
+  assert.equal(degraded.workspaceDegraded, true);
+  assert.deepEqual(degraded.workspaces, workspaces);
+  assert.deepEqual(degraded.archivedSessionIds, archivedSessionIds);
+  assert.deepEqual(degraded.sessions.map((session) => session.sessionId), ["member"]);
+  assert.equal(degraded.sessions[0].workspaceId, "workspace-stable");
+});
+
+test("a direct workspace refresh seeds the same fallback snapshot used by dashboard", async () => {
+  const api = new HarnessApi();
+  let workspacePoll = 0;
+  const workspace = { workspaceId: "direct-workspace", path: "C:\\AI\\direct", sessionIds: ["direct-member"] };
+  api.rpc = async (method) => {
+    if (method === "workspace.list") {
+      workspacePoll += 1;
+      if (workspacePoll > 1) throw new Error("temporary workspace outage");
+      return { items: [workspace], archivedSessionIds: ["archived"] };
+    }
+    if (method === "host.describe") return { version: "test" };
+    if (method === "session.list") return { items: [{ sessionId: "direct-member", running: false, updatedAt: 1 }] };
+    if (method === "subagent.list") return { entries: [] };
+    if (method === "session.history") return { events: [] };
+    throw new Error(`Unexpected RPC ${method}`);
+  };
+
+  assert.deepEqual(await api.workspaces(), [workspace]);
+  const dashboard = await api.dashboard();
+  assert.equal(dashboard.workspaceDegraded, true);
+  assert.deepEqual(dashboard.workspaces, [workspace]);
+  assert.deepEqual(dashboard.archivedSessionIds, ["archived"]);
+  assert.equal(dashboard.sessions[0].workspaceId, "direct-workspace");
 });
 
 test("live reasoning deltas become a compact activity stream", () => {

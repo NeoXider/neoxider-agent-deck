@@ -18,6 +18,68 @@ const IMAGE_TYPES = new Map([
 ]);
 const VIDEO_TYPES = new Set([".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".wmv"]);
 
+function decodedBase64Length(value) {
+  if (typeof value !== "string" || !value.length || value.length % 4 !== 0
+      || !/^[a-zA-Z0-9+/]*={0,2}$/.test(value)) return -1;
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return (value.length / 4) * 3 - padding;
+}
+
+function safeAttachmentName(value) {
+  if (typeof value !== "string") throw new Error("Attachment name is required");
+  const name = value.trim();
+  if (!name || name.length > 120 || /[\u0000-\u001f\u007f\\/]/.test(name)) {
+    throw new Error("Attachment name is invalid");
+  }
+  return name;
+}
+
+function isAbsoluteLocalPath(value) {
+  return path.isAbsolute(value) || path.win32.isAbsolute(value) || path.posix.isAbsolute(value);
+}
+
+// Renderer state is convenient UI state, not a privilege boundary. Rebuild attachment
+// payloads from a small allowlist before they can reach Harness or local cleanup code.
+function validateAttachmentPayload(value, { imagesOnly = false } = {}) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error("Attachments must be an array");
+  if (value.length > MAX_ATTACHMENTS) throw new Error(`Only ${MAX_ATTACHMENTS} attachments can be sent at once`);
+
+  return value.map((item) => {
+    if (!item || typeof item !== "object") throw new Error("Attachment is invalid");
+    const kind = String(item.kind || "");
+    const name = safeAttachmentName(item.name);
+    if (kind === "image") {
+      const mediaType = String(item.mediaType || "").toLowerCase();
+      if (![...IMAGE_TYPES.values()].includes(mediaType)) throw new Error(`${name} has an unsupported image type`);
+      const data = item.data;
+      const bytes = decodedBase64Length(data);
+      if (bytes < 1) throw new Error(`${name} has invalid image data`);
+      if (bytes > MAX_IMAGE_BYTES) throw new Error(`${name} exceeds the 8 MB image limit`);
+      const attachment = { kind, mediaType, data, name, bytes };
+      if (item.path !== undefined && item.path !== null && String(item.path).trim()) {
+        const imagePath = String(item.path).trim();
+        if (imagePath.length > 4096 || (!isAbsoluteLocalPath(imagePath) && !/^clipboard:[a-f0-9]{8,64}$/i.test(imagePath))) {
+          throw new Error(`${name} has an invalid image path`);
+        }
+        attachment.path = imagePath;
+      }
+      return attachment;
+    }
+    if (imagesOnly || kind !== "reference") throw new Error(`${name} has an unsupported attachment kind`);
+    const filePath = typeof item.path === "string" ? item.path.trim() : "";
+    if (!filePath || filePath.length > 4096 || filePath.includes("\u0000") || !isAbsoluteLocalPath(filePath)) {
+      throw new Error(`${name} has an invalid reference path`);
+    }
+    return {
+      kind,
+      previewKind: item.previewKind === "video" ? "video" : "file",
+      path: filePath,
+      name,
+    };
+  });
+}
+
 function createAttachmentReader({
   fileSystem = fsPromises,
   // Returns a base64 PNG, or "" when no preview can be produced.
@@ -103,4 +165,6 @@ module.exports = {
   MAX_IMAGE_BYTES,
   VIDEO_TYPES,
   createAttachmentReader,
+  decodedBase64Length,
+  validateAttachmentPayload,
 };

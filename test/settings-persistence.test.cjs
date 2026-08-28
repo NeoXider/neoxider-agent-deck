@@ -62,6 +62,7 @@ function fileSystemFailingRenames(failureState) {
 const completePreferences = {
   opacity: 0.73,
   glowIntensity: 0.41,
+  showThinking: false,
   size: "large",
   windowLayer: "game",
   compactSide: "left",
@@ -232,6 +233,7 @@ test("saving one setting does not erase other settings or mode bounds", () => {
 const preferenceMutations = [
   ["opacity", (value) => ({ ...value, opacity: 0.88 })],
   ["glow intensity", (value) => ({ ...value, glowIntensity: 0.67 })],
+  ["live Think visibility", (value) => ({ ...value, showThinking: true })],
   ["size", (value) => ({ ...value, size: "compact" })],
   ["window layer", (value) => ({ ...value, windowLayer: "normal" })],
   ["compact side", (value) => ({ ...value, compactSide: "right" })],
@@ -341,6 +343,7 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     alwaysOnTop: false,
     opacity: 0.75,
     glowIntensity: 0.25,
+    showThinking: true,
     size: "compact",
     compactSide: "left",
   });
@@ -348,6 +351,7 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
   assert.deepEqual(migrated, {
     opacity: 0.75,
     glowIntensity: 0.25,
+    showThinking: true,
     size: "compact",
     windowLayer: "normal",
     compactSide: "left",

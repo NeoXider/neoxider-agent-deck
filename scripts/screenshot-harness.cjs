@@ -76,6 +76,20 @@ function attachScreenshotHarness({
             attachmentImages: document.querySelectorAll('.attachment-preview img').length,
             attachmentVideoThumbnails: document.querySelectorAll('.attachment-chip[data-attachment-kind="video"] .attachment-preview img').length,
             attachmentFallbackIcons: document.querySelectorAll('.attachment-chip[data-attachment-kind="file"] .attachment-preview .ui-icon').length,
+            sentAttachmentChips: document.querySelectorAll('.message-attachment').length,
+            sentAttachmentImages: document.querySelectorAll('.message-attachment-preview img').length,
+            attachmentOnlyBubbles: document.querySelectorAll('.bubble.user.has-attachments.attachment-only').length,
+            sentAttachmentMaxWidth: (() => {
+              const widths = [...document.querySelectorAll('.message-attachment')].map((item) => item.getBoundingClientRect().width);
+              return widths.length ? Math.round(Math.max(...widths)) : 0;
+            })(),
+            sentAttachmentsWithinBubbles: [...document.querySelectorAll('.bubble.user.has-attachments')].every((bubble) => {
+              const bubbleRect = bubble.getBoundingClientRect();
+              return [...bubble.querySelectorAll('.message-attachment')].every((item) => {
+                const rect = item.getBoundingClientRect();
+                return rect.left >= bubbleRect.left - 1 && rect.right <= bubbleRect.right + 1;
+              });
+            }),
             attachmentPreviewMinWidth: (() => {
               const widths = [...document.querySelectorAll('.attachment-preview')].map((preview) => preview.getBoundingClientRect().width);
               return widths.length ? Math.round(Math.min(...widths)) : 0;
@@ -134,10 +148,55 @@ function attachScreenshotHarness({
             scrollLatestVisible: Boolean(document.querySelector('.scroll-latest:not([hidden])')),
             glowControl: document.querySelectorAll('#glowRange').length,
             glowIntensity: getComputedStyle(document.documentElement).getPropertyValue('--chat-glow-intensity').trim(),
+            showThinkingChecked: Boolean(document.querySelector('#showThinkingToggle')?.checked),
+            activityCardVisible: Boolean(document.querySelector('#activityCard.has-activity:not([hidden])')),
+            thinkingOverMessages: (() => {
+              const activity = document.querySelector('#activityCard.thinking-compact:not([hidden])')?.getBoundingClientRect();
+              const messages = document.querySelector('#messages')?.getBoundingClientRect();
+              return !activity || !messages || (activity.top >= messages.top - 1 && activity.bottom <= messages.bottom + 1);
+            })(),
+            crowdedChat: document.body.classList.contains('chat-crowded'),
+            messageViewportHeight: Math.round(document.querySelector('#messages')?.getBoundingClientRect().height || 0),
+            messageViewportScrollable: (() => {
+              const messages = document.querySelector('#messages');
+              return Boolean(messages && messages.scrollHeight > messages.clientHeight + 1);
+            })(),
+            crowdedSurfacesWithinPanel: (() => {
+              const panel = document.querySelector('#chatPanel')?.getBoundingClientRect();
+              if (!panel) return false;
+              return ['#activityCard:not([hidden])', '#todoDock:not([hidden])', '#queueDock.has-items', '#attachmentBar.has-items', '#chatForm']
+                .map((selector) => document.querySelector(selector)?.getBoundingClientRect())
+                .filter(Boolean)
+                .every((rect) => rect.left >= panel.left - 1 && rect.right <= panel.right + 1 && rect.top >= panel.top - 1 && rect.bottom <= panel.bottom + 1);
+            })(),
             windowLayerOptions: document.querySelectorAll('#windowLayerSwitch [data-layer]').length,
             agentWorking: document.querySelectorAll('.session-card.state-working').length,
             agentIdle: document.querySelectorAll('.session-card.state-idle').length,
             agentError: document.querySelectorAll('.session-card.state-error').length,
+            sessionGroups: document.querySelectorAll('#sessions > .session-group').length,
+            sessionPickerGroups: document.querySelectorAll('#sessionOptions > .picker-session-group').length,
+            agentCollapsedSessionGroups: document.querySelectorAll('#sessions > .session-group.collapsed').length,
+            pickerCollapsedSessionGroups: document.querySelectorAll('#sessionOptions > .picker-session-group.collapsed').length,
+            agentSessionGroupAddButtons: document.querySelectorAll('#sessions .session-group-add').length,
+            pickerSessionGroupAddButtons: document.querySelectorAll('#sessionOptions .session-group-add').length,
+            sessionGroupHeadersSingleLine: (() => {
+              const headings = [...document.querySelectorAll('.session-group-heading')].filter((heading) => {
+                const rect = heading.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+              });
+              return headings.length > 0 && headings.every((heading) => {
+                const rect = heading.getBoundingClientRect();
+                return rect.height <= 28 && heading.scrollWidth <= heading.clientWidth + 1;
+              });
+            })(),
+            uniqueSessionCards: (() => {
+              const ids = [...document.querySelectorAll('#sessions .session-card[data-session-id]')].map((card) => card.dataset.sessionId);
+              return ids.length === new Set(ids).size;
+            })(),
+            uniquePickerSessions: (() => {
+              const ids = [...document.querySelectorAll('#sessionOptions .picker-session-group .picker-option[data-option-key]')].map((option) => option.dataset.optionKey);
+              return ids.length === new Set(ids).size;
+            })(),
             orbUtilityButtons: document.querySelectorAll('#orbMode > button:not(#orbRestore):not(#orbStatus)').length,
             orbNotification: document.body.classList.contains('orb-has-notification'),
             orbStatusShadow: getComputedStyle(document.querySelector('#orbStatus')).boxShadow,
@@ -175,7 +234,8 @@ function attachScreenshotHarness({
                 : document.body.classList.contains('activity-tool') ? 'tool'
                   : document.body.classList.contains('state-error') ? 'error'
                     : document.body.classList.contains('state-done') ? 'done'
-                      : document.body.classList.contains('state-waiting') ? 'waiting' : 'idle',
+                      : document.body.classList.contains('state-waiting') ? 'waiting'
+                        : document.body.classList.contains('state-working') ? 'working' : 'idle',
             brandUserSelect: getComputedStyle(document.querySelector('.brand')).userSelect,
             titlebarNativeDragDisabled: getComputedStyle(document.querySelector('.titlebar')).getPropertyValue('-webkit-app-region') !== 'drag',
             avatarHitWidth: Math.round(document.querySelector('#avatarButton').getBoundingClientRect().width),

@@ -38,12 +38,45 @@ This backlog records planned work only. Items are not part of the current releas
 - Coalesced drag moves to the display frame rate and polished the Full/Orb/Edge transition spring.
 - Repaired background update staging, restart recovery, checksum publication, and legacy Start-at-login cleanup.
 
-## Epic: Desktop capture
+## Shipped in 0.6.4
 
-### Feature: Attach clipboard image
+- Mirrored exact Harness `Workspaces` and `Ungrouped` session groups in Agents and Chat, including compact collapse and create-in-group actions; covered by grouping and compact visual regressions.
+- Kept jump-to-latest visible whenever manual scroll is away from the bottom; covered by renderer and interaction regressions.
+- Restored the compact two-by-two composer with `/` above the paperclip and bounded single-line geometry; covered by contract and visual layout regressions.
+- Suppressed the transient stale red Edge state during compact transitions; covered by interaction and Edge-state visual regressions.
+- Added a persistent Show live Think preference whose compact overlay preserves the conversation viewport; covered by persistence, IPC, interaction, and visual regressions.
+- Loaded complete Harness history through backward pagination with cached sequence deduplication; covered by 160-to-161-message API and renderer regressions.
+- Locked Edge dragging to the physical display side, moved compact drag tracking to the native cursor, and added hover/drop spring feedback plus distinct idle and working palettes.
+- Preserved workspace/archive projections through transient refresh failures and kept acknowledged command failures from returning to compact error state.
+- Added native `Ctrl+V` file/image preparation, content-deduplicated clipboard bitmaps, and compact sent image/file/video previews, including attachment-only messages.
+- Made a successful queued-message checkmark leave edit mode even across an authoritative snapshot race, while failed saves remain open for retry.
 
-- **Purpose:** one action attaches the current clipboard bitmap without opening a file picker.
-- **Acceptance:** deduplicates repeated presses, preserves alpha, uses the same preview/removal UI, and explains when the clipboard has no supported image.
+## Known gaps at 0.6.4
+
+Recorded rather than quietly dropped. None of these block the release; all of them are
+things a reader of the verification folder would otherwise have to infer.
+
+- **No multi-tool parity receipt on Qwen 3.8 27B.** Two attempts failed for infrastructure
+  reasons and both are kept: `qwen3.8-27b-multi-tool-parity-v064-failed-load.json` records
+  LM Studio returning `Engine protocol startup was aborted`, and a later retry found the
+  GPU already committed to another model with 683 MB free. The multi-tool path *is*
+  verified live on Ling 3.0 Tiny (`ling-3.0-tiny-multi-tool-parity-v064.json` — 3/3 tool
+  calls, 3/3 results, clean turn end), and the 27B has a passing dynamic-MCP receipt
+  (`qwen3.8-27b-dynamic-mcp-v064.json`). What is missing is only the 27B *multi-tool*
+  receipt. Re-run `npm run parity-smoke` once the 27B can be loaded.
+  - Practical note: LM Studio defaults to 111 parallel slots and sizes a per-slot cache,
+    which can claim the whole 24 GB card and is what blocked the retry. Load with
+    `--parallel 1`.
+- **Live update flow has not been walked end to end by a human on this machine.** Staging,
+  digest verification and restart survival are covered by
+  `test/update-orchestrator.test.cjs` and `test/portable-update-stage.test.cjs`, and
+  `scripts/verify-release-artifacts.cjs` checks the published payload on both sides of
+  checksum creation — but pressing Update on an installed build and watching it restart is
+  still a manual step.
+- **The portable build reuses its temp extraction directory.** A relaunch after replacing
+  the exe can silently keep running the previous build; confirming a version means checking
+  the unpacked `app.asar`, not the file timestamps. Worth automating before the next
+  release.
 
 ## Epic: Overlay quality
 
@@ -66,6 +99,12 @@ This backlog records planned work only. Items are not part of the current releas
 - **Acceptance:** changing the foreground game switches only presentation settings and never changes the selected Harness session or permission preset.
 
 ## Epic: Compact productivity
+
+### Feature: Voice input after Harness audio support
+
+- **Purpose:** record a short voice prompt directly into the composer when the installed Harness message schema exposes a supported audio content block.
+- **Current gate:** Harness 0.1.1-rc.2 exposes text, image and file-reference content but no audio input block, so 0.6.4 intentionally does not record or silently transcribe microphone data through an unrelated provider.
+- **Acceptance:** recording is opt-in, visibly bounded, reviewable before send, cancellable without leaving a file, and covered by the same attachment/privacy limits as images.
 
 ### Feature: Quiet notifications
 

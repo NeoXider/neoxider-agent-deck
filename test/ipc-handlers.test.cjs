@@ -5,6 +5,7 @@ const {
   denyAllPermissions,
   UNTRUSTED_SENDER_CODE,
 } = require("../src/ipc-handlers.cjs");
+const { createAttachmentRegistry } = require("../src/attachment-registry.cjs");
 
 // A fake ipcMain that records what was registered and lets a test invoke a channel with
 // any sender it likes, which is the whole point: the guard has to run before the handler.
@@ -29,6 +30,7 @@ function fakeWindow() {
 function register(overrides = {}) {
   const ipcMain = fakeIpcMain();
   const window = fakeWindow();
+  const attachmentRegistry = overrides.attachmentRegistry || createAttachmentRegistry();
   const registration = registerIpcHandlers({
     ipcMain,
     session: null,
@@ -38,6 +40,8 @@ function register(overrides = {}) {
     api: new Proxy({}, { get: () => async () => ({}) }),
     queueSnapshots: new Map(),
     prepareFiles: async () => ({ attachments: [], failures: [] }),
+    attachmentRegistry,
+    selectedFiles: { remember: () => "selected-file:test", prepare: async () => ({ attachments: [], failures: [] }) },
     parseExternalUrl: (value) => String(value),
     harnessUrl: "http://127.0.0.1:3080",
     repositoryUrl: "https://example.invalid/repo",
@@ -84,7 +88,7 @@ function register(overrides = {}) {
     sendToRenderer: () => {},
     ...overrides,
   });
-  return { ipcMain, window, registration };
+  return { ipcMain, window, registration, attachmentRegistry };
 }
 
 test("every registered channel refuses a foreign sender before running", async () => {
@@ -127,6 +131,22 @@ test("the real window is accepted", async () => {
   assert.equal(info.version, "0.0.0-test");
 });
 
+test("live Think visibility is returned and persisted through the preferences contract", async () => {
+  const preferences = { opacity: 1, glowIntensity: 0.8, showThinking: true, size: "standard", windowLayer: "above", compactSide: "right", windowState: { mode: "full" } };
+  let scheduledSaves = 0;
+  const { ipcMain, window } = register({
+    getPreferences: () => preferences,
+    getScreenshotService: () => ({ capabilities: () => ({}) }),
+    schedulePreferenceSave: () => { scheduledSaves += 1; },
+  });
+  const legitimate = { sender: window.webContents, senderFrame: { parent: null } };
+
+  assert.equal(await ipcMain.invoke("set-show-thinking", legitimate, false), false);
+  assert.equal(preferences.showThinking, false);
+  assert.equal(scheduledSaves, 1);
+  assert.equal((await ipcMain.invoke("get-preferences", legitimate)).showThinking, false);
+});
+
 test("manual update checks use the shared check-and-stage path", async () => {
   let calls = 0;
   const expected = { status: "ready", latestVersion: "1.1.0" };
@@ -156,24 +176,88 @@ test("slash command IPC forwards image payloads through the widget command bound
   };
   const { ipcMain, window } = register({ api });
   const event = { sender: window.webContents, senderFrame: { parent: null } };
-  const images = [{ mediaType: "image/png", data: "AA==", name: "slash.png" }];
+  const images = [{ kind: "image", mediaType: "image/png", data: "AA==", name: "slash.png" }];
 
   const result = await ipcMain.invoke("execute-command", event, {
     sessionId: "session-command",
     line: "/goal inspect this screenshot",
     images,
   });
-  await ipcMain.invoke("execute-command", event, {
+  await assert.rejects(ipcMain.invoke("execute-command", event, {
     sessionId: "session-command",
     line: "/goal no images",
     images: { not: "an array" },
-  });
+  }), /Attachments must be an array/);
 
   assert.deepEqual(result, { result: { kind: "success", text: "done" } });
   assert.deepEqual(calls, [
-    ["session-command", "/goal inspect this screenshot", images],
-    ["session-command", "/goal no images", []],
+    ["session-command", "/goal inspect this screenshot", [{ ...images[0], bytes: 1 }]],
   ]);
+});
+
+test("send validates attachments before privileged Harness calls", async () => {
+  const calls = [];
+  const api = {
+    createSession: async () => "created",
+    ensureFullAccess: async () => {},
+    selectModel: async () => {},
+    prompt: async (...args) => calls.push(args),
+  };
+  const { ipcMain, window, attachmentRegistry } = register({ api });
+  const event = { sender: window.webContents, senderFrame: { parent: null } };
+  const prepared = attachmentRegistry.register({
+    kind: "reference", path: "C:\\docs\\notes.txt", name: "notes.txt",
+  });
+  await ipcMain.invoke("send", event, {
+    sessionId: "session-send",
+    text: "inspect",
+    attachments: [
+      { ...prepared, path: "C:\\Windows\\win.ini", name: "spoofed.txt", extra: "discard" },
+      { kind: "image", mediaType: "image/png", data: "AA==", name: "shot.png", path: "clipboard:aabbccdd" },
+    ],
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][1], "inspect\n\n@C:\\docs\\notes.txt");
+  assert.deepEqual(calls[0][3], [{
+    kind: "image", mediaType: "image/png", data: "AA==", name: "shot.png", bytes: 1, path: "clipboard:aabbccdd",
+  }]);
+
+  await assert.rejects(ipcMain.invoke("send", event, {
+    sessionId: "session-send", text: "unsafe", attachments: [{ kind: "reference", path: "C:\\Windows\\win.ini", name: "win.ini" }],
+  }), /unsupported attachment kind/);
+  assert.equal(calls.length, 1, "invalid payload must not reach Harness");
+});
+
+test("compact dragging uses the native cursor and Edge stays locked to its physical side", () => {
+  let dragOrigin = null;
+  let cursor = { x: 1000, y: 300 };
+  let mode = "edge";
+  const moveCalls = [];
+  const { ipcMain, window } = register({
+    getWindowMode: () => mode,
+    getCursorScreenPoint: () => cursor,
+    getCompactDragOrigin: () => dragOrigin,
+    setCompactDragOrigin: (value) => { dragOrigin = value; },
+    moveWithinNearestDisplay: (_bounds, candidate) => {
+      moveCalls.push(candidate);
+      return candidate;
+    },
+  });
+  const event = { sender: window.webContents, senderFrame: { parent: null } };
+
+  ipcMain.emit("begin-compact-drag", event, { x: -500, y: -500 });
+  assert.deepEqual({ x: dragOrigin.screenX, y: dragOrigin.screenY }, cursor);
+  cursor = { x: 1350, y: 360 };
+  ipcMain.emit("move-compact-drag", event, { x: 9000, y: 9000 });
+  assert.deepEqual(moveCalls.at(-1), { x: 0, y: 60 });
+
+  mode = "orb";
+  dragOrigin = null;
+  cursor = { x: 200, y: 150 };
+  ipcMain.emit("begin-compact-drag", event, { x: 0, y: 0 });
+  cursor = { x: 235, y: 190 };
+  ipcMain.emit("move-compact-drag", event, { x: 9000, y: 9000 });
+  assert.deepEqual(moveCalls.at(-1), { x: 35, y: 40 });
 });
 
 test("full drag preserves both origin dimensions when native bounds drift", async () => {

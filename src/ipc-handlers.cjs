@@ -92,6 +92,8 @@ function registerIpcHandlers({
   api,
   queueSnapshots,
   prepareFiles,
+  attachmentRegistry,
+  selectedFiles,
   parseExternalUrl,
   harnessUrl,
   repositoryUrl,
@@ -124,6 +126,7 @@ function registerIpcHandlers({
   getUpdateService,
   checkForUpdates = () => getUpdateService()?.check() || null,
   getGameBarController = () => null,
+  getCursorScreenPoint = () => null,
   readDashboard,
   // Window-manager behaviour that stays in main.cjs, where the window state lives.
   applyWindowMode,
@@ -172,6 +175,14 @@ function registerIpcHandlers({
     });
   }
 
+  function compactPointer(value) {
+    const native = getCursorScreenPoint();
+    const nativeX = Number(native?.x);
+    const nativeY = Number(native?.y);
+    if (Number.isFinite(nativeX) && Number.isFinite(nativeY)) return { x: nativeX, y: nativeY };
+    return { x: Number(value?.x), y: Number(value?.y) };
+  }
+
   handle("dashboard", async () => {
     try {
       // Through the shared reader, not api.dashboard(): the Game Bar widget reads the same
@@ -193,7 +204,12 @@ function registerIpcHandlers({
   });
   handle("models", async (_event, sessionId) => api.models(sessionId || undefined));
   handle("commands", async (_event, sessionId) => api.commands(sessionId));
-  handle("execute-command", async (_event, payload) => api.executeWidgetCommand(payload?.sessionId, payload?.line, Array.isArray(payload?.images) ? payload.images : []));
+  handle("execute-command", async (_event, payload) => {
+    const images = attachmentRegistry.resolvePayload(payload?.images, { imagesOnly: true });
+    const result = await api.executeWidgetCommand(payload?.sessionId, payload?.line, images);
+    attachmentRegistry.releasePayload(payload?.images);
+    return result;
+  });
   handle("workspaces", async () => api.workspaces());
   handle("pick-workspace", async () => {
     const result = await dialog.showOpenDialog(getWindow(), { properties: ["openDirectory", "createDirectory"] });
@@ -204,7 +220,10 @@ function registerIpcHandlers({
     const result = await dialog.showOpenDialog(getWindow(), { properties: ["openFile", "multiSelections"] });
     return result.canceled ? { attachments: [], failures: [] } : prepareFiles(result.filePaths);
   });
-  handle("prepare-files", async (_event, filePaths) => prepareFiles(filePaths));
+  on("register-selected-file", (event, filePath) => {
+    event.returnValue = selectedFiles.remember(filePath);
+  });
+  handle("prepare-files", async (_event, fileHandles) => selectedFiles.prepare(fileHandles));
   handle("capture-screenshot", async (_event, kind) => captureScreenshot(String(kind || "")));
   handle("create-session", async (_event, options) => {
     const sessionId = await api.createSession(options || {});
@@ -216,7 +235,7 @@ function registerIpcHandlers({
   });
   handle("send", async (_event, payload) => {
     const text = String(payload && payload.text || "").trim();
-    const attachments = Array.isArray(payload && payload.attachments) ? payload.attachments : [];
+    const attachments = attachmentRegistry.resolvePayload(payload?.attachments);
     if (!text && !attachments.length) throw new Error("Message is empty");
     const sessionId = payload && payload.sessionId ? payload.sessionId : await api.createSession();
     await api.ensureFullAccess(sessionId);
@@ -226,6 +245,7 @@ function registerIpcHandlers({
     const images = attachments.filter((item) => item.kind === "image");
     await api.prompt(sessionId, promptText, payload && payload.timeZone, images);
     await cleanupSentCaptureFiles(attachments);
+    attachmentRegistry.releasePayload(payload?.attachments);
     return { sessionId };
   });
   handle("cancel", async (_event, sessionId) => api.cancel(sessionId));
@@ -268,6 +288,12 @@ function registerIpcHandlers({
     preferences.glowIntensity = Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 0.82;
     schedulePreferenceSave();
     return preferences.glowIntensity;
+  });
+  handle("set-show-thinking", (_event, value) => {
+    const preferences = getPreferences();
+    preferences.showThinking = Boolean(value);
+    schedulePreferenceSave();
+    return preferences.showThinking;
   });
   handle("set-size", (_event, preset) => {
     const preferences = getPreferences();
@@ -319,6 +345,7 @@ function registerIpcHandlers({
       autoStartAvailable: autoStart.available,
       opacity: preferences.opacity,
       glowIntensity: preferences.glowIntensity,
+      showThinking: preferences.showThinking !== false,
       size: preferences.size,
       windowMode: getWindowMode(),
       compactSide: preferences.compactSide,
@@ -398,11 +425,10 @@ function registerIpcHandlers({
   });
   on("begin-compact-drag", (_event, value) => {
     if (getWindowMode() === "full") return;
-    const screenX = Number(value?.x);
-    const screenY = Number(value?.y);
+    const { x: screenX, y: screenY } = compactPointer(value);
     if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
     applyEdgePointerHit(true);
-    getEdgeHitTracker()?.sync();
+    getEdgeHitTracker()?.sync?.();
     const origin = { screenX, screenY, bounds: getWindow().getBounds() };
     setCompactDragOrigin(origin);
     traceCompactDrag("begin", { screenX, screenY, bounds: origin.bounds });
@@ -422,17 +448,17 @@ function registerIpcHandlers({
       applyWindowMode("orb", { captureCurrent: false, persist: false, preserveCompactPosition: true });
       result = { ...getWindow().getBounds(), side: getPreferences().compactSide };
     }
-    getEdgeHitTracker()?.sync();
+    getEdgeHitTracker()?.sync?.();
     return result;
   });
   on("move-compact-drag", (_event, value) => {
     const compactDragOrigin = getCompactDragOrigin();
     if (getWindowMode() === "full" || !compactDragOrigin) return;
-    const screenX = Number(value?.x);
-    const screenY = Number(value?.y);
+    const { x: screenX, y: screenY } = compactPointer(value);
     if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+    const edgeLocked = getWindowMode() === "edge";
     const candidate = {
-      x: compactDragOrigin.bounds.x + screenX - compactDragOrigin.screenX,
+      x: edgeLocked ? compactDragOrigin.bounds.x : compactDragOrigin.bounds.x + screenX - compactDragOrigin.screenX,
       y: compactDragOrigin.bounds.y + screenY - compactDragOrigin.screenY,
     };
     const moved = moveWithinNearestDisplay(compactDragOrigin.bounds, candidate);

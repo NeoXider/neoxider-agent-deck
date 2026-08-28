@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 
-const { MAX_ATTACHMENTS, createAttachmentReader } = require("../src/attachments.cjs");
+const { MAX_ATTACHMENTS, MAX_IMAGE_BYTES, createAttachmentReader, validateAttachmentPayload } = require("../src/attachments.cjs");
 
 // A fake disk keyed by resolved path, so these rules can be exercised without Electron
 // and without touching the real filesystem.
@@ -132,4 +132,24 @@ test("a directory is refused rather than read", async () => {
   });
 
   await assert.rejects(prepareFile(directory), /Not a file/);
+});
+
+test("privileged attachment validation rebuilds valid payloads and rejects unsafe bounds", () => {
+  assert.deepEqual(validateAttachmentPayload([
+    { kind: "reference", previewKind: "video", path: "C:\\clips\\demo.mp4", name: "demo.mp4", ignored: true },
+    { kind: "image", mediaType: "image/png", data: "AA==", name: "shot.png", path: "clipboard:aabbccdd", ignored: true },
+  ]), [
+    { kind: "reference", previewKind: "video", path: "C:\\clips\\demo.mp4", name: "demo.mp4" },
+    { kind: "image", mediaType: "image/png", data: "AA==", name: "shot.png", bytes: 1, path: "clipboard:aabbccdd" },
+  ]);
+
+  assert.throws(() => validateAttachmentPayload(Array.from({ length: MAX_ATTACHMENTS + 1 }, () => ({
+    kind: "reference", path: "C:\\a.txt", name: "a.txt",
+  }))), /Only 12 attachments/);
+  assert.throws(() => validateAttachmentPayload([{ kind: "reference", path: "relative.txt", name: "relative.txt" }]), /invalid reference path/);
+  assert.throws(() => validateAttachmentPayload([{ kind: "image", mediaType: "image/svg+xml", data: "AA==", name: "x.svg" }]), /unsupported image type/);
+  assert.throws(() => validateAttachmentPayload([{ kind: "image", mediaType: "image/png", data: "not base64", name: "x.png" }]), /invalid image data/);
+  const oversized = Buffer.alloc(MAX_IMAGE_BYTES + 1).toString("base64");
+  assert.throws(() => validateAttachmentPayload([{ kind: "image", mediaType: "image/png", data: oversized, name: "x.png" }]), /exceeds the 8 MB/);
+  assert.throws(() => validateAttachmentPayload([{ kind: "reference", path: "C:\\a.txt", name: "..\\a.txt" }]), /name is invalid/);
 });

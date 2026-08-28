@@ -10,6 +10,9 @@ const state = {
   historyRequestSequence: 0,
   historyPrioritySessionId: null,
   historyPriorityPromise: null,
+  historyLoadedSessionId: null,
+  historyLoadedUpdatedAt: undefined,
+  historyLoadedRevision: null,
   modelsBusy: false,
   modelsRequestSequence: 0,
   commandsBusy: false,
@@ -30,6 +33,7 @@ const state = {
   avatarMode: "idle",
   avatarLabel: "ready",
   currentActivity: null,
+  showThinking: true,
   activityCardSignature: "",
   currentMode: "agent",
   agentModesBySessionId: new Map(),
@@ -56,6 +60,7 @@ const state = {
   compactStatusIpcSignature: "",
   sessionListSignature: "",
   sessionSelectSignature: "",
+  collapsedSessionGroupKeys: new Set(),
   contextSignature: "",
   modeSignature: "",
   commandSelectionIndex: 0,
@@ -67,9 +72,11 @@ const state = {
   queueHandoffEpochs: new Map(),
   nextQueuedPromptId: 1,
   queueEditingId: null,
+  queueEditingSessionId: null,
   queueBusyId: null,
   queueBusySessionId: null,
   queueBusyKind: null,
+  queueRecoveryGenerations: new Map(),
   queueSignature: "",
   todoExpandedSessionIds: new Set(),
   todoSignature: "",
@@ -83,6 +90,8 @@ const state = {
   messagesStickToBottom: true,
   unseenMessages: 0,
   scrollLatestSignature: "",
+  scrollLatestAutoScrolling: false,
+  scrollLatestAutoScrollTimer: null,
   historySignature: "",
   harnessStarting: false,
   platformCapabilities: null,
@@ -148,6 +157,7 @@ function compactRecentText(value, limit = 110) {
 
 const COMPOSER_INPUT_MIN_HEIGHT = 34;
 const COMPOSER_INPUT_MAX_VIEWPORT_RATIO = 1 / 3;
+const HISTORY_PREVIEW_BYTES_BUDGET = 1024 * 1024;
 const COMMAND_MENU_CHROME_HEIGHT = 46;
 const COMMAND_MENU_ROW_HEIGHT = 44;
 const COMMAND_MENU_MAX_ROWS = 4;
@@ -161,6 +171,29 @@ const MODEL_PICKER_COMPACT_ROW_HEIGHT = 30;
 const PICKER_MENU_OFFSET = 6;
 const PICKER_SURFACE_GAP = 7;
 let messageInputResizeFrame = null;
+let composerPastePreparation = Promise.resolve();
+let composerPasteFailurePending = false;
+let composerSubmitInFlight = false;
+
+function captureMessageLayoutSnapshot() {
+  const root = $("#messages");
+  if (!root || root.clientHeight <= 0) return null;
+  return { root, pinned: state.messagesStickToBottom, scrollTop: root.scrollTop };
+}
+
+function restoreMessageLayoutSnapshot(snapshot) {
+  if (!snapshot?.root?.isConnected || snapshot.root.clientHeight <= 0) return;
+  if (snapshot.pinned) {
+    snapshot.root.scrollTop = snapshot.root.scrollHeight;
+    state.messagesStickToBottom = true;
+    state.unseenMessages = 0;
+  } else {
+    snapshot.root.scrollTop = Math.min(snapshot.scrollTop, Math.max(0, snapshot.root.scrollHeight - snapshot.root.clientHeight));
+    state.messagesStickToBottom = messagesNearBottom(snapshot.root);
+    if (state.messagesStickToBottom) state.unseenMessages = 0;
+  }
+  updateScrollLatestButton();
+}
 
 function restoreMessageInputViewport(input, snapshot) {
   if (!snapshot) return;
@@ -176,6 +209,7 @@ function restoreMessageInputViewport(input, snapshot) {
 function resizeMessageInput({ immediate = false } = {}) {
   const input = $("#messageInput");
   if (!input) return;
+  const messageLayout = captureMessageLayoutSnapshot();
   if (messageInputResizeFrame) cancelAnimationFrame(messageInputResizeFrame);
   const style = getComputedStyle(input);
   const lineHeight = Number.parseFloat(style.lineHeight) || 15;
@@ -206,6 +240,7 @@ function resizeMessageInput({ immediate = false } = {}) {
   if (immediate) {
     input.style.height = `${targetHeight}px`;
     restoreMessageInputViewport(input, snapshot);
+    restoreMessageLayoutSnapshot(messageLayout);
     messageInputResizeFrame = null;
     return;
   }
@@ -214,6 +249,7 @@ function resizeMessageInput({ immediate = false } = {}) {
   messageInputResizeFrame = requestAnimationFrame(() => {
     input.style.height = `${targetHeight}px`;
     restoreMessageInputViewport(input, snapshot);
+    restoreMessageLayoutSnapshot(messageLayout);
     messageInputResizeFrame = null;
   });
 }
@@ -496,15 +532,23 @@ function syncGameBarSelection() {
 function syncActivityCard() {
   const activity = state.currentActivity;
   const card = $("#activityCard");
+  const messagesWrap = $(".messages-wrap");
   const hasActivity = Boolean(activity?.text);
   const hasWritingBubble = activity?.kind === "writing" && Boolean($("#messages .live-assistant"));
-  const showCard = hasActivity && !hasWritingBubble;
+  const showCard = hasActivity && !hasWritingBubble && (activity?.kind !== "thinking" || state.showThinking);
   const compactThinking = showCard && activity?.kind === "thinking";
+  messagesWrap.classList.toggle("has-thinking-overlay", compactThinking);
+  syncCrowdedChatState();
   const signature = showCard ? JSON.stringify([true, activity?.kind || "", activity?.label || "", activity?.text || ""]) : "hidden";
   if (signature === state.activityCardSignature) return false;
+  const messageLayout = captureMessageLayoutSnapshot();
   state.activityCardSignature = signature;
+  card.hidden = !showCard;
+  card.setAttribute("aria-hidden", String(!showCard));
   card.classList.toggle("has-activity", showCard);
   card.classList.toggle("thinking-compact", compactThinking);
+  if (compactThinking && card.parentElement !== messagesWrap) messagesWrap.prepend(card);
+  else if (!compactThinking && card.parentElement === messagesWrap) messagesWrap.before(card);
   if (compactThinking) card.open = false;
   if (showCard) {
     $("#activityLabel").textContent = activity.label || "Activity";
@@ -512,6 +556,11 @@ function syncActivityCard() {
       ? compactRecentText(activity.text, 92)
       : compactText(activity.text, 110);
     $("#activityBody").textContent = activity.text;
+  }
+  restoreMessageLayoutSnapshot(messageLayout);
+  if (messageLayout && !messageLayout.pinned) {
+    state.messagesStickToBottom = false;
+    updateScrollLatestButton();
   }
   return true;
 }
@@ -584,9 +633,13 @@ function acknowledgeSessionError(sessionId) {
 }
 
 function clearAcknowledgedErrorPresentation() {
-  if (state.compactErrorUnread || state.harnessOffline || state.avatarMode !== "error" || state.currentActivity?.kind !== "error") return false;
-  state.currentActivity = null;
-  syncActivityCard();
+  if (state.compactErrorUnread || state.harnessOffline || state.avatarMode !== "error") return false;
+  const commandFeedback = commandFeedbackFor(state.selectedSessionId);
+  if (commandFeedback?.avatarMode === "error") setCommandFeedback(state.selectedSessionId, null);
+  if (state.currentActivity?.kind === "error") {
+    state.currentActivity = null;
+    syncActivityCard();
+  }
   setAvatar("idle");
   return true;
 }
@@ -636,6 +689,7 @@ function notifyCompletion(session) {
   clearCompletionSignal();
   syncUnacknowledgedErrors();
   setAvatar("done");
+  animateScrollLatestCompletion(sessionId);
   document.body.classList.add("completion-celebration");
   setActivity({ active: true, kind: "done", label: "Done", text: "Agent finished the current task." });
   if (state.windowMode !== "full") {
@@ -675,8 +729,21 @@ function notifyCompletion(session) {
 
 const MODE_EXIT_DURATION = 145;
 const MODE_ENTER_DURATION = 390;
+const FIRST_VISIBLE_ENTRY_DURATION = 460;
 let modeTransitionSequence = 0;
 let modeRequestSequence = 0;
+let firstVisibleEntryPlayed = false;
+
+function playFirstVisibleEntry() {
+  if (firstVisibleEntryPlayed) return false;
+  firstVisibleEntryPlayed = true;
+  document.body.classList.remove("pre-native-visible");
+  if (prefersReducedMotion()) return false;
+  void document.body.offsetWidth;
+  document.body.classList.add("first-visible-entry");
+  setTimeout(() => document.body.classList.remove("first-visible-entry"), FIRST_VISIBLE_ENTRY_DURATION);
+  return true;
+}
 
 function clearModeTransitionClasses(kind) {
   const prefix = kind === "out" ? "mode-transition-to-" : "mode-transition-from-";
@@ -724,6 +791,7 @@ function applyWindowMode(mode) {
   state.windowMode = mode;
   document.body.classList.remove("mode-full", "mode-orb", "mode-edge");
   document.body.classList.add(`mode-${mode}`);
+  syncCrowdedChatState();
   if (mode !== "edge") window.widget.setEdgePointerActive(true);
   if (mode === "full") {
     acknowledgeSessionError(state.selectedSessionId);
@@ -784,6 +852,14 @@ function setEdgePointerActive(active) {
   edgePointerActive = next;
   $("#edgeMode").classList.toggle("edge-hit-active", next);
   window.widget.setEdgePointerActive(next);
+}
+
+function animateEdgeDrop() {
+  const edge = $("#edgeMode");
+  edge.classList.remove("edge-drop");
+  void edge.offsetWidth;
+  edge.classList.add("edge-drop");
+  setTimeout(() => edge.classList.remove("edge-drop"), 620);
 }
 
 function updateEdgePointerHit(event) {
@@ -960,7 +1036,10 @@ async function endCompactDrag(event) {
   if (!nativeStarted) return;
   const result = await window.widget.endCompactDrag().catch(() => null);
   if (result?.side) applyCompactSide(result.side);
-  if (state.windowMode === "edge") setEdgePointerActive(false);
+  if (state.windowMode === "edge") {
+    setEdgePointerActive(false);
+    animateEdgeDrop();
+  }
   setTimeout(() => { suppressCompactClick = false; }, 0);
 }
 
@@ -1033,92 +1112,206 @@ function renderContext() {
   return true;
 }
 
+function groupedSessions(selectedSessionId = state.selectedSessionId) {
+  return window.sessionGroups.groupSessions(
+    state.dashboard?.sessions || [],
+    state.dashboard?.workspaces || state.workspaces || [],
+    state.dashboard?.archivedSessionIds || [],
+    selectedSessionId,
+  );
+}
+
+function visibleSessions(selectedSessionId = state.selectedSessionId) {
+  return groupedSessions(selectedSessionId).flatMap((group) => group.sessions);
+}
+
+function sessionAgentState(session) {
+  return ["working", "error"].includes(session.state) ? session.state : (session.running ? "working" : "idle");
+}
+
+function updateSessionCard(card, session) {
+  const agentState = sessionAgentState(session);
+  card.dataset.sessionId = session.sessionId;
+  card.className = `session-card state-${agentState}${session.sessionId === state.selectedSessionId ? " selected" : ""}`;
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  card.setAttribute("aria-label", `Open ${session.title || "New session"}`);
+  const childCount = (session.subagents || []).filter((item) => item.kind === "child").length;
+  const pressure = contextPressure(session);
+  card.querySelector(".agent-avatar").className = `agent-avatar ${agentState}`;
+  card.querySelector(".agent-avatar img").src = AVATARS[agentState] || AVATARS.idle;
+  card.querySelector(".session-name").textContent = session.title || "New session";
+  card.querySelector(".session-meta").textContent = `${agentState}${childCount ? ` · ${childCount} subagent${childCount === 1 ? "" : "s"}` : ""}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}`;
+  const status = card.querySelector(".session-state");
+  status.className = `session-state ${agentState}`;
+  status.textContent = agentState;
+}
+
+function createSessionCard(session) {
+  const card = document.createElement("div");
+  const avatar = document.createElement("div");
+  avatar.className = "agent-avatar";
+  const avatarImage = document.createElement("img");
+  avatarImage.alt = "";
+  avatar.append(avatarImage);
+  const main = document.createElement("div");
+  main.className = "session-main";
+  const name = document.createElement("div");
+  name.className = "session-name";
+  const meta = document.createElement("div");
+  meta.className = "session-meta";
+  main.append(name, meta);
+  const status = document.createElement("div");
+  status.className = "session-state";
+  card.append(avatar, main, status);
+  const activate = () => selectSession(card.dataset.sessionId, true);
+  card.addEventListener("click", activate);
+  card.addEventListener("keydown", (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    activate();
+  });
+  updateSessionCard(card, session);
+  return card;
+}
+
+function toggleSessionGroup(groupKey) {
+  if (state.collapsedSessionGroupKeys.has(groupKey)) state.collapsedSessionGroupKeys.delete(groupKey);
+  else state.collapsedSessionGroupKeys.add(groupKey);
+  state.sessionListSignature = "";
+  state.sessionSelectSignature = "";
+  renderSessions();
+  renderSessionSelect();
+}
+
+function createSessionGroup(group, { picker = false } = {}) {
+  const wrapper = document.createElement("section");
+  const heading = document.createElement("div");
+  heading.className = "session-group-heading";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "session-group-toggle";
+  toggle.append(createIcon("folder"));
+  const label = document.createElement("span");
+  const count = document.createElement("small");
+  toggle.append(label, count, createIcon("chevron", "ui-icon session-group-chevron"));
+  toggle.addEventListener("click", () => toggleSessionGroup(wrapper.dataset.groupKey));
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "session-group-add";
+  add.append(createIcon("plus"));
+  add.addEventListener("click", async () => {
+    closePickers();
+    await createNewSession({ workspaceId: wrapper.dataset.workspaceId || null });
+  });
+  heading.append(toggle, add);
+  const body = document.createElement("div");
+  body.className = "session-group-items";
+  wrapper.append(heading, body);
+  updateSessionGroup(wrapper, group, { picker });
+  return { wrapper, body };
+}
+
+function updateSessionGroup(wrapper, group, { picker = false } = {}) {
+  const collapsed = state.collapsedSessionGroupKeys.has(group.key);
+  wrapper.className = `session-group${picker ? " picker-session-group" : ""}${collapsed ? " collapsed" : ""}`;
+  wrapper.dataset.groupKey = group.key;
+  wrapper.dataset.workspaceId = group.workspaceId || "";
+  wrapper.setAttribute("role", "group");
+  wrapper.setAttribute("aria-label", group.label);
+  const toggle = wrapper.querySelector(".session-group-toggle");
+  toggle.title = `${collapsed ? "Expand" : "Collapse"} ${group.label}`;
+  toggle.setAttribute("aria-expanded", String(!collapsed));
+  const label = toggle.querySelector("span");
+  label.textContent = group.label;
+  label.title = group.path || group.label;
+  toggle.querySelector("small").textContent = String(group.sessions.length);
+  const add = wrapper.querySelector(".session-group-add");
+  add.title = group.workspaceId ? `New session in ${group.label}` : "New ungrouped session";
+  add.setAttribute("aria-label", add.title);
+  wrapper.querySelector(".session-group-items").hidden = collapsed;
+}
+
+function sessionGroupElements(root) {
+  return [...root.children].filter((element) => element.classList.contains("session-group"));
+}
+
+function canPatchSessionGroups(root, groups, { picker = false } = {}) {
+  const wrappers = sessionGroupElements(root);
+  if (wrappers.length !== groups.length) return false;
+  return groups.every((group, index) => {
+    const wrapper = wrappers[index];
+    if (wrapper.dataset.groupKey !== group.key || wrapper.classList.contains("picker-session-group") !== picker) return false;
+    const items = [...wrapper.querySelector(".session-group-items").children];
+    return items.length === group.sessions.length && group.sessions.every((session, itemIndex) => {
+      const item = items[itemIndex];
+      return (picker ? item.dataset.optionKey : item.dataset.sessionId) === session.sessionId;
+    });
+  });
+}
+
+function updatePickerSessionOption(option, session) {
+  const pressure = contextPressure(session);
+  const agentState = sessionAgentState(session);
+  const selected = session.sessionId === state.selectedSessionId;
+  option.classList.toggle("selected", selected);
+  option.classList.remove("state-idle", "state-working", "state-error");
+  option.classList.add(`state-${agentState}`);
+  option.setAttribute("aria-selected", String(selected));
+  option.title = session.cwd || session.title || "New session";
+  option.querySelector("span").textContent = session.title || "New session";
+  let meta = option.querySelector("small");
+  if (!meta) {
+    meta = document.createElement("small");
+    option.append(meta);
+  }
+  meta.textContent = agentState === "working"
+    ? "working"
+    : agentState === "error"
+      ? "error"
+      : pressure
+        ? `idle · ${Math.round(pressure.percent)}%`
+        : "idle";
+  const mark = option.querySelector(".picker-check");
+  mark.replaceChildren();
+  if (selected) mark.append(createIcon("check"));
+}
+
 function renderSessions() {
   const root = $("#sessions");
-  const sessions = state.dashboard?.sessions || [];
+  const groups = groupedSessions();
   const signature = JSON.stringify([
     Boolean(state.dashboard?.harness),
     state.selectedSessionId,
-    ...sessions.map((session) => {
-      const agentState = ["working", "error"].includes(session.state)
-        ? session.state
-        : (session.running ? "working" : "idle");
-      const childCount = (session.subagents || []).filter((item) => item.kind === "child").length;
+    [...state.collapsedSessionGroupKeys].sort(),
+    ...groups.map((group) => [group.key, group.label, group.path, ...group.sessions.map((session) => {
       const pressure = contextPressure(session);
-      return [session.sessionId, session.title || "", agentState, childCount, pressure ? Math.round(pressure.percent) : null];
-    }),
+      return [session.sessionId, session.title || "", sessionAgentState(session), (session.subagents || []).length, pressure ? Math.round(pressure.percent) : null];
+    })]),
   ]);
   if (signature === state.sessionListSignature && root.childElementCount) return false;
   state.sessionListSignature = signature;
-  const currentCards = [...root.children].filter((element) => element.classList.contains("session-card"));
-  const canPatch = currentCards.length === sessions.length
-    && sessions.every((session, index) => currentCards[index]?.dataset.sessionId === session.sessionId);
-  if (canPatch && sessions.length) {
-    sessions.forEach((session, index) => {
-      const card = currentCards[index];
-      const agentState = ["working", "error"].includes(session.state)
-        ? session.state
-        : (session.running ? "working" : "idle");
-      const childCount = (session.subagents || []).filter((item) => item.kind === "child").length;
-      const pressure = contextPressure(session);
-      card.className = `session-card state-${agentState}${session.sessionId === state.selectedSessionId ? " selected" : ""}`;
-      card.querySelector(".agent-avatar").className = `agent-avatar ${agentState}`;
-      card.querySelector(".agent-avatar img").src = AVATARS[agentState] || AVATARS.idle;
-      card.querySelector(".session-name").textContent = session.title || "New session";
-      card.querySelector(".session-meta").textContent = `${agentState}${childCount ? ` · ${childCount} subagent${childCount === 1 ? "" : "s"}` : ""}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}`;
-      const status = card.querySelector(".session-state");
-      status.className = `session-state ${agentState}`;
-      status.textContent = agentState;
+  if (!state.dashboard?.harness) {
+    root.replaceChildren();
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "Start Harness to load sessions.";
+    root.append(empty);
+    return true;
+  }
+  if (canPatchSessionGroups(root, groups)) {
+    sessionGroupElements(root).forEach((wrapper, groupIndex) => {
+      const group = groups[groupIndex];
+      updateSessionGroup(wrapper, group);
+      [...wrapper.querySelector(".session-group-items").children].forEach((card, sessionIndex) => updateSessionCard(card, group.sessions[sessionIndex]));
     });
     return true;
   }
   root.replaceChildren();
-  if (!sessions.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty-state";
-    empty.textContent = state.dashboard?.harness ? "No sessions yet. Start one in chat." : "Start Harness to load sessions.";
-    root.append(empty);
-    return true;
-  }
-  for (const session of sessions) {
-    const agentState = ["working", "error"].includes(session.state)
-      ? session.state
-      : (session.running ? "working" : "idle");
-    const card = document.createElement("div");
-    card.dataset.sessionId = session.sessionId;
-    card.className = `session-card state-${agentState}${session.sessionId === state.selectedSessionId ? " selected" : ""}`;
-    card.tabIndex = 0;
-    card.setAttribute("role", "button");
-    card.setAttribute("aria-label", `Open ${session.title || "New session"}`);
-    const avatar = document.createElement("div");
-    avatar.className = `agent-avatar ${agentState}`;
-    const avatarImage = document.createElement("img");
-    avatarImage.src = AVATARS[agentState] || AVATARS.idle;
-    avatarImage.alt = "";
-    avatar.append(avatarImage);
-    const main = document.createElement("div");
-    main.className = "session-main";
-    const name = document.createElement("div");
-    name.className = "session-name";
-    name.textContent = session.title || "New session";
-    const meta = document.createElement("div");
-    meta.className = "session-meta";
-    const childCount = (session.subagents || []).filter((item) => item.kind === "child").length;
-    const pressure = contextPressure(session);
-    meta.textContent = `${agentState}${childCount ? ` · ${childCount} subagent${childCount === 1 ? "" : "s"}` : ""}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}`;
-    main.append(name, meta);
-    const status = document.createElement("div");
-    status.className = `session-state ${agentState}`;
-    status.textContent = agentState;
-    card.append(avatar, main, status);
-    const activate = () => selectSession(card.dataset.sessionId, true);
-    card.addEventListener("click", activate);
-    card.addEventListener("keydown", (event) => {
-      if (!["Enter", " "].includes(event.key)) return;
-      event.preventDefault();
-      activate();
-    });
-    root.append(card);
+  for (const group of groups) {
+    const { wrapper, body } = createSessionGroup(group);
+    group.sessions.forEach((session) => body.append(createSessionCard(session)));
+    root.append(wrapper);
   }
   return true;
 }
@@ -1126,19 +1319,15 @@ function renderSessions() {
 function renderSessionSelect() {
   const sessions = state.dashboard?.sessions || [];
   const selected = sessions.find((session) => session.sessionId === state.selectedSessionId);
+  const groups = groupedSessions();
   const root = $("#sessionOptions");
   const signature = JSON.stringify([
     state.selectedSessionId,
-    ...sessions.map((session) => {
+    [...state.collapsedSessionGroupKeys].sort(),
+    ...groups.map((group) => [group.key, group.label, group.path, ...group.sessions.map((session) => {
       const pressure = contextPressure(session);
-      return [
-        session.sessionId,
-        session.title || "",
-        session.cwd || "",
-        Boolean(session.running),
-        pressure ? Math.round(pressure.percent) : null,
-      ];
-    }),
+      return [session.sessionId, session.title || "", sessionAgentState(session), pressure ? Math.round(pressure.percent) : null];
+    })]),
   ]);
   if (signature === state.sessionSelectSignature && root.childElementCount) return false;
   state.sessionSelectSignature = signature;
@@ -1147,47 +1336,42 @@ function renderSessionSelect() {
     ? `Open ${selected.title || "current session"} in DeepSeek Harness`
     : "Select a session to open it in DeepSeek Harness";
   $("#sessionButtonText").textContent = selected?.title || "New session";
-  const currentOptions = [...root.children].filter((element) => element.classList.contains("picker-option"));
-  const optionKeys = ["__new__", ...sessions.map((session) => session.sessionId)];
-  const canPatch = currentOptions.length === optionKeys.length
-    && optionKeys.every((key, index) => currentOptions[index]?.dataset.optionKey === key);
-  if (canPatch) {
-    sessions.forEach((session, index) => {
-      const option = currentOptions[index + 1];
-      const pressure = contextPressure(session);
-      const selectedOption = session.sessionId === state.selectedSessionId;
-      option.classList.toggle("selected", selectedOption);
-      option.setAttribute("aria-selected", String(selectedOption));
-      option.title = session.cwd || session.title;
-      option.querySelector("span").textContent = session.title || "New session";
-      option.querySelector("small").textContent = session.running ? "working" : pressure ? `${Math.round(pressure.percent)}%` : "idle";
-      const mark = option.querySelector(".picker-check");
-      mark.replaceChildren();
-      if (selectedOption) mark.append(createIcon("check"));
+  const currentNewOption = root.firstElementChild;
+  if (currentNewOption?.dataset.optionKey === "__new__" && canPatchSessionGroups(root, groups, { picker: true })) {
+    sessionGroupElements(root).forEach((wrapper, groupIndex) => {
+      const group = groups[groupIndex];
+      updateSessionGroup(wrapper, group, { picker: true });
+      [...wrapper.querySelector(".session-group-items").children].forEach((option, sessionIndex) => updatePickerSessionOption(option, group.sessions[sessionIndex]));
     });
     return true;
   }
   root.replaceChildren();
-  root.append(pickerOption("New session", {
+  root.append(pickerOption("New ungrouped session", {
     meta: "new",
     key: "__new__",
     onSelect: async () => {
       closePickers();
-      await createNewSession();
+      await createNewSession({ workspaceId: null });
     },
   }));
-  for (const session of sessions) {
-    const pressure = contextPressure(session);
-    root.append(pickerOption(session.title || "New session", {
-      selected: session.sessionId === state.selectedSessionId,
-      meta: session.running ? "working" : pressure ? `${Math.round(pressure.percent)}%` : "idle",
-      title: session.cwd || session.title,
-      key: session.sessionId,
-      onSelect: async () => {
-        closePickers();
-        await selectSession(session.sessionId);
-      },
-    }));
+  for (const group of groups) {
+    const { wrapper, body } = createSessionGroup(group, { picker: true });
+    for (const session of group.sessions) {
+      const pressure = contextPressure(session);
+      const option = pickerOption(session.title || "New session", {
+        selected: session.sessionId === state.selectedSessionId,
+        meta: sessionAgentState(session),
+        title: session.cwd || session.title,
+        key: session.sessionId,
+        onSelect: async () => {
+          closePickers();
+          await selectSession(session.sessionId);
+        },
+      });
+      updatePickerSessionOption(option, session);
+      body.append(option);
+    }
+    root.append(wrapper);
   }
   return true;
 }
@@ -1458,15 +1642,20 @@ function renderCommandHint() {
   const text = command ? commandGuidance(command.name) || command.input?.hint || command.description || "" : "";
   const signature = JSON.stringify([command?.name || "", text]);
   if (signature === state.commandHintSignature) return;
+  const messageLayout = captureMessageLayoutSnapshot();
   state.commandHintSignature = signature;
   root.hidden = !text;
   root.replaceChildren();
-  if (!text) return;
+  if (!text) {
+    restoreMessageLayoutSnapshot(messageLayout);
+    return;
+  }
   const name = document.createElement("b");
   name.textContent = `/${command.name}`;
   const hint = document.createElement("span");
   hint.textContent = text;
   root.append(name, hint);
+  restoreMessageLayoutSnapshot(messageLayout);
 }
 
 function setCommandMenuOpen(open) {
@@ -1570,13 +1759,15 @@ function queueHandoffEpoch(sessionId) {
   return sessionId ? state.queueHandoffEpochs.get(sessionId) || 0 : 0;
 }
 
-function applyQueueSnapshot(sessionId, items, revision = null) {
+function applyQueueSnapshot(sessionId, items, revision = null, { replaceOptimistic = false } = {}) {
   if (!sessionId) return;
   const currentRevision = queueSnapshotRevision(sessionId);
   const hasAuthoritativeRevision = revision !== null && revision !== undefined && Number.isFinite(Number(revision));
   const nextRevision = hasAuthoritativeRevision ? Number(revision) : currentRevision + 1;
   const hasSnapshot = state.queuedPromptsBySession.has(sessionId) || state.steeringPromptsBySession.has(sessionId);
-  if (hasSnapshot && nextRevision <= currentRevision) return false;
+  const hasOptimistic = queuedPromptsFor(sessionId).some((item) => item.optimistic);
+  const replacesSameRevisionOptimism = replaceOptimistic && hasOptimistic && nextRevision === currentRevision;
+  if (hasSnapshot && nextRevision <= currentRevision && !replacesSameRevisionOptimism) return false;
   const safeItems = Array.isArray(items) ? items : [];
   const previousSteeringIds = new Set(steeringPromptsFor(sessionId).map((item) => item.id));
   const steeringItems = safeItems.filter((item) => item?.placement === "steering");
@@ -1615,6 +1806,10 @@ async function updateQueuedPrompt(item, action) {
   renderQueuedPrompts();
   try {
     await window.widget.updateQueue({ sessionId, itemId: item.id, action });
+    if (state.queueEditingSessionId === sessionId && state.queueEditingId === item.id) {
+      state.queueEditingId = null;
+      state.queueEditingSessionId = null;
+    }
     if (queueSnapshotRevision(sessionId) !== expectedSnapshotRevision || queueHandoffEpoch(sessionId) !== expectedHandoffEpoch) return;
     const items = queuedPromptsFor(sessionId);
     if (["remove", "steer"].includes(action.kind)) {
@@ -1625,7 +1820,6 @@ async function updateQueuedPrompt(item, action) {
         ? { ...entry, text: action.text, preview: action.text }
         : entry));
     }
-    if (sessionId === state.selectedSessionId) state.queueEditingId = null;
   } catch (error) {
     if (sessionId === state.selectedSessionId) showTransientActivityError(error, "Queue update failed");
   } finally {
@@ -1642,9 +1836,11 @@ function renderQueuedPrompts() {
   const root = $("#queueDock");
   const listRoot = $("#queueList");
   const items = queuedPromptsFor();
+  syncCrowdedChatState();
   const signature = JSON.stringify([
     state.selectedSessionId,
     state.queueEditingId,
+    state.queueEditingSessionId,
     state.queueBusyId,
     state.queueBusySessionId,
     ...items.map((item) => [item.id, item.text, item.preview, item.attachmentCount, Boolean(item.optimistic)]),
@@ -1663,7 +1859,7 @@ function renderQueuedPrompts() {
     position.textContent = String(index + 1);
     position.title = "Queued in Harness";
     row.append(position);
-    const editing = state.queueEditingId === item.id;
+    const editing = state.queueEditingSessionId === state.selectedSessionId && state.queueEditingId === item.id;
     const busy = state.queueBusySessionId === state.selectedSessionId && state.queueBusyId === item.id;
     const actions = document.createElement("span");
     actions.className = "queue-actions";
@@ -1678,11 +1874,11 @@ function renderQueuedPrompts() {
       };
       input.addEventListener("keydown", (event) => {
         if (event.key === "Enter") { event.preventDefault(); save(); }
-        if (event.key === "Escape") { state.queueEditingId = null; renderQueuedPrompts(); }
+        if (event.key === "Escape") { state.queueEditingId = null; state.queueEditingSessionId = null; renderQueuedPrompts(); }
       });
       actions.append(
         queueActionButton("check", "Save queued message", "steer", save, busy),
-        queueActionButton("close", "Cancel editing", "", () => { state.queueEditingId = null; renderQueuedPrompts(); }, busy),
+        queueActionButton("close", "Cancel editing", "", () => { state.queueEditingId = null; state.queueEditingSessionId = null; renderQueuedPrompts(); }, busy),
       );
       row.append(input, actions);
       requestAnimationFrame(() => { input.focus(); input.select(); });
@@ -1691,7 +1887,7 @@ function renderQueuedPrompts() {
       preview.className = "queue-preview";
       preview.textContent = compactText(item.preview || item.text || `${item.attachmentCount || 1} attachment${item.attachmentCount === 1 ? "" : "s"}`, 110);
       actions.append(
-        queueActionButton("edit", "Edit queued message", "", () => { state.queueEditingId = item.id; renderQueuedPrompts(); }, busy || item.optimistic || item.text === null),
+        queueActionButton("edit", "Edit queued message", "", () => { state.queueEditingId = item.id; state.queueEditingSessionId = state.selectedSessionId; renderQueuedPrompts(); }, busy || item.optimistic || item.text === null),
         queueActionButton("trash", "Delete queued message", "danger", () => updateQueuedPrompt(item, { kind: "remove" }), busy || item.optimistic),
         queueActionButton("send", "Send now", "steer", () => updateQueuedPrompt(item, { kind: "steer" }), busy || item.optimistic),
       );
@@ -1733,15 +1929,35 @@ function trackQueuedPrompt(sessionId, { text, attachmentCount = 0 }, expectedSna
     optimistic: true,
   }]);
   renderQueuedPrompts();
+  recoverOptimisticQueue(sessionId).catch(() => {});
   return true;
 }
 
-async function loadQueue(sessionId = state.selectedSessionId) {
+const QUEUE_RECOVERY_DELAYS = [180, 540, 1080];
+
+async function recoverOptimisticQueue(sessionId, delays = QUEUE_RECOVERY_DELAYS) {
+  if (!sessionId) return false;
+  const generation = (state.queueRecoveryGenerations.get(sessionId) || 0) + 1;
+  state.queueRecoveryGenerations.set(sessionId, generation);
+  try {
+    for (const [index, delay] of delays.entries()) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      if (state.queueRecoveryGenerations.get(sessionId) !== generation) return false;
+      if (!queuedPromptsFor(sessionId).some((item) => item.optimistic)) return true;
+      await loadQueue(sessionId, { replaceOptimistic: index === delays.length - 1 });
+    }
+    return !queuedPromptsFor(sessionId).some((item) => item.optimistic);
+  } finally {
+    if (state.queueRecoveryGenerations.get(sessionId) === generation) state.queueRecoveryGenerations.delete(sessionId);
+  }
+}
+
+async function loadQueue(sessionId = state.selectedSessionId, { replaceOptimistic = false } = {}) {
   if (!sessionId) return;
   try {
     const snapshot = await window.widget.getQueue(sessionId);
-    if (Array.isArray(snapshot)) applyQueueSnapshot(sessionId, snapshot);
-    else applyQueueSnapshot(sessionId, snapshot?.items, snapshot?.revision);
+    if (Array.isArray(snapshot)) applyQueueSnapshot(sessionId, snapshot, null, { replaceOptimistic });
+    else applyQueueSnapshot(sessionId, snapshot?.items, snapshot?.revision, { replaceOptimistic });
   } catch {}
 }
 
@@ -1786,10 +2002,36 @@ function mergeLiveTodos(session) {
   return { ...session, projections: projectionsWithTodos(session.projections, liveTodos) };
 }
 
+function clearLiveTodos(sessionId) {
+  if (!sessionId) return false;
+  // Keep an empty overlay until the dashboard acknowledges it, so a poll that
+  // started before turn/end cannot resurrect the previous turn's plan.
+  state.liveTodosBySession.set(sessionId, []);
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+  if (session) session.projections = projectionsWithTodos(session.projections, []);
+  if (sessionId === state.selectedSessionId) renderTodos();
+  return true;
+}
+
+function syncCrowdedChatState() {
+  const crowded = state.windowMode === "full"
+    && state.tab === "chat"
+    && window.innerHeight <= 420
+    && todosFor().length > 0
+    && queuedPromptsFor().length > 0
+    && state.pendingAttachments.length > 0
+    && state.showThinking
+    && state.currentActivity?.kind === "thinking"
+    && Boolean(state.currentActivity?.text);
+  document.body.classList.toggle("chat-crowded", crowded);
+  return crowded;
+}
+
 function renderTodos() {
   const root = $("#todoDock");
   const list = $("#todoList");
   const todos = todosFor();
+  syncCrowdedChatState();
   const expanded = Boolean(state.selectedSessionId && state.todoExpandedSessionIds.has(state.selectedSessionId));
   const counts = {
     completed: todos.filter((todo) => todo.status === "completed").length,
@@ -1870,15 +2112,15 @@ async function loadWorkspaces() {
     state.workspacesLoaded = true;
     renderWorkspaces();
   } catch {
-    state.workspaces = [];
     state.workspacesLoaded = true;
-    renderWorkspaces();
   } finally {
     state.workspacesBusy = false;
   }
 }
 
 function renderAttachments() {
+  const messageLayout = captureMessageLayoutSnapshot();
+  syncCrowdedChatState();
   const root = $("#attachmentList");
   root.replaceChildren();
   state.pendingAttachments.forEach((attachment, index) => {
@@ -1933,6 +2175,7 @@ function renderAttachments() {
   const count = state.pendingAttachments.length;
   $("#attachmentBar").classList.toggle("has-items", count > 0);
   $("#attachmentCount").textContent = `${count} file${count === 1 ? "" : "s"}`;
+  restoreMessageLayoutSnapshot(messageLayout);
 }
 
 // The main process reports each file separately, so one unreadable or oversized
@@ -1941,17 +2184,39 @@ function renderAttachments() {
 function addAttachments(result) {
   const prepared = Array.isArray(result) ? { attachments: result, failures: [] } : (result || {});
   const known = new Set(state.pendingAttachments.map((item) => item.path));
+  let limitSkipped = 0;
   for (const attachment of prepared.attachments || []) {
     if (!known.has(attachment.path) && state.pendingAttachments.length < 12) {
       state.pendingAttachments.push(attachment);
       known.add(attachment.path);
-    }
+    } else if (!known.has(attachment.path)) limitSkipped += 1;
   }
   renderAttachments();
-  const failures = prepared.failures || [];
+  const failures = [...(prepared.failures || [])];
+  if (limitSkipped) failures.push({ name: "Attachment limit", error: `Only 12 attachments can be reviewed at once; ${limitSkipped} more ${limitSkipped === 1 ? "was" : "were"} skipped` });
   if (failures.length) {
     showError(new Error(failures.map((failure) => `${failure.name}: ${failure.error}`).join("; ")));
   }
+}
+
+function handleComposerPaste(event) {
+  const clipboard = window.clipboardAttachments;
+  if (!clipboard?.clipboardFiles(event.clipboardData).length) return;
+  // Prevent the file's fallback name/URL from being inserted as text. Plain text
+  // clipboard data never reaches this branch and retains the browser's native paste.
+  event.preventDefault();
+  const clipboardData = event.clipboardData;
+  composerPastePreparation = composerPastePreparation.then(async () => {
+    const result = await clipboard.prepareClipboard(clipboardData, {
+      pathForFile: (file) => window.widget.pathForFile(file),
+      prepareFiles: (paths) => window.widget.prepareFiles(paths),
+    });
+    addAttachments(result);
+  }).catch((error) => {
+    composerPasteFailurePending = true;
+    showTransientActivityError(error, "Paste failed");
+  });
+  return composerPastePreparation;
 }
 
 async function loadCommands() {
@@ -2001,6 +2266,12 @@ async function applyModelSelection() {
 async function selectSession(sessionId, openChat = false) {
   const previousSessionId = state.selectedSessionId;
   state.selectedSessionId = sessionId || null;
+  if (previousSessionId !== state.selectedSessionId) invalidateSelectedHistoryVersion();
+  const selectedGroup = groupedSessions(state.selectedSessionId).find((group) => group.sessions.some((session) => session.sessionId === state.selectedSessionId));
+  if (selectedGroup && state.collapsedSessionGroupKeys.delete(selectedGroup.key)) {
+    state.sessionListSignature = "";
+    state.sessionSelectSignature = "";
+  }
   syncGameBarSelection();
   if (state.windowMode === "full") acknowledgeSessionError(state.selectedSessionId);
   state.messagesStickToBottom = true;
@@ -2200,13 +2471,34 @@ function restoreOpenToolKeys(root, keys) {
 
 function updateScrollLatestButton() {
   const button = $("#scrollLatestButton");
-  const visible = !state.messagesStickToBottom && state.unseenMessages > 0;
-  const label = state.unseenMessages > 1 ? `${state.unseenMessages} new` : "New";
+  const visible = !state.messagesStickToBottom;
+  const label = state.unseenMessages > 1 ? `${state.unseenMessages} new` : state.unseenMessages === 1 ? "New" : "Latest";
   const signature = JSON.stringify([visible, label]);
   if (signature === state.scrollLatestSignature) return false;
   state.scrollLatestSignature = signature;
   button.hidden = !visible;
   $("#scrollLatestCount").textContent = label;
+  return true;
+}
+
+function finishScrollLatestAutoScroll() {
+  clearTimeout(state.scrollLatestAutoScrollTimer);
+  state.scrollLatestAutoScrollTimer = null;
+  state.scrollLatestAutoScrolling = false;
+  const nearBottom = messagesNearBottom();
+  state.messagesStickToBottom = nearBottom;
+  if (nearBottom) state.unseenMessages = 0;
+  updateScrollLatestButton();
+}
+
+function animateScrollLatestCompletion(sessionId) {
+  if (state.windowMode !== "full" || sessionId !== state.selectedSessionId || state.messagesStickToBottom) return false;
+  updateScrollLatestButton();
+  const button = $("#scrollLatestButton");
+  button.classList.remove("completion-pop");
+  void button.offsetWidth;
+  button.classList.add("completion-pop");
+  setTimeout(() => button.classList.remove("completion-pop"), 760);
   return true;
 }
 
@@ -2404,11 +2696,81 @@ function createGoalResultCard(text) {
   return card;
 }
 
+function messagePreviewBytes(data) {
+  if (typeof data !== "string" || !data.length || data.length % 4 !== 0
+      || !/^[a-zA-Z0-9+/]*={0,2}$/.test(data)) return -1;
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return (data.length / 4) * 3 - padding;
+}
+
+function boundedMessagePreviews(messages, maxPreviewBytes = HISTORY_PREVIEW_BYTES_BUDGET) {
+  const bounded = Array.isArray(messages) ? [...messages] : [];
+  let remaining = Math.max(0, Number(maxPreviewBytes) || 0);
+  for (let index = bounded.length - 1; index >= 0; index -= 1) {
+    const message = bounded[index];
+    if (!Array.isArray(message?.attachments)) continue;
+    const attachments = message.attachments.slice(0, 12).map((attachment) => {
+      if (attachment?.kind !== "image" || typeof attachment.data !== "string") return attachment;
+      const mediaType = String(attachment.mediaType || "").toLowerCase();
+      const bytes = ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(mediaType)
+        ? messagePreviewBytes(attachment.data)
+        : -1;
+      if (bytes > 0 && bytes <= remaining) {
+        remaining -= bytes;
+        return attachment;
+      }
+      const { data: _discarded, ...metadata } = attachment;
+      return metadata;
+    });
+    bounded[index] = { ...message, attachments };
+  }
+  return bounded;
+}
+
+function createMessageAttachmentStrip(attachments) {
+  const values = (Array.isArray(attachments) ? attachments : []).slice(0, 12);
+  if (!values.length) return null;
+  const strip = document.createElement("div");
+  strip.className = "message-attachments";
+  strip.setAttribute("aria-label", `${values.length} sent attachment${values.length === 1 ? "" : "s"}`);
+  for (const attachment of values) {
+    const displayKind = attachment?.kind === "image" ? "image" : attachment?.previewKind === "video" ? "video" : "file";
+    const item = document.createElement("span");
+    item.className = "message-attachment";
+    item.dataset.attachmentKind = displayKind;
+    item.title = String(attachment?.name || "Attachment");
+    const preview = document.createElement("span");
+    preview.className = "message-attachment-preview";
+    const mediaType = String(attachment?.mediaType || "").toLowerCase();
+    const data = typeof attachment?.data === "string" ? attachment.data : "";
+    if (displayKind === "image"
+        && ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(mediaType)
+        && data.length > 0
+        && data.length <= Math.ceil(8 * 1024 * 1024 * 4 / 3) + 8
+        && /^[a-zA-Z0-9+/]*={0,2}$/.test(data)) {
+      const image = document.createElement("img");
+      image.src = `data:${mediaType};base64,${data}`;
+      image.alt = "";
+      image.draggable = false;
+      image.decoding = "async";
+      preview.append(image);
+    } else {
+      preview.append(createIcon(displayKind === "file" ? "file" : "image"));
+    }
+    const name = document.createElement("span");
+    name.className = "message-attachment-name";
+    name.textContent = String(attachment?.name || "Attachment");
+    item.append(preview, name);
+    strip.append(item);
+  }
+  return strip;
+}
+
 function renderMessages(messages) {
   const root = $("#messages");
   const previousTop = root.scrollTop;
   const wasPinned = state.messagesStickToBottom;
-  state.currentMessages = Array.isArray(messages) ? messages : [];
+  state.currentMessages = boundedMessagePreviews(messages);
   const liveAssistant = liveAssistantSnapshot();
   const steering = steeringPromptsFor();
   const signature = `${state.selectedSessionId || "new"}::${state.currentMessages.map((message) => JSON.stringify([
@@ -2421,6 +2783,7 @@ function renderMessages(messages) {
     message.text || "",
     message.arguments || "",
     message.result || "",
+    (message.attachments || []).map((attachment) => [attachment.kind, attachment.previewKind, attachment.mediaType, attachment.name, attachment.data?.length || 0]),
   ])).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}`;
   const previousSignature = state.historySignature;
   const changed = Boolean(previousSignature && signature !== previousSignature);
@@ -2466,7 +2829,13 @@ function renderMessages(messages) {
     const bubble = document.createElement("div");
     bubble.className = `bubble ${message.role}`;
     if (message.html) bubble.innerHTML = message.html;
-    else { bubble.classList.add("plain"); bubble.textContent = message.text; }
+    else if (message.text) { bubble.classList.add("plain"); bubble.textContent = message.text; }
+    const attachmentStrip = message.role === "user" ? createMessageAttachmentStrip(message.attachments) : null;
+    if (attachmentStrip) {
+      bubble.classList.add("has-attachments");
+      if (!message.text) bubble.classList.add("attachment-only");
+      bubble.append(attachmentStrip);
+    }
     root.append(bubble);
     index += 1;
   }
@@ -2532,10 +2901,31 @@ function settleCommandFeedback(sessionId, feedback) {
   setCommandFeedback(sessionId, feedback);
 }
 
+function invalidateSelectedHistoryVersion() {
+  state.historyLoadedSessionId = null;
+  state.historyLoadedUpdatedAt = undefined;
+  state.historyLoadedRevision = null;
+}
+
+function selectedSessionUpdatedAt(sessionId = state.selectedSessionId) {
+  return state.dashboard?.sessions?.find((session) => session.sessionId === sessionId)?.updatedAt;
+}
+
+function selectedHistoryIsCurrent(session) {
+  return Boolean(session)
+    && state.historyLoadedSessionId === session.sessionId
+    && Object.is(state.historyLoadedUpdatedAt, session.updatedAt);
+}
+
+function selectedLiveStreamIsActive(sessionId = state.selectedSessionId) {
+  return Boolean(sessionId && state.liveStreamsBySession.get(sessionId)?.active);
+}
+
 async function refreshHistory({ priority = false } = {}) {
   const sessionId = state.selectedSessionId;
   if (!sessionId) {
     state.historyBusy = false;
+    invalidateSelectedHistoryVersion();
     renderMessages([]);
     return "cleared";
   }
@@ -2545,6 +2935,14 @@ async function refreshHistory({ priority = false } = {}) {
   try {
     const view = await window.widget.history(sessionId);
     if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return "superseded";
+    const rendererAlreadyHasRevision = state.historyLoadedSessionId === sessionId && state.historyLoadedRevision !== null;
+    const sameRevision = view.revision !== null && view.revision !== undefined
+      && Object.is(state.historyLoadedRevision, view.revision);
+    const skipReconciliation = rendererAlreadyHasRevision && (view.unchanged === true || sameRevision);
+    state.historyLoadedSessionId = sessionId;
+    state.historyLoadedUpdatedAt = selectedSessionUpdatedAt(sessionId);
+    if (view.revision !== null && view.revision !== undefined) state.historyLoadedRevision = view.revision;
+    if (skipReconciliation) return "unchanged";
     const messages = view.messages || [];
     setActivity(commandFeedbackFor(sessionId)?.activity || view.activity || null);
     const detectedMode = modeFromMessages(messages);
@@ -2752,13 +3150,14 @@ async function handleLiveEvent(payload) {
     const failed = event.data?.reason?.kind === "error";
     completedStream.active = false;
     completedStream.activity = null;
+    clearLiveTodos(sessionId);
     updateLiveSessionState(sessionId, false, null, failed ? "error" : "idle");
     const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId) || { sessionId };
     if (failed) signalSessionError(session);
     else notifyCompletion(session);
     if (sessionId === state.selectedSessionId) {
       setTimeout(async () => {
-        await refreshHistory();
+        await refreshHistory({ priority: true });
         if (state.liveStreamsBySession.get(sessionId) === completedStream) {
           state.liveStreamsBySession.delete(sessionId);
         }
@@ -2784,6 +3183,7 @@ function setTab(tab) {
   agents.hidden = tab !== "agents";
   chat.classList.toggle("active", tab === "chat");
   chat.hidden = tab !== "chat";
+  syncCrowdedChatState();
   if (tab === "chat") Promise.all([refreshHistory(), loadModels(), loadCommands()]);
 }
 
@@ -2927,6 +3327,7 @@ function detectCompletedSessions(nextSessions) {
   const currentRunning = new Set(nextSessions.filter((session) => session.running).map((session) => session.sessionId));
   const existing = new Set(nextSessions.map((session) => session.sessionId));
   for (const sessionId of state.agentModesBySessionId.keys()) if (!existing.has(sessionId)) state.agentModesBySessionId.delete(sessionId);
+  for (const sessionId of state.liveTodosBySession.keys()) if (!existing.has(sessionId)) state.liveTodosBySession.delete(sessionId);
   for (const tracked of [state.completedSignalSessionIds, state.errorSignalSessionIds, state.unacknowledgedErrorSessionIds]) {
     for (const sessionId of tracked) if (!existing.has(sessionId)) tracked.delete(sessionId);
   }
@@ -2999,12 +3400,19 @@ async function performRefresh() {
     state.harnessOffline = !dashboard.harness;
     document.body.classList.toggle("harness-offline", state.harnessOffline);
     state.dashboard = dashboard;
-    if (!dashboard.harness && state.focusMode) setFocusMode(false);
-    const selectionChangedWhileLoading = state.selectedSessionId !== selectedAtRequest;
-    if (!selectionChangedWhileLoading && state.selectedSessionId && !dashboard.sessions?.some((session) => session.sessionId === state.selectedSessionId)) state.selectedSessionId = null;
-    if (!selectionChangedWhileLoading && !state.selectedSessionId && dashboard.sessions?.length) {
-      state.selectedSessionId = (dashboard.sessions.find((session) => session.running) || dashboard.sessions[0]).sessionId;
+    if (Array.isArray(dashboard.workspaces)) {
+      state.workspaces = dashboard.workspaces;
+      state.workspacesLoaded = true;
+      state.workspaceSignature = "";
     }
+    if (!dashboard.harness && state.focusMode) setFocusMode(false);
+    const dashboardVisibleSessions = visibleSessions(selectedAtRequest);
+    const selectionChangedWhileLoading = state.selectedSessionId !== selectedAtRequest;
+    if (!selectionChangedWhileLoading && state.selectedSessionId && !dashboardVisibleSessions.some((session) => session.sessionId === state.selectedSessionId)) state.selectedSessionId = null;
+    if (!selectionChangedWhileLoading && !state.selectedSessionId && dashboardVisibleSessions.length) {
+      state.selectedSessionId = (dashboardVisibleSessions.find((session) => session.running) || dashboardVisibleSessions[0]).sessionId;
+    }
+    if (!selectionChangedWhileLoading && state.selectedSessionId !== selectedAtRequest) invalidateSelectedHistoryVersion();
     syncGameBarSelection();
     if (dashboard.harness) {
       detectCompletedSessions(dashboard.sessions || []);
@@ -3049,13 +3457,17 @@ async function performRefresh() {
     renderSessions();
     renderSessionSelect();
     renderContext();
+    renderWorkspaces();
     renderTodos();
     renderQueuedPrompts();
     if (state.selectedSessionId && !state.queuedPromptsBySession.has(state.selectedSessionId)) await loadQueue(state.selectedSessionId);
     if (!state.modelCatalog) await loadModels();
     if (state.commandsLoadedSessionId !== state.selectedSessionId) await loadCommands();
     if (!state.workspacesLoaded) await loadWorkspaces();
-    if (state.tab === "chat") await refreshHistory();
+    if (state.tab === "chat") {
+      if (!state.selectedSessionId) await refreshHistory();
+      else if (!selectedLiveStreamIsActive() && !selectedHistoryIsCurrent(selectedSession)) await refreshHistory();
+    }
   } finally {
     state.refreshing = false;
   }
@@ -3186,22 +3598,25 @@ async function stopCurrentTurn() {
   }
   try {
     await window.widget.cancel(sessionId);
+  } catch (error) {
+    if (sessionId === state.selectedSessionId) showTransientActivityError(error, "Could not stop");
+    await refresh({ afterCurrent: true }).catch(() => {});
+    return false;
+  }
+  try {
     if ((state.turnGenerationsBySession.get(sessionId) || 0) !== turnGeneration) return true;
     state.cancelPendingSessionIds.add(sessionId);
     bumpLiveSessionRevision(sessionId);
     state.liveStreamsBySession.delete(sessionId);
+    clearLiveTodos(sessionId);
     updateLiveSessionState(sessionId, false, null, "idle");
     if (sessionId === state.selectedSessionId) {
       renderMessages(state.currentMessages);
       setActivity(null);
       if (!state.harnessOffline) setAvatar("idle", "stopped");
     }
-    await refresh({ afterCurrent: true });
-    return true;
-  } catch (error) {
-    if (sessionId === state.selectedSessionId) showTransientActivityError(error, "Could not stop");
     await refresh({ afterCurrent: true }).catch(() => {});
-    return false;
+    return true;
   } finally {
     if (state.cancelBusySessionId === sessionId) state.cancelBusySessionId = null;
     if (sessionId === state.selectedSessionId) {
@@ -3211,12 +3626,14 @@ async function stopCurrentTurn() {
   }
 }
 
-async function createNewSession({ restore = true } = {}) {
+async function createNewSession({ restore = true, workspaceId = null } = {}) {
   setAvatar("waiting", "creating session");
   setActivity({ active: true, kind: "working", label: "New session", text: "Creating a Harness session…" });
   try {
-    const result = await window.widget.createSession(state.selectedWorkspaceId ? { workspaceId: state.selectedWorkspaceId } : {});
+    const result = await window.widget.createSession(workspaceId ? { workspaceId } : {});
     state.selectedSessionId = result.sessionId;
+    invalidateSelectedHistoryVersion();
+    state.selectedWorkspaceId = workspaceId || null;
     setSessionAgentMode(result.sessionId, "agent");
     state.pendingSelection = null;
     state.automaticModelRoute = false;
@@ -3338,6 +3755,13 @@ function applyGlowIntensity(value) {
   $("#glowRange").value = String(Math.round(intensity * 100));
   $("#glowValue").textContent = `${Math.round(intensity * 100)}%`;
   return intensity;
+}
+
+function applyShowThinking(value) {
+  state.showThinking = value !== false;
+  $("#showThinkingToggle").checked = state.showThinking;
+  syncActivityCard();
+  return state.showThinking;
 }
 
 function setAutoStartStatus(text, error = false) {
@@ -3555,6 +3979,7 @@ async function hydratePreferences() {
     $("#opacityRange").value = Math.round(preferences.opacity * 100);
     $("#opacityValue").textContent = `${Math.round(preferences.opacity * 100)}%`;
     applyGlowIntensity(preferences.glowIntensity);
+    applyShowThinking(preferences.showThinking);
     syncPressed($$('#sizeSwitch button'), preferences.size, "size");
     applyPlatformCapabilities(preferences.platformCapabilities);
     applyCompactSide(preferences.compactSide || "right");
@@ -3631,7 +4056,7 @@ document.addEventListener("keydown", (event) => {
     }
   }
 });
-$("#newSessionButton").addEventListener("click", () => createNewSession());
+$("#newSessionButton").addEventListener("click", () => createNewSession({ workspaceId: null }));
 $("#commandsButton").addEventListener("click", async () => {
   if ($("#commandMenu").classList.contains("open")) setCommandMenuOpen(false);
   else await openCommands();
@@ -3660,10 +4085,27 @@ $$('.mode-option').forEach((button) => button.addEventListener("click", () => se
 $("#attachButton").addEventListener("click", pickAttachments);
 $("#chatForm").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (composerSubmitInFlight) return;
+  composerSubmitInFlight = true;
+  $("#sendButton").disabled = true;
+  $("#sendButton").classList.add("sending");
+  const targetSessionId = state.selectedSessionId;
+  await composerPastePreparation;
+  if (composerPasteFailurePending) {
+    composerPasteFailurePending = false;
+    composerSubmitInFlight = false;
+    $("#sendButton").disabled = false;
+    $("#sendButton").classList.remove("sending");
+    return;
+  }
   const input = $("#messageInput");
   const text = input.value.trim();
-  if (!text && !state.pendingAttachments.length) return;
-  const targetSessionId = state.selectedSessionId;
+  if (!text && !state.pendingAttachments.length) {
+    composerSubmitInFlight = false;
+    $("#sendButton").disabled = false;
+    $("#sendButton").classList.remove("sending");
+    return;
+  }
   const submittedSelection = state.pendingSelection;
   const submittedAttachments = [...state.pendingAttachments];
   const queueingBehindTurn = Boolean(targetSessionId && state.runningSessionIds.has(targetSessionId));
@@ -3674,8 +4116,6 @@ $("#chatForm").addEventListener("submit", async (event) => {
   setSettingsOpen(false, { restoreFocus: false });
   setCommandMenuOpen(false);
   closePickers();
-  $("#sendButton").disabled = true;
-  $("#sendButton").classList.add("sending");
   input.value = "";
   resizeMessageInput();
   input.placeholder = "Message the agent…";
@@ -3722,6 +4162,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
       showTransientActivityError(error, submittedCommand ? "Command failed" : "Message not sent");
     }
   } finally {
+    composerSubmitInFlight = false;
     $("#sendButton").disabled = false;
     $("#sendButton").classList.remove("sending");
     if (state.selectedSessionId === targetSessionId) input.focus();
@@ -3755,6 +4196,7 @@ $("#messageInput").addEventListener("keydown", (event) => {
     $("#chatForm").requestSubmit();
   }
 });
+$("#messageInput").addEventListener("paste", (event) => { handleComposerPaste(event); });
 $("#messageInput").addEventListener("input", async (event) => {
   resizeMessageInput();
   const slashMode = /^\/[^\s]*$/.test(event.target.value);
@@ -3777,14 +4219,21 @@ $("#messages").addEventListener("click", (event) => {
 });
 $("#messages").addEventListener("scroll", () => {
   const nearBottom = messagesNearBottom();
+  if (state.scrollLatestAutoScrolling) {
+    if (nearBottom) finishScrollLatestAutoScroll();
+    return;
+  }
   state.messagesStickToBottom = nearBottom;
   if (nearBottom) state.unseenMessages = 0;
   updateScrollLatestButton();
 });
 $("#scrollLatestButton").addEventListener("click", () => {
+  clearTimeout(state.scrollLatestAutoScrollTimer);
+  state.scrollLatestAutoScrolling = true;
   state.messagesStickToBottom = true;
   state.unseenMessages = 0;
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  state.scrollLatestAutoScrollTimer = setTimeout(finishScrollLatestAutoScroll, reduceMotion ? 0 : 900);
   $("#messages").scrollTo({ top: $("#messages").scrollHeight, behavior: reduceMotion ? "auto" : "smooth" });
   updateScrollLatestButton();
 });
@@ -3838,6 +4287,7 @@ window.addEventListener("blur", () => {
 window.addEventListener("resize", () => {
   resizeMessageInput({ immediate: true });
   resizeCommandMenu();
+  syncCrowdedChatState();
   $$(".picker.open").forEach(positionPickerMenu);
 });
 for (const target of [$(".titlebar")]) {
@@ -3864,6 +4314,19 @@ $$('#windowLayerSwitch button').forEach((button) => button.addEventListener("cli
   syncPressed($$('#windowLayerSwitch button'), value, "layer");
 }));
 $("#autoStartToggle").addEventListener("change", updateAutoStartToggle);
+$("#showThinkingToggle").addEventListener("change", async (event) => {
+  const toggle = event.currentTarget;
+  const previous = state.showThinking;
+  const requested = applyShowThinking(toggle.checked);
+  toggle.disabled = true;
+  try {
+    applyShowThinking(await window.widget.setShowThinking(requested));
+  } catch {
+    applyShowThinking(previous);
+  } finally {
+    toggle.disabled = false;
+  }
+});
 $$('[data-hotkey-action]').forEach((input) => {
   input.addEventListener("focus", () => setHotkeyStatus("Press a new combination · Esc cancels"));
   input.addEventListener("keydown", async (event) => {
@@ -3943,6 +4406,7 @@ document.addEventListener("drop", async (event) => {
 });
 
 window.widget.onWindowMode((mode) => applyAuthoritativeWindowMode(mode));
+window.widget.onFirstVisible(playFirstVisibleEntry);
 window.widget.onCompactSide((side) => applyCompactSide(side));
 window.widget.onQueueUpdate(({ sessionId, items, revision }) => {
   if (!sessionId) return;
@@ -4054,6 +4518,49 @@ if (screenshotFixture) {
       };
       state.selectedSessionId = "demo-active";
       renderSessions();
+    } else if (["workspace-groups", "workspace-groups-chat"].includes(screenshotFixture)) {
+      if (screenshotFixture === "workspace-groups-chat") setTab("chat");
+      const workspace = {
+        workspaceId: "workspace-neoxider",
+        title: "NeoXider Widget",
+        path: "C:\\AI\\work\\neoxider-agent-deck",
+        sessionIds: ["grouped-active", "grouped-review"],
+      };
+      state.dashboard = {
+        harness: true,
+        workspaces: [workspace],
+        archivedSessionIds: [],
+        sessions: [
+          { sessionId: "grouped-active", title: "Compact widget polish", running: true, state: "working", projections: { values: {} }, subagents: [] },
+          { sessionId: "grouped-review", title: "Release review", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+          { sessionId: "ungrouped-notes", title: "Ungrouped notes", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+        ],
+      };
+      state.workspaces = [workspace];
+      state.selectedSessionId = "ungrouped-notes";
+      state.modelCatalog = {
+        current: { provider: "lmstudio", model: "qwen3.8-27b-unleashed", reasoningEffort: "medium" },
+        groups: [{ id: "lmstudio", name: "LM Studio", models: [{ id: "qwen3.8-27b-unleashed", name: "Qwen 3.8 27B", reasoning: { defaultEffort: "medium", efforts: [{ id: "medium", name: "Medium" }] } }] }],
+      };
+      state.modelLoadState = "ready";
+      state.pendingSelection = state.modelCatalog.current;
+      renderModels();
+      $("#controlsSummary").textContent = "LM Studio · Qwen 3.8 27B · Medium";
+      state.collapsedSessionGroupKeys.clear();
+      if (screenshotFixture === "workspace-groups") state.collapsedSessionGroupKeys.add("workspace:workspace-neoxider");
+      state.sessionListSignature = "";
+      state.sessionSelectSignature = "";
+      renderSessions();
+      renderSessionSelect();
+      if (screenshotFixture === "workspace-groups-chat") {
+        clearTimeout(state.transientActivityTimer);
+        setActivity(null);
+        setAvatar("idle", "ready");
+        renderMessages([{ role: "assistant", text: "Choose a session or start one inside a Harness workspace." }]);
+        togglePicker($("#sessionButton"));
+      } else {
+        setTab("agents");
+      }
     } else if (["small-chat", "composer-single-line", "composer-multiline"].includes(screenshotFixture)) {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-small", title: "Compact chat", running: false, projections: { values: { contextPressure: { projectedTokens: 4200, contextWindow: 65536 } } }, subagents: [] }] };
@@ -4129,6 +4636,34 @@ if (screenshotFixture) {
       if (screenshotFixture === "focus-commands") setFocusMode(true);
       renderCommands("");
       setCommandMenuOpen(true);
+    } else if (screenshotFixture === "crowded-chat") {
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-crowded", title: "Crowded compact chat", running: true, state: "working", projections: { values: { todos: [
+        { content: "Inspect the compact panel", status: "completed" },
+        { content: "Verify the combined budget", status: "in_progress" },
+        { content: "Capture the final evidence", status: "pending" },
+      ] } }, subagents: [] }] };
+      state.selectedSessionId = "demo-crowded";
+      state.runningSessionIds = new Set(["demo-crowded"]);
+      state.showThinking = true;
+      $("#showThinkingToggle").checked = true;
+      state.todoExpandedSessionIds.add("demo-crowded");
+      state.queuedPromptsBySession.set("demo-crowded", [
+        { id: "crowded-queue-1", placement: "queued", text: "Run the remaining visual checks.", preview: "Run the remaining visual checks." },
+        { id: "crowded-queue-2", placement: "queued", text: "Summarize the compact result.", preview: "Summarize the compact result." },
+      ]);
+      state.pendingAttachments = [{ kind: "file", name: "compact-evidence.txt", path: "C:\\fixture\\compact-evidence.txt" }];
+      renderSessionSelect();
+      renderContext();
+      renderTodos();
+      renderQueuedPrompts();
+      renderAttachments();
+      renderMessages(Array.from({ length: 6 }, (_, index) => ({
+        role: index % 2 ? "user" : "assistant",
+        text: index === 0 ? "Short message remains visible." : `Compact history message ${index + 1}.`,
+      })));
+      setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Checking the compact layout budget…" });
+      $("#messages").scrollTop = 0;
     } else if (screenshotFixture === "todo") {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-todo", title: "Release verification", running: true, state: "working", projections: { values: { todos: [
@@ -4185,8 +4720,8 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.2", latestVersion: "0.6.3", installMode: "portable-replace", progress: 100 }
-        : { status: "available", currentVersion: "0.6.2", latestVersion: "0.6.3", installMode: "managed", progress: 0 });
+        ? { status: "ready", currentVersion: "0.6.3", latestVersion: "0.6.4", installMode: "portable-replace", progress: 100 }
+        : { status: "available", currentVersion: "0.6.3", latestVersion: "0.6.4", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {
       setTab("chat");
@@ -4261,6 +4796,14 @@ if (screenshotFixture) {
           { kind: "reference", previewKind: "file", path: "C:\\demo\\release-notes.md", name: "release-notes.md" },
         ]);
       }
+      const image = state.pendingAttachments.find((attachment) => attachment.kind === "image");
+      renderMessages([
+        { role: "user", text: "Please review these files.", attachments: [
+          image ? { kind: "image", mediaType: image.mediaType, data: image.data, name: image.name } : null,
+          { kind: "reference", previewKind: "file", name: "release-notes.md" },
+        ].filter(Boolean) },
+        { role: "user", text: "", attachments: [{ kind: "reference", previewKind: "video", name: "agent-mode-demo.mp4" }] },
+      ]);
     } else if (["orb-recent-three", "orb-recent-three-left", "orb-quick-reply"].includes(screenshotFixture)) {
       state.dashboard = { harness: true, sessions: [
         { sessionId: "demo-build", title: "Build review", updatedAt: Date.now(), running: false, state: "idle", preview: "Windows package passed the final verification.", projections: { values: {} }, subagents: [] },
@@ -4281,10 +4824,18 @@ if (screenshotFixture) {
       state.compactNotification = { kind: "notification", sessionId: "demo-notification", title: "Unity gameplay pass", text: "The Play Mode verification finished successfully." };
       setAvatar("done", "done");
       syncCompactStatus();
+    } else if (screenshotFixture === "edge-working") {
+      setAvatar("working", "working");
+      setActivity(null);
     } else if (screenshotFixture === "thinking") {
       setTab("chat");
       setAvatar("working", "thinking");
       setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Reviewing the workspace and preparing the next tool call…" });
+    } else if (screenshotFixture === "thinking-hidden") {
+      setTab("chat");
+      applyShowThinking(false);
+      setAvatar("working", "thinking");
+      setActivity({ active: true, kind: "thinking", label: "Thinking", text: "This compact reasoning line stays hidden by preference." });
     } else if (screenshotFixture === "writing") {
       setTab("chat");
       setAvatar("working", "writing");

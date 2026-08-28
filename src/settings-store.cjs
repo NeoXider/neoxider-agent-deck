@@ -5,6 +5,7 @@ const { DEFAULT_HOTKEYS, normalizeHotkeyBindings } = require("./hotkey-manager.c
 const DEFAULT_PREFERENCES = Object.freeze({
   opacity: 0.96,
   glowIntensity: 0.82,
+  showThinking: true,
   size: "standard",
   windowLayer: "above",
   compactSide: "right",
@@ -63,6 +64,7 @@ function normalizePreferences(raw = {}) {
   return {
     opacity: boundedNumber(source.opacity, DEFAULT_PREFERENCES.opacity, 0.65, 1),
     glowIntensity: boundedNumber(source.glowIntensity, DEFAULT_PREFERENCES.glowIntensity, 0, 1),
+    showThinking: source.showThinking !== false,
     size: ["compact", "standard", "large"].includes(source.size) ? source.size : DEFAULT_PREFERENCES.size,
     windowLayer,
     compactSide,

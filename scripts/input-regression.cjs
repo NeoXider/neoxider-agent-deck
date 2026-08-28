@@ -38,6 +38,8 @@ let createdSessionId = "created-session";
 let dashboardCalls = 0;
 let startHarnessCalls = 0;
 let installUpdateCalls = 0;
+let showThinkingPreference = true;
+let queueSnapshotValue = [];
 let updateState = { status: "idle", currentVersion: "0.0.0", installMode: "manual" };
 let nativeCompactStatus = { active: false, expanded: false };
 let echoOrbModeOnCompactResize = false;
@@ -90,7 +92,11 @@ function registerStubs() {
     }
     return payload;
   });
-  ipcMain.handle("get-preferences", () => ({}));
+  ipcMain.handle("get-preferences", () => ({ showThinking: showThinkingPreference }));
+  ipcMain.handle("set-show-thinking", (_event, value) => {
+    showThinkingPreference = Boolean(value);
+    return showThinkingPreference;
+  });
   ipcMain.handle("send", (_event, payload) => {
     sentPayloads.push(payload);
     return deferredSend?.promise || { sessionId: payload.sessionId };
@@ -122,7 +128,7 @@ function registerStubs() {
   ipcMain.handle("models", (_event, sessionId) => deferredSessionRequests.models.get(sessionId)?.promise || ({ current: null, groups: [] }));
   ipcMain.handle("commands", (_event, sessionId) => deferredSessionRequests.commands.get(sessionId)?.promise || []);
   ipcMain.handle("workspaces", () => []);
-  ipcMain.handle("get-queue", () => []);
+  ipcMain.handle("get-queue", () => queueSnapshotValue);
   for (const channel of ["begin-compact-drag", "move-compact-drag", "begin-full-drag", "move-full-drag", "set-edge-pointer-active", "agent-complete"]) {
     ipcMain.on(channel, () => {
       if (channel === "begin-compact-drag") compactDragEvents.push("begin");
@@ -184,6 +190,21 @@ async function main() {
   await wait(1200);
 
   const failures = [];
+
+  // --- 0. first entry begins only after the native show acknowledgement ---
+  const entryBeforeShow = await contents.executeJavaScript(`({
+    pending: document.body.classList.contains("pre-native-visible"),
+    animating: document.body.classList.contains("first-visible-entry"),
+  })`);
+  contents.send("first-visible-entry");
+  await wait(30);
+  const entryAfterShow = await contents.executeJavaScript(`({
+    pending: document.body.classList.contains("pre-native-visible"),
+    animating: document.body.classList.contains("first-visible-entry"),
+  })`);
+  if (!entryBeforeShow.pending || entryBeforeShow.animating || entryAfterShow.pending || !entryAfterShow.animating) {
+    failures.push(`first-visible animation did not wait for the native acknowledgement: ${JSON.stringify({ entryBeforeShow, entryAfterShow })}`);
+  }
 
   // --- 1. avatar click must collapse to orb -------------------------------
   const avatar = await centerOf(contents, "#avatarButton");
@@ -361,6 +382,31 @@ async function main() {
   if (modeRequests.join(",") !== "orb,full") {
     failures.push(`rapid mode requests did not exercise both IPC replies: ${JSON.stringify(modeRequests)}`);
   }
+
+  modeResponseDelays.set("edge", 260);
+  const edgeTransitionStart = await contents.executeJavaScript(`(() => {
+    const sessionId = state.selectedSessionId || state.dashboard?.sessions?.[0]?.sessionId;
+    state.currentActivity = null;
+    state.compactErrorUnread = false;
+    state.harnessOffline = false;
+    setCommandFeedback(sessionId, {
+      id: "viewed-command-error",
+      avatarMode: "error",
+      avatarLabel: "command error",
+      activity: { active: true, kind: "error", label: "Command failed", text: "viewed error" },
+    });
+    setAvatar("error", "stale error");
+    window.__edgeNoFlash = setWindowMode("edge");
+    return { avatar: state.avatarMode, body: document.body.className, commandFeedback: Boolean(commandFeedbackFor(sessionId)) };
+  })()`);
+  await wait(180);
+  const edgeTransitionPending = await contents.executeJavaScript(`({ avatar: state.avatarMode, body: document.body.className, commandFeedback: Boolean(commandFeedbackFor()) })`);
+  await contents.executeJavaScript(`window.__edgeNoFlash`);
+  modeResponseDelays.delete("edge");
+  if (edgeTransitionStart.avatar === "error" || edgeTransitionPending.avatar === "error" || edgeTransitionPending.body.includes("state-error") || edgeTransitionStart.commandFeedback || edgeTransitionPending.commandFeedback) {
+    failures.push(`edge transition exposed a stale red error state: ${JSON.stringify({ edgeTransitionStart, edgeTransitionPending })}`);
+  }
+  await contents.executeJavaScript(`setWindowMode("full")`);
 
   // --- 6. unchanged dashboard renders preserve nodes, focus, and scroll ---
   const stableRender = await contents.executeJavaScript(`(() => {
@@ -745,6 +791,97 @@ async function main() {
     failures.push(`first turn history cleanup deleted or replaced the subsequent stream: ${JSON.stringify(streamAfterHistory)}`);
   }
 
+  const thinkingPreference = await contents.executeJavaScript(`(async () => {
+    state.selectedSessionId = "thinking-preference";
+    state.liveStreamsBySession.delete("thinking-preference");
+    state.messagesStickToBottom = true;
+    setActivity(null);
+    renderMessages(Array.from({ length: 60 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", text: "Viewport anchor " + index })));
+    const messages = document.querySelector("#messages");
+    messages.scrollTop = Math.max(1, Math.floor((messages.scrollHeight - messages.clientHeight) / 2));
+    state.messagesStickToBottom = false;
+    updateScrollLatestButton();
+    const baseline = { top: messages.scrollTop, height: messages.clientHeight };
+
+    setActivity({ active: true, kind: "thinking", label: "Thinking", text: "First reasoning delta" });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const appeared = { top: messages.scrollTop, height: messages.clientHeight, visible: document.querySelector("#activityCard").classList.contains("has-activity") };
+    setActivity({ active: true, kind: "thinking", label: "Thinking", text: "First reasoning delta and a longer streamed continuation" });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const streamed = { top: messages.scrollTop, height: messages.clientHeight };
+    setActivity(null);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const disappeared = { top: messages.scrollTop, height: messages.clientHeight };
+
+    const toggle = document.querySelector("#showThinkingToggle");
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Hidden reasoning" });
+    const hidden = { visible: document.querySelector("#activityCard").classList.contains("has-activity"), top: messages.scrollTop, height: messages.clientHeight };
+    setActivity({ active: true, kind: "tool", label: "Using tool", text: "read" });
+    const tool = { visible: document.querySelector("#activityCard").classList.contains("has-activity"), label: document.querySelector("#activityLabel").textContent };
+    setActivity({ active: true, kind: "writing", label: "Writing", text: "Composing" });
+    const writing = { visible: document.querySelector("#activityCard").classList.contains("has-activity"), label: document.querySelector("#activityLabel").textContent };
+    setActivity(null);
+    return { baseline, appeared, streamed, disappeared, hidden, tool, writing, showThinking: state.showThinking };
+  })()`);
+  const stableThinkingViewport = [thinkingPreference.appeared, thinkingPreference.streamed, thinkingPreference.disappeared, thinkingPreference.hidden]
+    .every((snapshot) => snapshot.top === thinkingPreference.baseline.top && snapshot.height === thinkingPreference.baseline.height);
+  if (!thinkingPreference.appeared.visible || !stableThinkingViewport || thinkingPreference.hidden.visible || thinkingPreference.showThinking
+      || !thinkingPreference.tool.visible || thinkingPreference.tool.label !== "Using tool"
+      || !thinkingPreference.writing.visible || thinkingPreference.writing.label !== "Writing"
+      || showThinkingPreference !== false) {
+    failures.push(`live Think visibility or viewport stability regressed: ${JSON.stringify({ thinkingPreference, showThinkingPreference })}`);
+  }
+
+  const thinkGeometrySnapshot = () => contents.executeJavaScript(`(() => {
+    const card = document.querySelector("#activityCard");
+    const messages = document.querySelector("#messages");
+    const wrap = document.querySelector(".messages-wrap");
+    const cardRect = card.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+    return {
+      aligned: Math.abs(cardRect.top - wrapRect.top) <= 1,
+      parent: card.parentElement?.className || "",
+      scrollTop: messages.scrollTop,
+      height: messages.clientHeight,
+    };
+  })()`);
+  const thinkGeometryBaseline = await contents.executeJavaScript(`(async () => {
+    applyShowThinking(true);
+    const setup = document.querySelector("#agentControls");
+    setup.open = false;
+    state.selectedSessionId = "thinking-geometry";
+    state.messagesStickToBottom = false;
+    renderMessages(Array.from({ length: 60 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", text: "Think anchor " + index })));
+    const messages = document.querySelector("#messages");
+    messages.scrollTop = Math.max(1, Math.floor((messages.scrollHeight - messages.clientHeight) / 2));
+    setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Unchanged live reasoning" });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return { scrollTop: messages.scrollTop, height: messages.clientHeight };
+  })()`);
+  const thinkGeometryClosed = await thinkGeometrySnapshot();
+  await contents.executeJavaScript(`document.querySelector("#agentControls").open = true`);
+  await wait(80);
+  const thinkGeometryOpen = await thinkGeometrySnapshot();
+  await contents.executeJavaScript(`document.querySelector("#agentControls").open = false`);
+  await wait(80);
+  const thinkGeometryReclosed = await thinkGeometrySnapshot();
+  win.setSize(400, 640);
+  await wait(100);
+  const thinkGeometryResized = await thinkGeometrySnapshot();
+  win.setSize(420, 640);
+  await wait(100);
+  const thinkGeometryRestored = await thinkGeometrySnapshot();
+  await contents.executeJavaScript(`setActivity(null); applyShowThinking(false)`);
+  const thinkSnapshots = [thinkGeometryClosed, thinkGeometryOpen, thinkGeometryReclosed, thinkGeometryResized, thinkGeometryRestored];
+  if (!thinkSnapshots.every((snapshot) => snapshot.aligned && snapshot.parent.includes("messages-wrap") && snapshot.scrollTop === thinkGeometryBaseline.scrollTop)
+      || thinkGeometryReclosed.height !== thinkGeometryBaseline.height
+      || thinkGeometryRestored.height !== thinkGeometryBaseline.height) {
+    failures.push(`unchanged live Think lost its message anchor or viewport across Setup and resize: ${JSON.stringify({ thinkGeometryBaseline, thinkSnapshots })}`);
+  }
+
   const toolLiveHistories = [
     { messages: [{ role: "user", text: "Use two tools." }, { role: "assistant", text: "Before tool" }, { role: "tool", callId: "read-live", name: "read", status: "running", arguments: "README.md" }], activity: { active: true, kind: "tool", label: "Using tool", text: "read" } },
     { messages: [{ role: "user", text: "Use two tools." }, { role: "assistant", text: "Before tool" }, { role: "tool", callId: "read-live", name: "read", status: "done", result: "ok", isError: false }], activity: null },
@@ -858,6 +995,70 @@ async function main() {
   deferredQueueUpdate = null;
   if (queueRace.a.length || queueRace.b.join() !== "B") failures.push(`queue completion mutated the newly selected session: ${JSON.stringify(queueRace)}`);
 
+  deferredQueueUpdate = deferred();
+  const editStarted = await contents.executeJavaScript(`(() => {
+    state.selectedSessionId = "queue-edit-race";
+    state.queuedPromptsBySession.set("queue-edit-race", [{ id: "edit-item", text: "before", preview: "before" }]);
+    state.steeringPromptsBySession.set("queue-edit-race", []);
+    state.queueSnapshotRevisions.set("queue-edit-race", 0);
+    state.queueEditingId = "edit-item";
+    state.queueEditingSessionId = "queue-edit-race";
+    state.queueSignature = "";
+    renderQueuedPrompts();
+    const input = document.querySelector("#queueList .queue-edit-input");
+    input.value = "saved text";
+    document.querySelector('#queueList [aria-label="Save queued message"]').click();
+    return { editing: state.queueEditingId, editingSession: state.queueEditingSessionId, busy: state.queueBusyId };
+  })()`);
+  contents.send("queue-update", {
+    sessionId: "queue-edit-race",
+    revision: 1,
+    items: [{ id: "edit-item", text: "saved text", preview: "saved text", placement: "queued" }],
+  });
+  await wait(40);
+  const editDuringSnapshot = await contents.executeJavaScript(`({
+    editing: state.queueEditingId,
+    editingSession: state.queueEditingSessionId,
+    hasInput: Boolean(document.querySelector("#queueList .queue-edit-input")),
+    revision: queueSnapshotRevision("queue-edit-race"),
+  })`);
+  deferredQueueUpdate.resolve({ ok: true });
+  await wait(100);
+  const editCompleted = await contents.executeJavaScript(`({
+    editing: state.queueEditingId,
+    editingSession: state.queueEditingSessionId,
+    busy: state.queueBusyId,
+    hasInput: Boolean(document.querySelector("#queueList .queue-edit-input")),
+    preview: document.querySelector("#queueList .queue-preview")?.textContent || "",
+    rows: document.querySelectorAll("#queueList .queue-row").length,
+  })`);
+  deferredQueueUpdate = null;
+  if (editStarted.editing !== "edit-item" || editStarted.editingSession !== "queue-edit-race" || editStarted.busy !== "edit-item"
+      || editDuringSnapshot.editing !== "edit-item" || editDuringSnapshot.editingSession !== "queue-edit-race" || !editDuringSnapshot.hasInput || editDuringSnapshot.revision !== 1
+      || editCompleted.editing !== null || editCompleted.editingSession !== null || editCompleted.busy !== null || editCompleted.hasInput
+      || editCompleted.preview !== "saved text" || editCompleted.rows !== 1) {
+    failures.push(`successful queued edit did not leave edit mode after an authoritative snapshot race: ${JSON.stringify({ editStarted, editDuringSnapshot, editCompleted })}`);
+  }
+
+  const editSessionIsolation = await contents.executeJavaScript(`(() => {
+    state.queueEditingId = "shared-item";
+    state.queueEditingSessionId = "queue-origin";
+    state.selectedSessionId = "queue-other";
+    state.queuedPromptsBySession.set("queue-other", [{ id: "shared-item", text: "other", preview: "other" }]);
+    state.queueSignature = "";
+    renderQueuedPrompts();
+    const result = {
+      hasInput: Boolean(document.querySelector("#queueList .queue-edit-input")),
+      hasEditAction: Boolean(document.querySelector('#queueList [aria-label="Edit queued message"]')),
+    };
+    state.queueEditingId = null;
+    state.queueEditingSessionId = null;
+    return result;
+  })()`);
+  if (editSessionIsolation.hasInput || !editSessionIsolation.hasEditAction) {
+    failures.push(`queued edit leaked into another session with the same item id: ${JSON.stringify(editSessionIsolation)}`);
+  }
+
   deferredSend = deferred();
   dashboardValue = { harness: true, sessions: [{ sessionId: "queue-submit", title: "Queued work", running: true, state: "working", activity: { active: true, kind: "thinking", label: "Thinking", text: "Current turn" }, projections: { values: {} }, subagents: [] }] };
   await contents.executeJavaScript(`(() => {
@@ -891,6 +1092,21 @@ async function main() {
   await wait(60);
   const identicalQueueItems = await contents.executeJavaScript(`queuedPromptsFor("queue-submit").map((item) => item.id)`);
   if (identicalQueueItems.join() !== "server-2,server-3") failures.push(`legitimate identical queue submissions were deduplicated: ${JSON.stringify(identicalQueueItems)}`);
+
+  queueSnapshotValue = { revision: 7, items: [{ id: "server-recovered", text: "recovered", preview: "recovered", placement: "queued" }] };
+  const recoveredQueue = await contents.executeJavaScript(`(async () => {
+    state.selectedSessionId = "queue-recovery";
+    state.queueSnapshotRevisions.set("queue-recovery", 7);
+    state.queuedPromptsBySession.set("queue-recovery", [{ id: "local-stuck", text: "recovered", preview: "recovered", optimistic: true }]);
+    state.steeringPromptsBySession.set("queue-recovery", []);
+    await recoverOptimisticQueue("queue-recovery", [0]);
+    const items = queuedPromptsFor("queue-recovery");
+    return { ids: items.map((item) => item.id), optimistic: items.some((item) => item.optimistic) };
+  })()`);
+  queueSnapshotValue = [];
+  if (recoveredQueue.ids.join() !== "server-recovered" || recoveredQueue.optimistic) {
+    failures.push(`bounded authoritative queue refresh did not replace same-revision optimism: ${JSON.stringify(recoveredQueue)}`);
+  }
 
   const todoPresentation = await contents.executeJavaScript(`(async () => {
     state.dashboard = { harness: true, sessions: [{ sessionId: "todo-session", title: "Plan", running: true, state: "working", projections: { values: { todos: [
@@ -939,8 +1155,8 @@ async function main() {
   staleLiveDashboard.resolve({ harness: true, sessions: [{ sessionId: "live-race", title: "Live race", running: true, state: "working", activity: { active: true, kind: "thinking", label: "Thinking", text: "Stale" }, projections: { values: { todos: [{ content: "Old plan", status: "pending" }] } }, subagents: [] }] });
   const liveDashboardRace = await liveDashboardRacePromise;
   deferredDashboard = null;
-  if (liveDashboardRace.running || liveDashboardRace.todos.join() !== "Fresh live plan" || !liveDashboardRace.stopHidden) {
-    failures.push(`stale dashboard overwrote live TODO or resurrected Stop: ${JSON.stringify(liveDashboardRace)}`);
+  if (liveDashboardRace.running || liveDashboardRace.todos.length || !liveDashboardRace.stopHidden) {
+    failures.push(`turn end did not clear the live TODO or a stale dashboard resurrected Stop: ${JSON.stringify(liveDashboardRace)}`);
   }
   dashboardValue = { harness: true, sessions: [{ sessionId: "live-race", title: "Live race", running: false, state: "idle", activity: null, projections: { values: { contextPressure: { projectedTokens: 8192, contextWindow: 32768 }, todos: [{ content: "Old plan", status: "pending" }] } }, subagents: [] }] };
   const staleTodoNextPoll = await contents.executeJavaScript(`(async () => {
@@ -952,7 +1168,7 @@ async function main() {
       overlay: state.liveTodosBySession.has("live-race"),
     };
   })()`);
-  dashboardValue = { harness: true, sessions: [{ sessionId: "live-race", title: "Live race", running: false, state: "idle", activity: null, projections: { values: { contextPressure: { projectedTokens: 16384, contextWindow: 32768 }, todos: [{ content: "Fresh live plan", status: "in_progress" }] } }, subagents: [] }] };
+  dashboardValue = { harness: true, sessions: [{ sessionId: "live-race", title: "Live race", running: false, state: "idle", activity: null, projections: { values: { contextPressure: { projectedTokens: 16384, contextWindow: 32768 }, todos: [] } }, subagents: [] }] };
   const acknowledgedTodo = await contents.executeJavaScript(`(async () => {
     await performRefresh();
     const session = state.dashboard.sessions.find((item) => item.sessionId === "live-race");
@@ -962,9 +1178,9 @@ async function main() {
       overlay: state.liveTodosBySession.has("live-race"),
     };
   })()`);
-  if (staleTodoNextPoll.todos.join() !== "Fresh live plan" || staleTodoNextPoll.projectedTokens !== 8192 || !staleTodoNextPoll.overlay
-      || acknowledgedTodo.todos.join() !== "Fresh live plan" || acknowledgedTodo.projectedTokens !== 16384 || acknowledgedTodo.overlay) {
-    failures.push(`live TODO overlay was not field-level, durable, or acknowledged: ${JSON.stringify({ staleTodoNextPoll, acknowledgedTodo })}`);
+  if (staleTodoNextPoll.todos.length || staleTodoNextPoll.projectedTokens !== 8192 || !staleTodoNextPoll.overlay
+      || acknowledgedTodo.todos.length || acknowledgedTodo.projectedTokens !== 16384 || acknowledgedTodo.overlay) {
+    failures.push(`cleared live TODO tombstone was not field-level, durable, or acknowledged: ${JSON.stringify({ staleTodoNextPoll, acknowledgedTodo })}`);
   }
   await contents.executeJavaScript(`schedulePolling()`);
 
@@ -1105,6 +1321,33 @@ async function main() {
     failures.push(`late Stop completion idled a newer turn: ${JSON.stringify(lateCancel)}`);
   }
 
+  const stopRefreshFailure = await contents.executeJavaScript(`(async () => {
+    state.dashboard = { harness: true, sessions: [{ sessionId: "stop-refresh-failure", title: "Stop refresh failure", running: true, state: "working", activity: { active: true, kind: "thinking", label: "Thinking", text: "working" }, projections: { values: { todos: [{ content: "stale plan", status: "in_progress" }] } }, subagents: [] }] };
+    state.selectedSessionId = "stop-refresh-failure";
+    state.runningSessionIds = new Set(["stop-refresh-failure"]);
+    state.liveTodosBySession.set("stop-refresh-failure", [{ content: "stale plan", status: "in_progress" }]);
+    state.turnGenerationsBySession.set("stop-refresh-failure", 1);
+    syncRunningControls(true);
+    const originalRefresh = refresh;
+    refresh = async () => { throw new Error("dashboard unavailable after accepted cancel"); };
+    try {
+      const result = await stopCurrentTurn();
+      return {
+        result,
+        avatar: state.avatarMode,
+        activity: state.currentActivity?.kind || null,
+        todos: todosFor("stop-refresh-failure").length,
+        running: state.dashboard.sessions[0].running,
+      };
+    } finally {
+      refresh = originalRefresh;
+    }
+  })()`);
+  if (!stopRefreshFailure.result || stopRefreshFailure.avatar === "error" || stopRefreshFailure.activity === "error"
+      || stopRefreshFailure.todos || stopRefreshFailure.running) {
+    failures.push(`accepted Stop became a failure when only its follow-up refresh failed: ${JSON.stringify(stopRefreshFailure)}`);
+  }
+
   await contents.executeJavaScript(`(() => { clearCompletionSignal(); return true; })()`);
   const stableMessages = Array.from({ length: 24 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", text: `Stable message ${index + 1}` }));
   dashboardValue = { harness: true, sessions: [{ sessionId: "stable-poll", title: "Stable polling", updatedAt: 42, running: false, state: "idle", preview: "Stable message 24", projections: { values: { contextPressure: { projectedTokens: 2048, contextWindow: 32768 }, todos: [] } }, subagents: [] }] };
@@ -1132,6 +1375,7 @@ async function main() {
     messages.scrollTop = Math.max(0, Math.floor((messages.scrollHeight - messages.clientHeight) / 2));
     state.messagesStickToBottom = false;
     state.unseenMessages = 0;
+    updateScrollLatestButton();
     document.querySelector("#messageInput").focus();
     const firstBubble = messages.querySelector(".bubble");
     const firstSession = document.querySelector("#sessions .session-card");
@@ -1142,6 +1386,7 @@ async function main() {
       messages: [...[messages.getBoundingClientRect()].map((r) => [r.x, r.y, r.width, r.height])][0],
       scrollTop: messages.scrollTop,
       active: document.activeElement?.id || "",
+      scrollLatestVisible: !document.querySelector("#scrollLatestButton").hidden,
     };
     const mutations = [];
     const observer = new MutationObserver((records) => mutations.push(...records.map((record) => record.type + ":" + (record.attributeName || record.target.id || record.target.className || record.target.nodeName))));
@@ -1154,6 +1399,7 @@ async function main() {
       messages: [...[messages.getBoundingClientRect()].map((r) => [r.x, r.y, r.width, r.height])][0],
       scrollTop: messages.scrollTop,
       active: document.activeElement?.id || "",
+      scrollLatestVisible: !document.querySelector("#scrollLatestButton").hidden,
     };
     return {
       before,
@@ -1169,6 +1415,187 @@ async function main() {
   const boundsAfterStablePoll = win.getBounds();
   if (stablePolling.mutations.length || JSON.stringify(stablePolling.before) !== JSON.stringify(stablePolling.after) || !stablePolling.sameBubble || !stablePolling.sameSession || !stablePolling.sameQueue || compactAfterStablePoll !== compactBeforeStablePoll || JSON.stringify(boundsBeforeStablePoll) !== JSON.stringify(boundsAfterStablePoll)) {
     failures.push(`eight unchanged 2.5s refresh passes mutated or moved the widget: ${JSON.stringify({ stablePolling, compactIpc: [compactBeforeStablePoll, compactAfterStablePoll], bounds: [boundsBeforeStablePoll, boundsAfterStablePoll] })}`);
+  }
+
+  const longHistoryScroll = await contents.executeJavaScript(`(() => {
+    state.messagesStickToBottom = true;
+    renderMessages(Array.from({ length: 160 }, (_, index) => ({
+      role: index % 2 ? "assistant" : "user",
+      text: "Long history message " + (index + 1),
+    })));
+    const messages = document.querySelector("#messages");
+    messages.scrollTop = 0;
+    state.messagesStickToBottom = messagesNearBottom(messages);
+    const first = messages.querySelector(".bubble");
+    const viewport = messages.getBoundingClientRect();
+    const firstBounds = first?.getBoundingClientRect();
+    return {
+      firstText: first?.textContent || "",
+      firstVisible: Boolean(firstBounds && firstBounds.top >= viewport.top - 1 && firstBounds.bottom <= viewport.bottom + 1),
+      scrollable: messages.scrollHeight > messages.clientHeight,
+      scrollTop: messages.scrollTop,
+    };
+  })()`);
+  if (longHistoryScroll.firstText !== "Long history message 1" || !longHistoryScroll.firstVisible || !longHistoryScroll.scrollable || longHistoryScroll.scrollTop !== 0) {
+    failures.push(`long history cannot scroll to its first message: ${JSON.stringify(longHistoryScroll)}`);
+  }
+
+  const composerLayout = await contents.executeJavaScript(`(() => {
+    setTab("chat");
+    const messages = document.querySelector("#messages");
+    const input = document.querySelector("#messageInput");
+    input.value = "short";
+    resizeMessageInput({ immediate: true });
+    const normalPadding = [getComputedStyle(input).paddingTop, getComputedStyle(input).paddingBottom];
+    messages.scrollTop = Math.max(1, Math.floor((messages.scrollHeight - messages.clientHeight) / 2));
+    state.messagesStickToBottom = false;
+    state.unseenMessages = 0;
+    updateScrollLatestButton();
+    const unpinnedTop = messages.scrollTop;
+    input.value = Array.from({ length: 80 }, (_, index) => "line " + index).join("\\n");
+    resizeMessageInput({ immediate: true });
+    const longPadding = [getComputedStyle(input).paddingTop, getComputedStyle(input).paddingBottom];
+    const unpinnedAfter = {
+      scrollTop: messages.scrollTop,
+      latestVisible: !document.querySelector("#scrollLatestButton").hidden,
+      scrollable: input.classList.contains("is-scrollable"),
+    };
+    messages.scrollTop = messages.scrollHeight;
+    state.messagesStickToBottom = true;
+    input.value = "short";
+    resizeMessageInput({ immediate: true });
+    state.pendingAttachments = [{ kind: "file", name: "layout.txt", path: "C:\\\\layout.txt" }];
+    renderAttachments();
+    const pinnedAfterAttachment = state.messagesStickToBottom
+      && Math.abs(messages.scrollHeight - messages.clientHeight - messages.scrollTop) <= 1;
+    state.pendingAttachments = [];
+    renderAttachments();
+    input.value = "";
+    resizeMessageInput({ immediate: true });
+    return { normalPadding, longPadding, unpinnedTop, unpinnedAfter, pinnedAfterAttachment };
+  })()`);
+  if (JSON.stringify(composerLayout.normalPadding) !== JSON.stringify(composerLayout.longPadding)
+      || !composerLayout.unpinnedAfter.scrollable
+      || Math.abs(composerLayout.unpinnedTop - composerLayout.unpinnedAfter.scrollTop) > 1
+      || !composerLayout.unpinnedAfter.latestVisible
+      || !composerLayout.pinnedAfterAttachment) {
+    failures.push(`composer or attachment reflow lost the message viewport: ${JSON.stringify(composerLayout)}`);
+  }
+
+  const latestAutoScroll = await contents.executeJavaScript(`(() => {
+    const messages = document.querySelector("#messages");
+    renderMessages(Array.from({ length: 80 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", text: "Latest guard " + index })));
+    messages.scrollTop = 0;
+    state.messagesStickToBottom = true;
+    state.scrollLatestAutoScrolling = true;
+    updateScrollLatestButton();
+    messages.dispatchEvent(new Event("scroll"));
+    const during = { hidden: document.querySelector("#scrollLatestButton").hidden, pinned: state.messagesStickToBottom };
+    finishScrollLatestAutoScroll();
+    return { during, afterHidden: document.querySelector("#scrollLatestButton").hidden };
+  })()`);
+  if (!latestAutoScroll.during.hidden || !latestAutoScroll.during.pinned || latestAutoScroll.afterHidden) {
+    failures.push(`Latest button flickered during its own smooth scroll: ${JSON.stringify(latestAutoScroll)}`);
+  }
+
+  const sentBeforePaste = sentPayloads.length;
+  const clipboardPaste = await contents.executeJavaScript(`(async () => {
+    state.pendingAttachments = [];
+    renderAttachments();
+    const input = document.querySelector("#messageInput");
+    input.value = "draft remains";
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([Uint8Array.from([137, 80, 78, 71])], "pasted.png", { type: "image/png", lastModified: 7 }));
+    const first = new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true });
+    input.dispatchEvent(first);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const second = new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true });
+    input.dispatchEvent(second);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const result = {
+      prevented: first.defaultPrevented && second.defaultPrevented,
+      draft: input.value,
+      attachments: state.pendingAttachments.map((attachment) => ({ kind: attachment.kind, name: attachment.name, path: attachment.path })),
+      previews: document.querySelectorAll("#attachmentList .attachment-preview img").length,
+    };
+    state.pendingAttachments = [];
+    renderAttachments();
+    input.value = "";
+    return result;
+  })()`);
+  if (!clipboardPaste.prevented || clipboardPaste.draft !== "draft remains" || clipboardPaste.attachments.length !== 1
+      || clipboardPaste.attachments[0]?.kind !== "image" || clipboardPaste.attachments[0]?.name !== "pasted.png"
+      || !clipboardPaste.attachments[0]?.path.startsWith("clipboard:") || clipboardPaste.previews !== 1
+      || sentPayloads.length !== sentBeforePaste) {
+    failures.push(`Ctrl+V image did not enter the reviewed, deduplicated attachment flow: ${JSON.stringify(clipboardPaste)}`);
+  }
+
+  dashboardValue = { harness: true, sessions: [
+    { sessionId: "paste-submit", title: "Paste submit", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    { sessionId: "paste-other", title: "Paste other", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+  ] };
+  const pasteSubmitBefore = sentPayloads.length;
+  const pasteSubmitStarted = await contents.executeJavaScript(`(async () => {
+    state.dashboard = ${JSON.stringify(dashboardValue)};
+    state.selectedSessionId = "paste-submit";
+    state.runningSessionIds = new Set();
+    state.pendingAttachments = [];
+    renderAttachments();
+    const input = document.querySelector("#messageInput");
+    input.value = "inspect the pasted image";
+    const originalPrepare = window.clipboardAttachments.prepareClipboard;
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    window.__releasePastePreparation = release;
+    window.__restorePastePreparation = () => { window.clipboardAttachments.prepareClipboard = originalPrepare; };
+    window.clipboardAttachments.prepareClipboard = async (...args) => {
+      await gate;
+      return originalPrepare(...args);
+    };
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([Uint8Array.from([137, 80, 78, 71])], "race.png", { type: "image/png", lastModified: 9 }));
+    const paste = new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true });
+    input.dispatchEvent(paste);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const beforeSubmit = { prevented: paste.defaultPrevented, attachments: state.pendingAttachments.length, sending: composerSubmitInFlight };
+    document.querySelector("#chatForm").requestSubmit();
+    return beforeSubmit;
+  })()`);
+  await wait(80);
+  const pasteSubmitBlocked = sentPayloads.length === pasteSubmitBefore;
+  await contents.executeJavaScript(`state.selectedSessionId = "paste-other"`);
+  await contents.executeJavaScript(`window.__releasePastePreparation()`);
+  await wait(220);
+  const pasteSubmitCompleted = await contents.executeJavaScript(`(() => {
+    window.__restorePastePreparation();
+    return { attachments: state.pendingAttachments.length, sending: composerSubmitInFlight, draft: document.querySelector("#messageInput").value };
+  })()`);
+  const pasteSubmitPayload = sentPayloads.at(-1);
+  if (!pasteSubmitStarted.prevented || pasteSubmitStarted.attachments !== 0 || pasteSubmitStarted.sending
+      || !pasteSubmitBlocked || sentPayloads.length !== pasteSubmitBefore + 1
+      || pasteSubmitPayload?.sessionId !== "paste-submit"
+      || pasteSubmitPayload?.text !== "inspect the pasted image"
+      || pasteSubmitPayload?.attachments?.length !== 1 || pasteSubmitPayload.attachments[0]?.name !== "race.png"
+      || pasteSubmitCompleted.attachments !== 0 || pasteSubmitCompleted.sending || pasteSubmitCompleted.draft) {
+    failures.push(`submit did not wait atomically for in-flight clipboard preparation: ${JSON.stringify({ pasteSubmitStarted, pasteSubmitBlocked, pasteSubmitPayload, pasteSubmitCompleted })}`);
+  }
+
+  const boundedHistoryPreviews = await contents.executeJavaScript(`(() => {
+    const data = "A".repeat(819200);
+    renderMessages([1, 2].map((seq) => ({ role: "user", text: "", attachments: [{
+      kind: "image", mediaType: "image/png", data, name: seq + ".png",
+    }] })));
+    const result = {
+      retained: state.currentMessages.map((message) => message.attachments[0].data?.length || 0),
+      images: document.querySelectorAll("#messages .message-attachment-preview img").length,
+      attachments: document.querySelectorAll("#messages .message-attachment").length,
+    };
+    renderMessages([]);
+    return result;
+  })()`);
+  if (boundedHistoryPreviews.retained[0] !== 0 || boundedHistoryPreviews.retained[1] !== 819200
+      || boundedHistoryPreviews.images !== 1 || boundedHistoryPreviews.attachments !== 2) {
+    failures.push(`history preview budget retained or decoded an unbounded aggregate: ${JSON.stringify(boundedHistoryPreviews)}`);
   }
 
   dashboardValue = { harness: true, sessions: [{ sessionId: "slash-session", title: "Slash", running: false, state: "idle", projections: { values: {} }, subagents: [] }] };
@@ -1292,13 +1719,14 @@ async function main() {
     renderMessages([{ role: "assistant", text: "Selected B" }]);
   })()`);
   await wait(40);
+  const sendRaceBeforeResolve = await contents.executeJavaScript(`({ selected: state.selectedSessionId, text: document.querySelector("#messages")?.textContent || "" })`);
   deferredSend.resolve({ sessionId: "send-a" });
   await wait(180);
   const sendRace = await contents.executeJavaScript(`({ selected: state.selectedSessionId, text: document.querySelector("#messages")?.textContent || "" })`);
   deferredSend = null;
   deferredSessionRequests.history.delete("send-b");
   if (sendRace.selected !== "send-b" || !sendRace.text.includes("Selected B")) {
-    failures.push(`send completion forced the UI back to its original session: ${JSON.stringify(sendRace)}`);
+    failures.push(`send completion forced the UI back to its original session: ${JSON.stringify({ before: sendRaceBeforeResolve, after: sendRace })}`);
   }
 
   deferredSend = deferred();
@@ -1408,6 +1836,34 @@ async function main() {
   })()`);
   if (dashboardCalls - startCallsBefore < 2 || startHarnessCalls - startsBefore !== 1 || !startRace.harness || startRace.button === "Retry" || startRace.visible) {
     failures.push(`Start Harness reused a stale in-flight offline snapshot: ${JSON.stringify({ calls: dashboardCalls - startCallsBefore, starts: startHarnessCalls - startsBefore, startRace })}`);
+  }
+
+  win.setContentSize(360, 360);
+  await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
+    query: { screenshotFixture: "crowded-chat", screenshotStatic: "1" },
+  });
+  await wait(1200);
+  const crowdedLayout = await contents.executeJavaScript(`(() => {
+    const panel = document.querySelector("#chatPanel").getBoundingClientRect();
+    const messages = document.querySelector("#messages");
+    const first = messages.querySelector(".bubble").getBoundingClientRect();
+    const viewport = messages.getBoundingClientRect();
+    const surfaces = ["#activityCard:not([hidden])", "#todoDock:not([hidden])", "#queueDock.has-items", "#attachmentBar.has-items", "#chatForm"]
+      .map((selector) => document.querySelector(selector)?.getBoundingClientRect()).filter(Boolean);
+    return {
+      crowded: document.body.classList.contains("chat-crowded"),
+      viewportHeight: Math.round(viewport.height),
+      scrollable: messages.scrollHeight > messages.clientHeight + 1,
+      shortVisible: first.top >= viewport.top - 1 && first.bottom <= viewport.bottom + 1,
+      surfacesWithinPanel: surfaces.every((rect) => rect.top >= panel.top - 1 && rect.bottom <= panel.bottom + 1),
+      todoRows: document.querySelectorAll(".todo-row").length,
+      queueRows: document.querySelectorAll(".queue-row").length,
+      attachments: document.querySelectorAll(".attachment-chip").length,
+    };
+  })()`);
+  if (!crowdedLayout.crowded || crowdedLayout.viewportHeight < 62 || !crowdedLayout.scrollable || !crowdedLayout.shortVisible
+    || !crowdedLayout.surfacesWithinPanel || crowdedLayout.todoRows !== 3 || crowdedLayout.queueRows !== 2 || crowdedLayout.attachments !== 1) {
+    failures.push(`combined 360x360 chat budget regressed: ${JSON.stringify(crowdedLayout)}`);
   }
 
   for (const failure of failures) console.error(`FAIL ${failure}`);

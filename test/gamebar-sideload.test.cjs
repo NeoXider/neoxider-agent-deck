@@ -9,6 +9,7 @@ const read = (...parts) => readFileSync(path.join(root, ...parts), "utf8");
 test("Game Bar CI creates an ephemeral signed x64 sideload kit and releases only public material", () => {
   const workflow = read(".github", "workflows", "gamebar-ci.yml");
   const release = read(".github", "workflows", "release.yml");
+  const releaseVerifier = read("scripts", "verify-release-artifacts.cjs");
   const prerequisites = read("windows-gamebar", "scripts", "check-prerequisites.ps1");
 
   assert.match(workflow, /runs-on: windows-2022/);
@@ -30,13 +31,14 @@ test("Game Bar CI creates an ephemeral signed x64 sideload kit and releases only
 
   assert.match(release, /gamebar:[\s\S]+uses: \.\/\.github\/workflows\/gamebar-ci\.yml[\s\S]+release_package: true/);
   assert.match(release, /needs: \[build, gamebar\]/);
+  assert.match(release, /verify-release-artifacts\.cjs/);
   for (const name of [
     "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.msix",
     "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.cer",
     "NeoXider-Agent-Deck-GameBar-${version}-windows-x64.zip",
     "Install-NeoXider-Agent-Deck-GameBar.ps1",
   ]) {
-    assert.ok(release.includes(`\"${name}\"`));
+    assert.ok(releaseVerifier.includes(name));
   }
   assert.doesNotMatch(release, /\.pfx|\.p12|\.pvk|private.?key/i);
 });

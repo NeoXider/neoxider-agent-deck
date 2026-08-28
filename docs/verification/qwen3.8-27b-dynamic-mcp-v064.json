@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "mode": "external-playwright",
+  "passed": true,
+  "startedAt": "2026-08-28T13:12:08.852Z",
+  "durationMs": 214165,
+  "sessionId": "session-427fa7c8-912c-4ae3-a80e-746964737ef2",
+  "selection": {
+    "provider": "lmstudio",
+    "model": "qwen3.8-27b-unleashed",
+    "autoSelected": false
+  },
+  "permissionPreset": "read-only",
+  "modelSelection": {
+    "provider": "lmstudio",
+    "model": "qwen3.8-27b-unleashed"
+  },
+  "toolNames": [
+    "mcp__capability_hub__capability_hub"
+  ],
+  "actions": [
+    "search",
+    "inspect",
+    "enable",
+    "tools",
+    "call",
+    "skill.load",
+    "status",
+    "disable",
+    "status"
+  ],
+  "toolErrorCount": 0,
+  "finalAssistantText": "CAPABILITY_HUB_EXTERNAL_SMOKE_OK",
+  "evidence": {
+    "sessionRecorded": true,
+    "searchFoundPlaywrightStopped": true,
+    "inspectedPinnedPlaywright": true,
+    "explicitlyEnabled": true,
+    "toolsListedNavigate": true,
+    "navigatedExternalPage": true,
+    "skillLoaded": true,
+    "statusEnabled": true,
+    "disabled": true,
+    "statusStopped": true,
+    "childStopped": true,
+    "readOnly": true,
+    "exactFinalAssistantToken": true
+  },
+  "catalogVisibility": {
+    "playwright": true,
+    "mode": "isolated-external-local"
+  },
+  "lmStudio": {
+    "managed": true,
+    "modelKey": "qwen3.8-27b-unleashed",
+    "ttlSeconds": 3600,
+    "modelWasAlreadyLoaded": true,
+    "loadedBySmoke": false,
+    "loadExitCode": null,
+    "unloadExitCode": null,
+    "unloaded": false,
+    "process": {
+      "identifier": "qwen3.8-27b-unleashed",
+      "modelKey": "qwen3.8-27b-unleashed",
+      "displayName": "Qwen3.8 27B Unleashed UD",
+      "status": "generating",
+      "contextLength": 32768,
+      "trainedForToolUse": true
+    }
+  },
+  "failures": []
+}

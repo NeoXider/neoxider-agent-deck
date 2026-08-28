@@ -1,4 +1,86 @@
-const { randomUUID } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
+
+const HISTORY_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const HISTORY_IMAGE_BASE64_LIMIT = Math.ceil(8 * 1024 * 1024 * 4 / 3) + 8;
+const HISTORY_PREVIEW_BYTES_BUDGET = 1024 * 1024;
+const HISTORY_CACHE_SESSION_LIMIT = 8;
+const HISTORY_CACHE_EVENT_LIMIT = 800;
+const HISTORY_CACHE_BYTES_LIMIT = 4 * 1024 * 1024;
+const HISTORY_VIDEO_EXTENSIONS = new Set(["mp4", "mov", "m4v", "webm", "mkv", "avi", "wmv"]);
+
+function historyImageBytes(data) {
+  if (typeof data !== "string" || !data.length || data.length > HISTORY_IMAGE_BASE64_LIMIT
+      || data.length % 4 !== 0 || !/^[a-zA-Z0-9+/]*={0,2}$/.test(data)) return -1;
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return (data.length / 4) * 3 - padding;
+}
+
+// Keep newest small previews within one strict history-wide budget. Image attachment
+// metadata survives when data is stripped, so the renderer can show a safe icon fallback.
+function boundedHistoryEntries(entries, maxPreviewBytes = HISTORY_PREVIEW_BYTES_BUDGET) {
+  if (!Array.isArray(entries)) return [];
+  let remaining = Math.max(0, Number(maxPreviewBytes) || 0);
+  const bounded = [...entries];
+  for (let index = bounded.length - 1; index >= 0; index -= 1) {
+    const entry = bounded[index];
+    const content = entry?.event?.data?.content;
+    if (!Array.isArray(content)) continue;
+    let changed = false;
+    const nextContent = content.map((block) => {
+      if (block?.type !== "image" || typeof block.data !== "string") return block;
+      const bytes = HISTORY_IMAGE_TYPES.has(String(block.mediaType || "").toLowerCase())
+        ? historyImageBytes(block.data)
+        : -1;
+      if (bytes > 0 && bytes <= remaining) {
+        remaining -= bytes;
+        return block;
+      }
+      changed = true;
+      const { data: _discarded, ...metadata } = block;
+      return metadata;
+    });
+    if (changed) bounded[index] = {
+      ...entry,
+      event: {
+        ...entry.event,
+        data: { ...entry.event.data, content: nextContent },
+      },
+    };
+  }
+  return bounded;
+}
+
+function positiveInteger(value, fallback) { return Number.isSafeInteger(value) && value > 0 ? value : fallback; }
+
+function historyEntryBytes(entry) { try { return Buffer.byteLength(JSON.stringify(entry), "utf8"); } catch { return Infinity; } }
+
+function boundedHistoryCacheEntries(entries, { maxEvents = HISTORY_CACHE_EVENT_LIMIT, maxBytes = HISTORY_CACHE_BYTES_LIMIT } = {}) {
+  const eventLimit = positiveInteger(maxEvents, HISTORY_CACHE_EVENT_LIMIT);
+  const byteLimit = positiveInteger(maxBytes, HISTORY_CACHE_BYTES_LIMIT);
+  const retainedNewestFirst = [];
+  let bytes = 0;
+  let truncated = false;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (retainedNewestFirst.length >= eventLimit) { truncated = true; break; }
+    const entry = entries[index];
+    const entryBytes = historyEntryBytes(entry);
+    if (!Number.isFinite(entryBytes) || entryBytes > byteLimit - bytes) { truncated = true; continue; }
+    retainedNewestFirst.push(entry);
+    bytes += entryBytes;
+  }
+  if (retainedNewestFirst.length !== entries.length) truncated = true;
+  return { bytes, entries: retainedNewestFirst.reverse(), truncated };
+}
+
+function historyRevision(entries) {
+  const hash = createHash("sha256");
+  for (const entry of entries) {
+    try { hash.update(JSON.stringify(entry)); }
+    catch { hash.update("[unserializable]"); }
+    hash.update("\0");
+  }
+  return `sha256:${hash.digest("hex")}`;
+}
 
 function textFromBlocks(blocks) {
   if (!Array.isArray(blocks)) return "";
@@ -16,6 +98,42 @@ function reasoningFromBlocks(blocks) {
     .map((block) => block.text)
     .join("\n")
     .trim();
+}
+
+function shortAttachmentName(value, fallback = "attachment") {
+  return (String(value || "").split(/[\\/]/).filter(Boolean).at(-1) || fallback).slice(0, 120);
+}
+
+function userContentFromBlocks(blocks) {
+  const attachments = [];
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    const mediaType = String(block?.mediaType || "").toLowerCase();
+    const data = typeof block?.data === "string" ? block.data : "";
+    if (block?.type === "image" && HISTORY_IMAGE_TYPES.has(mediaType)) {
+      const attachment = {
+        kind: "image",
+        mediaType,
+        name: shortAttachmentName(block.name, "image"),
+      };
+      if (historyImageBytes(data) > 0) attachment.data = data;
+      attachments.push(attachment);
+    }
+  }
+  const lines = textFromBlocks(blocks).split("\n");
+  const textLines = [];
+  for (const line of lines) {
+    const candidate = line.trim();
+    const reference = /^@((?:[a-zA-Z]:[\\/]|\\\\|\/).+)$/.exec(candidate);
+    if (!reference) {
+      textLines.push(line);
+      continue;
+    }
+    const filePath = reference[1].trim();
+    const name = shortAttachmentName(filePath);
+    const extension = name.includes(".") ? name.split(".").at(-1).toLowerCase() : "";
+    attachments.push({ kind: "reference", previewKind: HISTORY_VIDEO_EXTENSIONS.has(extension) ? "video" : "file", name });
+  }
+  return { text: textLines.join("\n").trim(), attachments: attachments.slice(0, 12) };
 }
 
 function readableToolValue(value) {
@@ -160,21 +278,22 @@ function titleFromSession(session) {
 
 function messagesFromHistory(entries) {
   if (!Array.isArray(entries)) return [];
+  const boundedEntries = boundedHistoryEntries(entries);
   const messages = [];
-  const hiddenCommandIds = new Set(entries
+  const hiddenCommandIds = new Set(boundedEntries
     .map((entry) => entry?.event)
     .filter((event) => event?.type === "command/run"
       && event.data?.name === "permission"
       && String(event.data?.args || "").trim() === "danger-full-access")
     .map((event) => String(event.data.commandId || ""))
     .filter(Boolean));
-  for (const entry of entries) {
+  for (const entry of boundedEntries) {
     const event = entry && entry.event;
     if (!event || !event.data) continue;
     if (event.type === "user/message") {
       if (event.data.source && !["user", "user-rpc"].includes(event.data.source.kind)) continue;
-      const text = textFromBlocks(event.data.content);
-      if (text) messages.push({ role: "user", text, time: event.time, seq: event.seq });
+      const { text, attachments } = userContentFromBlocks(event.data.content);
+      if (text || attachments.length) messages.push({ role: "user", text, attachments, time: event.time, seq: event.seq });
     } else if (event.type === "assistant/message") {
       const blocks = event.data.message && event.data.message.content;
       const text = textFromBlocks(blocks);
@@ -201,7 +320,7 @@ function messagesFromHistory(entries) {
       });
     }
   }
-  messages.push(...toolMessagesFromHistory(entries));
+  messages.push(...toolMessagesFromHistory(boundedEntries));
   return messages.sort((left, right) => (left.seq || 0) - (right.seq || 0));
 }
 
@@ -280,11 +399,30 @@ function sessionStateFromHistory(entries, running = false) {
 }
 
 class HarnessApi {
-  constructor(baseUrl = "http://127.0.0.1:3080", fetchImpl = globalThis.fetch) {
+  constructor(baseUrl = "http://127.0.0.1:3080", fetchImpl = globalThis.fetch, options = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.fetch = fetchImpl;
     this.sessionStateCache = new Map();
+    this.historyCache = new Map();
+    this.historyCacheSessionLimit = positiveInteger(options.historyCacheSessionLimit, HISTORY_CACHE_SESSION_LIMIT);
+    this.historyCacheEventLimit = positiveInteger(options.historyCacheEventLimit, HISTORY_CACHE_EVENT_LIMIT);
+    this.historyCacheBytesLimit = positiveInteger(options.historyCacheBytesLimit, HISTORY_CACHE_BYTES_LIMIT);
     this.fullAccessSessions = new Set();
+    this.workspaceSnapshot = { items: [], archivedSessionIds: [] };
+  }
+
+  cachedHistory(sessionId) {
+    const key = String(sessionId || "");
+    const cached = this.historyCache.get(key) || null;
+    if (!cached) return null;
+    this.historyCache.delete(key); this.historyCache.set(key, cached);
+    return cached;
+  }
+
+  cacheHistory(sessionId, value) {
+    const key = String(sessionId || "");
+    this.historyCache.delete(key); this.historyCache.set(key, value);
+    while (this.historyCache.size > this.historyCacheSessionLimit) this.historyCache.delete(this.historyCache.keys().next().value);
   }
 
   async rpc(method, payload = {}, timeoutMs = 8000) {
@@ -312,14 +450,34 @@ class HarnessApi {
   }
 
   async dashboard() {
-    const [host, sessionsValue] = await Promise.all([
+    const [host, sessionsValue, workspaceResult] = await Promise.all([
       this.rpc("host.describe"),
       this.rpc("session.list"),
+      this.rpc("workspace.list", {}, 4000)
+        .then((value) => ({ value, degraded: false }))
+        .catch(() => ({ value: this.workspaceSnapshot, degraded: true })),
     ]);
-    const sessions = (sessionsValue.items || []).slice(0, 18);
-    const enriched = await Promise.all(sessions.map(async (session) => {
+    const workspaceDegraded = workspaceResult.degraded;
+    const workspaceValue = workspaceResult.value || this.workspaceSnapshot;
+    if (!workspaceDegraded) {
+      this.workspaceSnapshot = {
+        items: Array.isArray(workspaceValue?.items) ? workspaceValue.items : [],
+        archivedSessionIds: Array.isArray(workspaceValue?.archivedSessionIds) ? workspaceValue.archivedSessionIds : [],
+      };
+    }
+    const archivedSessionIds = Array.isArray(workspaceValue?.archivedSessionIds) ? workspaceValue.archivedSessionIds : [];
+    const archived = new Set(archivedSessionIds);
+    const workspaceBySessionId = new Map();
+    for (const workspace of Array.isArray(workspaceValue?.items) ? workspaceValue.items : []) {
+      for (const sessionId of Array.isArray(workspace?.sessionIds) ? workspace.sessionIds : []) {
+        if (!workspaceBySessionId.has(sessionId)) workspaceBySessionId.set(sessionId, workspace.workspaceId);
+      }
+    }
+    const sessions = (sessionsValue.items || []).filter((session) => session.origin !== "subagent" && !archived.has(session.sessionId));
+    const enriched = await Promise.all(sessions.map(async (session, index) => {
       const cachedState = this.sessionStateCache.get(session.sessionId);
-      const shouldReadState = session.running || !cachedState || cachedState.updatedAt !== session.updatedAt;
+      const shouldEnrich = Boolean(session.running || index < 18);
+      const shouldReadState = shouldEnrich && (!cachedState || cachedState.updatedAt !== session.updatedAt);
       // The subagent roster only changes with the session itself, so it is reused from
       // the cache exactly like history is. Refetching it for every session on every
       // 2.5s poll was one request per session per tick with nothing to show for it.
@@ -361,6 +519,7 @@ class HarnessApi {
       });
       return {
         ...session,
+        ...(workspaceBySessionId.has(session.sessionId) ? { workspaceId: workspaceBySessionId.get(session.sessionId) } : {}),
         running: effectiveRunning,
         title: titleFromSession(session),
         subagents,
@@ -370,12 +529,60 @@ class HarnessApi {
         preview,
       };
     }));
-    return { host, sessions: enriched };
+    return {
+      host,
+      sessions: enriched,
+      workspaces: Array.isArray(workspaceValue?.items) ? workspaceValue.items : [],
+      archivedSessionIds,
+      workspaceDegraded,
+    };
   }
 
   async history(sessionId) {
-    const value = await this.rpc("session.history", { sessionId, maxMessages: 80 });
-    return { messages: messagesFromHistory(value.events || []), activity: activityFromHistory(value.events || []) };
+    const key = String(sessionId || "");
+    const cachedHistory = this.cachedHistory(key);
+    const cached = cachedHistory?.events || [];
+    const cachedSequences = new Set(cached.map((entry) => entry?.event?.seq).filter(Number.isFinite));
+    const pages = [];
+    let page = await this.rpc("session.history", { sessionId, maxMessages: 80 });
+    const tailHasMore = Boolean(page.hasMore);
+    pages.push(boundedHistoryEntries(page.events || []));
+    let overlapsCache = pages[0].some((entry) => cachedSequences.has(entry?.event?.seq));
+    let beforeSeq = Infinity;
+    while (page.hasMore && (!cachedHistory?.complete || !overlapsCache)) {
+      const oldestSeq = Math.min(...pages.at(-1).map((entry) => entry?.event?.seq).filter(Number.isFinite));
+      if (!Number.isFinite(oldestSeq) || oldestSeq >= beforeSeq) throw new Error("Harness history pagination made no progress");
+      beforeSeq = oldestSeq;
+      page = await this.rpc("session.history", { sessionId, beforeSeq, maxMessages: 80 });
+      // The newest tail owns the preview budget; strip older pages before fetching more.
+      const events = boundedHistoryEntries(page.events || [], 0);
+      pages.push(events);
+      overlapsCache = events.some((entry) => cachedSequences.has(entry?.event?.seq));
+    }
+    const entries = tailHasMore
+      ? [...cached, ...pages.flat()]
+      : pages.flat();
+    const sequenced = new Map();
+    const unsequenced = [];
+    for (const entry of entries) {
+      const seq = entry?.event?.seq;
+      if (Number.isFinite(seq)) sequenced.set(seq, entry);
+      else unsequenced.push(entry);
+    }
+    const events = [...sequenced.entries()].sort(([left], [right]) => left - right).map(([, entry]) => entry).concat(unsequenced);
+    const boundedEvents = boundedHistoryEntries(events);
+    const revision = historyRevision(boundedEvents);
+    const cacheBound = boundedHistoryCacheEntries(boundedEvents, { maxEvents: this.historyCacheEventLimit, maxBytes: this.historyCacheBytesLimit });
+    const sourceComplete = !page.hasMore || Boolean(overlapsCache && cachedHistory?.complete);
+    const cache = { bytes: cacheBound.bytes, complete: sourceComplete && !cacheBound.truncated, eventCount: cacheBound.entries.length };
+    this.cacheHistory(key, { bytes: cache.bytes, complete: cache.complete, events: cacheBound.entries, revision });
+    return {
+      messages: messagesFromHistory(boundedEvents),
+      activity: activityFromHistory(boundedEvents),
+      revision,
+      unchanged: cachedHistory?.revision === revision,
+      cache,
+    };
   }
 
   async createSession(options = {}) {
@@ -385,7 +592,11 @@ class HarnessApi {
 
   async workspaces() {
     const value = await this.rpc("workspace.list", {});
-    return value.items || [];
+    this.workspaceSnapshot = {
+      items: Array.isArray(value?.items) ? value.items : [],
+      archivedSessionIds: Array.isArray(value?.archivedSessionIds) ? value.archivedSessionIds : [],
+    };
+    return this.workspaceSnapshot.items;
   }
 
   async createWorkspace(workspacePath) {
@@ -463,14 +674,18 @@ class HarnessApi {
   }
 
   forgetSession(sessionId) {
-    this.fullAccessSessions.delete(String(sessionId || ""));
-    this.sessionStateCache.delete(String(sessionId || ""));
+    const key = String(sessionId || "");
+    this.fullAccessSessions.delete(key);
+    this.sessionStateCache.delete(key);
+    this.historyCache.delete(key);
   }
 }
 
 module.exports = {
+  HISTORY_PREVIEW_BYTES_BUDGET,
   HarnessApi,
   activityFromHistory,
+  boundedHistoryEntries,
   messagesFromHistory,
   readableToolValue,
   reasoningFromBlocks,
@@ -479,4 +694,5 @@ module.exports = {
   titleFromSession,
   toolMessagesFromHistory,
   toolResultFromBlocks,
+  userContentFromBlocks,
 };

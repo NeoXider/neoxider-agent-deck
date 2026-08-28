@@ -10,7 +10,7 @@
     <title>NeoXider Agent Deck</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body class="mode-full">
+  <body class="mode-full pre-native-visible">
     <svg class="icon-defs" aria-hidden="true">
       <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M7 14v6"/><circle cx="7" cy="17" r="2"/><circle cx="16" cy="7" r="2"/></symbol>
       <symbol id="icon-dock" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/><path d="M19 4v16" opacity=".45"/></symbol>
@@ -90,7 +90,7 @@
             <button id="sessionButton" class="picker-button" type="button" aria-haspopup="listbox" aria-controls="sessionMenu" aria-expanded="false" title="Session">
               <svg class="ui-icon"><use href="#icon-session"/></svg><span id="sessionButtonText">New session</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
             </button>
-            <div id="sessionMenu" class="picker-menu" role="listbox"><div id="sessionOptions" class="picker-options"></div></div>
+            <div id="sessionMenu" class="picker-menu" role="dialog" aria-label="Sessions"><div id="sessionOptions" class="picker-options"></div></div>
           </div>
           <button id="newSessionButton" class="ghost-button icon-only" type="button" title="New session" aria-label="New session"><svg class="ui-icon"><use href="#icon-plus"/></svg></button>
           <button id="openSessionButton" class="ghost-button icon-only harness-button" type="button" title="Open current session in DeepSeek Harness" aria-label="Open current session in DeepSeek Harness" disabled><img src="assets/deepseek.svg" alt="" /></button>
@@ -142,8 +142,10 @@
           </summary>
           <div id="activityBody" class="activity-body"></div>
         </details>
-        <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions"><div class="empty-state">Select a session or start a new one.</div></div>
-        <button id="scrollLatestButton" class="scroll-latest no-drag" type="button" title="Jump to latest message" aria-label="Jump to latest message" hidden><svg class="ui-icon"><use href="#icon-down"/></svg><span id="scrollLatestCount">New</span></button>
+        <div class="messages-wrap">
+          <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions"><div class="empty-state">Select a session or start a new one.</div></div>
+          <button id="scrollLatestButton" class="scroll-latest no-drag" type="button" title="Jump to latest message" aria-label="Jump to latest message" hidden><svg class="ui-icon"><use href="#icon-down"/></svg><span id="scrollLatestCount">New</span></button>
+        </div>
 
         <section id="todoDock" class="todo-dock no-drag" aria-label="Current plan" hidden>
           <button id="todoToggle" class="todo-toggle" type="button" aria-expanded="false" aria-controls="todoList" title="Show current plan">
@@ -192,6 +194,7 @@
         <label class="autostart-setting"><span><span id="autoStartLabel">Start at login</span><small id="autoStartStatus" role="status" aria-live="polite">Checking…</small></span><input id="autoStartToggle" type="checkbox" disabled /></label>
         <label id="opacitySetting" class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /><small id="opacityStatus" class="setting-hint" role="status" hidden></small></label>
         <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>
+        <label class="toggle-setting"><span><span>Show live Think</span><small>Compact one-line reasoning status</small></span><input id="showThinkingToggle" type="checkbox" checked /></label>
         <div class="setting-block"><span>Size</span><div id="sizeSwitch" class="size-switch" role="group" aria-label="Widget size"><button data-size="compact" type="button" aria-pressed="false">S</button><button data-size="standard" type="button" aria-pressed="true">M</button><button data-size="large" type="button" aria-pressed="false">L</button></div></div>
         <div id="updateSettings" class="update-settings setting-block">
           <div class="update-heading"><span><b>Updates</b><small id="updateVersion">Current version</small></span><span id="updateBadge" class="update-badge" hidden>New</span></div>
@@ -245,6 +248,8 @@
     </button>
 
     <script src="compact-sessions.js"></script>
+    <script src="session-groups.js"></script>
+    <script src="clipboard-attachments.js"></script>
     <script src="platform-presentation.js"></script>
     <script src="app.js"></script>
   </body>
