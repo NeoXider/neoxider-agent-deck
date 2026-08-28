@@ -8,31 +8,37 @@ const output = path.join(root, "tmp", "ui-smoke");
 
 const cases = [
   { name: "overview", fixture: "overview", expect: { agentWorking: 1, agentIdle: 1, agentError: 1 } },
+  { name: "overview-360", fixture: "overview", width: 420, height: 360, expect: { agentWorking: 1, agentIdle: 1, agentError: 1, titlebarOverlap: false } },
   { name: "offline", tab: "chat", fixture: "offline", expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", contextUnavailable: true }, min: { composerTextareaWidth: 220, startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
   { name: "empty-chat", tab: "chat", fixture: "empty-chat", width: 380, height: 400, expect: { contextUnavailable: true, contextValue: "0%", contextVisible: true, conversationBubbles: 0, titlebarOverlap: false } },
   { name: "offline-agents", tab: "agents", fixture: "offline-agents", expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", offlineSessionText: "Start Harness to load sessions." }, min: { startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
   { name: "focus-offline", tab: "chat", fixture: "focus-offline", width: 360, height: 500, expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", focusMode: false }, min: { startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
-  { name: "chat", tab: "chat", fixture: "chat", expect: { composerRestingHeight: 50, historicalReasoning: 0, markdownLists: 1, footer: 0, titlebarTabs: 1, titlebarOverlap: false, setupInToolbar: true, brandUserSelect: "none", composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 18, sendWidth: 38, sendHeight: 38, contextCenterDelta: 0 } },
+  { name: "chat", tab: "chat", fixture: "chat", expect: { composerRestingHeight: 58, historicalReasoning: 0, markdownLists: 1, footer: 0, titlebarTabs: 1, titlebarOverlap: false, setupInToolbar: true, brandUserSelect: "none", titlebarNativeDragDisabled: true, avatarHitWidth: 44, avatarHitHeight: 44, avatarPlateTransparent: true, avatarAuraCircular: true, avatarAuraContained: true, avatarAuraRadial: true, composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 18, sendWidth: 38, sendHeight: 38, contextCenterDelta: 0 } },
   { name: "focus-chat", tab: "chat", fixture: "focus-chat", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, historicalReasoning: 0, composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 18, sendWidth: 36, sendHeight: 36, contextCenterDelta: 0 } },
   { name: "commands", tab: "chat", fixture: "commands", expect: { commandRows: 6, commandAboveComposer: true, commandFitsWidth: true }, layout: { commandVisibleRows: 4 } },
+  { name: "commands-360", tab: "chat", fixture: "commands", width: 360, height: 360, expect: { commandRows: 6, firstFourCommands: "/goal,/compact,/plan,/permission", commandAboveComposer: true, commandFitsWidth: true, titlebarOverlap: false }, layout: { commandVisibleRows: 4 } },
   { name: "focus-commands", tab: "chat", fixture: "focus-commands", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, commandRows: 6, commandAboveComposer: true, commandFitsWidth: true }, layout: { commandVisibleRows: 3 } },
+  { name: "todo-360", tab: "chat", fixture: "todo", width: 360, height: 360, expect: { todoRows: 3, todoExpanded: true, todoAboveComposer: true, conversationBubbles: 1, shortMessageVisible: true, titlebarOverlap: false } },
+  { name: "goal-result-360", tab: "chat", fixture: "goal-result", width: 360, height: 360, expect: { goalResultCards: 1, conversationBubbles: 2, titlebarOverlap: false } },
   { name: "queued-message", tab: "chat", fixture: "queued-message", width: 360, height: 500, expect: { queueRows: 2, queueActions: 6, queueSingleLine: true, queueAboveComposer: true } },
   { name: "live-stream", tab: "chat", fixture: "live-stream", width: 360, height: 500, expect: { liveBubbles: 1, historicalReasoning: 0 } },
   { name: "scroll-away", tab: "chat", fixture: "scroll-away", width: 360, height: 500, expect: { scrollLatestVisible: true } },
   { name: "glow-settings", tab: "chat", fixture: "glow-settings", expect: { glowControl: 1, glowIntensity: "0.82", windowLayerOptions: 3, autoStartHydrated: true } },
-  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.1 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, updateProgress: "100" } },
+  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.1 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
+  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.6.1 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
   { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.1 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
   { name: "hotkey-settings", tab: "chat", fixture: "hotkey-settings", width: 420, height: 640, expect: { settingsOpen: true, hotkeySettingsOpen: true, hotkeyRows: 8 } },
   { name: "capture-menu", tab: "chat", fixture: "capture-menu", expect: { captureMenuOpen: true, captureRows: 2 } },
   { name: "model", tab: "chat", fixture: "model", expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B" }, layout: { modelVisibleRows: 6 } },
-  { name: "model-360", tab: "chat", fixture: "model", width: 360, height: 360, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false }, layout: { modelVisibleRows: 1 } },
-  { name: "model-380", tab: "chat", fixture: "model", width: 380, height: 400, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false }, layout: { modelVisibleRows: 2 } },
+  { name: "model-360", tab: "chat", fixture: "model", width: 360, height: 360, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false, compactModelOverlay: true, selectedModelVisible: true, modelComposerUnobscured: true }, min: { visibleModelRows: 3 }, layout: { compactModelVisibleRows: 6 } },
+  { name: "model-380", tab: "chat", fixture: "model", width: 380, height: 400, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false, compactModelOverlay: true, selectedModelVisible: true, modelComposerUnobscured: true }, min: { visibleModelRows: 3 }, layout: { compactModelVisibleRows: 6 } },
   { name: "model-closed", tab: "chat", fixture: "model-closed", expect: { closedModelLabel: "Qwen 3.5 9B", closedModelVisible: true, closedModelUnclipped: true } },
   { name: "compact-model-closed", tab: "chat", fixture: "model-closed", width: 360, height: 500, expect: { closedModelLabel: "Qwen 3.5 9B", closedModelVisible: true, closedModelUnclipped: true } },
   { name: "model-empty", tab: "chat", fixture: "model-empty", expect: { modelControlLabel: "MODEL", modelControlText: "No models loaded", modelPickerActions: 2 } },
   { name: "model-error", tab: "chat", fixture: "model-error", expect: { modelSetupCards: 1, modelSetupActions: 2, closedModelLabel: "No model", closedModelVisible: true } },
-  { name: "attachments", tab: "chat", fixture: "attachments", expect: { attachmentChips: 2, attachmentImages: 2, attachmentsAboveComposer: true, composerUtilitiesStacked: true } },
-  { name: "compact-attachments", tab: "chat", fixture: "attachments", width: 360, height: 500, expect: { attachmentChips: 2, attachmentImages: 2, attachmentsAboveComposer: true, composerUtilitiesStacked: true } },
+  { name: "attachments", tab: "chat", fixture: "attachments", expect: { attachmentChips: 3, attachmentImages: 2, attachmentVideoThumbnails: 1, attachmentFallbackIcons: 1, attachmentRemoveActions: 3, attachmentAccessibleGroups: 3, attachmentHorizontalScroll: true, attachmentListWithinBar: true, attachmentsAboveComposer: true, composerUtilitiesStacked: true }, min: { attachmentPreviewMinWidth: 44, attachmentPreviewMinHeight: 40 }, max: { attachmentBarHeight: 56 } },
+  { name: "compact-attachments", tab: "chat", fixture: "attachments", width: 360, height: 500, expect: { attachmentChips: 3, attachmentImages: 2, attachmentVideoThumbnails: 1, attachmentFallbackIcons: 1, attachmentRemoveActions: 3, attachmentAccessibleGroups: 3, attachmentHorizontalScroll: true, attachmentListWithinBar: true, attachmentsAboveComposer: true, composerUtilitiesStacked: true }, min: { attachmentPreviewMinWidth: 44, attachmentPreviewMinHeight: 40 }, max: { attachmentBarHeight: 56 } },
+  { name: "attachments-360", tab: "chat", fixture: "attachments", width: 360, height: 360, expect: { attachmentChips: 3, attachmentImages: 2, attachmentVideoThumbnails: 1, attachmentFallbackIcons: 1, attachmentRemoveActions: 3, attachmentAccessibleGroups: 3, attachmentHorizontalScroll: true, attachmentListWithinBar: true, attachmentsAboveComposer: true, composerUtilitiesStacked: true, titlebarOverlap: false }, min: { attachmentPreviewMinWidth: 44, attachmentPreviewMinHeight: 40, attachmentMessageSpace: 100 }, max: { attachmentBarHeight: 56 } },
   { name: "markdown-tools", tab: "chat", fixture: "markdown-tools", expect: { toolGroups: 1, toolCalls: 2, historicalReasoning: 0 } },
   { name: "thinking-chat", tab: "chat", fixture: "thinking" },
   { name: "writing-chat", tab: "chat", fixture: "writing", expect: { liveBubbles: 1, liveCaretDisplay: "inline-block" } },
@@ -40,11 +46,12 @@ const cases = [
   { name: "completion-chat", tab: "chat", fixture: "completion-chat", expect: { completionCelebration: true, fullSuccessGlowVisible: true } },
   { name: "compact-chat", tab: "chat", fixture: "chat", width: 360, height: 500, expect: { historicalReasoning: 0, footer: 0, titlebarTabs: 1, setupInToolbar: true, composerUtilitiesStacked: true, contextRingSize: 18, sendWidth: 36, sendHeight: 36 } },
   { name: "compact-tools", tab: "chat", fixture: "markdown-tools", width: 360, height: 500, expect: { toolGroups: 1, toolCalls: 2 } },
-  { name: "composer-single-line", tab: "chat", fixture: "composer-single-line", width: 380, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 38, composerInputScrollable: false, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 60 } },
+  { name: "mixed-tools-360", tab: "chat", fixture: "mixed-tools", width: 360, height: 360, expect: { toolGroups: 1, toolCalls: 2, partialToolGroups: 1, conversationBubbles: 1, titlebarOverlap: false } },
+  { name: "composer-single-line", tab: "chat", fixture: "composer-single-line", width: 380, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 46, composerInputScrollable: false, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 60 } },
   { name: "composer-multiline-max", tab: "chat", fixture: "composer-multiline", width: 380, height: 400, expect: { composerInputScrollable: true, conversationBubbles: 1, shortMessageVisible: true }, layout: { composerFullLines: 8 } },
-  { name: "small-chat-400", tab: "chat", fixture: "small-chat", width: 400, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 38, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 60 } },
-  { name: "small-chat-380", tab: "chat", fixture: "small-chat", width: 380, height: 380, expect: { composerInputHeight: 34, composerUtilityHeight: 38, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 60 } },
-  { name: "small-chat-360", tab: "chat", fixture: "small-chat", width: 360, height: 360, expect: { composerInputHeight: 34, composerUtilityHeight: 38, conversationBubbles: 1, shortMessageVisible: true, titlebarOverlap: false }, max: { composerHeight: 60 } },
+  { name: "small-chat-400", tab: "chat", fixture: "small-chat", width: 400, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 46, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 60 } },
+  { name: "small-chat-380", tab: "chat", fixture: "small-chat", width: 380, height: 380, expect: { composerInputHeight: 34, composerUtilityHeight: 46, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 60 } },
+  { name: "small-chat-360", tab: "chat", fixture: "small-chat", width: 360, height: 360, expect: { composerInputHeight: 34, composerUtilityHeight: 46, conversationBubbles: 1, shortMessageVisible: true, titlebarOverlap: false, titlebarNativeDragDisabled: true, avatarHitWidth: 38, avatarHitHeight: 38, avatarPlateTransparent: true, avatarAuraCircular: true, avatarAuraContained: true, avatarAuraRadial: true }, max: { composerHeight: 60 } },
   { name: "thinking-orb", tab: "chat", fixture: "thinking", mode: "orb", expect: { orbUtilityButtons: 1 } },
   { name: "notification-orb", tab: "chat", fixture: "orb-notification", mode: "orb", expect: { orbUtilityButtons: 1, orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
   { name: "notification-orb-black", tab: "chat", fixture: "orb-notification", mode: "orb", backdrop: "black", expect: { orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
@@ -120,6 +127,13 @@ function findBox(audit, selector) {
 }
 
 function assertSnappedLayout(testCase, audit) {
+  if (testCase.layout?.compactModelVisibleRows) {
+    const menu = findBox(audit, ".picker.open .picker-menu");
+    const composer = findBox(audit, ".composer");
+    const expectedHeight = 47 + testCase.layout.compactModelVisibleRows * 30;
+    if (!menu || Math.abs(menu.height - expectedHeight) > 1) throw new Error(`${testCase.name} expected a ${expectedHeight}px compact model sheet, got ${JSON.stringify(menu)}`);
+    if (!composer || menu.bottom > composer.top - 1) throw new Error(`${testCase.name} compact model sheet overlaps the composer: ${JSON.stringify({ menu, composer })}`);
+  }
   if (testCase.layout?.composerFullLines) {
     const expectedHeight = testCase.layout.composerFullLines * 15;
     if (Math.abs(audit.semantic.composerInputHeight - expectedHeight) > 1) {
@@ -128,7 +142,8 @@ function assertSnappedLayout(testCase, audit) {
   }
   if (testCase.layout?.commandVisibleRows) {
     const menu = findBox(audit, ".command-menu.open");
-    const expectedHeight = 46 + testCase.layout.commandVisibleRows * 44;
+    const compactViewport = audit.viewport.height <= 420;
+    const expectedHeight = (compactViewport ? 36 : 46) + testCase.layout.commandVisibleRows * (compactViewport ? 34 : 44);
     if (!menu || Math.abs(menu.height - expectedHeight) > 1) {
       throw new Error(`${testCase.name} expected a ${expectedHeight}px command menu ending on ${testCase.layout.commandVisibleRows} full rows, got ${JSON.stringify(menu)}`);
     }

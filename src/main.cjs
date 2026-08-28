@@ -27,8 +27,8 @@ const { renderMarkdown } = require("./markdown.cjs");
 const { createAttachmentReader, MAX_IMAGE_BYTES } = require("./attachments.cjs");
 const { createBase64Encoder } = require("./base64-encoder.cjs");
 const { createExternalLinkOpener, parseExternalUrl } = require("./external-links.cjs");
-const { queueItemView } = require("./queue-view.cjs");
 const { createMuxClient } = require("./mux-client.cjs");
+const { createStreamPublisher } = require("./stream-publisher.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
 const { configureProductUserData } = require("./user-data-migration.cjs");
 const { moveCompactBounds, snapCompactBounds } = require("./window-geometry.cjs");
@@ -113,7 +113,7 @@ function cleanupApplication() {
   rendererRecovery?.dispose();
   gameBarController?.dispose();
   if (windowRef && !windowRef.isDestroyed()) captureWindowBounds(windowMode, windowRef.getBounds());
-  if (settingsStore) savePreferences();
+  if (settingsStore) savePreferences({ retryOnFailure: false });
   muxClient.stop();
   gameLayerKeeper?.stop();
   edgeHitTracker?.stop();
@@ -154,18 +154,18 @@ function loadPreferences() {
 // Settings live in AppData, where a virus scanner or sync client can hold the file
 // for a moment. A transient EPERM must never reach the top level: an exception from
 // the save timer would be an uncaught exception in main and Electron would kill the app.
-function writePreferences() {
+function writePreferences(options) {
   try {
-    preferences = settingsStore.save(preferences);
+    preferences = settingsStore.save(preferences, options);
   } catch (error) {
-    console.error("Failed to persist preferences", error);
+    console.error("Failed to persist preferences", error, settingsStore.getStatus());
   }
 }
 
-function savePreferences() {
+function savePreferences(options) {
   clearTimeout(preferenceSaveTimer);
   preferenceSaveTimer = null;
-  writePreferences();
+  writePreferences(options);
 }
 function schedulePreferenceSave() {
   clearTimeout(preferenceSaveTimer);
@@ -303,38 +303,7 @@ async function cleanupSentCaptureFiles(attachments) {
     }
   }));
 }
-
-function publishQueue(sessionId, items) {
-  const safeItems = (Array.isArray(items) ? items : []).map(queueItemView).filter((item) => item.id && item.placement === "queued");
-  if (safeItems.length) queueSnapshots.set(sessionId, safeItems);
-  else queueSnapshots.delete(sessionId);
-  sendToRenderer("queue-update", { sessionId, items: safeItems });
-}
-
-function publishLiveEvent(frame) {
-  if (!windowRef || windowRef.isDestroyed() || !frame?.sessionId || !frame?.event) return;
-  const event = frame.event;
-  let data = {};
-  if (event.type === "assistant/chunk") {
-    const chunk = event.data?.chunk || {};
-    data = { chunk: {
-      type: String(chunk.type || ""),
-      index: Number(chunk.index) || 0,
-      blockType: String(chunk.blockType || chunk.block?.type || ""),
-      text: typeof chunk.text === "string" ? chunk.text : "",
-      name: typeof chunk.name === "string" ? chunk.name : "",
-    } };
-  } else if (event.type === "tool/call") {
-    data = { name: String(event.data?.name || "tool"), callId: String(event.data?.callId || "") };
-  } else if (event.type === "tool/result") {
-    data = { callId: String(event.data?.callId || event.data?.toolCallId || "") };
-  } else if (event.type === "turn/end") {
-    data = { reason: { kind: String(event.data?.reason?.kind || "stop") } };
-  } else if (!["turn/start", "assistant/message"].includes(event.type)) {
-    return;
-  }
-  sendToRenderer("live-event", { sessionId: frame.sessionId, event: { type: event.type, seq: event.seq, data } });
-}
+const { publishLiveEvent, publishQueue } = createStreamPublisher({ queueSnapshots, send: sendToRenderer });
 
 // Reconnect and silence handling live in mux-client.cjs: that logic only becomes
 // testable once the socket and the clock are injected, and an untested version of it
@@ -393,11 +362,11 @@ function applyEdgePointerHit(active = false) {
   else windowRef.setIgnoreMouseEvents(false);
 }
 
-function moveWindowWithinNearestDisplay(bounds, candidate) {
+function moveWindowWithinNearestDisplay(bounds, candidate, preserveSize = false) {
   if (!PLATFORM_CAPABILITIES.programmaticPosition) return bounds;
   const display = screen.getDisplayNearestPoint({ x: Math.round(candidate.x), y: Math.round(candidate.y) }).workArea;
   const moved = moveCompactBounds(bounds, candidate, display);
-  windowRef.setPosition(moved.x, moved.y, false);
+  if (preserveSize) setPlatformBounds(windowRef, moved, false, PLATFORM_CAPABILITIES); else windowRef.setPosition(moved.x, moved.y, false);
   return moved;
 }
 
@@ -594,12 +563,12 @@ function createWindow() {
     quitCoordinator.handleWindowClose(event, () => applyWindowMode("edge"));
   });
   windowRef.on("resize", () => {
-    if (windowMode !== "full") return;
+    if (windowMode !== "full" || fullDragOrigin) return;
     captureFullBounds();
     schedulePreferenceSave();
   });
   windowRef.on("move", () => {
-    if (windowMode !== "full") return;
+    if (windowMode !== "full" || fullDragOrigin) return;
     captureFullBounds();
     schedulePreferenceSave();
   });

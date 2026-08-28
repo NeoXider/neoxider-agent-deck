@@ -126,6 +126,73 @@ test("the real window is accepted", async () => {
   assert.equal(info.version, "0.0.0-test");
 });
 
+test("slash command IPC forwards image payloads through the widget command boundary", async () => {
+  const calls = [];
+  const api = {
+    executeWidgetCommand: async (...args) => {
+      calls.push(args);
+      return { result: { kind: "success", text: "done" } };
+    },
+  };
+  const { ipcMain, window } = register({ api });
+  const event = { sender: window.webContents, senderFrame: { parent: null } };
+  const images = [{ mediaType: "image/png", data: "AA==", name: "slash.png" }];
+
+  const result = await ipcMain.invoke("execute-command", event, {
+    sessionId: "session-command",
+    line: "/goal inspect this screenshot",
+    images,
+  });
+  await ipcMain.invoke("execute-command", event, {
+    sessionId: "session-command",
+    line: "/goal no images",
+    images: { not: "an array" },
+  });
+
+  assert.deepEqual(result, { result: { kind: "success", text: "done" } });
+  assert.deepEqual(calls, [
+    ["session-command", "/goal inspect this screenshot", images],
+    ["session-command", "/goal no images", []],
+  ]);
+});
+
+test("full drag preserves both origin dimensions when native bounds drift", async () => {
+  let dragOrigin = null;
+  let nativeBounds = { x: 310, y: 270, width: 420, height: 640 };
+  const fullBounds = [];
+  const capturedBounds = [];
+  const moveCalls = [];
+  const { ipcMain, window } = register({
+    getWindow: () => ({
+      ...window,
+      getBounds: () => nativeBounds,
+    }),
+    getFullDragOrigin: () => dragOrigin,
+    setFullDragOrigin: (value) => { dragOrigin = value; },
+    setFullBounds: (value) => fullBounds.push(value),
+    captureWindowBounds: (...args) => capturedBounds.push(args),
+    moveWithinNearestDisplay: (...args) => {
+      moveCalls.push(args);
+      return { ...args[1], width: 999, height: 1000 };
+    },
+  });
+  const event = { sender: window.webContents, senderFrame: { parent: null } };
+
+  ipcMain.emit("begin-full-drag", event, { x: 100, y: 120 });
+  assert.deepEqual(dragOrigin.bounds, nativeBounds);
+
+  nativeBounds = { x: 335, y: 305, width: 777, height: 888 };
+  ipcMain.emit("move-full-drag", event, { x: 125, y: 155 });
+  assert.equal(moveCalls.at(-1)[2], true);
+  assert.deepEqual(fullBounds.at(-1), { x: 335, y: 305, width: 420, height: 640 });
+  assert.deepEqual(dragOrigin.latestBounds, { x: 335, y: 305, width: 420, height: 640 });
+
+  const ended = await ipcMain.invoke("end-full-drag", event);
+  assert.deepEqual(ended, { x: 335, y: 305, width: 420, height: 640 });
+  assert.deepEqual(capturedBounds.at(-1), ["full", ended, "right"]);
+  assert.equal(dragOrigin, null);
+});
+
 test("a destroyed window is not a trusted sender", async () => {
   const window = fakeWindow();
   let destroyed = false;

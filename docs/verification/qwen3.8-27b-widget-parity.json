@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "audit": "round4-qwen27-widget-history-parity",
+  "baseUrl": "http://127.0.0.1:3080",
+  "sessionId": "session-21277b21-13bc-4add-a62d-cc678547cf6a",
+  "provider": "lmstudio",
+  "model": "qwen3.8-27b-unleashed",
+  "selectedModel": {
+    "provider": "lmstudio",
+    "model": "qwen3.8-27b-unleashed"
+  },
+  "permission": {
+    "preset": "danger-full-access",
+    "commandResult": "preset danger-full-access"
+  },
+  "turn": {
+    "startSeq": 7,
+    "endSeq": 1896,
+    "startedAtMs": 1787873239008,
+    "endedAtMs": 1787873549673,
+    "durationMs": 310665,
+    "reason": "completed",
+    "runningAfterTurn": false
+  },
+  "eventTypes": [
+    "permission/preset",
+    "sandbox/mode",
+    "approval/policy",
+    "session/title",
+    "command/run",
+    "command/done",
+    "agent/inbox/spliced",
+    "turn/start",
+    "step/start",
+    "user/message",
+    "request/header",
+    "request/context",
+    "assistant/chunk",
+    "assistant/message",
+    "tool/call",
+    "todo/write",
+    "tool/result",
+    "step/end",
+    "turn/end"
+  ],
+  "eventTypeCounts": {
+    "permission/preset": 1,
+    "sandbox/mode": 1,
+    "approval/policy": 1,
+    "session/title": 1,
+    "command/run": 1,
+    "command/done": 1,
+    "agent/inbox/spliced": 2,
+    "turn/start": 1,
+    "step/start": 2,
+    "user/message": 3,
+    "request/header": 1,
+    "request/context": 1,
+    "assistant/chunk": 1869,
+    "assistant/message": 2,
+    "tool/call": 3,
+    "todo/write": 1,
+    "tool/result": 3,
+    "step/end": 2,
+    "turn/end": 1
+  },
+  "stream": {
+    "reasoningDeltaCount": 1626,
+    "reasoningChars": 6355,
+    "textDeltaCount": 221,
+    "textChars": 812,
+    "finalActivity": null
+  },
+  "todos": [
+    {
+      "content": "Подготовить план безопасной UI-проверки NeoXider Agent Deck",
+      "status": "completed"
+    },
+    {
+      "content": "Осмотреть рабочее пространство (glob/grep) без записи",
+      "status": "in_progress"
+    },
+    {
+      "content": "Свести результаты проверки в финальный ответ",
+      "status": "pending"
+    }
+  ],
+  "tools": [
+    {
+      "name": "todo_write",
+      "status": "done",
+      "isError": false,
+      "durationMs": 13
+    },
+    {
+      "name": "glob",
+      "status": "done",
+      "isError": false,
+      "durationMs": 3358
+    },
+    {
+      "name": "grep",
+      "status": "done",
+      "isError": false,
+      "durationMs": 86
+    }
+  ],
+  "widgetTransform": {
+    "assistantText": "## UI-проверка NeoXider Agent Deck (только чтение)\n\nБезопасная проверка выполнена: файлы не создавались, не редактировались и не удалялись, внешние команды не запускались — использованы только встроенные инструменты чтения.\n\n- План создан ровно один раз из трёх пунктов со статусами `completed`, `in_progress` и `pending`.\n- Инструмент glob вызван ровно один раз с шаблоном `*`: возвращено 100 из 29423 путей (преимущественно содержимое `node_modules`), полный список сохранён во временный файл.\n- Поиск по содержимому файлов (`NeoXider`) совпадений не дал: имя виджета в файлах рабочего пространства пока не упоминается, поэтому UI-компонент «NeoXider Agent Deck» в чек-ауте DSH не обнаружен — проверка прошла без ошибок и без изменений.\n\n```javascript\nconst widget = \"NeoXider Agent Deck\";\n```\n\nNEOXIDER_27B_OK",
+    "htmlEvidence": {
+      "h2": true,
+      "unorderedListItems": 3,
+      "highlightedJavascriptBlock": true,
+      "semanticToken": "NEOXIDER_27B_OK"
+    },
+    "completedReasoningOmittedFromTranscript": true,
+    "completedActivity": null
+  },
+  "semantic": {
+    "stopped": true,
+    "token": true,
+    "russian": true,
+    "markdownHeading": true,
+    "markdownList": true,
+    "markdownCode": true,
+    "reasoningStream": true,
+    "answerStream": true,
+    "todoWrite": true,
+    "toolActivity": true,
+    "noToolErrors": true,
+    "turnEnded": true
+  },
+  "defects": [],
+  "verdict": "PASS"
+}

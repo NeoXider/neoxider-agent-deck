@@ -22,8 +22,8 @@ Coupling business logic to Electron APIs is what makes it untestable and unreusa
 | Rule | Us | Note |
 |---|---|---|
 | Domain modules free of Electron imports | **Met** | Only `main.cjs` and `preload.cjs` import Electron; every other module takes its dependencies as parameters. Enforced by `test/architecture.test.cjs`. |
-| Main process is a thin orchestrator | **Partially met** | 45 IPC handlers still live inline in `main.cjs` (1007 lines). The extraction is identified and unstarted. |
-| No CPU-bound work on the main process | **Not met** | Attachment reads are async, but base64 encoding of up to twelve 8 MB files still runs on the main thread, as does PNG thumbnail encoding. |
+| Main process is a thin orchestrator | **Partially met** | IPC registration and live stream/queue publication are extracted into injected, independently tested modules; `main.cjs` is now 787 lines against an enforced 820-line ceiling and a 400-line goal. Window lifecycle and composition still need further separation. |
+| No CPU-bound work on the main process | **Partially met** | `base64-encoder.cjs` provides a lazy, bounded worker-thread pool and a tested fallback. Benchmarks currently keep inline encoding as the default because it produced less blocking on the measured machine; `DSH_WIDGET_B64_STRATEGY=worker` enables the pool. PNG thumbnail encoding still runs on main, and the larger measured stalls are now full-payload IPC transfer and Harness JSON serialisation. |
 | Lazy-load expensive modules | Not assessed | Startup has not been profiled. Electron's guidance is to measure before optimising, so this stays open rather than guessed at. |
 
 ---
@@ -48,8 +48,8 @@ message**, a preference for custom protocols over `file://`, and reviewing fuses
 | `shell.openExternal` on trusted input only | **Met** | Every URL is re-parsed and protocol-checked against `http`/`https`/`mailto`. |
 | Current Electron | **Met** | Electron 44. |
 | Renderer cannot render executable markup | **Met** | `markdown.cjs` disables raw HTML and allows three schemes. Asserted. |
-| **`setPermissionRequestHandler`** | **Not met** | No handler registered. We load no remote content and CSP is `default-src 'none'`, so practical risk is low — but the checklist's position is deny-by-default, and a deny-all handler is a few lines. |
-| **Validate the sender of every IPC message** | **Not met** | 6 of 45 handlers check the sender. Electron's wording is that sender validation *should be the default*. One window and no remote content make this hard to exploit today; it is still the largest single gap. |
+| **`setPermissionRequestHandler`** | **Met** | `ipc-handlers.cjs` installs deny-all request and check handlers on the renderer's default session. The policy and the missing-session case are covered by `test/ipc-handlers.test.cjs`. |
+| **Validate the sender of every IPC message** | **Met** | All invoke and fire-and-forget channels are registered through shared guarded wrappers. They accept only the current widget window's live top frame; the complete registered surface is exercised against a foreign sender by `test/ipc-handlers.test.cjs`. |
 | **Fuses reviewed** | **Met** | `scripts/electron-fuses.cjs` runs as electron-builder's `afterPack` hook and burns `RunAsNode`, `EnableNodeOptionsEnvironmentVariable` and `EnableNodeCliInspectArguments` off, `OnlyLoadAppFromAsar` on, and asar integrity validation on wherever the platform implements it. Asserted by `test/fuses.test.cjs`; verified by building the portable `.exe` and launching it. |
 | Prefer a custom protocol over `file://` | **Not met** | The renderer is loaded with `loadFile`. Lower priority: the strict CSP removes most of what this protects against. |
 
@@ -72,16 +72,54 @@ actions instead.
 
 ---
 
-## 4. What this changes about how we work
+## 4. Current renderer risks
+
+These are present in the current implementation, not hypothetical consequences of the
+target architecture.
+
+| Risk | Current evidence | Target |
+|---|---|---|
+| Full attachment data crosses the process boundary twice | Image preparation returns full-resolution base64 from main to renderer. The renderer retains it for the preview and sends it back to main with the prompt. Twelve allowed 8 MiB images produce about 128 MiB of base64, or about 256 MiB of structured-clone traffic before the payload is JSON-serialised for Harness. The repository benchmark records roughly 80 ms for the full-payload Electron transfer and another roughly 80 ms for Harness JSON serialisation on the measured machine. | Keep original bytes in main behind opaque attachment ids. Send only bounded thumbnails and metadata to renderer; resolve, revalidate and encode ids in main when the prompt is sent. |
+
+Two former renderer risks are now closed. Live deltas are accumulated per session and
+coalesced behind one animation-frame paint; the paint patches only the live assistant
+bubble, while compact-status IPC and nearby DOM updates are signature-deduplicated.
+Harness queue snapshots now carry a main-process monotonic revision. The renderer rejects
+older snapshots and adds an optimistic row only when no newer authoritative snapshot won
+the pending-send race. The physical input regression covers the snapshot-before-send
+ordering, duplicate-looking independent queue items, steering, and bounded stream paints.
+
+### Target renderer split
+
+Keep the existing preload contract and avoid a framework rewrite. `app.js` should become a
+small composition/bootstrap module, with ownership split along the state transitions that
+already exist:
+
+- `chat-stream`: history rendering, live-delta coalescing, activity and scroll ownership;
+- `queue`: authoritative snapshots, optimistic reconciliation and queue actions;
+- `attachments`: thumbnail chips and opaque attachment handles only;
+- `session-controls`: sessions, models, commands and workspaces, including request epochs;
+- `compact-view`: avatar/edge presentation, notifications, drag and mode transitions;
+- `preferences-view`: settings, hotkeys, update state and persistence feedback.
+
+Pure transition helpers should be testable without Electron or a DOM. Each view module
+should own one render scheduler instead of mutating the shared state and immediately
+calling several neighbouring render paths. This is an incremental extraction target, not
+permission to change the bridge or redesign the product.
+
+---
+
+## 5. What this changes about how we work
 
 **Sender validation is a default, not a feature.** All web frames can in theory send IPC to
-main. The correct shape is one shared guard applied at registration, so a new handler is
-validated because of how it is registered — not because someone remembered.
+main. This is now enforced by the shared `handle` and `on` wrappers in
+`ipc-handlers.cjs`: a new handler is validated because of how it is registered, not
+because someone remembered.
 
 **Retrofitting security costs more than building it in.** That is the argument for closing
-the permission-handler gap now, while it is a handful of lines, rather than after
-something depends on the current behaviour. The fuses gap was closed exactly on that
-reasoning, and it stayed small: one build hook and a test.
+small gaps before something depends on the current behaviour. Sender validation and the
+deny-all permission policy stayed small because they were centralised alongside the IPC
+extraction; the fuse policy followed the same pattern with one build hook and a test.
 
 **A protection nothing exercises is a claim, not a control.** The fuse policy is asserted
 by a unit test *and* checked against a real packaged build, because the values are
@@ -96,23 +134,33 @@ not been profiled, so this document claims nothing about it.
 
 ---
 
-## 5. Prioritised gaps
+## 6. Prioritised gaps
 
-1. **Centralised IPC sender validation.** 39 unguarded handlers, an explicit checklist
-   item, cheap to fix once at the registration point. Pairs naturally with extracting the
-   handlers out of `main.cjs`, which is separately overdue.
-2. **Deny-all permission handler.** A few lines, and it removes a class of future mistakes.
-3. **Move base64 and thumbnail encoding off the main thread.** The measured symptom was a
-   frozen window on large attachments; async I/O fixed part of it, encoding is what is left.
-4. **Extract the IPC handlers from `main.cjs`.** 233 lines closing over 40 identifiers, 16
-   of them mutable module state that needs accessors rather than snapshots — the same trap
-   the screenshot harness hit. Blocked only by needing the file free.
-5. **Custom protocol instead of `file://`.** Real, but the strict CSP already covers most
+1. **Split the renderer monolith.** `src/renderer/app.js` is about 4,000 lines and is not covered
+   by the root-`.cjs` module-size ratchet. Use the ownership boundaries above without
+   changing the preload bridge or introducing a UI framework.
+2. **Continue shrinking `main.cjs`.** IPC handlers are extracted, but the composition root
+   is still 787 lines against a 400-line goal and remains protected by an 820-line ceiling.
+3. **Complete IPC input validation.** Important individual inputs are normalised or
+   validated, including queue actions, window values and session ids on selected channels,
+   but the bridge still has no complete per-channel schema and several payloads are passed
+   through structurally unchecked.
+4. **Rate limiting.** No IPC channel is rate limited. A compromised renderer could flood
+   main. This is lower risk behind the sandbox, CSP and sender guard, but remains open.
+5. **Stop transferring full attachment payloads through the renderer.** Worker-thread
+   encoding is available, but measured IPC transfer and later JSON serialisation each cost
+   more than encoding. Main-owned opaque attachment ids would address the actual bottleneck.
+6. **Custom protocol instead of `file://`.** Real, but the strict CSP already covers most
    of the motivation. It also gates the one fuse we cannot set today:
    `GrantFileProtocolExtraPrivileges` stays on only because the renderer is a `file://`
    page.
 
-**Closed:** *Electron fuses* — `scripts/electron-fuses.cjs`, wired as `afterPack`.
+**Closed:** *IPC handler extraction and central sender validation* —
+`src/ipc-handlers.cjs`; *bounded, animation-frame-coalesced live rendering* — renderer
+stream state plus signature-deduplicated DOM/IPC updates; *monotonic authoritative queue
+snapshots* — `src/stream-publisher.cjs` and renderer revision checks; *deny-all renderer
+permissions* — registered on `session.defaultSession`; *Electron fuses* —
+`scripts/electron-fuses.cjs`, wired as `afterPack`.
 
 ## Sources
 

@@ -95,3 +95,38 @@ for (const [label, env] of [
   assert.equal(result.migration, null);
   assert.deepEqual(calls.map(([name]) => name), ["userData", "sessionData"]);
 }));
+
+test("explicit user-data override isolates interactive acceptance runs", () => {
+  const calls = [];
+  const mkdirCalls = [];
+  const app = {
+    getPath(name) {
+      if (name === "temp") return path.join(root, "temp");
+      if (name === "appData") return path.join(root, "app-data");
+      throw new Error(`Unexpected path: ${name}`);
+    },
+    setPath(name, value) { calls.push([name, value]); },
+  };
+  const isolated = process.platform === "win32" ? "C:\\agent-deck-acceptance" : "/tmp/agent-deck-acceptance";
+  const expected = path.resolve(isolated);
+
+  const result = configureProductUserData({
+    app,
+    env: { DSH_WIDGET_USER_DATA: isolated },
+    fileSystem: { mkdirSync(value, options) { mkdirCalls.push([value, options]); } },
+  });
+
+  assert.equal(result.isSmoke, false);
+  assert.equal(result.isIsolated, true);
+  assert.equal(result.userDataDirectory, expected);
+  assert.equal(result.sessionDataDirectory, path.join(expected, "session-data"));
+  assert.equal(result.migration, null);
+  assert.deepEqual(calls, [
+    ["userData", expected],
+    ["sessionData", path.join(expected, "session-data")],
+  ]);
+  assert.deepEqual(mkdirCalls, [
+    [expected, { recursive: true }],
+    [path.join(expected, "session-data"), { recursive: true }],
+  ]);
+});

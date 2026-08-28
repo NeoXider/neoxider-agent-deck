@@ -68,6 +68,32 @@ test("all eight actions register and dispatch their own handlers", async () => {
   assert.equal(shortcuts.registered.size, 8);
 });
 
+test("showRestore stays registered and restores from Edge and Orb activations", async () => {
+  const shortcuts = fakeGlobalShortcut();
+  let mode = "edge";
+  const restoredFrom = [];
+  const manager = createHotkeyManager({
+    globalShortcut: shortcuts,
+    handlers: {
+      showRestore() {
+        restoredFrom.push(mode);
+        mode = "full";
+      },
+    },
+  });
+  const accelerator = "Control+Alt+Shift+Space";
+  manager.apply(disabledBindings({ showRestore: accelerator }));
+
+  shortcuts.fire(accelerator);
+  mode = "orb";
+  shortcuts.fire(accelerator);
+  await Promise.resolve();
+
+  assert.deepEqual(restoredFrom, ["edge", "orb"]);
+  assert.equal(mode, "full");
+  assert.equal(shortcuts.registered.has(accelerator.toLowerCase()), true);
+});
+
 test("a conflicting update rolls back every prior binding without unregistering the external owner", () => {
   const conflict = "Control+Alt+X";
   const shortcuts = fakeGlobalShortcut([conflict]);

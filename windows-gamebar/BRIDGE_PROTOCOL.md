@@ -26,7 +26,7 @@ Client:
 Server:
 
 ```json
-{"v":1,"type":"hello.ok","requestId":"9dbe3f87","serverVersion":"0.6.1","capabilities":["snapshot","ack","open-session","quick-reply"]}
+{"v":1,"type":"hello.ok","requestId":"9dbe3f87","serverVersion":"0.6.2","capabilities":["snapshot","ack","open-session","quick-reply"]}
 ```
 
 Version 1 requires that `hello.ok.capabilities` contain that complete four-item set exactly once (order is not significant). A missing, duplicate, or unknown capability fails the handshake; the widget stays offline and reconnects. This keeps command availability deterministic without presenting controls that the connected server cannot honor.

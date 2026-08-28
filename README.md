@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.1-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.1-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.2-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.2-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -45,6 +45,22 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
     <td colspan="2" align="center"><strong>Stable PNG and video attachment previews</strong></td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/screenshots/commands.png" alt="Compact Harness command palette above the input" /></td>
+    <td width="50%"><img src="docs/screenshots/todo.png" alt="Harness TODO plan rendered inside the compact chat" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Compact native command palette</strong></td>
+    <td align="center"><strong>Live Harness TODO plan</strong></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/goal.png" alt="Structured goal command result" /></td>
+    <td width="50%"><img src="docs/screenshots/mixed-tools.png" alt="Mixed tool group with per-tool success and failure state" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Readable structured command results</strong></td>
+    <td align="center"><strong>Per-tool status, even in mixed groups</strong></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/screenshots/focus-chat.png" alt="Chat-only focus mode" /></td>
     <td width="50%"><img src="docs/screenshots/notification-orb.png" alt="Animated compact reply notification" /></td>
   </tr>
@@ -76,12 +92,22 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
     <td align="center"><strong>Verified update, one-click restart</strong></td>
     <td align="center"><strong>Complete UI before the first session</strong></td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/composer-single-line.png" alt="Compact one-line chat composer" /></td>
+    <td width="50%"><img src="docs/screenshots/composer-multiline-max.png" alt="Expanded multiline composer with its own scroll" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Compact by default</strong></td>
+    <td align="center"><strong>Grows to one third, then scrolls</strong></td>
+  </tr>
 </table>
 
 <p align="center">
-  <img src="docs/screenshots/avatar-mode.png" alt="Avatar mode" height="96" />
+  <img src="docs/screenshots/recent-sessions-orb.png" alt="Orb mode with three recent sessions" height="118" />
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/screenshots/edge-mode.png" alt="Edge handle mode" height="132" />
+  <img src="docs/screenshots/quick-reply-orb.png" alt="Exact-session quick reply in Orb mode" height="118" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/edge-done.png" alt="Edge handle completion state" height="118" />
 </p>
 
 ## Highlights
@@ -201,7 +227,10 @@ Every session created or prompted from the widget is explicitly switched to Harn
 
 ```powershell
 npm test
+npm run test:platforms
+npm run test:input
 npm run test:ui
+npm audit --audit-level=high
 npm run smoke
 npm run feature-smoke
 npm run chat-smoke
@@ -209,9 +238,11 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.6.1-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.6.2-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
+
+The 0.6.2 acceptance run also used the exact local `lmstudio/qwen3.8-27b-unleashed` route. One Harness session produced 1,626 streamed reasoning deltas, 221 streamed answer deltas, a TODO projection, three successful tools, highlighted Markdown, and a clean `turn/end`; the widget transform preserved the Russian answer and semantic token. A separate read-only run exercised Dynamic MCP search → inspect → enable → tools → call → skill.load → disable with zero tool errors. Durable receipts: [widget parity](docs/verification/qwen3.8-27b-widget-parity.json) and [Dynamic MCP](docs/verification/qwen3.8-27b-dynamic-mcp.json).
 
 ## Security
 
@@ -227,9 +258,11 @@ Screen capture, configurable global hotkeys, and the three-session pet switcher 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.1,
-restores the compact 2×2 composer controls, adds Focus Chat and Open Harness shortcuts,
-and retains the authenticated Xbox Game Bar bridge and verified background updater.
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.2,
+adds the chat-first 360 px interface, native commands and TODOs, streamed reasoning and answers,
+an editable no-duplicate queue, mixed-result tool cards, three-session Orb replies, persistent
+window/settings state, capture and hotkeys, quiet staged updates, and verified Qwen 3.8 27B
+plus Dynamic MCP parity.
 
 ## Platform support
 

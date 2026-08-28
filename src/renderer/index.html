@@ -42,7 +42,7 @@
       <symbol id="icon-capture" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><circle cx="12" cy="12" r="3"/></symbol>
     </svg>
     <main class="widget-shell">
-      <header class="titlebar drag-region">
+      <header class="titlebar">
         <div class="brand no-drag">
           <button id="avatarButton" class="avatar-button" type="button" title="Collapse to avatar" aria-label="Collapse to avatar">
             <span id="avatarShell" class="avatar-shell idle">
@@ -52,10 +52,10 @@
           </button>
           <button id="projectLink" class="brand-copy-button" type="button" title="Open NeoXider/neoxider-agent-deck on GitHub" aria-label="Open this project on GitHub">
             <span class="eyebrow">NEOXIDER / AGENT DECK</span>
-            <span class="title">Agent Deck <span id="versionLabel" class="version-badge">v…</span><small id="avatarState">ready</small></span>
+            <span class="title"><span class="product-name">Agent Deck</span><span id="versionLabel" class="version-badge">v…</span><small id="avatarState">ready</small></span>
           </button>
-          <button id="headerUpdateButton" class="header-update-button" type="button" title="Install the verified update and restart" hidden>Update</button>
         </div>
+        <button id="headerUpdateButton" class="header-update-button" type="button" title="Install the verified update and restart" hidden>Update</button>
         <nav class="tabs no-drag" role="tablist" aria-label="Views">
           <button id="chatTab" class="tab active" data-tab="chat" type="button" role="tab" aria-selected="true" aria-controls="chatPanel" tabindex="0" title="Chat" aria-label="Chat"><svg class="ui-icon"><use href="#icon-chat"/></svg></button>
           <button id="agentsTab" class="tab" data-tab="agents" type="button" role="tab" aria-selected="false" aria-controls="agentsPanel" tabindex="-1" title="Agents" aria-label="Agents"><svg class="ui-icon"><use href="#icon-agents"/></svg></button>
@@ -145,6 +145,13 @@
         <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions"><div class="empty-state">Select a session or start a new one.</div></div>
         <button id="scrollLatestButton" class="scroll-latest no-drag" type="button" title="Jump to latest message" aria-label="Jump to latest message" hidden><svg class="ui-icon"><use href="#icon-down"/></svg><span id="scrollLatestCount">New</span></button>
 
+        <section id="todoDock" class="todo-dock no-drag" aria-label="Current plan" hidden>
+          <button id="todoToggle" class="todo-toggle" type="button" aria-expanded="false" aria-controls="todoList" title="Show current plan">
+            <svg class="ui-icon"><use href="#icon-controls"/></svg><b>Plan</b><span id="todoCounts">0/0 done</span><svg class="ui-icon todo-chevron"><use href="#icon-chevron"/></svg>
+          </button>
+          <div id="todoList" class="todo-list" hidden></div>
+        </section>
+
         <div id="queueDock" class="queue-dock no-drag" aria-live="polite" aria-label="Queued messages">
           <div id="queueList" class="queue-list"></div>
         </div>
@@ -155,6 +162,7 @@
         </div>
 
         <div id="commandMenu" class="command-menu no-drag" role="listbox" aria-label="Harness commands" aria-hidden="true"></div>
+        <div id="commandHintBar" class="command-hint-bar no-drag" role="status" aria-live="polite" hidden></div>
 
         <form id="chatForm" class="composer no-drag">
           <div class="composer-view-stack">

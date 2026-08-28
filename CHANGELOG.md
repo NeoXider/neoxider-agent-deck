@@ -5,6 +5,41 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-08-28
+
+### Added
+
+- Chat-first navigation with a state-aware Agents page, one-tap Focus Chat, a searchable Harness model picker, and a complete empty-session state.
+- Native Harness slash-command palette above the composer, structured `/goal` output, `/plan` image forwarding, and compact live TODO rendering.
+- Authoritative one-line queue cards with Edit, Delete, and Send now actions; Send now interrupts the previous live bubble without duplicating the request.
+- Live growing assistant Markdown bubbles, ephemeral streamed reasoning, grouped tool activity, per-tool mixed-success states, syntax highlighting, and a jump-to-latest control that respects manual scrolling.
+- Three-session Orb history with exact-session open and inline reply, animated session notifications, and distinct smooth state palettes for Orb and Edge modes.
+- Screen-region and display capture with reviewed attachment previews plus eight configurable, persistent global shortcuts.
+- Adjustable chat glow, independent persisted Full/Orb/Edge positions, a 360 px minimum layout, and an isolated user-data override for repeatable interactive acceptance runs.
+
+### Changed
+
+- The compact composer is one line by default, grows only to one third of the chat, then scrolls; context and expand controls form one vertical pair while attachment and command controls form the other.
+- Attachment previews are smaller and horizontal, Send is more compact, the full-size avatar no longer sits on a rectangular plate, and the titlebar drag surface no longer selects text or steals control clicks.
+- Settings, command, queue, TODO, model, update, offline, and compact-mode transitions now use the same reduced-motion-safe spring language.
+- README previews and the cover now show the current Full, Focus, Orb, and Edge experience.
+
+### Fixed
+
+- Transient settings-file locks retain the latest preferences and retry the atomic write instead of silently losing the change.
+- A temporary Harness history failure no longer leaves a finished session cached as working.
+- Normal window layer now stays below ordinary windows in Full, Avatar, and Edge modes.
+- Start at login, opacity, glow, hotkeys, window layer, size, and all per-mode bounds survive restart without resetting one another.
+- Stable polling no longer rebuilds unchanged DOM, moves the window, changes focus, forces chat scroll, or causes the periodic UI twitch.
+- Completed turns clear Stop and live activity from authoritative turn events; a late cancel response cannot hide a newer running turn.
+- Steering handoff is retired by its durable Harness message id, so a late queue RPC cannot resurrect a ghost bubble.
+- Opening a non-selected recent Orb session now completes the Full transition before loading its history, so the compact resize acknowledgement cannot cancel the restore animation.
+- Live TODO state survives consecutive stale dashboard polls while newer projection fields remain intact.
+- A failed tool colors only that tool; a mixed tool group remains a mixed warning instead of falsely marking every call failed.
+- Slash commands are validated against the live catalog, unknown commands never leak into a model prompt, and successfully submitted images are removed by exact path only.
+- Widget-created and widget-prompted sessions consistently enforce exact `danger-full-access` without exposing unsafe permission alternatives.
+- Offline state is shown once with a guarded Start action, and intentional tray Quit cannot be mistaken for a crash and restarted.
+
 ## [0.6.1] - 2026-08-27
 
 ### Added
@@ -328,6 +363,8 @@ full audit of the main process, the renderer and the UI.
 
 - First release: animated desktop companion for DeepSeek Harness sessions and chat.
 
+[0.6.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.2
+[0.6.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.1
 [0.6.0]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.6.0
 [0.5.2]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.5.2
 [0.5.1]: https://github.com/NeoXider/neoxider-agent-deck/releases/tag/v0.5.1

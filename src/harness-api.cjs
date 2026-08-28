@@ -345,15 +345,20 @@ class HarnessApi {
       const activity = historyValue ? activityFromHistory(events) : null;
       const effectiveRunning = historyValue
         ? Boolean(activity?.active)
-        : Boolean(session.running || cachedState?.state === "working");
+        : Boolean(session.running);
       const agentState = historyValue
         ? sessionStateFromHistory(events, effectiveRunning)
-        : (effectiveRunning ? "working" : cachedState?.state || "idle");
+        : (effectiveRunning ? "working" : cachedState?.state === "error" ? "error" : "idle");
       const latestAssistant = historyValue
         ? messagesFromHistory(events).findLast((message) => message.role === "assistant")
         : null;
       const preview = latestAssistant?.text || cachedState?.preview || "";
-      this.sessionStateCache.set(session.sessionId, { updatedAt: session.updatedAt, state: agentState, preview, subagents });
+      this.sessionStateCache.set(session.sessionId, {
+        updatedAt: historyValue ? session.updatedAt : cachedState?.updatedAt,
+        state: agentState,
+        preview,
+        subagents,
+      });
       return {
         ...session,
         running: effectiveRunning,
@@ -425,10 +430,21 @@ class HarnessApi {
     return this.rpc("commands/list", { args: { agentId: sessionId } }, 10000);
   }
 
-  async executeCommand(sessionId, line) {
+  async executeCommand(sessionId, line, images = []) {
     return this.rpc("commands/execute", {
-      args: { agentId: sessionId, line, images: [] },
+      args: { agentId: sessionId, line, images },
     }, 30000);
+  }
+
+  async executeWidgetCommand(sessionId, line, images = []) {
+    const normalized = String(line || "").trim();
+    if (/^\/permission(?:\s|$)/i.test(normalized)) {
+      const permission = normalized.match(/^\/permission\s+([^\s]+)\s*$/i);
+      if (!permission || permission[1] !== "danger-full-access") {
+        throw new Error("Widget sessions always use Full access");
+      }
+    }
+    return this.executeCommand(sessionId, normalized, images);
   }
 
   // The permission is a property of the session, not of a single turn. Running it

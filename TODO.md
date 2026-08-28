@@ -19,6 +19,19 @@ This backlog records planned work only. Items are not part of the current releas
 - Compact 2×2 composer controls that preserve the 50 px resting input height.
 - Rebindable Focus Chat and Open Harness shortcuts.
 
+## Shipped in 0.6.2
+
+- Retried atomic preference writes after transient file-lock failures without discarding the latest settings.
+- Cleared stale working state after temporary Harness history failures once the authoritative session state was idle.
+- Applied Normal window layer consistently across Full, Avatar, and Edge modes.
+- Added chat-first navigation, state-aware Agents, Focus Chat, a searchable model picker, native slash commands, structured goals, live TODOs, and compact mixed-status tool groups.
+- Added authoritative queue Edit/Delete/Send-now behavior with durable steering handoff and no duplicate or ghost requests.
+- Added streamed reasoning plus a growing Markdown answer bubble, respectful manual scrolling, and a jump-to-latest action.
+- Added compact screen capture, eight rebindable hotkeys, persistent glow/opacity/layer/autostart settings, and independent Full/Orb/Edge placement.
+- Added three-session Orb history and reply, exact-session notifications, smoother completion/error states, and reduced-motion-safe mode transitions.
+- Fixed the Orb recent-session race so clicking a message reliably restores Full and opens that exact session.
+- Added 360 px minimum layouts, smaller horizontal attachment previews, a one-line composer that grows to one third, and current README screenshots/cover.
+
 ## Epic: Desktop capture
 
 ### Feature: Attach clipboard image

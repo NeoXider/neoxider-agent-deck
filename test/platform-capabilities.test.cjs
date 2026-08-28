@@ -50,6 +50,20 @@ test("macOS Game is visible on fullscreen spaces", () => {
   ]);
 });
 
+test("Desktop layer stays below ordinary windows in every widget mode", () => {
+  for (const platform of ["win32", "darwin"]) {
+    const capabilities = detectPlatformCapabilities({ platform, env: {} });
+    for (const mode of ["full", "orb", "edge"]) {
+      const windowRef = fakeWindow();
+
+      assert.equal(applyPlatformWindowLayer(windowRef, { layer: "normal", mode, capabilities }), "normal");
+      assert.deepEqual(windowRef.calls, platform === "darwin"
+        ? [["top", false], ["spaces", false, { visibleOnFullScreen: false }]]
+        : [["top", false]]);
+    }
+  }
+});
+
 test("Wayland disables programmatic position and Edge mode", () => {
   const capabilities = detectPlatformCapabilities({ platform: "linux", env: { WAYLAND_DISPLAY: "wayland-0" } });
   const windowRef = fakeWindow();

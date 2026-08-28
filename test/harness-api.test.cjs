@@ -94,6 +94,55 @@ test("dashboard turns stale running into error after a failed Harness turn", asy
   assert.match(sessions[0].preview, /400: No models loaded/);
 });
 
+test("dashboard retries a transient history failure instead of caching a stale working state", async () => {
+  const api = new HarnessApi();
+  let poll = 0;
+  let historyCalls = 0;
+  api.rpc = async (method) => {
+    if (method === "host.describe") return { version: "test" };
+    if (method === "session.list") {
+      poll += 1;
+      return {
+        items: [{
+          sessionId: "transient-history-failure",
+          running: poll === 1,
+          updatedAt: poll === 1 ? 10 : 11,
+          cwd: "C:\\AI\\transient-history-failure",
+        }],
+      };
+    }
+    if (method === "subagent.list") return { entries: [] };
+    if (method === "session.history") {
+      historyCalls += 1;
+      if (historyCalls === 2) throw new Error("temporary history outage");
+      return {
+        events: historyCalls === 1
+          ? [{ event: { type: "turn/start", seq: 1, data: {} } }]
+          : [
+              { event: { type: "turn/start", seq: 1, data: {} } },
+              { event: { type: "turn/end", seq: 2, data: { reason: { kind: "success" } } } },
+            ],
+      };
+    }
+    throw new Error(`Unexpected RPC ${method}`);
+  };
+
+  const first = await api.dashboard();
+  assert.equal(first.sessions[0].state, "working");
+  assert.equal(first.sessions[0].running, true);
+
+  const second = await api.dashboard();
+  assert.equal(second.sessions[0].state, "idle");
+  assert.equal(second.sessions[0].running, false);
+  assert.equal(second.sessions[0].degraded, true);
+
+  const third = await api.dashboard();
+  assert.equal(third.sessions[0].state, "idle");
+  assert.equal(third.sessions[0].running, false);
+  assert.equal(third.sessions[0].degraded, false);
+  assert.equal(historyCalls, 3);
+});
+
 test("live reasoning deltas become a compact activity stream", () => {
   const activity = activityFromHistory([
     { event: { type: "turn/start", seq: 1, data: {} } },
@@ -200,6 +249,50 @@ test("command discovery uses the installed Harness remote endpoint", async () =>
   await api.commands("session-test");
   assert.equal(url, "http://127.0.0.1:3080/api/commands/list");
   assert.deepEqual(request.payload, { args: { agentId: "session-test" } });
+});
+
+test("low-level command RPC forwards images without applying widget permission policy", async () => {
+  let request;
+  const api = new HarnessApi("http://127.0.0.1:3080", async (_url, init) => {
+    request = JSON.parse(init.body);
+    return { ok: true, json: async () => ({ type: "server-response", rpcId: request.rpcId, result: { ok: true, value: { result: { kind: "success" } } } }) };
+  });
+  const images = [{ mediaType: "image/png", data: "AA==", name: "command-shot.png" }];
+
+  await api.executeCommand("session-test", "/permission read-only", images);
+
+  assert.equal(request.method, "commands/execute");
+  assert.deepEqual(request.payload, {
+    args: { agentId: "session-test", line: "/permission read-only", images },
+  });
+});
+
+test("widget commands forward images but allow only the exact Full access permission mode", async () => {
+  const api = new HarnessApi();
+  const calls = [];
+  api.executeCommand = async (...args) => {
+    calls.push(args);
+    return { result: { kind: "success" } };
+  };
+  const images = [{ mediaType: "image/jpeg", data: "AQ==", name: "screen.jpg" }];
+
+  await api.executeWidgetCommand("session-test", "  /permission danger-full-access  ", images);
+  assert.deepEqual(calls, [["session-test", "/permission danger-full-access", images]]);
+
+  for (const line of [
+    "/permission",
+    "/permission read-only",
+    "/permission workspace-write",
+    "/permission DANGER-FULL-ACCESS",
+    "/permission danger-full-access extra",
+  ]) {
+    await assert.rejects(
+      api.executeWidgetCommand("session-test", line, images),
+      /always use Full access/,
+      line,
+    );
+  }
+  assert.equal(calls.length, 1, "rejected permission commands must not reach the low-level RPC");
 });
 
 test("prompt carries image attachments through the official content blocks", async () => {

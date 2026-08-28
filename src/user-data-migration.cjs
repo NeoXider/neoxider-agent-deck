@@ -67,6 +67,15 @@ function migrateUserSettings({
 
 function configureProductUserData({ app, env = process.env, fileSystem = fs } = {}) {
   if (!app) throw new Error("Electron app is required");
+  if (env.DSH_WIDGET_USER_DATA) {
+    const userDataDirectory = path.resolve(env.DSH_WIDGET_USER_DATA);
+    const sessionDataDirectory = path.join(userDataDirectory, "session-data");
+    fileSystem.mkdirSync(userDataDirectory, { recursive: true });
+    fileSystem.mkdirSync(sessionDataDirectory, { recursive: true });
+    app.setPath("userData", userDataDirectory);
+    app.setPath("sessionData", sessionDataDirectory);
+    return { isSmoke: false, isIsolated: true, userDataDirectory, sessionDataDirectory, migration: null };
+  }
   if (env.WIDGET_SCREENSHOT_PATH || env.WIDGET_PACKAGED_SMOKE_PATH) {
     const smokeRoot = path.join(app.getPath("temp"), `${PACKAGE_NAME}-smoke`, String(process.pid));
     const userDataDirectory = path.join(smokeRoot, "user-data");

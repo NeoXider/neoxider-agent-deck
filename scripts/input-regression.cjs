@@ -1,7 +1,8 @@
-// Physical-input regression for the two compact-mode gestures that broke:
+// Physical-input regression for compact-mode and draggable-header gestures:
 //   1. a click on the brand avatar must collapse the widget to the orb;
-//   2. releasing the edge handle after a drag must NOT restore the full widget.
-// Both are driven with real sendInputEvent mouse events, because both bugs live in
+//   2. the Update button beside the draggable brand must install exactly once;
+//   3. releasing the edge handle after a drag must NOT restore the full widget.
+// These are driven with real sendInputEvent mouse events, because the bugs live in
 // the pointer-capture / click ordering that synthetic click() calls cannot reproduce.
 const path = require("node:path");
 const { app, BrowserWindow, ipcMain } = require("electron");
@@ -13,10 +14,15 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // instead of silently failing on a missing handler.
 let currentMode = "full";
 const sentPayloads = [];
+const commandPayloads = [];
+const selectedModelPayloads = [];
 const openedSessionIds = [];
 const modeRequests = [];
+const compactStatusPayloads = [];
+const compactModeEchoes = [];
 const modeResponseDelays = new Map();
 const compactDragEvents = [];
+const fullDragEvents = [];
 let dashboardValue = { harness: true, sessions: [
   { sessionId: "demo-build", title: "Build review", updatedAt: 3, running: false, preview: "Windows package passed." },
   { sessionId: "demo-unity", title: "Unity gameplay", updatedAt: 2, running: false, preview: "Play Mode passed." },
@@ -27,14 +33,26 @@ let deferredSend = null;
 let deferredCommand = null;
 let deferredQueueUpdate = null;
 let deferredDashboard = null;
+let deferredCancel = null;
 let createdSessionId = "created-session";
 let dashboardCalls = 0;
 let startHarnessCalls = 0;
+let installUpdateCalls = 0;
+let updateState = { status: "idle", currentVersion: "0.0.0", installMode: "manual" };
+let nativeCompactStatus = { active: false, expanded: false };
+let echoOrbModeOnCompactResize = false;
 function deferred() {
   let resolve;
   let reject;
   const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
   return { promise, reject, resolve };
+}
+function within(promise, label, milliseconds = 5000) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label} exceeded ${milliseconds}ms`)), milliseconds); }),
+  ]).finally(() => clearTimeout(timer));
 }
 function registerStubs() {
   ipcMain.handle("set-window-mode", (_event, mode) => {
@@ -47,20 +65,46 @@ function registerStubs() {
     compactDragEvents.push("end");
     return { side: "right" };
   });
-  ipcMain.handle("end-full-drag", () => null);
+  ipcMain.handle("end-full-drag", () => {
+    fullDragEvents.push("end");
+    return null;
+  });
   ipcMain.handle("app-info", () => ({ version: "0.0.0-test" }));
-  ipcMain.handle("get-update-state", () => ({ status: "idle", currentVersion: "0.0.0", installMode: "manual" }));
+  ipcMain.handle("get-update-state", () => updateState);
   ipcMain.handle("check-for-updates", () => null);
   ipcMain.handle("download-update", () => null);
-  ipcMain.handle("install-update", () => null);
-  ipcMain.handle("set-compact-status", () => null);
+  ipcMain.handle("install-update", () => {
+    installUpdateCalls += 1;
+    return { status: "ready", currentVersion: "0.0.0", latestVersion: "0.6.1", progress: 100, installMode: "portable-replace" };
+  });
+  ipcMain.handle("set-compact-status", (event, payload) => {
+    compactStatusPayloads.push(payload);
+    const changed = nativeCompactStatus.active !== Boolean(payload?.active)
+      || nativeCompactStatus.expanded !== Boolean(payload?.expanded);
+    nativeCompactStatus = { active: Boolean(payload?.active), expanded: Boolean(payload?.expanded) };
+    // Match the production handler: changing expanded Orb status resizes the
+    // native window by reapplying Orb and publishes its authoritative mode.
+    if (echoOrbModeOnCompactResize && currentMode === "orb" && changed) {
+      compactModeEchoes.push("orb");
+      event.sender.send("window-mode", "orb");
+    }
+    return payload;
+  });
   ipcMain.handle("get-preferences", () => ({}));
   ipcMain.handle("send", (_event, payload) => {
     sentPayloads.push(payload);
     return deferredSend?.promise || { sessionId: payload.sessionId };
   });
-  ipcMain.handle("execute-command", (_event, payload) => deferredCommand?.promise || ({ result: { kind: "text", text: payload.line } }));
+  ipcMain.handle("select-model", (_event, payload) => {
+    selectedModelPayloads.push(payload);
+    return {};
+  });
+  ipcMain.handle("execute-command", (_event, payload) => {
+    commandPayloads.push(payload);
+    return deferredCommand?.promise || ({ result: { kind: "text", text: payload.line } });
+  });
   ipcMain.handle("update-queue", () => deferredQueueUpdate?.promise || ({ ok: true }));
+  ipcMain.handle("cancel", () => deferredCancel?.promise || ({ accepted: true }));
   ipcMain.handle("dashboard", () => {
     dashboardCalls += 1;
     return deferredDashboard?.promise || dashboardValue;
@@ -72,7 +116,8 @@ function registerStubs() {
   ipcMain.handle("create-session", () => ({ sessionId: createdSessionId }));
   ipcMain.handle("history", (_event, sessionId) => {
     openedSessionIds.push(sessionId);
-    return deferredSessionRequests.history.get(sessionId)?.promise || { messages: [], activity: null };
+    const request = deferredSessionRequests.history.get(sessionId);
+    return request?.take?.() || request?.promise || { messages: [], activity: null };
   });
   ipcMain.handle("models", (_event, sessionId) => deferredSessionRequests.models.get(sessionId)?.promise || ({ current: null, groups: [] }));
   ipcMain.handle("commands", (_event, sessionId) => deferredSessionRequests.commands.get(sessionId)?.promise || []);
@@ -82,6 +127,8 @@ function registerStubs() {
     ipcMain.on(channel, () => {
       if (channel === "begin-compact-drag") compactDragEvents.push("begin");
       if (channel === "move-compact-drag") compactDragEvents.push("move");
+      if (channel === "begin-full-drag") fullDragEvents.push("begin");
+      if (channel === "move-full-drag") fullDragEvents.push("move");
     });
   }
 }
@@ -157,6 +204,51 @@ async function main() {
     failures.push(`orb click did not restore full (mode stayed "${currentMode}")`);
   }
 
+  // --- 1c. Update remains clickable and never begins a full drag -----------
+  updateState = { status: "ready", currentVersion: "0.0.0", latestVersion: "0.6.1", progress: 100, installMode: "portable-replace" };
+  await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
+    query: { screenshotFixture: "update-ready", screenshotStatic: "1" },
+  });
+  win.show();
+  win.focus();
+  await wait(1200);
+  await contents.executeJavaScript('setSettingsOpen(false, { restoreFocus: false }); renderUpdateState({ status: "ready", currentVersion: "0.0.0", latestVersion: "0.6.1", progress: 100, installMode: "portable-replace" })');
+  await wait(100);
+  installUpdateCalls = 0;
+  const headerUpdateState = await contents.executeJavaScript(`(() => {
+    const button = document.querySelector('#headerUpdateButton');
+    const rect = button.getBoundingClientRect();
+    return { hidden: button.hidden, display: getComputedStyle(button).display, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } };
+  })()`);
+  const headerUpdate = await centerOf(contents, "#headerUpdateButton");
+  if (!headerUpdate) throw new Error("headerUpdateButton not found");
+  const headerUpdateHit = await hitAt(contents, headerUpdate);
+  fullDragEvents.length = 0;
+  click(contents, headerUpdate.x, headerUpdate.y);
+  await wait(400);
+  if (installUpdateCalls !== 1) {
+    failures.push(`header Update invoked install ${installUpdateCalls} times instead of once; state=${JSON.stringify(headerUpdateState)}, hit=${JSON.stringify(headerUpdateHit)}`);
+  }
+  if (fullDragEvents.length) failures.push(`header Update began a full drag: ${JSON.stringify(fullDragEvents)}`);
+
+  // --- 1d. Brand movement uses the custom full-drag path ------------------
+  const dragStart = await centerOf(contents, "#projectLink");
+  if (!dragStart) throw new Error("brand drag target not found");
+  const dragStartHit = await hitAt(contents, dragStart);
+  const dragBounds = win.getBounds();
+  fullDragEvents.length = 0;
+  contents.sendInputEvent({ type: "mouseDown", x: dragStart.x, y: dragStart.y, globalX: dragBounds.x + dragStart.x, globalY: dragBounds.y + dragStart.y, button: "left", clickCount: 1 });
+  for (let step = 1; step <= 3; step += 1) {
+    contents.sendInputEvent({ type: "mouseMove", x: dragStart.x + step * 5, y: dragStart.y + step * 2, globalX: dragBounds.x + dragStart.x + step * 5, globalY: dragBounds.y + dragStart.y + step * 2, button: "left" });
+    await wait(25);
+  }
+  contents.sendInputEvent({ type: "mouseUp", x: dragStart.x + 15, y: dragStart.y + 6, globalX: dragBounds.x + dragStart.x + 15, globalY: dragBounds.y + dragStart.y + 6, button: "left", clickCount: 1 });
+  await wait(200);
+  if (!fullDragEvents.includes("begin") || !fullDragEvents.includes("move") || !fullDragEvents.includes("end")) {
+    failures.push(`brand movement did not use the complete custom full-drag path: ${JSON.stringify({ events: fullDragEvents, hit: dragStartHit })}`);
+  }
+  updateState = { status: "idle", currentVersion: "0.0.0", installMode: "manual" };
+
   // Back to full for the next case.
   await contents.executeJavaScript('document.body.className = "mode-full"');
   await wait(200);
@@ -216,25 +308,30 @@ async function main() {
     failures.push(`quick reply routed incorrectly: ${JSON.stringify(sentPayloads)}`);
   }
 
-  // --- 4. clicking a reply preview opens that exact session ---------------
+  // --- 4. clicking a non-selected reply preview opens that exact session ---
   await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
     query: { screenshotFixture: "orb-recent-three", screenshotStatic: "1" },
   });
   win.focus();
   await wait(1200);
-  await contents.executeJavaScript(`(() => {
-    document.body.classList.remove("mode-full", "mode-edge", "side-left");
-    document.body.classList.add("mode-orb", "side-right");
-  })()`);
+  await contents.executeJavaScript('applyWindowMode("orb")');
   currentMode = "orb";
+  echoOrbModeOnCompactResize = true;
+  compactModeEchoes.length = 0;
+  modeRequests.length = 0;
   openedSessionIds.length = 0;
-  const preview = await centerOf(contents, ".orb-session-row:first-child .orb-session-open");
+  const compactStatusBeforeOpen = { ...nativeCompactStatus };
+  const preview = await centerOf(contents, ".orb-session-row:nth-child(2) .orb-session-open");
   if (!preview) throw new Error("recent session preview not found");
   const previewHit = await hitAt(contents, preview);
   click(contents, preview.x, preview.y);
   await wait(600);
+  echoOrbModeOnCompactResize = false;
   if (currentMode !== "full") failures.push(`recent session preview did not restore the full widget; hit=${JSON.stringify(previewHit)}`);
-  if (!openedSessionIds.includes("demo-build")) failures.push(`recent session opened the wrong id: ${JSON.stringify(openedSessionIds)}`);
+  if (!openedSessionIds.includes("demo-unity")) failures.push(`recent session opened the wrong id: ${JSON.stringify(openedSessionIds)}`);
+  if (!compactStatusBeforeOpen.expanded || modeRequests.join(",") !== "full" || compactModeEchoes.length) {
+    failures.push(`recent session did not restore before collapsing native Orb status: ${JSON.stringify({ compactStatusBeforeOpen, modeRequests, compactModeEchoes })}`);
+  }
 
   // Load a fresh renderer so the timing regression cannot perturb the physical
   // pointer sequences above (Electron retains pointer state across navigation).
@@ -331,6 +428,151 @@ async function main() {
   })()`);
   if (!stableLiveBubble.sameNode || stableLiveBubble.text !== "First and second" || stableLiveBubble.seq !== "2") {
     failures.push(`streaming rebuilt or failed to update the live bubble: ${JSON.stringify(stableLiveBubble)}`);
+  }
+
+  await contents.executeJavaScript(`(async () => {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+    state.selectedSessionId = "stream-burst";
+    state.dashboard = { harness: true, sessions: [] };
+    state.currentMessages = Array.from({ length: 80 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", text: "history-" + index + "-" + "x".repeat(512) }));
+    state.historySignature = "";
+    state.liveStreamsBySession.delete("stream-burst");
+    renderMessages(state.currentMessages);
+    await handleLiveEvent({ sessionId: "stream-burst", event: { type: "turn/start", seq: 1000 } });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  })()`);
+  compactStatusPayloads.length = 0;
+  const streamBurst = await contents.executeJavaScript(`(async () => {
+    const originalPaintLiveAssistant = paintLiveAssistant;
+    const originalRenderMessages = renderMessages;
+    let livePaints = 0;
+    let historyRenders = 0;
+    paintLiveAssistant = (...args) => {
+      livePaints += 1;
+      return originalPaintLiveAssistant(...args);
+    };
+    renderMessages = (...args) => {
+      historyRenders += 1;
+      return originalRenderMessages(...args);
+    };
+    try {
+      for (let index = 1; index <= 500; index += 1) {
+        handleLiveEvent({ sessionId: "stream-burst", event: { type: "assistant/chunk", seq: 1000 + index, data: { chunk: { type: "text-delta", text: "z" } } } });
+      }
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const bubble = document.querySelector(".live-assistant");
+      return {
+        historyRenders,
+        livePaints,
+        textLength: bubble?.textContent.length || 0,
+        seq: bubble?.dataset.liveSeq || "",
+      };
+    } finally {
+      paintLiveAssistant = originalPaintLiveAssistant;
+      renderMessages = originalRenderMessages;
+      schedulePolling();
+    }
+  })()`);
+  await wait(40);
+  const compactStatusSends = compactStatusPayloads.length;
+  if (streamBurst.historyRenders !== 0 || streamBurst.livePaints !== 1 || streamBurst.textLength !== 500 || streamBurst.seq !== "1500" || compactStatusSends !== 1) {
+    failures.push(`500 streaming deltas were not coalesced into one bounded paint/status send: ${JSON.stringify({ ...streamBurst, compactStatusSends })}`);
+  } else {
+    console.log(`PASS 500 stream deltas -> ${streamBurst.livePaints} live paint, ${streamBurst.historyRenders} history renders, ${compactStatusSends} compact-status send`);
+  }
+
+  selectedModelPayloads.length = 0;
+  const automaticModel = await contents.executeJavaScript(`(() => {
+    state.selectedSessionId = "auto-model";
+    state.modelCatalog = {
+      current: { provider: "test", model: "manual-model" },
+      groups: [{ id: "test", name: "Test", models: [{ id: "manual-model", name: "Manual model" }] }],
+    };
+    state.pendingSelection = state.modelCatalog.current;
+    state.automaticModelRoute = false;
+    state.modelLoadState = "ready";
+    renderModels();
+    [...document.querySelectorAll("#modelOptions .picker-option")]
+      .find((button) => button.textContent.includes("Automatic route"))?.click();
+    return new Promise((resolve) => setTimeout(() => resolve({
+      label: document.querySelector("#modelButtonText")?.textContent || "",
+      summary: document.querySelector("#controlsPrimary")?.textContent || "",
+      automatic: state.automaticModelRoute,
+    }), 40));
+  })()`);
+  const automaticPayload = selectedModelPayloads.at(-1);
+  if (!automaticModel.automatic || automaticModel.label !== "Automatic route" || automaticModel.summary !== "Auto"
+      || automaticPayload?.sessionId !== "auto-model" || Object.hasOwn(automaticPayload || {}, "selection")) {
+    failures.push(`Automatic route was not applied as an empty Harness selection: ${JSON.stringify({ automaticModel, automaticPayload })}`);
+  }
+
+  for (const kind of Object.keys(deferredSessionRequests)) deferredSessionRequests[kind].set("clear-target", deferred());
+  const immediateClear = await contents.executeJavaScript(`(() => {
+    state.windowMode = "full";
+    state.dashboard = { harness: true, sessions: [
+      { sessionId: "clear-source", title: "Source", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+      { sessionId: "clear-target", title: "Target", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    ] };
+    state.selectedSessionId = "clear-source";
+    renderMessages([{ role: "assistant", text: "OLD CONVERSATION" }]);
+    setActivity({ active: true, kind: "thinking", label: "Old", text: "OLD ACTIVITY" });
+    window.__immediateClear = selectSession("clear-target", true);
+    return {
+      selected: state.selectedSessionId,
+      messages: state.currentMessages.length,
+      text: document.querySelector("#messages")?.textContent || "",
+      activity: state.currentActivity,
+    };
+  })()`);
+  if (immediateClear.selected !== "clear-target" || immediateClear.messages !== 0 || immediateClear.text.includes("OLD CONVERSATION") || immediateClear.activity !== null) {
+    failures.push(`session switch retained the previous presentation while history was pending: ${JSON.stringify(immediateClear)}`);
+  }
+  deferredSessionRequests.history.get("clear-target").resolve({ messages: [{ role: "assistant", text: "TARGET CONVERSATION" }], activity: null });
+  deferredSessionRequests.models.get("clear-target").resolve({ current: null, groups: [] });
+  deferredSessionRequests.commands.get("clear-target").resolve([]);
+  await contents.executeJavaScript("window.__immediateClear");
+
+  for (const kind of Object.keys(deferredSessionRequests)) deferredSessionRequests[kind].set("compact-target", deferred());
+  currentMode = "orb";
+  const compactClear = await contents.executeJavaScript(`(() => {
+    state.windowMode = "orb";
+    state.dashboard = { harness: true, sessions: [
+      { sessionId: "compact-source", title: "Source", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+      { sessionId: "compact-target", title: "Target", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    ] };
+    state.selectedSessionId = "compact-source";
+    renderMessages([{ role: "assistant", text: "OLD COMPACT CONVERSATION" }]);
+    setActivity({ active: true, kind: "thinking", label: "Old", text: "OLD COMPACT ACTIVITY" });
+    window.__compactClear = openCompactSession("compact-target");
+    return {
+      selected: state.selectedSessionId,
+      messages: state.currentMessages.length,
+      text: document.querySelector("#messages")?.textContent || "",
+      activity: state.currentActivity,
+    };
+  })()`);
+  await wait(240);
+  const compactClearedAfterRestore = await contents.executeJavaScript(`({
+    selected: state.selectedSessionId,
+    messages: state.currentMessages.length,
+    text: document.querySelector("#messages")?.textContent || "",
+    activity: state.currentActivity,
+  })`);
+  if (compactClear.selected !== "compact-source" || compactClearedAfterRestore.selected !== "compact-target"
+      || compactClearedAfterRestore.messages !== 0 || compactClearedAfterRestore.text.includes("OLD COMPACT CONVERSATION")
+      || compactClearedAfterRestore.activity !== null) {
+    failures.push(`compact exact-session open did not clear after the restore transition: ${JSON.stringify({ compactClear, compactClearedAfterRestore })}`);
+  }
+  deferredSessionRequests.history.get("compact-target").reject(new Error("history unavailable"));
+  deferredSessionRequests.models.get("compact-target").resolve({ current: null, groups: [] });
+  deferredSessionRequests.commands.get("compact-target").resolve([]);
+  const compactAfterFailure = await contents.executeJavaScript(`(async () => {
+    await window.__compactClear;
+    return { selected: state.selectedSessionId, messages: state.currentMessages.length, text: document.querySelector("#messages")?.textContent || "" };
+  })()`);
+  if (compactAfterFailure.selected !== "compact-target" || compactAfterFailure.messages !== 0 || compactAfterFailure.text.includes("OLD COMPACT CONVERSATION")) {
+    failures.push(`failed compact history restored the previous presentation: ${JSON.stringify(compactAfterFailure)}`);
   }
 
   for (const kind of Object.keys(deferredSessionRequests)) {
@@ -450,18 +692,59 @@ async function main() {
     failures.push(`background work leaked glow into the selected idle chat: ${JSON.stringify(backgroundGlow)}`);
   }
 
-  const consecutiveTurns = await contents.executeJavaScript(`(async () => {
+  const streamHistory = deferred();
+  deferredSessionRequests.history.set("stream-owner", streamHistory);
+  const streamLifecycle = await contents.executeJavaScript(`(async () => {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
     state.selectedSessionId = "stream-owner";
     state.dashboard = { harness: true, sessions: [{ sessionId: "stream-owner", title: "Stream", running: true, state: "working", projections: { values: {} }, subagents: [] }] };
+    state.currentMessages = [{ role: "user", text: "Show the stream." }];
+    state.historySignature = "";
+    state.liveStreamsBySession.delete("stream-owner");
+    renderMessages(state.currentMessages);
     await handleLiveEvent({ sessionId: "stream-owner", event: { type: "turn/start", seq: 10 } });
-    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "assistant/chunk", seq: 11, data: { chunk: { type: "text-delta", text: "old" } } } });
-    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "turn/end", seq: 12, data: {} } });
-    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "turn/start", seq: 13 } });
-    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "assistant/chunk", seq: 14, data: { chunk: { type: "text-delta", text: "first" } } } });
-    await new Promise((resolve) => setTimeout(resolve, 240));
-    return state.liveStreamsBySession.get("stream-owner")?.text || "";
+    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "assistant/chunk", seq: 11, data: { chunk: { type: "reasoning-delta", text: "Inspect" } } } });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const reasoning = { kind: state.currentActivity?.kind || "", text: state.currentActivity?.text || "" };
+
+    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "assistant/chunk", seq: 12, data: { chunk: { type: "text-delta", text: "Answer" } } } });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const writing = { kind: state.currentActivity?.kind || "", text: document.querySelector(".live-assistant")?.textContent || "" };
+
+    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "assistant/chunk", seq: 13, data: { chunk: { type: "text-delta", text: " final" } } } });
+    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "turn/end", seq: 14, data: {} } });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await new Promise((resolve) => setTimeout(resolve, 130));
+    const completed = {
+      kind: state.currentActivity?.kind || "",
+      text: document.querySelector(".live-assistant")?.textContent || "",
+      retained: state.liveStreamsBySession.get("stream-owner")?.text || "",
+    };
+
+    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "turn/start", seq: 15 } });
+    await handleLiveEvent({ sessionId: "stream-owner", event: { type: "assistant/chunk", seq: 16, data: { chunk: { type: "text-delta", text: "next" } } } });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return { reasoning, writing, completed, nextBeforeHistory: state.liveStreamsBySession.get("stream-owner")?.text || "" };
   })()`);
-  if (consecutiveTurns !== "first") failures.push(`turn-end cleanup deleted the next turn stream: ${JSON.stringify(consecutiveTurns)}`);
+  if (streamLifecycle.reasoning.kind !== "thinking" || streamLifecycle.reasoning.text !== "Inspect"
+      || streamLifecycle.writing.kind !== "writing" || streamLifecycle.writing.text !== "Answer"
+      || streamLifecycle.completed.kind !== "done" || streamLifecycle.completed.text !== "Answer final"
+      || streamLifecycle.completed.retained !== "Answer final" || streamLifecycle.nextBeforeHistory !== "next") {
+    failures.push(`reasoning/text/end stream lifecycle regressed: ${JSON.stringify(streamLifecycle)}`);
+  }
+  streamHistory.resolve({ messages: [{ role: "assistant", text: "Authoritative first turn" }], activity: null });
+  await wait(160);
+  const streamAfterHistory = await contents.executeJavaScript(`(() => ({
+    live: state.liveStreamsBySession.get("stream-owner")?.text || "",
+    bubble: document.querySelector(".live-assistant")?.textContent || "",
+    history: state.currentMessages.map((message) => message.text || ""),
+  }))()`);
+  deferredSessionRequests.history.delete("stream-owner");
+  if (streamAfterHistory.live !== "next" || streamAfterHistory.bubble !== "next" || !streamAfterHistory.history.includes("Authoritative first turn")) {
+    failures.push(`first turn history cleanup deleted or replaced the subsequent stream: ${JSON.stringify(streamAfterHistory)}`);
+  }
+  await contents.executeJavaScript(`clearCompletionSignal(); schedulePolling()`);
 
   const switchedError = await contents.executeJavaScript(`(async () => {
     state.windowMode = "full";
@@ -518,6 +801,403 @@ async function main() {
   deferredQueueUpdate = null;
   if (queueRace.a.length || queueRace.b.join() !== "B") failures.push(`queue completion mutated the newly selected session: ${JSON.stringify(queueRace)}`);
 
+  deferredSend = deferred();
+  dashboardValue = { harness: true, sessions: [{ sessionId: "queue-submit", title: "Queued work", running: true, state: "working", activity: { active: true, kind: "thinking", label: "Thinking", text: "Current turn" }, projections: { values: {} }, subagents: [] }] };
+  await contents.executeJavaScript(`(() => {
+    state.dashboard = ${JSON.stringify(dashboardValue)};
+    state.selectedSessionId = "queue-submit";
+    state.runningSessionIds = new Set(["queue-submit"]);
+    state.queuedPromptsBySession.set("queue-submit", []);
+    state.queueSnapshotRevisions.set("queue-submit", 0);
+    state.pendingAttachments = [];
+    const input = document.querySelector("#messageInput");
+    input.value = "one queued request";
+    document.querySelector("#chatForm").requestSubmit();
+  })()`);
+  await wait(40);
+  contents.send("queue-update", { sessionId: "queue-submit", items: [{ id: "server-1", text: "one queued request", preview: "one queued request" }] });
+  await wait(40);
+  deferredSend.resolve({ sessionId: "queue-submit" });
+  await wait(240);
+  const queueSubmitRace = await contents.executeJavaScript(`(() => {
+    const items = queuedPromptsFor("queue-submit");
+    return { ids: items.map((item) => item.id), optimistic: items.filter((item) => item.optimistic).length, rows: document.querySelectorAll("#queueList .queue-row").length };
+  })()`);
+  deferredSend = null;
+  if (queueSubmitRace.ids.join() !== "server-1" || queueSubmitRace.optimistic || queueSubmitRace.rows !== 1) {
+    failures.push(`authoritative queue snapshot raced into a duplicate optimistic row: ${JSON.stringify(queueSubmitRace)}`);
+  }
+  contents.send("queue-update", { sessionId: "queue-submit", items: [
+    { id: "server-2", text: "same", preview: "same" },
+    { id: "server-3", text: "same", preview: "same" },
+  ] });
+  await wait(60);
+  const identicalQueueItems = await contents.executeJavaScript(`queuedPromptsFor("queue-submit").map((item) => item.id)`);
+  if (identicalQueueItems.join() !== "server-2,server-3") failures.push(`legitimate identical queue submissions were deduplicated: ${JSON.stringify(identicalQueueItems)}`);
+
+  const todoPresentation = await contents.executeJavaScript(`(async () => {
+    state.dashboard = { harness: true, sessions: [{ sessionId: "todo-session", title: "Plan", running: true, state: "working", projections: { values: { todos: [
+      { content: "Inspect project", status: "completed" },
+      { content: "Fix renderer", status: "in_progress" },
+      { content: "Verify release", status: "pending" },
+    ] } }, subagents: [] }] };
+    state.selectedSessionId = "todo-session";
+    state.todoSignature = "";
+    renderTodos();
+    const collapsed = { hidden: document.querySelector("#todoDock").hidden, rows: document.querySelectorAll("#todoList .todo-row").length, counts: document.querySelector("#todoCounts").textContent, expanded: document.querySelector("#todoToggle").getAttribute("aria-expanded") };
+    document.querySelector("#todoToggle").click();
+    const open = { hidden: document.querySelector("#todoList").hidden, active: document.querySelectorAll("#todoList .in_progress").length };
+    await handleLiveEvent({ sessionId: "todo-session", event: { type: "todo/write", seq: 80, data: { todos: [{ content: "Live updated plan", status: "in_progress" }] } } });
+    const live = document.querySelector("#todoList").textContent;
+    await handleLiveEvent({ sessionId: "todo-session", event: { type: "turn/start", seq: 81, data: {} } });
+    return { collapsed, open, live, cleared: document.querySelector("#todoDock").hidden };
+  })()`);
+  if (todoPresentation.collapsed.hidden || todoPresentation.collapsed.rows !== 3 || todoPresentation.collapsed.counts !== "1/3 done · 1 active" || todoPresentation.collapsed.expanded !== "false" || todoPresentation.open.hidden || todoPresentation.open.active !== 1 || !todoPresentation.live.includes("Live updated plan") || !todoPresentation.cleared) {
+    failures.push(`Harness TODO projection did not render and update compactly: ${JSON.stringify(todoPresentation)}`);
+  }
+
+  const staleLiveDashboard = deferred();
+  deferredDashboard = staleLiveDashboard;
+  const liveDashboardRacePromise = contents.executeJavaScript(`(async () => {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+    state.dashboard = { harness: true, sessions: [{ sessionId: "live-race", title: "Live race", running: true, state: "working", activity: { active: true, kind: "thinking", label: "Thinking", text: "Before" }, projections: { values: { todos: [{ content: "Old plan", status: "pending" }] } }, subagents: [] }] };
+    state.selectedSessionId = "live-race";
+    state.runningSessionIds = new Set(["live-race"]);
+    state.liveSessionRevisions.delete("live-race");
+    syncRunningControls(true);
+    const pending = performRefresh();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await handleLiveEvent({ sessionId: "live-race", event: { type: "todo/write", seq: 200, data: { todos: [{ content: "Fresh live plan", status: "in_progress" }] } } });
+    await handleLiveEvent({ sessionId: "live-race", event: { type: "turn/end", seq: 201, data: {} } });
+    await pending;
+    const session = state.dashboard.sessions.find((item) => item.sessionId === "live-race");
+    return {
+      running: session.running,
+      todos: todosFor("live-race").map((item) => item.content),
+      stopHidden: document.querySelector("#cancelButton").hidden,
+    };
+  })()`);
+  await wait(60);
+  staleLiveDashboard.resolve({ harness: true, sessions: [{ sessionId: "live-race", title: "Live race", running: true, state: "working", activity: { active: true, kind: "thinking", label: "Thinking", text: "Stale" }, projections: { values: { todos: [{ content: "Old plan", status: "pending" }] } }, subagents: [] }] });
+  const liveDashboardRace = await liveDashboardRacePromise;
+  deferredDashboard = null;
+  if (liveDashboardRace.running || liveDashboardRace.todos.join() !== "Fresh live plan" || !liveDashboardRace.stopHidden) {
+    failures.push(`stale dashboard overwrote live TODO or resurrected Stop: ${JSON.stringify(liveDashboardRace)}`);
+  }
+  dashboardValue = { harness: true, sessions: [{ sessionId: "live-race", title: "Live race", running: false, state: "idle", activity: null, projections: { values: { contextPressure: { projectedTokens: 8192, contextWindow: 32768 }, todos: [{ content: "Old plan", status: "pending" }] } }, subagents: [] }] };
+  const staleTodoNextPoll = await contents.executeJavaScript(`(async () => {
+    await performRefresh();
+    const session = state.dashboard.sessions.find((item) => item.sessionId === "live-race");
+    return {
+      todos: todosFor("live-race").map((item) => item.content),
+      projectedTokens: session.projections?.values?.contextPressure?.projectedTokens,
+      overlay: state.liveTodosBySession.has("live-race"),
+    };
+  })()`);
+  dashboardValue = { harness: true, sessions: [{ sessionId: "live-race", title: "Live race", running: false, state: "idle", activity: null, projections: { values: { contextPressure: { projectedTokens: 16384, contextWindow: 32768 }, todos: [{ content: "Fresh live plan", status: "in_progress" }] } }, subagents: [] }] };
+  const acknowledgedTodo = await contents.executeJavaScript(`(async () => {
+    await performRefresh();
+    const session = state.dashboard.sessions.find((item) => item.sessionId === "live-race");
+    return {
+      todos: todosFor("live-race").map((item) => item.content),
+      projectedTokens: session.projections?.values?.contextPressure?.projectedTokens,
+      overlay: state.liveTodosBySession.has("live-race"),
+    };
+  })()`);
+  if (staleTodoNextPoll.todos.join() !== "Fresh live plan" || staleTodoNextPoll.projectedTokens !== 8192 || !staleTodoNextPoll.overlay
+      || acknowledgedTodo.todos.join() !== "Fresh live plan" || acknowledgedTodo.projectedTokens !== 16384 || acknowledgedTodo.overlay) {
+    failures.push(`live TODO overlay was not field-level, durable, or acknowledged: ${JSON.stringify({ staleTodoNextPoll, acknowledgedTodo })}`);
+  }
+  await contents.executeJavaScript(`schedulePolling()`);
+
+  const mixedTools = await contents.executeJavaScript(`(() => {
+    state.selectedSessionId = "tool-mix";
+    renderMessages([
+      { role: "tool", callId: "ok", name: "read", status: "completed", result: "ok", isError: false },
+      { role: "tool", callId: "bad", name: "write", status: "completed", result: "denied", isError: true },
+    ]);
+    const group = document.querySelector("#messages .tool-group");
+    return { className: group?.className || "", meta: group?.querySelector(".tool-group-identity small")?.textContent || "", failedRows: group?.querySelectorAll(".tool-call.failed").length || 0 };
+  })()`);
+  if (!mixedTools.className.includes("partial-failure") || mixedTools.className.includes("tool-group failed") || mixedTools.meta !== "1 completed · 1 failed" || mixedTools.failedRows !== 1) {
+    failures.push(`one failed tool painted the whole group as failed: ${JSON.stringify(mixedTools)}`);
+  }
+
+  const steerPresentation = await contents.executeJavaScript(`(async () => {
+    state.dashboard = { harness: true, sessions: [{ sessionId: "steer-session", title: "Steer", running: true, state: "working", projections: { values: {} }, subagents: [] }] };
+    state.selectedSessionId = "steer-session";
+    state.runningSessionIds = new Set(["steer-session"]);
+    state.currentMessages = [];
+    state.historySignature = "";
+    state.liveStreamsBySession.set("steer-session", { text: "old unfinished answer", reasoning: "", lastSeq: 90, active: true, activity: { active: true, kind: "writing", label: "Writing", text: "old unfinished answer" } });
+    setActivity({ active: true, kind: "writing", label: "Writing", text: "old unfinished answer" });
+    renderMessages([]);
+    state.queuedPromptsBySession.set("steer-session", [{ id: "steer-item", text: "new direction" }]);
+    await updateQueuedPrompt({ id: "steer-item", text: "new direction" }, { kind: "steer" });
+    const interrupted = { live: document.querySelector("#messages .live-assistant")?.textContent || "", steering: document.querySelector("#messages .steering-message")?.textContent || "", activity: state.currentActivity?.kind, stopHidden: document.querySelector("#cancelButton").hidden };
+    await handleLiveEvent({ sessionId: "steer-session", event: { type: "assistant/chunk", seq: 91, data: { chunk: { type: "text-delta", text: "new answer" } } } });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const next = document.querySelector("#messages .live-assistant")?.textContent || "";
+    await handleLiveEvent({ sessionId: "steer-session", event: { type: "turn/end", seq: 92, data: { reason: { kind: "stop" } } } });
+    return { interrupted, next, stopHiddenAfterEnd: document.querySelector("#cancelButton").hidden };
+  })()`);
+  if (steerPresentation.interrupted.live || !steerPresentation.interrupted.steering.includes("new direction") || steerPresentation.interrupted.activity !== "thinking" || steerPresentation.interrupted.stopHidden || steerPresentation.next !== "new answer" || !steerPresentation.stopHiddenAfterEnd) {
+    failures.push(`Send now did not interrupt the previous live bubble cleanly: ${JSON.stringify(steerPresentation)}`);
+  }
+
+  await within(contents.executeJavaScript(`(async () => {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+    if (state.refreshPromise) await state.refreshPromise;
+    return true;
+  })()`), "poll quiescence before steer race");
+  deferredQueueUpdate = deferred();
+  const staleSteerHistory = deferred();
+  const prioritySteerHistory = deferred();
+  const firstSteerHistoryStarted = deferred();
+  const secondSteerHistoryStarted = deferred();
+  let steerHistoryCalls = 0;
+  deferredSessionRequests.history.set("steer-late", { take: () => {
+    steerHistoryCalls += 1;
+    if (steerHistoryCalls === 1) {
+      firstSteerHistoryStarted.resolve();
+      return staleSteerHistory.promise;
+    }
+    if (steerHistoryCalls === 2) {
+      secondSteerHistoryStarted.resolve();
+      return prioritySteerHistory.promise;
+    }
+    return Promise.resolve({ messages: [{ role: "user", text: "durable direction" }], activity: null });
+  } });
+  await contents.executeJavaScript(`(() => {
+    state.dashboard = { harness: true, sessions: [{ sessionId: "steer-late", title: "Late steer", running: true, state: "working", projections: { values: {} }, subagents: [] }] };
+    state.selectedSessionId = "steer-late";
+    state.runningSessionIds = new Set(["steer-late"]);
+    state.currentMessages = [];
+    state.liveStreamsBySession.set("steer-late", { text: "old answer", reasoning: "", lastSeq: 300, active: true, activity: { active: true, kind: "writing", label: "Writing", text: "old answer" } });
+    state.queuedPromptsBySession.set("steer-late", [{ id: "late-item", text: "durable direction" }]);
+    state.steeringPromptsBySession.set("steer-late", []);
+    state.queueSnapshotRevisions.set("steer-late", 10);
+    window.__lateSteer = updateQueuedPrompt({ id: "late-item", text: "durable direction" }, { kind: "steer" });
+    window.__staleSteerHistory = refreshHistory();
+  })()`);
+  await within(firstSteerHistoryStarted.promise, "stale steer history rendezvous");
+  await contents.executeJavaScript(`(() => {
+    applyQueueSnapshot("steer-late", [{ id: "late-item", text: "durable direction", placement: "steering" }], 11);
+    applyQueueSnapshot("steer-late", [], 12);
+    window.__lateSteerMessage = handleLiveEvent({ sessionId: "steer-late", event: { type: "user/message", seq: 301, data: { messageId: "late-item", sourceKind: "user", text: "durable direction" } } });
+    return true;
+  })()`);
+  await within(secondSteerHistoryStarted.promise, "priority steer history rendezvous");
+  const blockedHistory = await within(contents.executeJavaScript(`refreshHistory()`), "blocked poll refresh");
+  staleSteerHistory.resolve({ messages: [], activity: null });
+  const staleHistory = await within(contents.executeJavaScript(`window.__staleSteerHistory`), "stale history settlement");
+  prioritySteerHistory.resolve({ messages: [{ role: "user", text: "durable direction" }], activity: null });
+  const lateSteerBeforeRpc = await within(contents.executeJavaScript(`(async () => {
+    await window.__lateSteerMessage;
+    return {
+      steering: steeringPromptsFor("steer-late").length,
+      live: document.querySelector("#messages .live-assistant")?.textContent || "",
+      durable: document.querySelectorAll("#messages .bubble.user").length,
+    };
+  })()`), "priority steer history settlement");
+  deferredQueueUpdate.resolve({ ok: true });
+  const lateSteerAfterRpc = await contents.executeJavaScript(`(async () => {
+    await window.__lateSteer;
+    return {
+      steering: steeringPromptsFor("steer-late").length,
+      live: document.querySelector("#messages .live-assistant")?.textContent || "",
+      durable: document.querySelectorAll("#messages .bubble.user").length,
+    };
+  })()`);
+  deferredQueueUpdate = null;
+  deferredSessionRequests.history.delete("steer-late");
+  if (blockedHistory !== "deferred" || staleHistory !== "superseded" || steerHistoryCalls < 2
+      || lateSteerBeforeRpc.steering || lateSteerBeforeRpc.live || lateSteerBeforeRpc.durable !== 1
+      || lateSteerAfterRpc.steering || lateSteerAfterRpc.live || lateSteerAfterRpc.durable !== 1) {
+    failures.push(`durable steering handoff duplicated or resurrected after late updateQueue: ${JSON.stringify({ blockedHistory, staleHistory, steerHistoryCalls, lateSteerBeforeRpc, lateSteerAfterRpc })}`);
+  }
+
+  deferredCancel = deferred();
+  await contents.executeJavaScript(`(() => {
+    state.dashboard = { harness: true, sessions: [{ sessionId: "cancel-race", title: "Cancel race", running: true, state: "working", activity: { active: true, kind: "writing", label: "Writing", text: "old turn" }, projections: { values: {} }, subagents: [] }] };
+    state.selectedSessionId = "cancel-race";
+    state.runningSessionIds = new Set(["cancel-race"]);
+    state.turnGenerationsBySession.set("cancel-race", 4);
+    state.cancelPendingSessionIds.delete("cancel-race");
+    syncRunningControls(true);
+    window.__lateCancel = stopCurrentTurn();
+  })()`);
+  await wait(30);
+  await contents.executeJavaScript(`handleLiveEvent({ sessionId: "cancel-race", event: { type: "turn/start", seq: 400, data: {} } })`);
+  deferredCancel.resolve({ accepted: true });
+  const lateCancel = await contents.executeJavaScript(`(async () => {
+    await window.__lateCancel;
+    const session = state.dashboard.sessions.find((item) => item.sessionId === "cancel-race");
+    return {
+      generation: state.turnGenerationsBySession.get("cancel-race"),
+      running: session.running,
+      live: state.liveStreamsBySession.get("cancel-race")?.active,
+      cancelPending: state.cancelPendingSessionIds.has("cancel-race"),
+      stopHidden: document.querySelector("#cancelButton").hidden,
+    };
+  })()`);
+  deferredCancel = null;
+  if (lateCancel.generation !== 5 || !lateCancel.running || !lateCancel.live || lateCancel.cancelPending || lateCancel.stopHidden) {
+    failures.push(`late Stop completion idled a newer turn: ${JSON.stringify(lateCancel)}`);
+  }
+
+  await contents.executeJavaScript(`(() => { clearCompletionSignal(); return true; })()`);
+  const stableMessages = Array.from({ length: 24 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", text: `Stable message ${index + 1}` }));
+  dashboardValue = { harness: true, sessions: [{ sessionId: "stable-poll", title: "Stable polling", updatedAt: 42, running: false, state: "idle", preview: "Stable message 24", projections: { values: { contextPressure: { projectedTokens: 2048, contextWindow: 32768 }, todos: [] } }, subagents: [] }] };
+  deferredSessionRequests.history.set("stable-poll", { promise: Promise.resolve({ messages: stableMessages, activity: null }) });
+  const compactBeforeStablePoll = compactStatusPayloads.length;
+  const boundsBeforeStablePoll = win.getBounds();
+  const stablePolling = await contents.executeJavaScript(`(async () => {
+    state.dashboardInitialized = false;
+    state.dashboard = ${JSON.stringify(dashboardValue)};
+    state.selectedSessionId = "stable-poll";
+    state.modelCatalog = { current: null, groups: [] };
+    state.modelLoadState = "ready";
+    state.commandsLoadedSessionId = "stable-poll";
+    state.commandCatalog = [];
+    state.workspacesLoaded = true;
+    state.workspaces = [];
+    state.queuedPromptsBySession.set("stable-poll", []);
+    state.queueSnapshotRevisions.set("stable-poll", 1);
+    state.currentActivity = null;
+    state.activityCardSignature = "";
+    state.historySignature = "";
+    await performRefresh();
+    const root = document.querySelector(".widget-shell");
+    const messages = document.querySelector("#messages");
+    messages.scrollTop = Math.max(0, Math.floor((messages.scrollHeight - messages.clientHeight) / 2));
+    state.messagesStickToBottom = false;
+    state.unseenMessages = 0;
+    document.querySelector("#messageInput").focus();
+    const firstBubble = messages.querySelector(".bubble");
+    const firstSession = document.querySelector("#sessions .session-card");
+    const queueList = document.querySelector("#queueList");
+    const before = {
+      shell: [...[root.getBoundingClientRect()].map((r) => [r.x, r.y, r.width, r.height])][0],
+      composer: [...[document.querySelector("#chatForm").getBoundingClientRect()].map((r) => [r.x, r.y, r.width, r.height])][0],
+      messages: [...[messages.getBoundingClientRect()].map((r) => [r.x, r.y, r.width, r.height])][0],
+      scrollTop: messages.scrollTop,
+      active: document.activeElement?.id || "",
+    };
+    const mutations = [];
+    const observer = new MutationObserver((records) => mutations.push(...records.map((record) => record.type + ":" + (record.attributeName || record.target.id || record.target.className || record.target.nodeName))));
+    observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
+    for (let index = 0; index < 8; index += 1) await performRefresh();
+    observer.disconnect();
+    const after = {
+      shell: [...[root.getBoundingClientRect()].map((r) => [r.x, r.y, r.width, r.height])][0],
+      composer: [...[document.querySelector("#chatForm").getBoundingClientRect()].map((r) => [r.x, r.y, r.width, r.height])][0],
+      messages: [...[messages.getBoundingClientRect()].map((r) => [r.x, r.y, r.width, r.height])][0],
+      scrollTop: messages.scrollTop,
+      active: document.activeElement?.id || "",
+    };
+    return {
+      before,
+      after,
+      mutations,
+      sameBubble: firstBubble === messages.querySelector(".bubble"),
+      sameSession: firstSession === document.querySelector("#sessions .session-card"),
+      sameQueue: queueList === document.querySelector("#queueList"),
+    };
+  })()`);
+  deferredSessionRequests.history.delete("stable-poll");
+  const compactAfterStablePoll = compactStatusPayloads.length;
+  const boundsAfterStablePoll = win.getBounds();
+  if (stablePolling.mutations.length || JSON.stringify(stablePolling.before) !== JSON.stringify(stablePolling.after) || !stablePolling.sameBubble || !stablePolling.sameSession || !stablePolling.sameQueue || compactAfterStablePoll !== compactBeforeStablePoll || JSON.stringify(boundsBeforeStablePoll) !== JSON.stringify(boundsAfterStablePoll)) {
+    failures.push(`eight unchanged 2.5s refresh passes mutated or moved the widget: ${JSON.stringify({ stablePolling, compactIpc: [compactBeforeStablePoll, compactAfterStablePoll], bounds: [boundsBeforeStablePoll, boundsAfterStablePoll] })}`);
+  }
+
+  dashboardValue = { harness: true, sessions: [{ sessionId: "slash-session", title: "Slash", running: false, state: "idle", projections: { values: {} }, subagents: [] }] };
+  deferredSessionRequests.commands.set("slash-session", { promise: Promise.resolve([
+    { name: "feedback", description: "Feedback" },
+    { name: "goal", description: "Set or inspect the active goal", input: { hint: "[objective]", images: true } },
+    { name: "compact", description: "Compact context" },
+    { name: "plan", description: "Plan mode", input: { hint: "[on|off]", images: true } },
+    { name: "permission", description: "Permission", input: { hint: "<mode>" } },
+  ]) });
+  deferredSessionRequests.history.set("slash-session", { promise: Promise.resolve({ messages: [
+    { role: "user", text: "/goal create ship it" },
+    { role: "command", text: "Status: active\nObjective: Ship it safely\nRounds: 2/4\nActivation: manual" },
+  ], activity: null }) });
+  const sentBeforeSlash = sentPayloads.length;
+  const commandsBeforeSlash = commandPayloads.length;
+  deferredCommand = deferred();
+  const slashStart = await contents.executeJavaScript(`(async () => {
+    state.dashboard = ${JSON.stringify(dashboardValue)};
+    state.harnessOffline = false;
+    await selectSession("slash-session", true);
+    state.pendingAttachments = [
+      { kind: "image", mediaType: "image/png", data: "AA==", name: "goal.png", path: "C:\\\\goal.png" },
+      { kind: "file", name: "goal.png", path: "C:\\\\keep.txt" },
+    ];
+    renderAttachments();
+    const input = document.querySelector("#messageInput");
+    input.value = "/GoAl create ship it";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const hint = document.querySelector("#commandHintBar")?.textContent || "";
+    document.querySelector("#chatForm").requestSubmit();
+    return { hint };
+  })()`);
+  await wait(50);
+  deferredCommand.resolve({ result: { kind: "success", text: "Status: active\nObjective: Ship it safely\nRounds: 2/4\nActivation: manual" } });
+  await wait(220);
+  deferredCommand = null;
+  const slashResult = await contents.executeJavaScript(`({
+    goalCard: document.querySelector("#messages .goal-result")?.textContent || "",
+    attachments: state.pendingAttachments.length,
+    attachmentPaths: state.pendingAttachments.map((item) => item.path),
+    firstCommands: [...document.querySelectorAll("#commandMenu .command-name")].slice(0, 4).map((item) => item.textContent),
+  })`);
+  const goalPayload = commandPayloads.at(-1);
+  if (!slashStart.hint.includes("create <objective>") || sentPayloads.length !== sentBeforeSlash || commandPayloads.length !== commandsBeforeSlash + 1
+      || goalPayload?.line !== "/GoAl create ship it" || goalPayload?.images?.[0]?.name !== "goal.png"
+      || slashResult.attachments !== 1 || slashResult.attachmentPaths.join() !== "C:\\keep.txt" || !slashResult.goalCard.includes("Ship it safely")
+      || slashResult.firstCommands.join() !== "/goal,/compact,/plan,/permission") {
+    failures.push(`slash /goal lost command routing, guidance, image, or structured result: ${JSON.stringify({ slashStart, slashResult, goalPayload })}`);
+  }
+
+  const commandsBeforePlanImage = commandPayloads.length;
+  await contents.executeJavaScript(`(() => {
+    state.pendingAttachments.push({ kind: "image", mediaType: "image/png", data: "BB==", name: "plan.png", path: "C:\\\\plan.png" });
+    renderAttachments();
+    const input = document.querySelector("#messageInput");
+    input.value = "/PlAn review this";
+    document.querySelector("#chatForm").requestSubmit();
+  })()`);
+  await wait(180);
+  const planImageResult = await contents.executeJavaScript(`({
+    attachments: state.pendingAttachments.map((item) => item.path),
+    input: document.querySelector("#messageInput").value,
+  })`);
+  const planImagePayload = commandPayloads.at(-1);
+  if (commandPayloads.length !== commandsBeforePlanImage + 1 || planImagePayload?.line !== "/PlAn review this"
+      || planImagePayload?.images?.[0]?.name !== "plan.png" || planImageResult.attachments.join() !== "C:\\keep.txt") {
+    failures.push(`commandCatalog input.images was ignored or removed an unsent attachment: ${JSON.stringify({ planImagePayload, planImageResult })}`);
+  }
+
+  const sentBeforeUnknown = sentPayloads.length;
+  const commandsBeforeUnknown = commandPayloads.length;
+  const unknownSlash = await contents.executeJavaScript(`(async () => {
+    const input = document.querySelector("#messageInput");
+    input.value = "/NotACommand";
+    document.querySelector("#chatForm").requestSubmit();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    return { value: input.value, activity: state.currentActivity?.text || "" };
+  })()`);
+  if (sentPayloads.length !== sentBeforeUnknown || commandPayloads.length !== commandsBeforeUnknown || unknownSlash.value !== "/NotACommand" || !/Unknown Harness command/i.test(unknownSlash.activity)) {
+    failures.push(`unknown slash command leaked to the model prompt path: ${JSON.stringify(unknownSlash)}`);
+  }
+  deferredSessionRequests.commands.delete("slash-session");
+  deferredSessionRequests.history.delete("slash-session");
+
   deferredCommand = deferred();
   await contents.executeJavaScript(`(() => {
     state.selectedSessionId = "command-a";
@@ -536,13 +1216,22 @@ async function main() {
   }
 
   deferredSend = deferred();
-  await contents.executeJavaScript(`(() => {
+  dashboardValue = { harness: true, sessions: [
+    { sessionId: "send-a", title: "Send A", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    { sessionId: "send-b", title: "Send B", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+  ] };
+  deferredSessionRequests.history.set("send-b", { promise: Promise.resolve({ messages: [{ role: "assistant", text: "Selected B" }], activity: null }) });
+  await contents.executeJavaScript(`(async () => {
+    state.dashboard = { harness: true, sessions: [
+      { sessionId: "send-a", title: "Send A", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+      { sessionId: "send-b", title: "Send B", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    ] };
     state.selectedSessionId = "send-a";
     state.pendingAttachments = [];
     const input = document.querySelector("#messageInput");
     input.value = "message for A";
     document.querySelector("#chatForm").requestSubmit();
-    state.selectedSessionId = "send-b";
+    await selectSession("send-b", true);
     renderMessages([{ role: "assistant", text: "Selected B" }]);
   })()`);
   await wait(40);
@@ -550,18 +1239,28 @@ async function main() {
   await wait(180);
   const sendRace = await contents.executeJavaScript(`({ selected: state.selectedSessionId, text: document.querySelector("#messages")?.textContent || "" })`);
   deferredSend = null;
+  deferredSessionRequests.history.delete("send-b");
   if (sendRace.selected !== "send-b" || !sendRace.text.includes("Selected B")) {
     failures.push(`send completion forced the UI back to its original session: ${JSON.stringify(sendRace)}`);
   }
 
   deferredSend = deferred();
-  await contents.executeJavaScript(`(() => {
+  dashboardValue = { harness: true, sessions: [
+    { sessionId: "failed-send-a", title: "Failed send A", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    { sessionId: "failed-send-b", title: "Failed send B", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+  ] };
+  deferredSessionRequests.history.set("failed-send-b", { promise: Promise.resolve({ messages: [], activity: null }) });
+  await contents.executeJavaScript(`(async () => {
+    state.dashboard = { harness: true, sessions: [
+      { sessionId: "failed-send-a", title: "Failed send A", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+      { sessionId: "failed-send-b", title: "Failed send B", running: false, state: "idle", projections: { values: {} }, subagents: [] },
+    ] };
     state.selectedSessionId = "failed-send-a";
     state.pendingAttachments = [];
     const input = document.querySelector("#messageInput");
     input.value = "message that belongs to A";
     document.querySelector("#chatForm").requestSubmit();
-    state.selectedSessionId = "failed-send-b";
+    await selectSession("failed-send-b", true);
     input.value = "draft for B";
   })()`);
   await wait(40);
@@ -569,6 +1268,7 @@ async function main() {
   await wait(180);
   const failedSendRace = await contents.executeJavaScript(`({ selected: state.selectedSessionId, draft: document.querySelector("#messageInput").value, active: document.activeElement?.id || "" })`);
   deferredSend = null;
+  deferredSessionRequests.history.delete("failed-send-b");
   if (failedSendRace.selected !== "failed-send-b" || failedSendRace.draft !== "draft for B") {
     failures.push(`a failed send restored its text into another session composer: ${JSON.stringify(failedSendRace)}`);
   }
@@ -654,7 +1354,7 @@ async function main() {
   }
 
   for (const failure of failures) console.error(`FAIL ${failure}`);
-  if (failures.length === 0) console.log("PASS stable rendering, last-intent modes, compact drag, exact-session open, and inline quick reply behave correctly");
+  if (failures.length === 0) console.log("PASS stable rendering, bounded live-stream paints, last-intent modes, compact drag, exact-session open, and inline quick reply behave correctly");
   app.exit(failures.length === 0 ? 0 : 1);
 }
 

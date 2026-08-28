@@ -27,7 +27,7 @@ function applyPlatformWindowLayer(windowRef, { layer, mode = "full", capabilitie
   if (!windowRef || windowRef.isDestroyed?.()) return "normal";
   const effectiveLayer = normalizeWindowLayer(layer, capabilities);
   const compact = mode !== "full";
-  if (!compact && effectiveLayer === "normal") {
+  if (effectiveLayer === "normal") {
     windowRef.setAlwaysOnTop(false);
   } else if (capabilities.layerLevels) {
     windowRef.setAlwaysOnTop(true, compact || effectiveLayer === "game" ? "screen-saver" : "floating");
@@ -35,7 +35,7 @@ function applyPlatformWindowLayer(windowRef, { layer, mode = "full", capabilitie
     windowRef.setAlwaysOnTop(true);
   }
   if (capabilities.visibleOnFullScreen && typeof windowRef.setVisibleOnAllWorkspaces === "function") {
-    const visible = compact || effectiveLayer === "game";
+    const visible = effectiveLayer !== "normal" && (compact || effectiveLayer === "game");
     windowRef.setVisibleOnAllWorkspaces(visible, { visibleOnFullScreen: visible });
   }
   return effectiveLayer;

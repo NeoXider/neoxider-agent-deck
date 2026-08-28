@@ -29,9 +29,12 @@
     .label { position:absolute; z-index:4; display:flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid rgba(255,255,255,.13); border-radius:999px; background:rgba(8,12,19,.86); color:#dce5ef; font-size:12px; font-weight:760; letter-spacing:.12em; text-transform:uppercase; backdrop-filter:blur(12px); }
     .label::before { content:""; width:7px; height:7px; border-radius:50%; background:#49e7c6; box-shadow:0 0 10px #49e7c6; }
     .full-label { top:34px; right:425px; }
-    .avatar-card { position:absolute; z-index:5; top:96px; right:552px; width:360px; height:176px; display:grid; place-items:center; border:1px solid rgba(73,231,198,.17); border-radius:28px; background:linear-gradient(145deg,rgba(10,18,25,.91),rgba(18,15,34,.9)); box-shadow:0 28px 58px rgba(0,0,0,.38),0 0 36px rgba(73,231,198,.10); }
-    .avatar-card img { max-width:340px; max-height:150px; object-fit:contain; filter:drop-shadow(0 16px 24px rgba(0,0,0,.42)); }
-    .avatar-label { top:72px; right:817px; }
+    .avatar-card { position:absolute; z-index:5; top:98px; right:560px; width:320px; height:158px; display:grid; place-items:center; border:1px solid rgba(73,231,198,.17); border-radius:28px; background:linear-gradient(145deg,rgba(10,18,25,.91),rgba(18,15,34,.9)); box-shadow:0 28px 58px rgba(0,0,0,.38),0 0 36px rgba(73,231,198,.10); }
+    .avatar-card img { max-width:300px; max-height:138px; object-fit:contain; filter:drop-shadow(0 16px 24px rgba(0,0,0,.42)); }
+    .avatar-label { top:74px; right:790px; }
+    .mini { position:absolute; z-index:6; right:470px; bottom:58px; width:252px; height:350px; overflow:hidden; border:1px solid rgba(73,231,198,.22); border-radius:22px; background:#080c12; box-shadow:0 34px 72px rgba(0,0,0,.54),0 0 42px rgba(73,231,198,.10); }
+    .mini img { width:100%; height:100%; object-fit:cover; }
+    .mini-label { z-index:7; right:622px; bottom:386px; }
     .edge-card { position:absolute; z-index:4; right:24px; top:340px; width:88px; height:250px; display:grid; place-items:center; overflow:hidden; border-radius:28px 0 0 28px; background:rgba(9,13,20,.62); }
     .edge-card img { width:88px; height:132px; object-fit:contain; }
     .edge-label { top:294px; right:18px; }
@@ -50,14 +53,16 @@
       <div class="features">
         <span class="feature">Live sessions</span><span class="feature">Native mini-chat</span><span class="feature">Game Bar bridge</span><span class="feature">Quiet updates</span>
       </div>
-      <div class="mode-line"><span>Full</span><i></i><span>Avatar</span><i></i><span>Edge</span></div>
+      <div class="mode-line"><span>Full</span><i></i><span>Focus</span><i></i><span>Orb</span><i></i><span>Edge</span></div>
     </section>
     <section class="visuals" aria-label="Real product modes">
       <div class="bridge"></div>
       <div class="label full-label">Full chat</div>
       <div class="full"><img src="screenshots/chat.png" alt="Real full chat mode" /></div>
-      <div class="label avatar-label">Avatar</div>
-      <div class="avatar-card"><img src="screenshots/avatar-mode.png" alt="Real avatar mode" /></div>
+      <div class="label avatar-label">Orb</div>
+      <div class="avatar-card"><img src="screenshots/recent-sessions-orb.png" alt="Real orb mode with recent sessions" /></div>
+      <div class="label mini-label">Focus mini</div>
+      <div class="mini"><img src="screenshots/focus-chat.png" alt="Real focus chat mode" /></div>
       <div class="label edge-label">Edge</div>
       <div class="edge-card"><img src="screenshots/edge-mode.png" alt="Real edge mode" /></div>
     </section>

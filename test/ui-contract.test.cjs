@@ -62,11 +62,11 @@ test("composer stacks attachment and commands beside a smaller context ring and 
   assert.ok(focus > 0 && focus < context && context < attach && attach < commands && commands < input && input < stop && stop < send);
   assert.match(html, /class="composer-view-stack"[\s\S]+id="focusChatButton"[\s\S]+id="contextMeter"/);
   assert.match(html, /class="composer-utility-stack"[\s\S]+id="attachButton"[\s\S]+id="commandsButton"/);
-  assert.match(css, /\.composer-utility-stack \{[^}]+width:28px[^}]+height:38px[^}]+grid-template-rows:repeat\(2,18px\)/);
-  assert.match(css, /\.composer-utility-stack \.composer-action \{[^}]+width:28px[^}]+height:18px/);
-  assert.match(css, /\.composer-view-stack \{[^}]+height:38px[^}]+grid-template-rows:repeat\(2,18px\)/);
-  assert.match(css, /\.composer-view-stack \.focus-chat-button \{[^}]+width:28px[^}]+height:18px/);
-  assert.match(css, /\.context-meter \{[^}]+width:28px[^}]+height:18px/);
+  assert.match(css, /\.composer-utility-stack \{[^}]+width:28px[^}]+height:46px[^}]+grid-template-rows:repeat\(2,22px\)/);
+  assert.match(css, /\.composer-utility-stack \.composer-action \{[^}]+width:28px[^}]+height:22px/);
+  assert.match(css, /\.composer-view-stack \{[^}]+height:46px[^}]+grid-template-rows:repeat\(2,22px\)/);
+  assert.match(css, /\.composer-view-stack \.focus-chat-button \{[^}]+width:28px[^}]+height:22px/);
+  assert.match(css, /\.context-meter \{[^}]+width:28px[^}]+height:22px/);
   assert.match(css, /\.composer #sendButton \{[^}]+width:38px[^}]+height:38px/);
   assert.match(css, /\.context-meter svg \{[^}]+top:50%[^}]+left:50%[^}]+translate\(-50%,-50%\)/);
   assert.match(css, /\.context-meter span \{[^}]+position:absolute[^}]+inset:0[^}]+place-items:center/);
@@ -79,6 +79,12 @@ test("composer stacks attachment and commands beside a smaller context ring and 
   assert.match(renderer, /meter\.setAttribute\("aria-valuetext", `Context usage \$\{rounded\}%/);
   assert.match(renderer, /attachment-preview/);
   assert.match(renderer, /thumbnailData/);
+  assert.match(renderer, /chip\.setAttribute\("role", "group"\)/);
+  assert.match(renderer, /chip\.dataset\.attachmentKind = displayKind/);
+  assert.match(renderer, /removeText\.textContent = "Remove"/);
+  assert.match(css, /\.attachment-chip \{[^}]+flex:0 0 172px[^}]+height:46px[^}]+grid-template-columns:48px minmax\(0,1fr\) 26px/);
+  assert.match(css, /\.attachment-preview \{[^}]+width:48px[^}]+height:40px/);
+  assert.match(css, /\.attachment-list \{[^}]+overflow-x:auto[^}]+scroll-snap-type:x proximity/);
 });
 
 test("main composer starts on one line, grows to one third of the viewport, scrolls, and collapses after submit", () => {
@@ -117,10 +123,15 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(renderer, /Models unavailable/);
   assert.match(renderer, /function retryModels/);
   assert.match(renderer, /function positionPickerMenu/);
+  assert.match(renderer, /MODEL_PICKER_COMPACT_MAX_VIEWPORT_HEIGHT = 400/);
+  assert.match(renderer, /picker\.classList\.toggle\("compact-overlay", compactOverlay\)/);
+  assert.match(renderer, /requestAnimationFrame\(scrollSelectedModelIntoView\)/);
+  assert.match(renderer, /option\.dataset\.modelOption = "true"/);
   assert.match(renderer, /MODEL_PICKER_ROW_HEIGHT = 36/);
   assert.match(renderer, /bottomBoundary = Math\.min\(shell\.bottom - PICKER_SURFACE_GAP, composer\.top - PICKER_SURFACE_GAP\)/);
   assert.match(renderer, /--picker-options-height/);
   assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.model-menu \.picker-options:not\(:empty\)[^}]+scroll-snap-type:y mandatory/);
+  assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.model-picker\.compact-overlay \.model-menu \{[^}]+position:fixed[^}]+top:var\(--model-sheet-top\)[^}]+width:var\(--model-sheet-width\)/);
   assert.match(renderer, /function createModelSetupCard/);
   assert.match(renderer, /Choose model/);
   assert.match(renderer, /Retry models/);
@@ -130,6 +141,9 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(html, /id="controlsPrimary">Auto<\/b>/);
   assert.match(renderer, /\$\("#controlsPrimary"\)\.textContent = shortModel/);
   assert.match(renderer, /shortModel = "No model"/);
+  assert.match(renderer, /state\.automaticModelRoute = true;[\s\S]+?state\.pendingSelection = null;[\s\S]+?await applyModelSelection\(\)/);
+  assert.match(renderer, /window\.widget\.selectModel\(selection \? \{ sessionId, selection \} : \{ sessionId \}\)/);
+  assert.doesNotMatch(renderer, /selection:\s*\{[^}]*auto/i);
   assert.doesNotMatch(html, /<b>Model \/ Setup<\/b>/);
 });
 
@@ -187,15 +201,33 @@ test("busy-session messages use the authoritative Harness queue with compact edi
 
 test("live assistant deltas grow a bubble instead of leaving a Writing reasoning card", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const chunkHandler = renderer.slice(
+    renderer.indexOf('if (event.type === "assistant/chunk")'),
+    renderer.indexOf('if (event.type === "tool/call")'),
+  );
   assert.match(renderer, /onLiveEvent/);
   assert.match(renderer, /function handleLiveEvent/);
   assert.match(renderer, /chunk\.type === "text-delta"/);
   assert.match(renderer, /live-assistant/);
   assert.match(renderer, /function liveAssistantSnapshot/);
+  assert.match(renderer, /function paintLiveAssistant/);
+  assert.match(renderer, /function scheduleLivePaint/);
+  assert.match(renderer, /livePaintFrame = requestAnimationFrame\(paintLiveState\)/);
+  assert.doesNotMatch(chunkHandler, /renderMessages\(/);
+  assert.doesNotMatch(chunkHandler, /setActivity\(/);
   assert.match(renderer, /activity\?\.active && activity\.kind === "writing" && activity\.text/);
   assert.match(renderer, /hasWritingBubble/);
   assert.match(css, /\.live-assistant::after \{[^}]+width:4px[^}]+animation:live-caret/);
   assert.match(css, /prefers-reduced-motion[\s\S]+\.live-assistant::after \{ animation:none !important/);
+});
+
+test("compact status IPC is skipped while its bounded presentation is unchanged", () => {
+  const sync = renderer.slice(renderer.indexOf("function syncCompactStatus"), renderer.indexOf("function syncActivityCard"));
+  assert.match(renderer, /compactStatusIpcSignature: ""/);
+  assert.match(sync, /JSON\.stringify\(\[active, expanded, label, text\]\)/);
+  assert.match(sync, /ipcSignature !== state\.compactStatusIpcSignature/);
+  assert.match(sync, /state\.compactStatusIpcSignature = ipcSignature/);
+  assert.match(sync, /window\.widget\.setCompactStatus\(compactStatus\)/);
 });
 
 test("manual chat scrolling is preserved and a jump-to-latest control appears for new output", () => {
@@ -211,6 +243,7 @@ test("activity glow intensity is brighter by default, adjustable, and persisted"
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   assert.match(css, /--chat-glow-intensity: \.82/);
   assert.match(css, /opacity:var\(--chat-glow-intensity\)/);
+  assert.match(css, /box-shadow \.55s cubic-bezier\(\.22,1,\.36,1\)/);
   assert.match(renderer, /applyGlowIntensity/);
   assert.match(renderer, /setGlowIntensity/);
   assert.match(settingsStore, /glowIntensity: 0\.82/);
@@ -229,7 +262,7 @@ test("collapsed pet exposes three exact recent sessions and inline quick reply w
   assert.match(renderer, /recentReplySessions\(state\.dashboard\?\.sessions, 3\)/);
   assert.match(renderer, /openCompactSession\(session\.sessionId\)/);
   assert.match(renderer, /openCompactReply\(session\.sessionId\)/);
-  assert.match(renderer, /await selectSession\(sessionId, true\)/);
+  assert.match(renderer, /await setWindowMode\("full"\);\s*await selectSession\(sessionId, true\)/);
   const quickReply = renderer.slice(renderer.indexOf("async function sendCompactReply"), renderer.indexOf("function detectCompletedSessions"));
   assert.match(quickReply, /window\.widget\.send\(\{/);
   assert.match(quickReply, /sessionId,/);
@@ -376,7 +409,7 @@ test("orb activity glow eases between idle, thinking, writing, tool, waiting, er
   assert.match(css, /\.orb-history-button:hover, \.orb-history-button\.active \{[^}]+box-shadow:none/);
 });
 
-test("the clickable NeoXider brand becomes a full-window drag target after movement", () => {
+test("the custom titlebar drag excludes header controls and avoids Chromium native drag", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   assert.match(renderer, /beginFullDrag/);
   assert.match(renderer, /moveFullDrag/);
@@ -388,8 +421,34 @@ test("the clickable NeoXider brand becomes a full-window drag target after movem
   assert.match(renderer, /function suppressBrandClickAfterDrag/);
   assert.match(renderer, /suppressProjectClick = false; \}, 1200/);
   assert.match(html, /class="brand no-drag"/);
-  assert.match(renderer, /for \(const target of \[\$\("\.brand"\)\]\)/);
-  assert.match(css, /\.brand \{[^}]+user-select:none[^}]+-webkit-user-drag:none/);
+  assert.match(html, /<header class="titlebar">/);
+  assert.doesNotMatch(html, /<header class="titlebar drag-region">/);
+  assert.match(renderer, /function canStartFullDrag\(event\)/);
+  assert.match(renderer, /event\.target\.closest\("\.tabs, \.window-actions, \.picker, #headerUpdateButton"\)/);
+  assert.match(renderer, /interactive\.closest\("#avatarButton, #projectLink"\)/);
+  assert.match(renderer, /for \(const target of \[\$\("\.titlebar"\)\]\)/);
+  assert.match(css, /\.titlebar \{[^}]+user-select:none[^}]+-webkit-user-drag:none[^}]+-webkit-app-region:no-drag/);
+  assert.doesNotMatch(css, /\.drag-region\s*\{[^}]+-webkit-app-region:drag/);
+});
+
+test("the full-size avatar hit target uses a contained circular aura instead of a plate", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(css, /\.avatar-shell \{[^}]+width:44px;[^}]+height:44px;[^}]+border-radius:50%;[^}]+background:transparent/);
+  assert.match(css, /\.avatar-shell::before \{[^}]+inset:2px;[^}]+border-radius:50%;[^}]+radial-gradient/);
+  assert.match(css, /\.avatar-shell\.working::before \{[^}]+avatar-aura-working/);
+  assert.match(css, /\.avatar-shell\.error::before \{[^}]+avatar-aura-error/);
+  assert.match(css, /\.avatar-shell\.done::before \{[^}]+avatar-aura-done/);
+  assert.match(css, /@media \(max-width:390px\), \(max-height:560px\)[\s\S]+?\.avatar-shell \{ width:38px; height:38px; \}/);
+  assert.match(css, /\.avatar-shell img \{[^}]+width:42px; height:42px/);
+  assert.match(css, /\.avatar-shell img \{ width:36px; height:36px; \}/);
+});
+
+test("full-window drag persists neither move nor resize drift", () => {
+  const main = readFileSync(path.join(root, "src", "main.cjs"), "utf8");
+  assert.match(main, /function moveWindowWithinNearestDisplay\(bounds, candidate, preserveSize = false\)[\s\S]+?if \(preserveSize\) setPlatformBounds\(windowRef, moved/);
+  assert.match(ipc, /moveWithinNearestDisplay\(fullDragOrigin\.bounds, candidate, true\)/);
+  assert.match(main, /windowRef\.on\("resize", \(\) => \{\s+if \(windowMode !== "full" \|\| fullDragOrigin\) return;/);
+  assert.match(main, /windowRef\.on\("move", \(\) => \{\s+if \(windowMode !== "full" \|\| fullDragOrigin\) return;/);
 });
 
 test("avatar click replaces the redundant collapse icon", () => {
@@ -399,10 +458,47 @@ test("avatar click replaces the redundant collapse icon", () => {
 });
 
 test("consecutive tool activity collapses into one expandable group", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   assert.match(renderer, /function appendActivityRun/);
   assert.match(renderer, /className = `tool-group/);
+  assert.match(renderer, /partial-failure/);
+  assert.match(renderer, /completed ·.*failed/);
   assert.match(renderer, /state\.currentMessages\[index\]\.role === "tool"/);
   assert.match(renderer, /tool-group-body/);
+  assert.match(css, /\.tool-group\.partial-failure/);
+});
+
+test("Harness TODO projections render as a compact collapsible current plan", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(html, /id="todoDock"[^>]+aria-label="Current plan"/);
+  assert.match(html, /id="todoToggle"[^>]+aria-controls="todoList"/);
+  assert.match(renderer, /function todosFor/);
+  assert.match(renderer, /projections\?\.values\?\.todos/);
+  assert.match(renderer, /event\.type === "todo\/write"/);
+  assert.match(renderer, /event\.type === "turn\/start"[\s\S]+?renderTodos/);
+  assert.match(css, /\.todo-row\.in_progress/);
+  assert.match(css, /@keyframes todo-active-pulse/);
+});
+
+test("command execution stays visible in full and compact modes until it settles", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(renderer, /function commandFeedbackFor/);
+  assert.match(renderer, /label: `Running \$\{command\}`/);
+  assert.match(renderer, /Waiting for Harness/);
+  assert.match(renderer, /settleCommandFeedback/);
+  assert.match(renderer, /commandFeedbackFor\(sessionId\)\?\.activity \|\| view\.activity/);
+  assert.match(css, /\.bubble\.command \{[^}]+max-height:140px;[^}]+overflow:auto/);
+});
+
+test("queue snapshots win send races and steer interrupts the previous live bubble", () => {
+  assert.match(renderer, /queueSnapshotRevisions/);
+  assert.match(renderer, /expectedSnapshotRevision/);
+  assert.match(renderer, /queueSnapshotRevision\(sessionId\) !== expectedSnapshotRevision/);
+  assert.match(renderer, /function beginSteeredTurn/);
+  assert.match(renderer, /steeringPromptsBySession/);
+  assert.match(renderer, /steering-message/);
+  assert.doesNotMatch(renderer, /steeredSessionsAwaitingTurnStart/);
+  assert.match(renderer, /Interrupting the previous response/);
 });
 
 test("completed reasoning is omitted and live activity remains a collapsed card", () => {
@@ -491,6 +587,7 @@ test("all eight global shortcuts can be rebound, disabled, reset, and persisted"
   assert.match(preload, /setHotkeys/);
   assert.match(preload, /resetHotkeys/);
   assert.match(main, /createHotkeyManager/);
+  assert.match(main, /showRestore: \(\) => applyWindowMode\("full"\)/);
   assert.match(main, /registerConfiguredHotkeys\(preferences\.hotkeys\)/);
   assert.match(main, /shortcut remains enabled and will be retried next launch/);
   assert.doesNotMatch(main, /preferences\.hotkeys = registerConfiguredHotkeys/);
@@ -519,6 +616,7 @@ test("updates download in the background and expose install only after verificat
   assert.match(renderer, /Install & restart/);
   assert.match(renderer, /headerInstallButton\.hidden = value\.status !== "ready"/);
   assert.match(renderer, /\$\("#headerUpdateButton"\)\.addEventListener\("click", \(\) => runUpdateAction\("install"\)\)/);
+  assert.match(html, /<\/div>\s*<button id="headerUpdateButton"/);
   assert.doesNotMatch(html, /downloadUpdateButton/);
   assert.doesNotMatch(preload, /downloadUpdate|download-update/);
   assert.doesNotMatch(renderer, /runUpdateAction\("download"\)/);
@@ -556,7 +654,7 @@ test("compact errors are acknowledged in full chat and completion feedback is fi
   assert.match(renderer, /clearTimeout\(state\.compactNotificationTimer\)[\s\S]+?state\.compactNotification = null/);
   assert.match(renderer, /state\.unacknowledgedErrorSessionIds\.add\(sessionId\)/);
   assert.match(renderer, /acknowledgeSessionError\(state\.selectedSessionId\)/);
-  assert.match(renderer, /state\.selectedSessionId = sessionId;[\s\S]+?await setWindowMode\("full"\)/);
+  assert.match(renderer, /await setWindowMode\("full"\);\s*await selectSession\(sessionId, true\)/);
   assert.match(renderer, /state\.avatarMode === "error" && !state\.compactErrorUnread && !state\.harnessOffline/);
   assert.match(renderer, /session\?\.state === "error"\) signalSessionError\(session\)/);
   assert.match(renderer, /if \(state\.windowMode === "full"\) \{[\s\S]+?if \(latest\?\.role === "error"\) setAvatar\("error", "model error"\)/);
@@ -665,7 +763,7 @@ test("a losing second instance stops before it can build a window", () => {
 });
 
 test("a failed settings write can never crash the main process", () => {
-  assert.match(main, /function writePreferences\(\) \{\s*\n\s*try \{[\s\S]*?\} catch \(error\) \{/);
+  assert.match(main, /function writePreferences\(options\) \{\s*\n\s*try \{[\s\S]*?\} catch \(error\) \{/);
   // Both the immediate and the debounced path must go through the guarded writer.
   assert.doesNotMatch(main, /preferenceSaveTimer = setTimeout\(\(\) => \{\s*\n\s*preferenceSaveTimer = null;\s*\n\s*preferences = settingsStore\.save/);
 });
@@ -700,13 +798,13 @@ test("shutdown releases the tray and guards a destroyed window", () => {
 
 test("the settings swap never deletes the destination first", () => {
   const store = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
-  const save = store.slice(store.indexOf("save(value)"));
-  assert.match(save, /fileSystem\.renameSync\(temporaryPath, filePath\)/);
-  assert.doesNotMatch(save, /rmSync\(filePath/);
+  const write = store.slice(store.indexOf("function write(normalized)"), store.indexOf("function retryable"));
+  assert.match(write, /fileSystem\.renameSync\(temporaryPath, filePath\)/);
+  assert.doesNotMatch(write, /rmSync\(filePath/);
 });
 
 test("a tap on the brand is resolved by the drag handler, not by a stolen click", () => {
-  // Pointer capture on .brand retargets the click away from the child button, so the
+  // Pointer capture on .titlebar retargets the click away from the child button, so the
   // gesture end must act on the element the pointer went down on.
   assert.match(renderer, /origin: event\.target/);
   assert.match(renderer, /function activateBrandTarget\(origin\)/);

@@ -16,6 +16,8 @@ const DEFAULT_PREFERENCES = Object.freeze({
 // not know, so opening a file written by a NEWER build would silently destroy that
 // build's settings on the next save. Such a file is preserved instead.
 const SCHEMA_VERSION = 2;
+const DEFAULT_RETRY_DELAYS_MS = Object.freeze([120, 360, 900]);
+const TRANSIENT_WRITE_ERROR_CODES = new Set(["EACCES", "EBUSY", "EMFILE", "ENFILE", "EPERM"]);
 
 function boundedNumber(value, fallback, min, max) {
   const numeric = Number(value);
@@ -75,10 +77,22 @@ function normalizePreferences(raw = {}) {
   };
 }
 
-function createSettingsStore({ filePath, fileSystem = fs } = {}) {
+function createSettingsStore({
+  filePath,
+  fileSystem = fs,
+  retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
+  scheduleRetry = setTimeout,
+  cancelRetry = clearTimeout,
+  onStatusChange = () => {},
+} = {}) {
   if (!filePath) throw new Error("Settings file path is required");
   const backupPath = `${filePath}.bak`;
+  const retryDelays = Array.from(retryDelaysMs, (value) => Math.max(0, Number(value) || 0));
   let protectedNewerSchema = null;
+  let dirtyPreferences = null;
+  let retryHandle = null;
+  let retriesStarted = 0;
+  let lastError = null;
 
   function read(candidate) {
     const raw = JSON.parse(fileSystem.readFileSync(candidate, "utf8"));
@@ -121,6 +135,83 @@ function createSettingsStore({ filePath, fileSystem = fs } = {}) {
     }
   }
 
+  function errorView(error) {
+    if (!error) return null;
+    return {
+      code: typeof error.code === "string" ? error.code : null,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  function status() {
+    return {
+      dirty: Boolean(dirtyPreferences),
+      retryScheduled: retryHandle !== null,
+      retriesStarted,
+      retriesRemaining: Math.max(0, retryDelays.length - retriesStarted),
+      lastError: errorView(lastError),
+      readOnly: Boolean(protectedNewerSchema),
+    };
+  }
+
+  function publishStatus() {
+    try { onStatusChange(status()); } catch {}
+  }
+
+  function cancelScheduledRetry() {
+    if (retryHandle === null) return;
+    try { cancelRetry(retryHandle); } catch {}
+    retryHandle = null;
+  }
+
+  function write(normalized) {
+    fileSystem.mkdirSync(path.dirname(filePath), { recursive: true });
+    const temporaryPath = `${filePath}.${process.pid}.tmp`;
+    try {
+      fileSystem.writeFileSync(temporaryPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+      try {
+        JSON.parse(fileSystem.readFileSync(filePath, "utf8"));
+        fileSystem.copyFileSync(filePath, backupPath);
+      } catch {}
+      fileSystem.renameSync(temporaryPath, filePath);
+    } finally {
+      try { fileSystem.rmSync(temporaryPath, { force: true }); } catch {}
+    }
+  }
+
+  function retryable(error) {
+    return TRANSIENT_WRITE_ERROR_CODES.has(error?.code);
+  }
+
+  function schedulePendingRetry() {
+    if (retryHandle !== null || !dirtyPreferences || retriesStarted >= retryDelays.length) return;
+    const delay = retryDelays[retriesStarted];
+    retriesStarted += 1;
+    retryHandle = scheduleRetry(() => {
+      retryHandle = null;
+      persistDirty(false);
+    }, delay);
+    retryHandle?.unref?.();
+  }
+
+  function persistDirty(throwOnFailure, retryOnFailure = true) {
+    if (!dirtyPreferences) return true;
+    try {
+      write(dirtyPreferences);
+      dirtyPreferences = null;
+      lastError = null;
+      retriesStarted = 0;
+      publishStatus();
+      return true;
+    } catch (error) {
+      lastError = error;
+      if (retryOnFailure && retryable(error)) schedulePendingRetry();
+      publishStatus();
+      if (throwOnFailure) throw error;
+      return false;
+    }
+  }
+
   return {
     load() {
       try {
@@ -135,31 +226,25 @@ function createSettingsStore({ filePath, fileSystem = fs } = {}) {
       }
       return normalizePreferences();
     },
-    save(value) {
+    save(value, { retryOnFailure = true } = {}) {
       const normalized = normalizePreferences(value);
       // load() normally detects a downgrade first, but save() also guards direct
       // callers and a newer primary written after load. Returning the normalized
       // value preserves the existing API while deliberately leaving disk untouched.
       protectNewerSettingsBeforeSave();
       if (protectedNewerSchema) return normalized;
-      fileSystem.mkdirSync(path.dirname(filePath), { recursive: true });
-      const temporaryPath = `${filePath}.${process.pid}.tmp`;
-      fileSystem.writeFileSync(temporaryPath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
-      try {
-        try {
-          JSON.parse(fileSystem.readFileSync(filePath, "utf8"));
-          fileSystem.copyFileSync(filePath, backupPath);
-        } catch {}
-        // renameSync replaces an existing destination on every supported platform
-        // (libuv maps it to MoveFileExW with MOVEFILE_REPLACE_EXISTING on Windows), so
-        // the swap is atomic. Deleting the destination first would open a window where
-        // a crash leaves no settings file at all.
-        fileSystem.renameSync(temporaryPath, filePath);
-      } finally {
-        try { fileSystem.rmSync(temporaryPath, { force: true }); } catch {}
-      }
+      cancelScheduledRetry();
+      dirtyPreferences = normalized;
+      retriesStarted = 0;
+      lastError = null;
+      persistDirty(true, retryOnFailure);
       return normalized;
     },
+    flush({ retryOnFailure = true } = {}) {
+      cancelScheduledRetry();
+      return persistDirty(true, retryOnFailure);
+    },
+    getStatus: status,
     isReadOnly() {
       return Boolean(protectedNewerSchema);
     },

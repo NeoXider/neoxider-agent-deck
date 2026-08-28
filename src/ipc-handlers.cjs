@@ -192,7 +192,7 @@ function registerIpcHandlers({
   });
   handle("models", async (_event, sessionId) => api.models(sessionId || undefined));
   handle("commands", async (_event, sessionId) => api.commands(sessionId));
-  handle("execute-command", async (_event, payload) => api.executeCommand(payload.sessionId, payload.line));
+  handle("execute-command", async (_event, payload) => api.executeWidgetCommand(payload?.sessionId, payload?.line, Array.isArray(payload?.images) ? payload.images : []));
   handle("workspaces", async () => api.workspaces());
   handle("pick-workspace", async () => {
     const result = await dialog.showOpenDialog(getWindow(), { properties: ["openDirectory", "createDirectory"] });
@@ -228,7 +228,7 @@ function registerIpcHandlers({
     return { sessionId };
   });
   handle("cancel", async (_event, sessionId) => api.cancel(sessionId));
-  handle("get-queue", (_event, sessionId) => queueSnapshots.get(String(sessionId || "")) || []);
+  handle("get-queue", (_event, sessionId) => queueSnapshots.get(String(sessionId || "")) || { revision: 0, items: [] });
   handle("update-queue", async (_event, payload) => {
     const sessionId = String(payload?.sessionId || "");
     const itemId = String(payload?.itemId || "");
@@ -372,14 +372,28 @@ function registerIpcHandlers({
       x: fullDragOrigin.bounds.x + screenX - fullDragOrigin.screenX,
       y: fullDragOrigin.bounds.y + screenY - fullDragOrigin.screenY,
     };
-    moveWithinNearestDisplay(fullDragOrigin.bounds, candidate);
-    setFullBounds({ ...getWindow().getBounds() });
+    const moved = moveWithinNearestDisplay(fullDragOrigin.bounds, candidate, true);
+    const stableBounds = {
+      x: moved.x,
+      y: moved.y,
+      width: fullDragOrigin.bounds.width,
+      height: fullDragOrigin.bounds.height,
+    };
+    setFullBounds(stableBounds);
+    setFullDragOrigin({ ...fullDragOrigin, latestBounds: stableBounds });
   });
   handle("end-full-drag", () => {
+    const fullDragOrigin = getFullDragOrigin();
+    const stableBounds = fullDragOrigin?.latestBounds || fullDragOrigin?.bounds;
     setFullDragOrigin(null);
-    captureFullBounds();
+    if (stableBounds) {
+      setFullBounds(stableBounds);
+      captureWindowBounds("full", stableBounds, getPreferences().compactSide);
+    } else {
+      captureFullBounds();
+    }
     savePreferences();
-    return getWindow()?.getBounds();
+    return stableBounds || getWindow()?.getBounds();
   });
   on("begin-compact-drag", (_event, value) => {
     if (getWindowMode() === "full") return;

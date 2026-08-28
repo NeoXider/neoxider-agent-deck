@@ -35,7 +35,7 @@ function attachScreenshotHarness({
       let audit = null;
       if (auditPath) {
         audit = await window.webContents.executeJavaScript(`(() => {
-          const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.queue-dock.has-items','.attachment-bar.has-items','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-session-row','.orb-reply-form','.orb-history-button','.edge-mode'];
+          const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.todo-dock.has-items','.queue-dock.has-items','.attachment-bar.has-items','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-session-row','.orb-reply-form','.orb-history-button','.edge-mode'];
           const boxes = selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((element) => {
             const rect = element.getBoundingClientRect();
             const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).display !== 'none';
@@ -60,14 +60,46 @@ function attachScreenshotHarness({
             focusMode: document.body.classList.contains('focus-chat'),
             focusChromeHidden: ['.titlebar','.chat-heading','.activity-card','.settings-panel'].every((selector) => getComputedStyle(document.querySelector(selector)).display === 'none'),
             commandRows: document.querySelectorAll('.command-row').length,
+            firstFourCommands: [...document.querySelectorAll('.command-row .command-name')].slice(0, 4).map((item) => item.textContent).join(','),
             commandAboveComposer: !document.querySelector('.command-menu.open') || document.querySelector('.command-menu.open').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
             commandFitsWidth: !document.querySelector('.command-menu.open') || document.querySelector('.command-menu.open').scrollWidth <= document.querySelector('.command-menu.open').clientWidth + 1,
             queueRows: document.querySelectorAll('.queue-row').length,
             queueActions: document.querySelectorAll('.queue-action').length,
             queueSingleLine: [...document.querySelectorAll('.queue-row')].every((row) => row.getBoundingClientRect().height <= 40),
             queueAboveComposer: !document.querySelector('.queue-dock.has-items') || document.querySelector('.queue-dock.has-items').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
+            todoRows: document.querySelectorAll('.todo-row').length,
+            todoExpanded: document.querySelector('#todoToggle')?.getAttribute('aria-expanded') === 'true',
+            todoAboveComposer: !document.querySelector('.todo-dock.has-items') || document.querySelector('.todo-dock.has-items').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
+            partialToolGroups: document.querySelectorAll('.tool-group.partial-failure:not(.failed)').length,
+            goalResultCards: document.querySelectorAll('.goal-result').length,
             attachmentChips: document.querySelectorAll('.attachment-chip').length,
             attachmentImages: document.querySelectorAll('.attachment-preview img').length,
+            attachmentVideoThumbnails: document.querySelectorAll('.attachment-chip[data-attachment-kind="video"] .attachment-preview img').length,
+            attachmentFallbackIcons: document.querySelectorAll('.attachment-chip[data-attachment-kind="file"] .attachment-preview .ui-icon').length,
+            attachmentPreviewMinWidth: (() => {
+              const widths = [...document.querySelectorAll('.attachment-preview')].map((preview) => preview.getBoundingClientRect().width);
+              return widths.length ? Math.round(Math.min(...widths)) : 0;
+            })(),
+            attachmentPreviewMinHeight: (() => {
+              const heights = [...document.querySelectorAll('.attachment-preview')].map((preview) => preview.getBoundingClientRect().height);
+              return heights.length ? Math.round(Math.min(...heights)) : 0;
+            })(),
+            attachmentRemoveActions: [...document.querySelectorAll('.attachment-remove')].filter((button) => button.textContent.trim() === 'Remove' && button.getAttribute('aria-label')?.startsWith('Remove ')).length,
+            attachmentAccessibleGroups: [...document.querySelectorAll('.attachment-chip[role="group"]')].filter((card) => /attachment$/.test(card.getAttribute('aria-label') || '')).length,
+            attachmentHorizontalScroll: (() => {
+              const list = document.querySelector('.attachment-list');
+              return Boolean(list && list.scrollWidth > list.clientWidth + 1 && getComputedStyle(list).overflowX === 'auto');
+            })(),
+            attachmentBarHeight: Math.round(document.querySelector('.attachment-bar.has-items')?.getBoundingClientRect().height || 0),
+            attachmentMessageSpace: Math.round(document.querySelector('.messages')?.getBoundingClientRect().height || 0),
+            attachmentListWithinBar: (() => {
+              const list = document.querySelector('.attachment-list');
+              const bar = document.querySelector('.attachment-bar.has-items');
+              if (!list || !bar) return true;
+              const listRect = list.getBoundingClientRect();
+              const barRect = bar.getBoundingClientRect();
+              return listRect.left >= barRect.left - 1 && listRect.right <= barRect.right + 1 && listRect.top >= barRect.top - 1 && listRect.bottom <= barRect.bottom + 1;
+            })(),
             attachmentsAboveComposer: !document.querySelector('.attachment-bar.has-items') || document.querySelector('.attachment-bar.has-items').getBoundingClientRect().bottom <= document.querySelector('.composer').getBoundingClientRect().top + 1,
             liveBubbles: document.querySelectorAll('.live-assistant').length,
              offlineBanners: document.querySelectorAll('.offline-banner.show').length,
@@ -143,6 +175,14 @@ function attachScreenshotHarness({
                     : document.body.classList.contains('state-done') ? 'done'
                       : document.body.classList.contains('state-waiting') ? 'waiting' : 'idle',
             brandUserSelect: getComputedStyle(document.querySelector('.brand')).userSelect,
+            titlebarNativeDragDisabled: getComputedStyle(document.querySelector('.titlebar')).getPropertyValue('-webkit-app-region') !== 'drag',
+            avatarHitWidth: Math.round(document.querySelector('#avatarButton').getBoundingClientRect().width),
+            avatarHitHeight: Math.round(document.querySelector('#avatarButton').getBoundingClientRect().height),
+            avatarPlateTransparent: getComputedStyle(document.querySelector('.avatar-shell')).backgroundColor === 'rgba(0, 0, 0, 0)',
+            avatarAuraCircular: getComputedStyle(document.querySelector('.avatar-shell')).borderRadius === '50%'
+              && getComputedStyle(document.querySelector('.avatar-shell'), '::before').borderRadius === '50%',
+            avatarAuraContained: ['top','right','bottom','left'].every((side) => parseFloat(getComputedStyle(document.querySelector('.avatar-shell'), '::before')[side]) >= 0),
+            avatarAuraRadial: getComputedStyle(document.querySelector('.avatar-shell'), '::before').backgroundImage.includes('radial-gradient'),
             composerUtilitiesStacked: (() => {
               const attach = document.querySelector('#attachButton').getBoundingClientRect();
               const commands = document.querySelector('#commandsButton').getBoundingClientRect();
@@ -166,6 +206,21 @@ function attachScreenshotHarness({
             updateBadgeVisible: !document.querySelector('#updateBadge')?.hidden,
             updateInstallVisible: !document.querySelector('#installUpdateButton')?.hidden,
             headerUpdateVisible: !document.querySelector('#headerUpdateButton')?.hidden,
+            headerProductVisible: (() => {
+              const product = document.querySelector('.product-name')?.getBoundingClientRect();
+              const project = document.querySelector('#projectLink')?.getBoundingClientRect();
+              return Boolean(product && project && product.width > 0 && product.left >= project.left - 1 && product.right <= project.right + 1);
+            })(),
+            headerVersionVisible: (() => {
+              const version = document.querySelector('#versionLabel')?.getBoundingClientRect();
+              const project = document.querySelector('#projectLink')?.getBoundingClientRect();
+              return Boolean(version && project && version.width >= 20 && version.left >= project.left - 1 && version.right <= project.right + 1);
+            })(),
+            headerUpdateUnclipped: (() => {
+              const update = document.querySelector('#headerUpdateButton')?.getBoundingClientRect();
+              const titlebar = document.querySelector('.titlebar')?.getBoundingClientRect();
+              return Boolean(update && titlebar && update.width > 0 && update.left >= titlebar.left - 1 && update.right <= titlebar.right + 1);
+            })(),
             updateProgress: document.querySelector('#updateProgress')?.getAttribute('aria-valuenow') || '',
             hotkeySettingsOpen: Boolean(document.querySelector('#hotkeySettings')?.open),
             hotkeyRows: document.querySelectorAll('.hotkey-row').length,
@@ -190,6 +245,25 @@ function attachScreenshotHarness({
             sendHeight: Math.round(document.querySelector('#sendButton').getBoundingClientRect().height),
             modelControlLabel: document.querySelector('.model-button-copy small')?.textContent || '',
             modelControlText: document.querySelector('#modelButtonText')?.textContent || '',
+            compactModelOverlay: document.querySelector('.model-picker')?.classList.contains('compact-overlay') || false,
+            visibleModelRows: [...document.querySelectorAll('#modelOptions .picker-option[data-model-option]')].filter((option) => {
+              const optionRect = option.getBoundingClientRect();
+              const viewportRect = document.querySelector('#modelOptions')?.getBoundingClientRect();
+              return viewportRect && optionRect.top >= viewportRect.top - 1 && optionRect.bottom <= viewportRect.bottom + 1;
+            }).length,
+            selectedModelVisible: (() => {
+              const selected = document.querySelector('#modelOptions .picker-option[data-model-option][aria-selected="true"]');
+              const viewport = document.querySelector('#modelOptions');
+              if (!selected || !viewport) return false;
+              const selectedRect = selected.getBoundingClientRect();
+              const viewportRect = viewport.getBoundingClientRect();
+              return selectedRect.top >= viewportRect.top - 1 && selectedRect.bottom <= viewportRect.bottom + 1;
+            })(),
+            modelComposerUnobscured: (() => {
+              const menu = document.querySelector('.model-picker.open .model-menu')?.getBoundingClientRect();
+              const composer = document.querySelector('.composer')?.getBoundingClientRect();
+              return Boolean(menu && composer && menu.bottom <= composer.top - 1);
+            })(),
             closedModelLabel: document.querySelector('#controlsPrimary')?.textContent || '',
             closedModelVisible: (() => {
               const label = document.querySelector('#controlsPrimary')?.getBoundingClientRect();

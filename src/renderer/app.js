@@ -8,22 +8,29 @@ const state = {
   refreshPromise: null,
   historyBusy: false,
   historyRequestSequence: 0,
+  historyPrioritySessionId: null,
+  historyPriorityPromise: null,
   modelsBusy: false,
   modelsRequestSequence: 0,
   commandsBusy: false,
   commandsRequestSequence: 0,
+  commandsLoadedSessionId: null,
   modelCatalog: null,
   modelLoadState: "idle",
   commandCatalog: [],
   workspaces: [],
   workspacesBusy: false,
+  workspacesLoaded: false,
+  workspaceSignature: "",
   selectedWorkspaceId: null,
   pendingAttachments: [],
   pendingSelection: null,
+  automaticModelRoute: false,
   windowMode: "full",
   avatarMode: "idle",
   avatarLabel: "ready",
   currentActivity: null,
+  activityCardSignature: "",
   currentMode: "agent",
   agentModesBySessionId: new Map(),
   unread: 0,
@@ -45,19 +52,37 @@ const state = {
   compactReplyBusy: false,
   compactReplyError: "",
   compactSessionSignature: "",
+  compactStatusDomSignature: "",
+  compactStatusIpcSignature: "",
   sessionListSignature: "",
   sessionSelectSignature: "",
+  contextSignature: "",
+  modeSignature: "",
   commandSelectionIndex: 0,
   lastCommandQuery: "",
+  commandHintSignature: "",
   queuedPromptsBySession: new Map(),
+  steeringPromptsBySession: new Map(),
+  queueSnapshotRevisions: new Map(),
+  queueHandoffEpochs: new Map(),
   nextQueuedPromptId: 1,
   queueEditingId: null,
   queueBusyId: null,
   queueBusySessionId: null,
+  queueBusyKind: null,
+  queueSignature: "",
+  todoExpandedSessionIds: new Set(),
+  todoSignature: "",
+  commandFeedbackBySession: new Map(),
+  nextCommandFeedbackId: 1,
   liveStreamsBySession: new Map(),
+  liveSessionRevisions: new Map(),
+  liveTodosBySession: new Map(),
+  turnGenerationsBySession: new Map(),
   currentMessages: [],
   messagesStickToBottom: true,
   unseenMessages: 0,
+  scrollLatestSignature: "",
   historySignature: "",
   harnessStarting: false,
   platformCapabilities: null,
@@ -66,7 +91,11 @@ const state = {
   hotkeys: {},
   updateState: null,
   appVersion: "",
+  gameBarSelectedSessionId: undefined,
   transientActivityTimer: null,
+  cancelBusySessionId: null,
+  cancelPendingSessionIds: new Set(),
+  runningControlsSignature: "",
   pollTimer: null,
   pollInterval: 0,
 };
@@ -117,9 +146,13 @@ const COMPOSER_INPUT_MAX_VIEWPORT_RATIO = 1 / 3;
 const COMMAND_MENU_CHROME_HEIGHT = 46;
 const COMMAND_MENU_ROW_HEIGHT = 44;
 const COMMAND_MENU_MAX_ROWS = 4;
+const CORE_COMMAND_ORDER = new Map(["goal", "compact", "plan", "permission"].map((name, index) => [name, index]));
 const MODEL_PICKER_CHROME_HEIGHT = 57;
 const MODEL_PICKER_ROW_HEIGHT = 36;
 const MODEL_PICKER_MAX_ROWS = 6;
+const MODEL_PICKER_COMPACT_MAX_VIEWPORT_HEIGHT = 400;
+const MODEL_PICKER_COMPACT_CHROME_HEIGHT = 47;
+const MODEL_PICKER_COMPACT_ROW_HEIGHT = 30;
 const PICKER_MENU_OFFSET = 6;
 const PICKER_SURFACE_GAP = 7;
 let messageInputResizeFrame = null;
@@ -182,16 +215,19 @@ function resizeMessageInput({ immediate = false } = {}) {
 function resizeCommandMenu() {
   const menu = $("#commandMenu");
   if (!menu) return;
+  const compactViewport = window.innerHeight <= 420;
+  const chromeHeight = compactViewport ? 36 : COMMAND_MENU_CHROME_HEIGHT;
+  const rowHeight = compactViewport ? 34 : COMMAND_MENU_ROW_HEIGHT;
   const availableHeight = Math.min(
-    COMMAND_MENU_CHROME_HEIGHT + COMMAND_MENU_ROW_HEIGHT * COMMAND_MENU_MAX_ROWS,
-    Math.floor(window.innerHeight * 0.36),
+    chromeHeight + rowHeight * COMMAND_MENU_MAX_ROWS,
+    Math.floor(window.innerHeight * (compactViewport ? 0.55 : 0.36)),
   );
   const visibleRows = Math.max(1, Math.min(
     COMMAND_MENU_MAX_ROWS,
     menu.querySelectorAll(".command-row").length || 1,
-    Math.floor((availableHeight - COMMAND_MENU_CHROME_HEIGHT) / COMMAND_MENU_ROW_HEIGHT),
+    Math.floor((availableHeight - chromeHeight) / rowHeight),
   ));
-  menu.style.setProperty("--command-menu-max-height", `${COMMAND_MENU_CHROME_HEIGHT + visibleRows * COMMAND_MENU_ROW_HEIGHT}px`);
+  menu.style.setProperty("--command-menu-max-height", `${chromeHeight + visibleRows * rowHeight}px`);
 }
 
 function closePickers(except = null, { restoreFocus = false } = {}) {
@@ -199,6 +235,7 @@ function closePickers(except = null, { restoreFocus = false } = {}) {
     if (picker === except) return;
     const activeInside = picker.contains(document.activeElement);
     picker.classList.remove("open");
+    picker.classList.remove("compact-overlay");
     const button = picker.querySelector(".picker-button");
     button?.setAttribute("aria-expanded", "false");
     picker.querySelector(".picker-menu")?.setAttribute("aria-hidden", "true");
@@ -224,7 +261,25 @@ function positionPickerMenu(picker) {
   const rect = button.getBoundingClientRect();
   if (menu.classList.contains("model-menu")) {
     const shell = $(".widget-shell").getBoundingClientRect();
+    const titlebar = $(".titlebar").getBoundingClientRect();
     const composer = $(".composer").getBoundingClientRect();
+    const compactOverlay = window.innerHeight <= MODEL_PICKER_COMPACT_MAX_VIEWPORT_HEIGHT;
+    picker.classList.toggle("compact-overlay", compactOverlay);
+    if (compactOverlay) {
+      const top = Math.ceil(titlebar.bottom + 1);
+      const bottom = Math.floor(Math.min(shell.bottom - PICKER_SURFACE_GAP, composer.top - PICKER_MENU_OFFSET));
+      const available = Math.max(0, bottom - top);
+      const visibleRows = Math.max(1, Math.min(MODEL_PICKER_MAX_ROWS, Math.floor((available - MODEL_PICKER_COMPACT_CHROME_HEIGHT) / MODEL_PICKER_COMPACT_ROW_HEIGHT)));
+      const menuHeight = MODEL_PICKER_COMPACT_CHROME_HEIGHT + visibleRows * MODEL_PICKER_COMPACT_ROW_HEIGHT;
+      picker.classList.remove("open-up");
+      menu.style.setProperty("--model-sheet-top", `${top}px`);
+      menu.style.setProperty("--model-sheet-left", `${Math.ceil(titlebar.left)}px`);
+      menu.style.setProperty("--model-sheet-width", `${Math.floor(titlebar.width)}px`);
+      menu.style.setProperty("--picker-max-height", `${menuHeight}px`);
+      menu.style.setProperty("--picker-options-height", `${visibleRows * MODEL_PICKER_COMPACT_ROW_HEIGHT}px`);
+      requestAnimationFrame(scrollSelectedModelIntoView);
+      return;
+    }
     const topBoundary = shell.top + PICKER_SURFACE_GAP;
     const bottomBoundary = Math.min(shell.bottom - PICKER_SURFACE_GAP, composer.top - PICKER_SURFACE_GAP);
     const below = Math.max(0, bottomBoundary - rect.bottom - PICKER_MENU_OFFSET);
@@ -241,6 +296,7 @@ function positionPickerMenu(picker) {
     picker.classList.toggle("open-up", opensUp);
     menu.style.setProperty("--picker-max-height", `${menuHeight}px`);
     menu.style.setProperty("--picker-options-height", `${visibleRows * MODEL_PICKER_ROW_HEIGHT}px`);
+    requestAnimationFrame(scrollSelectedModelIntoView);
     return;
   }
   const below = Math.max(88, window.innerHeight - rect.bottom - 12);
@@ -271,6 +327,13 @@ function pickerOption(label, { selected = false, meta = "", title = "", key = ""
   }
   button.addEventListener("click", onSelect);
   return button;
+}
+
+function scrollSelectedModelIntoView() {
+  if (!$(".model-picker")?.classList.contains("open")) return;
+  const selected = $("#modelOptions .picker-option[data-model-option][aria-selected='true']")
+    || $("#modelOptions .picker-option[aria-selected='true']");
+  selected?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 function compactPreviewEntry() {
@@ -362,30 +425,64 @@ function syncCompactStatus() {
   const active = Boolean(expanded || state.compactStatusClosing || preview || activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
   const label = preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
   const text = compactText(preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
-  document.body.classList.toggle("orb-has-status", active);
-  document.body.classList.toggle("orb-has-notification", preview?.kind === "notification");
-  document.body.classList.toggle("orb-status-closing", state.compactStatusClosing);
-  document.body.classList.toggle("orb-history-open", state.compactHistoryOpen);
-  document.body.classList.toggle("orb-reply-open", state.compactReplyOpen);
-  document.body.classList.toggle("compact-error-unread", state.compactErrorUnread);
-  $("#orbStatusLabel").textContent = label;
-  $("#orbStatusText").textContent = text;
-  $("#orbStatusCard").hidden = expanded;
-  $("#orbStatusCard").disabled = !preview?.sessionId && !state.selectedSessionId;
-  $("#orbSessionList").hidden = !state.compactHistoryOpen;
-  $("#orbReplyForm").hidden = !state.compactReplyOpen;
   const compactButton = $("#orbHistoryButton");
   const replySession = state.dashboard?.sessions?.find((session) => session.sessionId === state.compactReplySessionId);
   const compactButtonLabel = expanded ? "Close recent replies" : `Recent replies${compactSessions.length ? ` (${compactSessions.length})` : ""}`;
-  compactButton.classList.toggle("active", expanded);
-  compactButton.setAttribute("aria-pressed", String(expanded));
-  compactButton.title = compactButtonLabel;
-  compactButton.setAttribute("aria-label", compactButtonLabel);
-  compactButton.querySelector("use")?.setAttribute("href", expanded ? "#icon-close" : "#icon-chat");
-  $("#orbReplyTitle").textContent = replySession?.title || "Quick reply";
-  $("#orbReplyFeedback").textContent = state.compactReplyError;
-  $("#orbReplySend").disabled = state.compactReplyBusy;
-  window.widget.setCompactStatus({ active, expanded, label, text }).catch(() => {});
+  const replyTitle = replySession?.title || "Quick reply";
+  const domSignature = JSON.stringify([
+    active,
+    expanded,
+    label,
+    text,
+    preview?.kind || "",
+    state.compactStatusClosing,
+    state.compactHistoryOpen,
+    state.compactReplyOpen,
+    state.compactErrorUnread,
+    compactButtonLabel,
+    replyTitle,
+    state.compactReplyError,
+    state.compactReplyBusy,
+    state.selectedSessionId,
+  ]);
+  if (domSignature !== state.compactStatusDomSignature) {
+    state.compactStatusDomSignature = domSignature;
+    document.body.classList.toggle("orb-has-status", active);
+    document.body.classList.toggle("orb-has-notification", preview?.kind === "notification");
+    document.body.classList.toggle("orb-status-closing", state.compactStatusClosing);
+    document.body.classList.toggle("orb-history-open", state.compactHistoryOpen);
+    document.body.classList.toggle("orb-reply-open", state.compactReplyOpen);
+    document.body.classList.toggle("compact-error-unread", state.compactErrorUnread);
+    $("#orbStatusLabel").textContent = label;
+    $("#orbStatusText").textContent = text;
+    $("#orbStatusCard").hidden = expanded;
+    $("#orbStatusCard").disabled = !preview?.sessionId && !state.selectedSessionId;
+    $("#orbSessionList").hidden = !state.compactHistoryOpen;
+    $("#orbReplyForm").hidden = !state.compactReplyOpen;
+    compactButton.classList.toggle("active", expanded);
+    compactButton.setAttribute("aria-pressed", String(expanded));
+    compactButton.title = compactButtonLabel;
+    compactButton.setAttribute("aria-label", compactButtonLabel);
+    compactButton.querySelector("use")?.setAttribute("href", expanded ? "#icon-close" : "#icon-chat");
+    $("#orbReplyTitle").textContent = replyTitle;
+    $("#orbReplyFeedback").textContent = state.compactReplyError;
+    $("#orbReplySend").disabled = state.compactReplyBusy;
+  }
+  const compactStatus = { active, expanded, label, text };
+  const ipcSignature = JSON.stringify([active, expanded, label, text]);
+  if (ipcSignature !== state.compactStatusIpcSignature) {
+    state.compactStatusIpcSignature = ipcSignature;
+    window.widget.setCompactStatus(compactStatus).catch(() => {
+      if (state.compactStatusIpcSignature === ipcSignature) state.compactStatusIpcSignature = "";
+    });
+  }
+}
+
+function syncGameBarSelection() {
+  if (state.gameBarSelectedSessionId === state.selectedSessionId) return false;
+  state.gameBarSelectedSessionId = state.selectedSessionId;
+  window.widget.selectGameBarSession(state.selectedSessionId);
+  return true;
 }
 
 function syncActivityCard() {
@@ -394,22 +491,32 @@ function syncActivityCard() {
   const hasActivity = Boolean(activity?.text);
   const hasWritingBubble = activity?.kind === "writing" && Boolean($("#messages .live-assistant"));
   const showCard = hasActivity && !hasWritingBubble;
+  const signature = showCard ? JSON.stringify([true, activity?.label || "", activity?.text || ""]) : "hidden";
+  if (signature === state.activityCardSignature) return false;
+  state.activityCardSignature = signature;
   card.classList.toggle("has-activity", showCard);
-  if (hasActivity) {
+  if (showCard) {
     $("#activityLabel").textContent = activity.label || "Activity";
     $("#activityPreview").textContent = compactText(activity.text, 110);
     $("#activityBody").textContent = activity.text;
   }
+  return true;
 }
 
 function setActivity(activity) {
-  state.currentActivity = activity || null;
+  const next = activity || null;
+  const previous = state.currentActivity;
+  const unchanged = Boolean(previous) === Boolean(next)
+    && (!next || ["active", "kind", "label", "text"].every((key) => previous?.[key] === next[key]));
+  if (unchanged) return false;
+  state.currentActivity = next;
   document.body.classList.remove("activity-thinking", "activity-writing", "activity-tool");
   if (activity?.active && ["thinking", "writing", "tool"].includes(activity.kind)) {
     document.body.classList.add(`activity-${activity.kind}`);
   }
   syncActivityCard();
   syncCompactStatus();
+  return true;
 }
 
 function setAvatar(mode, label) {
@@ -683,8 +790,30 @@ function suppressBrandClickAfterDrag() {
   suppressProjectClickTimer = setTimeout(() => { suppressProjectClick = false; }, 1200);
 }
 
+function syncRunningControls(running) {
+  const stopping = Boolean(state.selectedSessionId && state.cancelBusySessionId === state.selectedSessionId);
+  const signature = JSON.stringify([Boolean(running), stopping]);
+  if (signature === state.runningControlsSignature) return false;
+  state.runningControlsSignature = signature;
+  $("#chatForm").classList.toggle("has-running", Boolean(running));
+  const button = $("#cancelButton");
+  button.hidden = !running;
+  button.disabled = stopping;
+  button.title = stopping ? "Stopping current turn…" : "Stop current turn";
+  button.setAttribute("aria-label", button.title);
+  return true;
+}
+
+function canStartFullDrag(event) {
+  const titlebar = event.currentTarget;
+  if (!titlebar?.classList?.contains("titlebar") || !event.target.closest?.(".titlebar")) return false;
+  if (event.target.closest(".tabs, .window-actions, .picker, #headerUpdateButton")) return false;
+  const interactive = event.target.closest("button, a, input, textarea, select, summary, [role='button'], [role='tab'], [role='menuitem'], [contenteditable='true']");
+  return !interactive || Boolean(interactive.closest("#avatarButton, #projectLink"));
+}
+
 function beginFullDrag(event) {
-  if (event.button !== 0 || state.platformPresentation?.positionAvailable === false) return;
+  if (event.button !== 0 || state.platformPresentation?.positionAvailable === false || !canStartFullDrag(event)) return;
   fullDrag = {
     target: event.currentTarget,
     // Pointer capture retargets the follow-up click to the capturing element, so a
@@ -814,6 +943,14 @@ function formatTokens(value) {
 function renderContext() {
   const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
   const pressure = contextPressure(session);
+  const signature = JSON.stringify([
+    state.selectedSessionId,
+    pressure ? Math.round(pressure.used) : null,
+    pressure ? Math.round(pressure.total) : null,
+    pressure ? Math.round(pressure.percent) : null,
+  ]);
+  if (signature === state.contextSignature) return false;
+  state.contextSignature = signature;
   const meter = $("#contextMeter");
   meter.classList.remove("high", "critical");
   meter.classList.toggle("unavailable", !pressure);
@@ -825,7 +962,7 @@ function renderContext() {
     meter.title = "Context usage unavailable";
     meter.setAttribute("aria-valuenow", "0");
     meter.setAttribute("aria-valuetext", "Context usage unavailable, 0%");
-    return;
+    return true;
   }
   const rounded = Math.round(pressure.percent);
   meter.style.setProperty("--context", String(rounded));
@@ -836,6 +973,7 @@ function renderContext() {
   meter.setAttribute("aria-valuetext", `Context usage ${rounded}%, ${formatTokens(pressure.used)} of ${formatTokens(pressure.total)} tokens`);
   meter.classList.toggle("high", rounded >= 70 && rounded < 90);
   meter.classList.toggle("critical", rounded >= 90);
+  return true;
 }
 
 function renderSessions() {
@@ -931,11 +1069,6 @@ function renderSessions() {
 function renderSessionSelect() {
   const sessions = state.dashboard?.sessions || [];
   const selected = sessions.find((session) => session.sessionId === state.selectedSessionId);
-  $("#openSessionButton").disabled = !state.selectedSessionId;
-  $("#openSessionButton").title = selected
-    ? `Open ${selected.title || "current session"} in DeepSeek Harness`
-    : "Select a session to open it in DeepSeek Harness";
-  $("#sessionButtonText").textContent = selected?.title || "New session";
   const root = $("#sessionOptions");
   const signature = JSON.stringify([
     state.selectedSessionId,
@@ -952,6 +1085,11 @@ function renderSessionSelect() {
   ]);
   if (signature === state.sessionSelectSignature && root.childElementCount) return false;
   state.sessionSelectSignature = signature;
+  $("#openSessionButton").disabled = !state.selectedSessionId;
+  $("#openSessionButton").title = selected
+    ? `Open ${selected.title || "current session"} in DeepSeek Harness`
+    : "Select a session to open it in DeepSeek Harness";
+  $("#sessionButtonText").textContent = selected?.title || "New session";
   const currentOptions = [...root.children].filter((element) => element.classList.contains("picker-option"));
   const optionKeys = ["__new__", ...sessions.map((session) => session.sessionId)];
   const canPatch = currentOptions.length === optionKeys.length
@@ -1001,8 +1139,12 @@ function modelSelectionValue(selection) {
   return selection ? JSON.stringify({ provider: selection.provider, model: selection.model }) : "";
 }
 
+function effectiveModelSelection() {
+  return state.automaticModelRoute ? null : state.pendingSelection || state.modelCatalog?.current || null;
+}
+
 function selectedModelDefinition() {
-  const selection = state.pendingSelection || state.modelCatalog?.current;
+  const selection = effectiveModelSelection();
   if (!selection) return null;
   const group = state.modelCatalog?.groups?.find((item) => item.id === selection.provider);
   return group?.models?.find((item) => item.id === selection.model) || null;
@@ -1011,7 +1153,7 @@ function selectedModelDefinition() {
 function renderReasoning() {
   const model = selectedModelDefinition();
   const efforts = model?.reasoning?.efforts || [];
-  const selectedId = state.pendingSelection?.reasoningEffort || state.modelCatalog?.current?.reasoningEffort || "";
+  const selectedId = effectiveModelSelection()?.reasoningEffort || "";
   const autoLabel = model?.reasoning?.defaultEffort ? `Auto · ${model.reasoning.defaultEffort}` : "Auto";
   const selectedEffort = efforts.find((effort) => effort.id === selectedId);
   $("#reasoningButtonText").textContent = selectedEffort?.name || selectedEffort?.id || autoLabel;
@@ -1021,8 +1163,11 @@ function renderReasoning() {
   root.append(pickerOption(autoLabel, {
     selected: !selectedId,
     onSelect: async () => {
-      const base = state.pendingSelection || state.modelCatalog?.current;
-      if (base) state.pendingSelection = { provider: base.provider, model: base.model };
+      const base = effectiveModelSelection();
+      if (base) {
+        state.automaticModelRoute = false;
+        state.pendingSelection = { provider: base.provider, model: base.model };
+      }
       closePickers();
       renderReasoning();
       updateControlsSummary();
@@ -1033,8 +1178,9 @@ function renderReasoning() {
     root.append(pickerOption(effort.name || effort.id, {
       selected: effort.id === selectedId,
       onSelect: async () => {
-        const base = state.pendingSelection || state.modelCatalog?.current;
+        const base = effectiveModelSelection();
         if (!base) return;
+        state.automaticModelRoute = false;
         state.pendingSelection = { provider: base.provider, model: base.model, reasoningEffort: effort.id };
         closePickers();
         renderReasoning();
@@ -1084,7 +1230,7 @@ function retryModels() {
 }
 
 function updateControlsSummary() {
-  const selection = state.pendingSelection || state.modelCatalog?.current;
+  const selection = effectiveModelSelection();
   const model = selectedModelDefinition();
   let shortModel = model?.name || model?.id || selection?.model || "Auto";
   if (state.modelLoadState === "loading") shortModel = "Loading…";
@@ -1104,7 +1250,7 @@ function renderModelOptions(query = "") {
   root.replaceChildren();
   statusRoot.replaceChildren();
   const catalog = state.modelCatalog;
-  const selected = state.pendingSelection || catalog?.current;
+  const selected = effectiveModelSelection();
   const normalized = query.trim().toLowerCase();
   if (state.modelLoadState === "loading") {
     appendModelPickerStatus(statusRoot, "loading", "Loading model providers", "Reading the routes exposed by Harness…");
@@ -1127,10 +1273,12 @@ function renderModelOptions(query = "") {
   root.append(pickerOption("Automatic route", {
     selected: !selected,
     meta: "Harness",
-    onSelect: () => {
+    onSelect: async () => {
+      state.automaticModelRoute = true;
       state.pendingSelection = null;
       closePickers();
       renderModels();
+      await applyModelSelection();
     },
   }));
   const currentProvider = selected?.provider || catalog.current?.provider;
@@ -1146,18 +1294,22 @@ function renderModelOptions(query = "") {
     root.append(heading);
     for (const model of models) {
       matches += 1;
-      root.append(pickerOption(model.name || model.id, {
+      const option = pickerOption(model.name || model.id, {
         selected: selected?.provider === group.id && selected?.model === model.id,
         meta: model.reasoning?.efforts?.length ? "reasoning" : "",
         title: `${group.name || group.id} / ${model.name || model.id}`,
+        key: modelSelectionValue({ provider: group.id, model: model.id }),
         onSelect: async () => {
+          state.automaticModelRoute = false;
           state.pendingSelection = { provider: group.id, model: model.id };
           if (model.reasoning?.defaultEffort) state.pendingSelection.reasoningEffort = model.reasoning.defaultEffort;
           closePickers();
           renderModels();
           await applyModelSelection();
         },
-      }));
+      });
+      option.dataset.modelOption = "true";
+      root.append(option);
     }
   }
   if (normalized && matches === 0) {
@@ -1166,11 +1318,12 @@ function renderModelOptions(query = "") {
     empty.textContent = "No matching models";
     root.append(empty);
   }
+  if ($(".model-picker")?.classList.contains("open")) requestAnimationFrame(scrollSelectedModelIntoView);
 }
 
 function renderModels() {
   const catalog = state.modelCatalog;
-  const selected = state.pendingSelection || catalog?.current;
+  const selected = effectiveModelSelection();
   let label = modelDisplay(selected);
   if (state.modelLoadState === "loading") label = "Loading providers…";
   else if (state.modelLoadState === "error" && !modelCount(catalog)) label = "Models unavailable";
@@ -1200,7 +1353,7 @@ async function loadModels({ force = false } = {}) {
     const catalog = await window.widget.models(sessionId);
     if (requestSequence !== state.modelsRequestSequence || sessionId !== state.selectedSessionId) return;
     state.modelCatalog = catalog;
-    state.pendingSelection = catalog.current || state.pendingSelection;
+    if (!state.automaticModelRoute) state.pendingSelection = catalog.current || state.pendingSelection;
     state.modelLoadState = "ready";
   } catch {
     if (requestSequence !== state.modelsRequestSequence || sessionId !== state.selectedSessionId) return;
@@ -1220,8 +1373,43 @@ function commandQuery() {
 
 function filteredCommands(query = "") {
   const normalized = String(query || "").trim().toLowerCase();
-  if (!normalized) return state.commandCatalog;
-  return state.commandCatalog.filter((command) => `${command.name} ${command.description || ""}`.toLowerCase().includes(normalized));
+  const commands = normalized
+    ? state.commandCatalog.filter((command) => `${command.name} ${command.description || ""}`.toLowerCase().includes(normalized))
+    : [...state.commandCatalog];
+  return commands.sort((left, right) => {
+    const leftOrder = CORE_COMMAND_ORDER.get(String(left.name || "").toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = CORE_COMMAND_ORDER.get(String(right.name || "").toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    return leftOrder - rightOrder || String(left.name || "").localeCompare(String(right.name || ""));
+  });
+}
+
+function commandGuidance(commandName) {
+  switch (String(commandName || "").toLowerCase()) {
+    case "goal": return "create <objective> · show · edit <text> · pause · resume · clear";
+    case "compact": return "summarize the current context now";
+    case "plan": return "on · off";
+    case "permission": return "Full access is locked for widget sessions";
+    default: return "";
+  }
+}
+
+function renderCommandHint() {
+  const root = $("#commandHintBar");
+  if (!root) return;
+  const match = /^\/(\S+)/.exec($("#messageInput").value.trim());
+  const command = match && state.commandCatalog.find((item) => item.name.toLowerCase() === match[1].toLowerCase());
+  const text = command ? commandGuidance(command.name) || command.input?.hint || command.description || "" : "";
+  const signature = JSON.stringify([command?.name || "", text]);
+  if (signature === state.commandHintSignature) return;
+  state.commandHintSignature = signature;
+  root.hidden = !text;
+  root.replaceChildren();
+  if (!text) return;
+  const name = document.createElement("b");
+  name.textContent = `/${command.name}`;
+  const hint = document.createElement("span");
+  hint.textContent = text;
+  root.append(name, hint);
 }
 
 function setCommandMenuOpen(open) {
@@ -1235,12 +1423,15 @@ function setCommandMenuOpen(open) {
 function chooseCommand(command) {
   if (!command) return;
   const input = $("#messageInput");
-  input.value = `/${command.name}${command.input?.hint ? " " : ""}`;
+  input.value = command.name.toLowerCase() === "permission"
+    ? "/permission danger-full-access"
+    : `/${command.name}${command.input?.hint ? " " : ""}`;
   resizeMessageInput();
-  input.placeholder = command.input?.hint || "Run Harness command…";
+  input.placeholder = "Run Harness command…";
   state.commandSelectionIndex = 0;
   state.lastCommandQuery = "";
   setCommandMenuOpen(false);
+  renderCommandHint();
   input.focus();
 }
 
@@ -1285,10 +1476,11 @@ function renderCommands(query = commandQuery()) {
     name.textContent = `/${command.name}`;
     const hint = document.createElement("span");
     hint.className = "command-hint";
-    hint.textContent = command.input?.hint || "run now";
+    hint.textContent = command.input?.hint ? "args" : "run";
     const description = document.createElement("span");
     description.className = "command-description";
-    description.textContent = command.description || command.name;
+    description.textContent = commandGuidance(command.name) || command.description || command.name;
+    row.title = [command.description, command.input?.hint].filter(Boolean).join(" · ");
     row.append(name, hint, description);
     row.addEventListener("pointerenter", () => {
       state.commandSelectionIndex = index;
@@ -1309,6 +1501,40 @@ function queuedPromptsFor(sessionId = state.selectedSessionId) {
   return sessionId ? state.queuedPromptsBySession.get(sessionId) || [] : [];
 }
 
+function steeringPromptsFor(sessionId = state.selectedSessionId) {
+  return sessionId ? state.steeringPromptsBySession.get(sessionId) || [] : [];
+}
+
+function queueSnapshotRevision(sessionId) {
+  return sessionId ? state.queueSnapshotRevisions.get(sessionId) || 0 : 0;
+}
+
+function queueHandoffEpoch(sessionId) {
+  return sessionId ? state.queueHandoffEpochs.get(sessionId) || 0 : 0;
+}
+
+function applyQueueSnapshot(sessionId, items, revision = null) {
+  if (!sessionId) return;
+  const currentRevision = queueSnapshotRevision(sessionId);
+  const hasAuthoritativeRevision = revision !== null && revision !== undefined && Number.isFinite(Number(revision));
+  const nextRevision = hasAuthoritativeRevision ? Number(revision) : currentRevision + 1;
+  const hasSnapshot = state.queuedPromptsBySession.has(sessionId) || state.steeringPromptsBySession.has(sessionId);
+  if (hasSnapshot && nextRevision <= currentRevision) return false;
+  const safeItems = Array.isArray(items) ? items : [];
+  const previousSteeringIds = new Set(steeringPromptsFor(sessionId).map((item) => item.id));
+  const steeringItems = safeItems.filter((item) => item?.placement === "steering");
+  state.queueSnapshotRevisions.set(sessionId, nextRevision);
+  state.queuedPromptsBySession.set(sessionId, safeItems.filter((item) => !item?.placement || item.placement === "queued"));
+  state.steeringPromptsBySession.set(sessionId, steeringItems);
+  const startedSteering = steeringItems.find((item) => !previousSteeringIds.has(item.id));
+  if (startedSteering) beginSteeredTurn(sessionId, startedSteering);
+  if (sessionId === state.selectedSessionId) {
+    renderQueuedPrompts();
+    renderMessages(state.currentMessages);
+  }
+  return true;
+}
+
 function queueActionButton(icon, title, className, onClick, disabled = false) {
   const button = document.createElement("button");
   button.type = "button";
@@ -1324,14 +1550,19 @@ function queueActionButton(icon, title, className, onClick, disabled = false) {
 async function updateQueuedPrompt(item, action) {
   const sessionId = state.selectedSessionId;
   if (!sessionId || !item?.id || item.optimistic) return;
+  const expectedSnapshotRevision = queueSnapshotRevision(sessionId);
+  const expectedHandoffEpoch = queueHandoffEpoch(sessionId);
   state.queueBusyId = item.id;
   state.queueBusySessionId = sessionId;
+  state.queueBusyKind = action.kind;
   renderQueuedPrompts();
   try {
     await window.widget.updateQueue({ sessionId, itemId: item.id, action });
+    if (queueSnapshotRevision(sessionId) !== expectedSnapshotRevision || queueHandoffEpoch(sessionId) !== expectedHandoffEpoch) return;
     const items = queuedPromptsFor(sessionId);
     if (["remove", "steer"].includes(action.kind)) {
       state.queuedPromptsBySession.set(sessionId, items.filter((entry) => entry.id !== item.id));
+      if (action.kind === "steer") beginSteeredTurn(sessionId, item);
     } else if (action.kind === "edit") {
       state.queuedPromptsBySession.set(sessionId, items.map((entry) => entry.id === item.id
         ? { ...entry, text: action.text, preview: action.text }
@@ -1344,6 +1575,7 @@ async function updateQueuedPrompt(item, action) {
     if (state.queueBusyId === item.id && state.queueBusySessionId === sessionId) {
       state.queueBusyId = null;
       state.queueBusySessionId = null;
+      state.queueBusyKind = null;
     }
     if (sessionId === state.selectedSessionId) renderQueuedPrompts();
   }
@@ -1353,6 +1585,15 @@ function renderQueuedPrompts() {
   const root = $("#queueDock");
   const listRoot = $("#queueList");
   const items = queuedPromptsFor();
+  const signature = JSON.stringify([
+    state.selectedSessionId,
+    state.queueEditingId,
+    state.queueBusyId,
+    state.queueBusySessionId,
+    ...items.map((item) => [item.id, item.text, item.preview, item.attachmentCount, Boolean(item.optimistic)]),
+  ]);
+  if (signature === state.queueSignature) return false;
+  state.queueSignature = signature;
   root.classList.toggle("has-items", items.length > 0);
   root.setAttribute("aria-label", `${items.length} queued message${items.length === 1 ? "" : "s"}`);
   listRoot.replaceChildren();
@@ -1401,10 +1642,30 @@ function renderQueuedPrompts() {
     }
     listRoot.append(row);
   }
+  return true;
 }
 
-function trackQueuedPrompt(sessionId, { text, attachmentCount = 0 }) {
+function beginSteeredTurn(sessionId, item) {
+  state.liveStreamsBySession.delete(sessionId);
+  const steering = state.steeringPromptsBySession.get(sessionId) || [];
+  if (item && !steering.some((entry) => entry.id === item.id)) {
+    state.steeringPromptsBySession.set(sessionId, [...steering, { ...item, placement: "steering", optimistic: true }]);
+  }
+  if (sessionId !== state.selectedSessionId) return;
+  if (livePaintFrame !== null) {
+    cancelAnimationFrame(livePaintFrame);
+    livePaintFrame = null;
+  }
+  const activity = { active: true, kind: "thinking", label: "Sending now", text: "Interrupting the previous response and starting the selected queued message…" };
+  updateLiveSessionState(sessionId, true, activity, "working", { render: false });
+  setActivity(activity);
+  renderMessages(state.currentMessages);
+  setAvatar("working", "sending now");
+}
+
+function trackQueuedPrompt(sessionId, { text, attachmentCount = 0 }, expectedSnapshotRevision = queueSnapshotRevision(sessionId)) {
   if (!sessionId) return;
+  if (queueSnapshotRevision(sessionId) !== expectedSnapshotRevision) return false;
   const items = queuedPromptsFor(sessionId);
   state.queuedPromptsBySession.set(sessionId, [...items, {
     id: `local-${state.nextQueuedPromptId++}`,
@@ -1415,21 +1676,110 @@ function trackQueuedPrompt(sessionId, { text, attachmentCount = 0 }) {
     optimistic: true,
   }]);
   renderQueuedPrompts();
+  return true;
 }
 
 async function loadQueue(sessionId = state.selectedSessionId) {
   if (!sessionId) return;
   try {
-    const items = await window.widget.getQueue(sessionId);
-    state.queuedPromptsBySession.set(sessionId, Array.isArray(items) ? items : []);
-    if (sessionId === state.selectedSessionId) renderQueuedPrompts();
+    const snapshot = await window.widget.getQueue(sessionId);
+    if (Array.isArray(snapshot)) applyQueueSnapshot(sessionId, snapshot);
+    else applyQueueSnapshot(sessionId, snapshot?.items, snapshot?.revision);
   } catch {}
+}
+
+function todosFor(sessionId = state.selectedSessionId) {
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+  const projection = session?.projections?.values?.todos;
+  const source = Array.isArray(projection) ? projection : Array.isArray(projection?.todos) ? projection.todos : [];
+  return source
+    .map((todo) => ({
+      content: compactText(todo?.content, 180),
+      status: ["pending", "in_progress", "completed"].includes(todo?.status) ? todo.status : "pending",
+    }))
+    .filter((todo) => todo.content);
+}
+
+function normalizedTodos(value) {
+  const source = Array.isArray(value) ? value : Array.isArray(value?.todos) ? value.todos : [];
+  return source.map((todo) => ({
+    content: String(todo?.content || ""),
+    status: ["pending", "in_progress", "completed"].includes(todo?.status) ? todo.status : "pending",
+  })).filter((todo) => todo.content);
+}
+
+function projectionsWithTodos(projections, todos) {
+  return {
+    ...(projections || {}),
+    values: {
+      ...(projections?.values || {}),
+      todos,
+    },
+  };
+}
+
+function mergeLiveTodos(session) {
+  const liveTodos = state.liveTodosBySession.get(session.sessionId);
+  if (!liveTodos) return session;
+  const dashboardTodos = normalizedTodos(session.projections?.values?.todos);
+  if (JSON.stringify(dashboardTodos) === JSON.stringify(liveTodos)) {
+    state.liveTodosBySession.delete(session.sessionId);
+    return session;
+  }
+  return { ...session, projections: projectionsWithTodos(session.projections, liveTodos) };
+}
+
+function renderTodos() {
+  const root = $("#todoDock");
+  const list = $("#todoList");
+  const todos = todosFor();
+  const expanded = Boolean(state.selectedSessionId && state.todoExpandedSessionIds.has(state.selectedSessionId));
+  const counts = {
+    completed: todos.filter((todo) => todo.status === "completed").length,
+    inProgress: todos.filter((todo) => todo.status === "in_progress").length,
+    pending: todos.filter((todo) => todo.status === "pending").length,
+  };
+  const signature = JSON.stringify([
+    state.selectedSessionId,
+    expanded,
+    ...todos.map((todo) => [todo.content, todo.status]),
+  ]);
+  if (signature === state.todoSignature) return false;
+  state.todoSignature = signature;
+  root.classList.toggle("has-items", todos.length > 0);
+  root.classList.toggle("expanded", expanded);
+  root.hidden = !todos.length;
+  const toggle = $("#todoToggle");
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.title = expanded ? "Collapse current plan" : "Show current plan";
+  $("#todoCounts").textContent = `${counts.completed}/${todos.length} done${counts.inProgress ? ` · ${counts.inProgress} active` : ""}`;
+  list.hidden = !expanded;
+  list.replaceChildren();
+  for (const todo of todos) {
+    const row = document.createElement("div");
+    row.className = `todo-row ${todo.status}`;
+    const marker = document.createElement("span");
+    marker.className = "todo-marker";
+    marker.append(createIcon(todo.status === "completed" ? "check" : todo.status === "in_progress" ? "session" : "stop"));
+    const text = document.createElement("span");
+    text.textContent = todo.content;
+    text.title = todo.content;
+    row.append(marker, text);
+    list.append(row);
+  }
+  return true;
 }
 
 function renderWorkspaces() {
   const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
   const selectedId = session?.workspaceId || state.selectedWorkspaceId || "";
   const selected = state.workspaces.find((workspace) => workspace.workspaceId === selectedId);
+  const signature = JSON.stringify([
+    selectedId,
+    ...state.workspaces.map((workspace) => [workspace.workspaceId, workspace.title || "", workspace.path || ""]),
+  ]);
+  if (signature === state.workspaceSignature && $("#workspaceOptions").childElementCount) return false;
+  state.workspaceSignature = signature;
   $("#workspaceButtonText").textContent = selected?.title || selected?.path || "Current workspace";
   const root = $("#workspaceOptions");
   root.replaceChildren();
@@ -1452,6 +1802,7 @@ function renderWorkspaces() {
       },
     }));
   }
+  return true;
 }
 
 async function loadWorkspaces() {
@@ -1459,9 +1810,11 @@ async function loadWorkspaces() {
   state.workspacesBusy = true;
   try {
     state.workspaces = await window.widget.workspaces();
+    state.workspacesLoaded = true;
     renderWorkspaces();
   } catch {
     state.workspaces = [];
+    state.workspacesLoaded = true;
     renderWorkspaces();
   } finally {
     state.workspacesBusy = false;
@@ -1472,37 +1825,47 @@ function renderAttachments() {
   const root = $("#attachmentList");
   root.replaceChildren();
   state.pendingAttachments.forEach((attachment, index) => {
+    const displayKind = attachment.kind === "image" ? "image" : attachment.previewKind === "video" ? "video" : "file";
     const chip = document.createElement("div");
     chip.className = "attachment-chip";
     chip.title = attachment.path;
+    chip.dataset.attachmentKind = displayKind;
+    chip.setAttribute("role", "group");
+    chip.setAttribute("aria-label", `${attachment.name}, ${displayKind} attachment`);
     const preview = document.createElement("div");
     preview.className = "attachment-preview";
+    preview.dataset.previewKind = displayKind;
+    preview.setAttribute("aria-hidden", "true");
     if (attachment.kind === "image" && attachment.data && attachment.mediaType) {
       const image = document.createElement("img");
       image.src = `data:${attachment.mediaType};base64,${attachment.data}`;
       image.alt = "";
+      image.draggable = false;
       preview.append(image);
     } else if (attachment.thumbnailData && attachment.thumbnailMediaType) {
       const image = document.createElement("img");
       image.src = `data:${attachment.thumbnailMediaType};base64,${attachment.thumbnailData}`;
       image.alt = "";
+      image.draggable = false;
       preview.append(image);
     } else {
-      preview.append(createIcon(attachment.kind === "image" ? "image" : attachment.previewKind === "video" ? "image" : "file"));
+      preview.append(createIcon(displayKind === "file" ? "file" : "image"));
     }
     const name = document.createElement("span");
     name.className = "attachment-name";
     const title = document.createElement("b");
     title.textContent = attachment.name;
     const kind = document.createElement("small");
-    kind.textContent = attachment.kind === "image" ? "image" : attachment.previewKind === "video" ? "video" : "file";
+    kind.textContent = displayKind;
     name.append(title, kind);
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "attachment-remove";
-    remove.title = "Remove attachment";
+    remove.title = `Remove ${attachment.name}`;
     remove.setAttribute("aria-label", `Remove ${attachment.name}`);
-    remove.append(createIcon("close"));
+    const removeText = document.createElement("span");
+    removeText.textContent = "Remove";
+    remove.append(createIcon("close"), removeText);
     remove.addEventListener("click", () => {
       state.pendingAttachments.splice(index, 1);
       renderAttachments();
@@ -1549,23 +1912,30 @@ async function loadCommands() {
     const commands = await window.widget.commands(sessionId);
     if (requestSequence !== state.commandsRequestSequence || sessionId !== state.selectedSessionId) return;
     state.commandCatalog = commands;
+    state.commandsLoadedSessionId = sessionId;
     renderCommands();
+    renderCommandHint();
   } catch {
     if (requestSequence !== state.commandsRequestSequence || sessionId !== state.selectedSessionId) return;
     state.commandCatalog = [];
+    state.commandsLoadedSessionId = sessionId;
     renderCommands();
+    renderCommandHint();
   } finally {
     if (requestSequence === state.commandsRequestSequence) state.commandsBusy = false;
   }
 }
 
 async function applyModelSelection() {
-  if (!state.selectedSessionId || !state.pendingSelection) return;
+  const sessionId = state.selectedSessionId;
+  const selection = effectiveModelSelection();
+  if (!sessionId || (!state.automaticModelRoute && !selection)) return;
   setAvatar("waiting", "switching model");
   try {
-    await window.widget.selectModel({ sessionId: state.selectedSessionId, selection: state.pendingSelection });
-    setAvatar("idle", "model selected");
+    await window.widget.selectModel(selection ? { sessionId, selection } : { sessionId });
+    if (sessionId === state.selectedSessionId) setAvatar("idle", "model selected");
   } catch (error) {
+    if (sessionId !== state.selectedSessionId) return;
     showError(error);
     setAvatar("error", "model error");
   }
@@ -1574,31 +1944,36 @@ async function applyModelSelection() {
 async function selectSession(sessionId, openChat = false) {
   const previousSessionId = state.selectedSessionId;
   state.selectedSessionId = sessionId || null;
-  window.widget.selectGameBarSession(state.selectedSessionId);
+  syncGameBarSelection();
   if (state.windowMode === "full") acknowledgeSessionError(state.selectedSessionId);
+  state.messagesStickToBottom = true;
+  state.unseenMessages = 0;
+  state.historySignature = "";
   if (previousSessionId !== state.selectedSessionId) {
+    setActivity(null);
+    renderMessages([]);
     const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
-    const activity = session?.running
+    const activity = commandFeedbackFor(state.selectedSessionId)?.activity || (session?.running
       ? session.activity || { active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" }
-      : null;
+      : null);
     setActivity(activity);
     if (session?.state === "error") setAvatar("error", "model error");
     else if (session?.running) setAvatar("working", activity?.label || "working");
     else if (!state.harnessOffline) setAvatar("idle");
   }
   syncSelectedAgentMode();
-  state.messagesStickToBottom = true;
-  state.unseenMessages = 0;
-  state.historySignature = "";
   state.pendingSelection = null;
+  state.automaticModelRoute = false;
   state.modelCatalog = null;
   state.modelLoadState = "idle";
   state.commandCatalog = [];
+  state.commandsLoadedSessionId = null;
   state.selectedWorkspaceId = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId)?.workspaceId || null;
   renderSessions();
   renderSessionSelect();
   renderContext();
   renderWorkspaces();
+  renderTodos();
   renderQueuedPrompts();
   if (openChat) setTab("chat");
   await Promise.all([refreshHistory(), loadModels(), loadCommands(), loadWorkspaces(), loadQueue(sessionId)]);
@@ -1654,10 +2029,12 @@ function appendActivityRun(root, run) {
     root.append(createToolCard(run[0]));
     return;
   }
-  const failed = run.some((message) => message.isError);
+  const failedCount = run.filter((message) => message.isError).length;
+  const allFailed = failedCount === toolCount;
+  const partialFailure = failedCount > 0 && !allFailed;
   const running = run.some((message) => message.status === "running");
   const group = document.createElement("details");
-  group.className = `tool-group${failed ? " failed" : ""}${running ? " running" : ""}`;
+  group.className = `tool-group${allFailed ? " failed" : ""}${partialFailure ? " partial-failure" : ""}${running ? " running" : ""}`;
   group.dataset.toolKey = `group:${run.map((message) => message.callId || message.seq || message.name || "tool").join("|")}`;
   const summary = document.createElement("summary");
   summary.append(createIcon("command"));
@@ -1666,7 +2043,13 @@ function appendActivityRun(root, run) {
   const label = document.createElement("b");
   label.textContent = `${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;
   const meta = document.createElement("small");
-  meta.textContent = running ? "running" : failed ? "failed" : "completed";
+  meta.textContent = running
+    ? `running${failedCount ? ` · ${failedCount} failed` : ""}`
+    : allFailed
+      ? "all failed"
+      : partialFailure
+        ? `${toolCount - failedCount} completed · ${failedCount} failed`
+        : "completed";
   identity.append(label, meta);
   summary.append(identity, createIcon("chevron", "ui-icon tool-chevron"));
   const body = document.createElement("div");
@@ -1759,8 +2142,13 @@ function restoreOpenToolKeys(root, keys) {
 function updateScrollLatestButton() {
   const button = $("#scrollLatestButton");
   const visible = !state.messagesStickToBottom && state.unseenMessages > 0;
+  const label = state.unseenMessages > 1 ? `${state.unseenMessages} new` : "New";
+  const signature = JSON.stringify([visible, label]);
+  if (signature === state.scrollLatestSignature) return false;
+  state.scrollLatestSignature = signature;
   button.hidden = !visible;
-  $("#scrollLatestCount").textContent = state.unseenMessages > 1 ? `${state.unseenMessages} new` : "New";
+  $("#scrollLatestCount").textContent = label;
+  return true;
 }
 
 function appendLiveAssistant(root) {
@@ -1771,6 +2159,50 @@ function appendLiveAssistant(root) {
   bubble.dataset.liveSeq = String(stream.lastSeq || "");
   bubble.textContent = stream.text;
   root.append(bubble);
+}
+
+function appendSteeringPrompts(root) {
+  for (const item of steeringPromptsFor()) {
+    const bubble = document.createElement("div");
+    bubble.className = "bubble user steering-message";
+    bubble.dataset.steeringId = item.id || "";
+    const text = document.createElement("span");
+    text.textContent = item.preview || item.text || "Queued message";
+    const status = document.createElement("small");
+    status.textContent = "sending now";
+    bubble.append(text, status);
+    root.append(bubble);
+  }
+}
+
+function paintLiveAssistant() {
+  const root = $("#messages");
+  const previousTop = root.scrollTop;
+  const wasPinned = state.messagesStickToBottom;
+  const liveAssistant = liveAssistantSnapshot();
+  const liveBubble = root.querySelector(".live-assistant");
+  const liveText = liveAssistant?.text || "";
+  const liveChanged = Boolean(liveBubble) !== Boolean(liveText) || (liveBubble?.textContent || "") !== liveText;
+  if (liveText && liveBubble) {
+    liveBubble.dataset.liveSeq = String(liveAssistant.lastSeq || "");
+    if (liveBubble.textContent !== liveText) liveBubble.textContent = liveText;
+  } else if (liveText) {
+    root.querySelector(".empty-state")?.remove();
+    appendLiveAssistant(root);
+  } else if (liveBubble) {
+    liveBubble.remove();
+    if (!state.currentMessages.length && !steeringPromptsFor().length) root.innerHTML = `<div class="empty-state">${state.selectedSessionId ? "Write a message to start this session." : "Write a message — the widget will create a session."}</div>`;
+  }
+  if (wasPinned) {
+    root.scrollTop = root.scrollHeight;
+    state.unseenMessages = 0;
+  } else {
+    root.scrollTop = Math.min(previousTop, Math.max(0, root.scrollHeight - root.clientHeight));
+    if (liveChanged) state.unseenMessages = 1;
+  }
+  syncActivityCard();
+  updateScrollLatestButton();
+  return liveChanged;
 }
 
 function openModelPicker({ retry = false } = {}) {
@@ -1866,14 +2298,63 @@ function createModelSetupCard() {
   return card;
 }
 
+function commandResultName(messages, index) {
+  const explicit = messages[index]?.command;
+  if (explicit) return String(explicit).replace(/^\//, "").toLowerCase();
+  const previous = messages[index - 1];
+  return previous?.role === "user" ? (/^\/(\S+)/.exec(previous.text || "")?.[1] || "").toLowerCase() : "";
+}
+
+function goalResultField(text, label) {
+  const match = new RegExp(`^${label}:\\s*(.+)$`, "im").exec(String(text || ""));
+  return match?.[1]?.trim() || "";
+}
+
+function createGoalResultCard(text) {
+  const objective = goalResultField(text, "Objective");
+  const status = goalResultField(text, "Status") || (/no goal/i.test(text) ? "not set" : "active");
+  const rounds = goalResultField(text, "Rounds");
+  const activation = goalResultField(text, "Activation");
+  const blocker = goalResultField(text, "Blocker");
+  if (!objective && !rounds && !activation && !blocker && !/^No goal/i.test(String(text || "").trim())) return null;
+  const card = document.createElement("div");
+  card.className = "bubble command goal-result";
+  const head = document.createElement("div");
+  head.className = "goal-result-head";
+  const title = document.createElement("b");
+  title.textContent = "Goal";
+  const phase = document.createElement("span");
+  phase.className = "goal-phase";
+  phase.textContent = status;
+  head.append(title, phase);
+  const objectiveNode = document.createElement("div");
+  objectiveNode.className = "goal-objective";
+  objectiveNode.textContent = objective || "No active goal";
+  card.append(head, objectiveNode);
+  const values = [["Rounds", rounds], ["Activation", activation], ["Blocker", blocker]].filter(([, value]) => value);
+  if (values.length) {
+    const meta = document.createElement("div");
+    meta.className = "goal-meta";
+    for (const [label, value] of values) {
+      const item = document.createElement("span");
+      item.textContent = `${label}: ${value}`;
+      meta.append(item);
+    }
+    card.append(meta);
+  }
+  return card;
+}
+
 function renderMessages(messages) {
   const root = $("#messages");
   const previousTop = root.scrollTop;
   const wasPinned = state.messagesStickToBottom;
   state.currentMessages = Array.isArray(messages) ? messages : [];
   const liveAssistant = liveAssistantSnapshot();
+  const steering = steeringPromptsFor();
   const signature = `${state.selectedSessionId || "new"}::${state.currentMessages.map((message) => JSON.stringify([
     message.role,
+    message.command || "",
     message.seq || "",
     message.callId || "",
     message.status || "",
@@ -1881,42 +2362,18 @@ function renderMessages(messages) {
     message.text || "",
     message.arguments || "",
     message.result || "",
-  ])).join("|")}`;
+  ])).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}`;
   const previousSignature = state.historySignature;
   const changed = Boolean(previousSignature && signature !== previousSignature);
   const unchanged = root.dataset.rendered === "true" && signature === previousSignature;
   state.historySignature = signature;
-  if (unchanged) {
-    const liveBubble = root.querySelector(".live-assistant");
-    const liveText = liveAssistant?.text || "";
-    const liveChanged = Boolean(liveBubble) !== Boolean(liveText) || (liveBubble?.textContent || "") !== liveText;
-    if (liveText && liveBubble) {
-      liveBubble.dataset.liveSeq = String(liveAssistant.lastSeq || "");
-      if (liveBubble.textContent !== liveText) liveBubble.textContent = liveText;
-    } else if (liveText) {
-      root.querySelector(".empty-state")?.remove();
-      appendLiveAssistant(root);
-    } else if (liveBubble) {
-      liveBubble.remove();
-      if (!state.currentMessages.length) root.innerHTML = '<div class="empty-state">Write a message — the widget will create a session.</div>';
-    }
-    if (wasPinned) {
-      root.scrollTop = root.scrollHeight;
-      state.unseenMessages = 0;
-    } else {
-      root.scrollTop = Math.min(previousTop, Math.max(0, root.scrollHeight - root.clientHeight));
-      if (liveChanged) state.unseenMessages = 1;
-    }
-    syncActivityCard();
-    updateScrollLatestButton();
-    return liveChanged;
-  }
+  if (unchanged) return paintLiveAssistant();
   const expandedTools = openToolKeys(root);
   const selection = captureMessageSelection(root);
   root.replaceChildren();
   root.dataset.rendered = "true";
-  if (!state.currentMessages.length && !liveAssistant?.text) {
-    root.innerHTML = '<div class="empty-state">Write a message — the widget will create a session.</div>';
+  if (!state.currentMessages.length && !liveAssistant?.text && !steering.length) {
+    root.innerHTML = `<div class="empty-state">${state.selectedSessionId ? "Write a message to start this session." : "Write a message — the widget will create a session."}</div>`;
     syncActivityCard();
     updateScrollLatestButton();
     return true;
@@ -1940,6 +2397,13 @@ function renderMessages(messages) {
       index += 1;
       continue;
     }
+    const commandName = message.role === "command" ? commandResultName(state.currentMessages, index) : "";
+    const structuredCommand = commandName === "goal" ? createGoalResultCard(message.text) : null;
+    if (structuredCommand) {
+      root.append(structuredCommand);
+      index += 1;
+      continue;
+    }
     const bubble = document.createElement("div");
     bubble.className = `bubble ${message.role}`;
     if (message.html) bubble.innerHTML = message.html;
@@ -1947,6 +2411,7 @@ function renderMessages(messages) {
     root.append(bubble);
     index += 1;
   }
+  appendSteeringPrompts(root);
   appendLiveAssistant(root);
   restoreOpenToolKeys(root, expandedTools);
   if (wasPinned) {
@@ -1979,20 +2444,50 @@ function showTransientActivityError(error, label) {
   }, 3200);
 }
 
-async function refreshHistory() {
-  const requestSequence = ++state.historyRequestSequence;
+function commandFeedbackFor(sessionId = state.selectedSessionId) {
+  return sessionId ? state.commandFeedbackBySession.get(sessionId) || null : null;
+}
+
+function setCommandFeedback(sessionId, feedback) {
+  if (!sessionId) return;
+  const previous = state.commandFeedbackBySession.get(sessionId);
+  if (previous?.timer) clearTimeout(previous.timer);
+  if (!feedback) {
+    state.commandFeedbackBySession.delete(sessionId);
+    if (sessionId === state.selectedSessionId) setActivity(null);
+    return;
+  }
+  state.commandFeedbackBySession.set(sessionId, feedback);
+  if (sessionId === state.selectedSessionId) setActivity(feedback.activity);
+}
+
+function settleCommandFeedback(sessionId, feedback) {
+  const timer = setTimeout(() => {
+    const current = commandFeedbackFor(sessionId);
+    if (current?.id !== feedback.id) return;
+    state.commandFeedbackBySession.delete(sessionId);
+    if (sessionId === state.selectedSessionId) refreshHistory();
+  }, 3200);
+  timer.unref?.();
+  feedback.timer = timer;
+  setCommandFeedback(sessionId, feedback);
+}
+
+async function refreshHistory({ priority = false } = {}) {
   const sessionId = state.selectedSessionId;
   if (!sessionId) {
     state.historyBusy = false;
     renderMessages([]);
-    return;
+    return "cleared";
   }
+  if (!priority && state.historyPrioritySessionId === sessionId) return "deferred";
+  const requestSequence = ++state.historyRequestSequence;
   state.historyBusy = true;
   try {
     const view = await window.widget.history(sessionId);
-    if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return;
+    if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return "superseded";
     const messages = view.messages || [];
-    setActivity(view.activity || null);
+    setActivity(commandFeedbackFor(sessionId)?.activity || view.activity || null);
     const detectedMode = modeFromMessages(messages);
     if (detectedMode) setSessionAgentMode(sessionId, detectedMode);
     renderMessages(messages);
@@ -2003,16 +2498,34 @@ async function refreshHistory() {
       else if (state.avatarMode === "error" && !state.harnessOffline) setAvatar("idle");
       else if (state.avatarMode !== "done" && !state.harnessOffline) setAvatar("idle");
     }
+    return "applied";
   } catch (error) {
-    if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return;
+    if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return "superseded";
     showError(error);
     if (state.windowMode === "full") setAvatar("error", "history error");
+    return "failed";
   } finally {
     if (requestSequence === state.historyRequestSequence) state.historyBusy = false;
   }
 }
 
-function updateLiveSessionState(sessionId, running, activity = null, stateName = null) {
+function refreshHistoryAfterLiveMessage(sessionId) {
+  const previous = state.historyPriorityPromise;
+  const pending = (async () => {
+    if (previous) await previous;
+    if (sessionId !== state.selectedSessionId) return "selection-changed";
+    state.historyPrioritySessionId = sessionId;
+    return refreshHistory({ priority: true });
+  })();
+  state.historyPriorityPromise = pending;
+  return pending.finally(() => {
+    if (state.historyPriorityPromise !== pending) return;
+    state.historyPriorityPromise = null;
+    state.historyPrioritySessionId = null;
+  });
+}
+
+function updateLiveSessionState(sessionId, running, activity = null, stateName = null, { render = true } = {}) {
   const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
   if (session) {
     session.running = Boolean(running);
@@ -2027,8 +2540,45 @@ function updateLiveSessionState(sessionId, running, activity = null, stateName =
     syncUnacknowledgedErrors();
   }
   else state.runningSessionIds.delete(sessionId);
+  if (sessionId === state.selectedSessionId) {
+    syncRunningControls(running);
+  }
+  if (render) {
+    renderSessions();
+    renderSessionSelect();
+  }
+}
+
+function bumpLiveSessionRevision(sessionId) {
+  const next = (state.liveSessionRevisions.get(sessionId) || 0) + 1;
+  state.liveSessionRevisions.set(sessionId, next);
+  return next;
+}
+
+let livePaintFrame = null;
+
+function paintLiveState() {
+  livePaintFrame = null;
   renderSessions();
   renderSessionSelect();
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
+  const stream = state.liveStreamsBySession.get(state.selectedSessionId);
+  const activity = session?.activity || (stream?.active ? stream.activity : null);
+  if (!session?.running && !stream?.active) {
+    if (stream?.text) paintLiveAssistant();
+    return;
+  }
+  const visibleActivity = activity
+    || { active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" };
+  setActivity(visibleActivity);
+  if (visibleActivity.kind === "writing" || stream?.text) paintLiveAssistant();
+  const avatarLabel = visibleActivity.kind === "tool" ? "using tool" : visibleActivity.kind === "thinking" ? "thinking" : visibleActivity.kind === "writing" ? "writing" : visibleActivity.label || "working";
+  setAvatar("working", avatarLabel);
+}
+
+function scheduleLivePaint() {
+  if (livePaintFrame !== null) return;
+  livePaintFrame = requestAnimationFrame(paintLiveState);
 }
 
 async function handleLiveEvent(payload) {
@@ -2038,17 +2588,50 @@ async function handleLiveEvent(payload) {
   let stream = state.liveStreamsBySession.get(sessionId) || { text: "", reasoning: "", lastSeq: 0 };
   if (Number(event.seq) && Number(event.seq) <= Number(stream.lastSeq)) return;
   if (Number(event.seq)) stream.lastSeq = Number(event.seq);
+  if (["turn/start", "assistant/chunk", "tool/call", "turn/end", "todo/write"].includes(event.type)) bumpLiveSessionRevision(sessionId);
+
+  if (event.type === "todo/write") {
+    const todos = normalizedTodos(event.data?.todos);
+    state.liveTodosBySession.set(sessionId, todos);
+    const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+    if (session) {
+      session.projections = projectionsWithTodos(session.projections, todos);
+    }
+    if (sessionId === state.selectedSessionId) renderTodos();
+    return;
+  }
+
+  if (event.type === "user/message") {
+    const messageId = String(event.data?.messageId || "");
+    if (messageId) {
+      state.queueHandoffEpochs.set(sessionId, queueHandoffEpoch(sessionId) + 1);
+      const steering = steeringPromptsFor(sessionId);
+      const index = steering.findIndex((item) => item.id === messageId);
+      const pendingSteer = state.queueBusySessionId === sessionId && state.queueBusyId === messageId && state.queueBusyKind === "steer";
+      if (index >= 0) {
+        state.steeringPromptsBySession.set(sessionId, [...steering.slice(0, index), ...steering.slice(index + 1)]);
+      }
+      if (index >= 0 || pendingSteer) {
+        state.liveStreamsBySession.delete(sessionId);
+        if (sessionId === state.selectedSessionId) renderMessages(state.currentMessages);
+      }
+    }
+    if (sessionId === state.selectedSessionId) await refreshHistoryAfterLiveMessage(sessionId);
+    return;
+  }
 
   if (event.type === "turn/start") {
-    stream = { text: "", reasoning: "", lastSeq: Number(event.seq) || 0 };
-    state.liveStreamsBySession.set(sessionId, stream);
+    state.turnGenerationsBySession.set(sessionId, (state.turnGenerationsBySession.get(sessionId) || 0) + 1);
+    state.cancelPendingSessionIds.delete(sessionId);
+    const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+    state.liveTodosBySession.set(sessionId, []);
+    if (session) session.projections = projectionsWithTodos(session.projections, []);
+    if (sessionId === state.selectedSessionId) renderTodos();
     const activity = { active: true, kind: "thinking", label: "Thinking", text: "Preparing the next step…" };
-    updateLiveSessionState(sessionId, true, activity, "working");
-    if (sessionId === state.selectedSessionId) {
-      setAvatar("working", "thinking");
-      setActivity(activity);
-      renderMessages(state.currentMessages);
-    }
+    stream = { text: "", reasoning: "", lastSeq: Number(event.seq) || 0, active: true, activity };
+    state.liveStreamsBySession.set(sessionId, stream);
+    updateLiveSessionState(sessionId, true, activity, "working", { render: false });
+    scheduleLivePaint();
     return;
   }
 
@@ -2056,29 +2639,29 @@ async function handleLiveEvent(payload) {
     const chunk = event.data?.chunk || {};
     if (chunk.type === "reasoning-delta" && chunk.text) {
       stream.reasoning += chunk.text;
-      state.liveStreamsBySession.set(sessionId, stream);
       const activity = { active: true, kind: "thinking", label: "Thinking", text: stream.reasoning.trim() };
-      updateLiveSessionState(sessionId, true, activity, "working");
-      if (sessionId === state.selectedSessionId) {
-        setAvatar("working", "thinking");
-        setActivity(activity);
-      }
+      stream.active = true;
+      stream.activity = activity;
+      state.liveStreamsBySession.set(sessionId, stream);
+      updateLiveSessionState(sessionId, true, activity, "working", { render: false });
+      scheduleLivePaint();
     } else if (chunk.type === "text-delta" && chunk.text) {
       stream.text += chunk.text;
-      state.liveStreamsBySession.set(sessionId, stream);
       const activity = { active: true, kind: "writing", label: "Writing", text: stream.text };
-      updateLiveSessionState(sessionId, true, activity, "working");
-      if (sessionId === state.selectedSessionId) {
-        setAvatar("working", "writing");
-        setActivity(activity);
-        renderMessages(state.currentMessages);
-      }
+      stream.active = true;
+      stream.activity = activity;
+      state.liveStreamsBySession.set(sessionId, stream);
+      updateLiveSessionState(sessionId, true, activity, "working", { render: false });
+      scheduleLivePaint();
     }
     return;
   }
 
   if (event.type === "tool/call") {
     const activity = { active: true, kind: "tool", label: "Using tool", text: event.data?.name || "tool" };
+    stream.active = true;
+    stream.activity = activity;
+    state.liveStreamsBySession.set(sessionId, stream);
     updateLiveSessionState(sessionId, true, activity, "working");
     if (sessionId === state.selectedSessionId) {
       setAvatar("working", "using tool");
@@ -2090,6 +2673,8 @@ async function handleLiveEvent(payload) {
   if (event.type === "turn/end") {
     const completedStream = stream;
     const failed = event.data?.reason?.kind === "error";
+    completedStream.active = false;
+    completedStream.activity = null;
     updateLiveSessionState(sessionId, false, null, failed ? "error" : "idle");
     const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId) || { sessionId };
     if (failed) signalSessionError(session);
@@ -2169,7 +2754,9 @@ async function openCompactSession(requestedSessionId = null) {
   state.compactReplyBusy = false;
   state.compactReplyError = "";
   clearTimeout(state.compactNotificationTimer);
-  state.selectedSessionId = sessionId;
+  // Restore before selection publishes the collapsed compact status. While the
+  // native Orb is resizing, its authoritative mode echo cancels an in-flight
+  // animated mode request; sequencing these operations keeps Full as the intent.
   await setWindowMode("full");
   await selectSession(sessionId, true);
   if (state.compactReplySessionId === sessionId) state.compactReplySessionId = null;
@@ -2213,6 +2800,7 @@ async function sendCompactReply() {
   }
   const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
   const queueingBehindTurn = state.runningSessionIds.has(sessionId);
+  const queueRevisionAtSubmit = queueSnapshotRevision(sessionId);
   state.compactReplyBusy = true;
   state.compactReplyError = "";
   syncCompactStatus();
@@ -2224,7 +2812,7 @@ async function sendCompactReply() {
       attachments: [],
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
-    if (queueingBehindTurn) trackQueuedPrompt(sessionId, { text });
+    if (queueingBehindTurn) trackQueuedPrompt(sessionId, { text }, queueRevisionAtSubmit);
     input.value = "";
     state.compactReplyOpen = false;
     state.compactHistoryOpen = false;
@@ -2305,7 +2893,31 @@ async function performRefresh() {
   state.refreshing = true;
   try {
     const selectedAtRequest = state.selectedSessionId;
-    const dashboard = await window.widget.dashboard();
+    const liveRevisionsAtRequest = new Map(state.liveSessionRevisions);
+    const dashboardResult = await window.widget.dashboard();
+    const dashboard = {
+      ...dashboardResult,
+      sessions: (dashboardResult.sessions || []).map((session) => {
+        let mergedSession = session;
+        if ((state.liveSessionRevisions.get(session.sessionId) || 0) !== (liveRevisionsAtRequest.get(session.sessionId) || 0)) {
+          const live = state.dashboard?.sessions?.find((item) => item.sessionId === session.sessionId);
+          if (live) mergedSession = {
+            ...mergedSession,
+            running: live.running,
+            state: live.state,
+            activity: live.activity,
+          };
+        }
+        if (state.cancelPendingSessionIds.has(session.sessionId)) {
+          if (session.running) {
+            mergedSession = { ...mergedSession, running: false, state: "idle", activity: null };
+          } else {
+            state.cancelPendingSessionIds.delete(session.sessionId);
+          }
+        }
+        return mergeLiveTodos(mergedSession);
+      }),
+    };
     const wasOffline = state.harnessOffline;
     state.harnessOffline = !dashboard.harness;
     document.body.classList.toggle("harness-offline", state.harnessOffline);
@@ -2316,7 +2928,7 @@ async function performRefresh() {
     if (!selectionChangedWhileLoading && !state.selectedSessionId && dashboard.sessions?.length) {
       state.selectedSessionId = (dashboard.sessions.find((session) => session.running) || dashboard.sessions[0]).sessionId;
     }
-    window.widget.selectGameBarSession(state.selectedSessionId);
+    syncGameBarSelection();
     if (dashboard.harness) {
       detectCompletedSessions(dashboard.sessions || []);
       if (state.windowMode === "full") acknowledgeSessionError(state.selectedSessionId);
@@ -2332,15 +2944,19 @@ async function performRefresh() {
     syncCompactStatus();
     $("#offlineBanner").classList.toggle("show", !dashboard.harness);
     if (dashboard.harness && !state.harnessStarting) {
-      $("#offlineBannerText").textContent = "Harness is offline";
-      $("#startHarnessButton").textContent = "Start";
-      $("#startHarnessButton").disabled = false;
+      if ($("#offlineBannerText").textContent !== "Harness is offline") $("#offlineBannerText").textContent = "Harness is offline";
+      if ($("#startHarnessButton").textContent !== "Start") $("#startHarnessButton").textContent = "Start";
+      if ($("#startHarnessButton").disabled) $("#startHarnessButton").disabled = false;
     }
     const selectedSession = dashboard.sessions?.find((session) => session.sessionId === state.selectedSessionId);
     const selectedRunning = Boolean(selectedSession?.running);
-    $("#chatForm").classList.toggle("has-running", selectedRunning);
-    $("#cancelButton").hidden = !selectedRunning;
+    const commandFeedback = commandFeedbackFor(state.selectedSessionId);
+    syncRunningControls(selectedRunning);
     if (!dashboard.harness) setAvatar("error", "");
+    else if (commandFeedback) {
+      setActivity(commandFeedback.activity);
+      setAvatar(commandFeedback.avatarMode, commandFeedback.avatarLabel);
+    }
     else if (dashboard.sessions?.some((session) => session.running) && (state.windowMode !== "full" || selectedRunning)) {
       const running = selectedSession?.running ? selectedSession : dashboard.sessions.find((session) => session.running);
       if (running?.activity) setActivity(running.activity);
@@ -2356,11 +2972,12 @@ async function performRefresh() {
     renderSessions();
     renderSessionSelect();
     renderContext();
+    renderTodos();
     renderQueuedPrompts();
     if (state.selectedSessionId && !state.queuedPromptsBySession.has(state.selectedSessionId)) await loadQueue(state.selectedSessionId);
     if (!state.modelCatalog) await loadModels();
-    if (!state.commandCatalog.length) await loadCommands();
-    if (!state.workspaces.length) await loadWorkspaces();
+    if (state.commandsLoadedSessionId !== state.selectedSessionId) await loadCommands();
+    if (!state.workspacesLoaded) await loadWorkspaces();
     if (state.tab === "chat") await refreshHistory();
   } finally {
     state.refreshing = false;
@@ -2418,21 +3035,103 @@ async function startHarnessFromBanner() {
   }
 }
 
-async function executeHarnessCommand(line, sessionId = state.selectedSessionId) {
+async function executeHarnessCommand(line, sessionId = state.selectedSessionId, attachments = [], commandDescriptor = null) {
   if (!sessionId) throw new Error("Select or create a session first");
+  const command = String(line || "").trim().split(/\s+/, 1)[0] || "Command";
+  const commandName = command.replace(/^\//, "").toLowerCase();
+  const descriptor = commandDescriptor || state.commandCatalog.find((item) => item.name.toLowerCase() === commandName);
+  const sentImageAttachments = descriptor?.input?.images === true
+    ? attachments.filter((item) => item?.kind === "image" && item.mediaType && item.data)
+    : [];
+  const images = sentImageAttachments.map(({ mediaType, data, name }) => ({ mediaType, data, name }));
+  const id = state.nextCommandFeedbackId++;
+  setCommandFeedback(sessionId, {
+    id,
+    avatarMode: "working",
+    avatarLabel: "running command",
+    activity: { active: true, kind: "tool", label: `Running ${command}`, text: `${line}\nWaiting for Harness…` },
+  });
   setAvatar("working", "running command");
-  const value = await window.widget.executeCommand({ sessionId, line });
-  const result = value?.result;
-  const selectedMode = result?.kind === "error" ? null : modeFromCommand(line);
-  if (selectedMode) setSessionAgentMode(sessionId, selectedMode);
-  if (sessionId !== state.selectedSessionId) return result;
-  renderMessages([
-    { role: "user", text: line },
-    { role: result?.kind === "error" ? "error" : "command", text: result?.text || "Command completed" },
-  ]);
-  setAvatar(result?.kind === "error" ? "error" : "done", result?.kind === "error" ? "command error" : "command done");
-  await refreshHistory();
-  return result;
+  try {
+    const value = await window.widget.executeCommand({ sessionId, line, images });
+    const result = value?.result;
+    const failed = result?.kind === "error";
+    const selectedMode = failed ? null : modeFromCommand(line);
+    if (selectedMode) setSessionAgentMode(sessionId, selectedMode);
+    const feedback = {
+      id,
+      avatarMode: failed ? "error" : "done",
+      avatarLabel: failed ? "command error" : "command done",
+      activity: {
+        active: true,
+        kind: failed ? "error" : "done",
+        label: `${command} ${failed ? "failed" : "complete"}`,
+        text: compactText(result?.text || "Command completed", 320),
+      },
+    };
+    settleCommandFeedback(sessionId, feedback);
+    if (!failed && images.length) {
+      const submittedPaths = new Set(sentImageAttachments.map((image) => image.path).filter(Boolean));
+      state.pendingAttachments = state.pendingAttachments.filter((attachment) => !submittedPaths.has(attachment.path));
+      renderAttachments();
+    }
+    if (sessionId !== state.selectedSessionId) return result;
+    renderMessages([
+      ...state.currentMessages,
+      { role: "user", text: line },
+      { role: failed ? "error" : "command", command: commandName, text: result?.text || "Command completed" },
+    ]);
+    setAvatar(feedback.avatarMode, feedback.avatarLabel);
+    await refreshHistory();
+    return result;
+  } catch (error) {
+    settleCommandFeedback(sessionId, {
+      id,
+      avatarMode: "error",
+      avatarLabel: "command error",
+      activity: { active: true, kind: "error", label: `${command} failed`, text: compactText(error?.message || error, 320) },
+    });
+    if (sessionId === state.selectedSessionId) setAvatar("error", "command error");
+    throw error;
+  }
+}
+
+async function stopCurrentTurn() {
+  const sessionId = state.selectedSessionId;
+  if (!sessionId || state.cancelBusySessionId) return false;
+  const turnGeneration = state.turnGenerationsBySession.get(sessionId) || 0;
+  state.cancelBusySessionId = sessionId;
+  syncRunningControls(true);
+  const activity = { active: true, kind: "waiting", label: "Stopping", text: "Waiting for Harness to stop the current turn…" };
+  if (sessionId === state.selectedSessionId) {
+    setActivity(activity);
+    setAvatar("waiting", "stopping");
+  }
+  try {
+    await window.widget.cancel(sessionId);
+    if ((state.turnGenerationsBySession.get(sessionId) || 0) !== turnGeneration) return true;
+    state.cancelPendingSessionIds.add(sessionId);
+    bumpLiveSessionRevision(sessionId);
+    state.liveStreamsBySession.delete(sessionId);
+    updateLiveSessionState(sessionId, false, null, "idle");
+    if (sessionId === state.selectedSessionId) {
+      renderMessages(state.currentMessages);
+      setActivity(null);
+      if (!state.harnessOffline) setAvatar("idle", "stopped");
+    }
+    await refresh({ afterCurrent: true });
+    return true;
+  } catch (error) {
+    if (sessionId === state.selectedSessionId) showTransientActivityError(error, "Could not stop");
+    await refresh({ afterCurrent: true }).catch(() => {});
+    return false;
+  } finally {
+    if (state.cancelBusySessionId === sessionId) state.cancelBusySessionId = null;
+    if (sessionId === state.selectedSessionId) {
+      const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+      syncRunningControls(Boolean(session?.running));
+    }
+  }
 }
 
 async function createNewSession({ restore = true } = {}) {
@@ -2443,9 +3142,11 @@ async function createNewSession({ restore = true } = {}) {
     state.selectedSessionId = result.sessionId;
     setSessionAgentMode(result.sessionId, "agent");
     state.pendingSelection = null;
+    state.automaticModelRoute = false;
     state.modelCatalog = null;
     state.modelLoadState = "idle";
     state.commandCatalog = [];
+    state.commandsLoadedSessionId = null;
     await refresh({ afterCurrent: true });
     await Promise.all([loadModels(), loadCommands(), loadWorkspaces()]);
     if (restore) {
@@ -2478,7 +3179,10 @@ async function switchWorkspace(workspaceId) {
 }
 
 function renderMode() {
+  if (state.modeSignature === state.currentMode) return false;
+  state.modeSignature = state.currentMode;
   syncPressed($$(".mode-option"), state.currentMode, "mode");
+  return true;
 }
 
 async function setAgentMode(mode) {
@@ -2886,7 +3590,9 @@ $("#chatForm").addEventListener("submit", async (event) => {
   const submittedSelection = state.pendingSelection;
   const submittedAttachments = [...state.pendingAttachments];
   const queueingBehindTurn = Boolean(targetSessionId && state.runningSessionIds.has(targetSessionId));
+  const queueRevisionAtSubmit = queueSnapshotRevision(targetSessionId);
   const attachmentCount = submittedAttachments.length;
+  let submittedCommand = false;
   $("#agentControls").open = false;
   setSettingsOpen(false, { restoreFocus: false });
   setCommandMenuOpen(false);
@@ -2896,10 +3602,19 @@ $("#chatForm").addEventListener("submit", async (event) => {
   input.value = "";
   resizeMessageInput();
   input.placeholder = "Message the agent…";
+  renderCommandHint();
   try {
-    const commandName = /^\/(\S+)/.exec(text)?.[1];
-    if (commandName && state.commandCatalog.some((command) => command.name === commandName)) {
-      await executeHarnessCommand(text, targetSessionId);
+    const slashMatch = /^\/(\S+)/.exec(text);
+    if (slashMatch) {
+      if (state.commandsLoadedSessionId !== targetSessionId) await loadCommands();
+      const commandEntry = state.commandCatalog.find((command) => command.name.toLowerCase() === slashMatch[1].toLowerCase());
+      if (!commandEntry) {
+        throw new Error(state.commandCatalog.length
+          ? `Unknown Harness command: /${slashMatch[1]}`
+          : "Harness commands are unavailable. Try again when Harness is online.");
+      }
+      submittedCommand = true;
+      await executeHarnessCommand(text, targetSessionId, submittedAttachments, commandEntry);
     } else {
       setAvatar("working", "sending");
       const result = await window.widget.send({
@@ -2914,7 +3629,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
         state.selectedSessionId = result.sessionId;
         if (!targetSessionId) setSessionAgentMode(result.sessionId, "agent");
       }
-      if (queueingBehindTurn) trackQueuedPrompt(result.sessionId, { text, attachmentCount });
+      if (queueingBehindTurn) trackQueuedPrompt(result.sessionId, { text, attachmentCount }, queueRevisionAtSubmit);
       const submittedPaths = new Set(submittedAttachments.map((attachment) => attachment.path));
       state.pendingAttachments = state.pendingAttachments.filter((attachment) => !submittedPaths.has(attachment.path));
       renderAttachments();
@@ -2927,7 +3642,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
     if (state.selectedSessionId === targetSessionId) {
       if (!input.value.trim()) input.value = text;
       resizeMessageInput();
-      showTransientActivityError(error, "Message not sent");
+      showTransientActivityError(error, submittedCommand ? "Command failed" : "Message not sent");
     }
   } finally {
     $("#sendButton").disabled = false;
@@ -2969,10 +3684,12 @@ $("#messageInput").addEventListener("input", async (event) => {
   if (!slashMode) {
     setCommandMenuOpen(false);
     if (!event.target.value) event.target.placeholder = "Message the agent…";
+    renderCommandHint();
     return;
   }
-  if (!state.commandCatalog.length) await loadCommands();
+  if (state.commandsLoadedSessionId !== state.selectedSessionId) await loadCommands();
   renderCommands(commandQuery());
+  renderCommandHint();
   setCommandMenuOpen(true);
 });
 $("#messages").addEventListener("click", (event) => {
@@ -2994,7 +3711,14 @@ $("#scrollLatestButton").addEventListener("click", () => {
   $("#messages").scrollTo({ top: $("#messages").scrollHeight, behavior: reduceMotion ? "auto" : "smooth" });
   updateScrollLatestButton();
 });
-$("#cancelButton").addEventListener("click", async () => state.selectedSessionId && window.widget.cancel(state.selectedSessionId));
+$("#todoToggle").addEventListener("click", () => {
+  const sessionId = state.selectedSessionId;
+  if (!sessionId) return;
+  if (state.todoExpandedSessionIds.has(sessionId)) state.todoExpandedSessionIds.delete(sessionId);
+  else state.todoExpandedSessionIds.add(sessionId);
+  renderTodos();
+});
+$("#cancelButton").addEventListener("click", () => { stopCurrentTurn().catch(showError); });
 $("#focusChatButton").addEventListener("click", () => setFocusMode(!state.focusMode));
 $("#startHarnessButton").addEventListener("click", startHarnessFromBanner);
 $("#openHarnessButton").addEventListener("click", () => window.widget.openHarness());
@@ -3039,13 +3763,13 @@ window.addEventListener("resize", () => {
   resizeCommandMenu();
   $$(".picker.open").forEach(positionPickerMenu);
 });
-for (const target of [$(".brand")]) {
+for (const target of [$(".titlebar")]) {
   target.addEventListener("pointerdown", beginFullDrag);
   target.addEventListener("pointermove", moveFullDrag);
   target.addEventListener("pointerup", endFullDrag);
   target.addEventListener("pointercancel", endFullDrag);
 }
-// Pointer taps are resolved in endFullDrag, because pointer capture on the brand
+// Pointer taps are resolved in endFullDrag, because pointer capture on the titlebar
 // steals the click. Keyboard activation reports detail 0 and still arrives here.
 $("#avatarButton").addEventListener("click", (event) => {
   if (event.detail !== 0 || suppressProjectClick) return;
@@ -3143,10 +3867,9 @@ document.addEventListener("drop", async (event) => {
 
 window.widget.onWindowMode((mode) => applyAuthoritativeWindowMode(mode));
 window.widget.onCompactSide((side) => applyCompactSide(side));
-window.widget.onQueueUpdate(({ sessionId, items }) => {
+window.widget.onQueueUpdate(({ sessionId, items, revision }) => {
   if (!sessionId) return;
-  state.queuedPromptsBySession.set(sessionId, Array.isArray(items) ? items : []);
-  if (sessionId === state.selectedSessionId) renderQueuedPrompts();
+  applyQueueSnapshot(sessionId, items, revision);
 });
 window.widget.onLiveEvent((payload) => { handleLiveEvent(payload).catch(showError); });
 window.widget.onHotkeyAction((action) => {
@@ -3184,6 +3907,7 @@ if (requestedTab === "chat") setTab("chat");
 setAvatar("idle");
 renderNotifications();
 renderAttachments();
+renderTodos();
 renderQueuedPrompts();
 renderMode();
 resizeMessageInput({ immediate: true });
@@ -3325,6 +4049,24 @@ if (screenshotFixture) {
       if (screenshotFixture === "focus-commands") setFocusMode(true);
       renderCommands("");
       setCommandMenuOpen(true);
+    } else if (screenshotFixture === "todo") {
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-todo", title: "Release verification", running: true, state: "working", projections: { values: { todos: [
+        { content: "Inspect the current session", status: "completed" },
+        { content: "Verify live streaming and tools", status: "in_progress" },
+        { content: "Build the Windows release", status: "pending" },
+      ] } }, subagents: [] }] };
+      state.selectedSessionId = "demo-todo";
+      state.todoExpandedSessionIds.add("demo-todo");
+      renderSessionSelect();
+      renderTodos();
+      renderMessages([{ role: "assistant", text: "The current plan stays compact above the conversation." }]);
+    } else if (screenshotFixture === "goal-result") {
+      setTab("chat");
+      renderMessages([
+        { role: "user", text: "/goal" },
+        { role: "command", command: "goal", text: "Status: active\nObjective: Ship the verified NeoXider Agent Deck release\nRounds: 3/4\nActivation: manual" },
+      ]);
     } else if (screenshotFixture === "queued-message") {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-queue", title: "Long-running agent", running: true, projections: { values: { contextPressure: { projectedTokens: 64120, contextWindow: 131072 } } }, subagents: [] }] };
@@ -3389,26 +4131,54 @@ if (screenshotFixture) {
       const paths = (launchParams.get("screenshotFiles") || "").split("|").filter(Boolean);
       if (paths.length) addAttachments(await window.widget.prepareFiles(paths));
       else {
-        const previewData = (label, first, second) => {
+        const previewData = async (video = false) => {
+          const mascot = new Image();
+          mascot.src = "./assets/avatar-working.png";
+          await mascot.decode();
           const canvas = document.createElement("canvas");
           canvas.width = 96;
           canvas.height = 64;
           const context = canvas.getContext("2d");
           const gradient = context.createLinearGradient(0, 0, 96, 64);
-          gradient.addColorStop(0, first);
-          gradient.addColorStop(1, second);
+          gradient.addColorStop(0, "#102c38");
+          gradient.addColorStop(0.55, "#173249");
+          gradient.addColorStop(1, "#281d4b");
           context.fillStyle = gradient;
           context.fillRect(0, 0, 96, 64);
-          context.fillStyle = "rgba(6,10,17,.38)";
-          context.fillRect(7, 37, 82, 18);
-          context.fillStyle = "white";
-          context.font = "700 11px sans-serif";
-          context.fillText(label, 12, 50);
+          context.fillStyle = "rgba(73,231,198,.14)";
+          context.beginPath();
+          context.arc(18, 13, 10, 0, Math.PI * 2);
+          context.fill();
+          context.drawImage(mascot, 27, 4, 42, 52);
+          context.strokeStyle = "rgba(73,231,198,.30)";
+          context.lineWidth = 1;
+          context.beginPath();
+          context.moveTo(0, 50);
+          context.quadraticCurveTo(25, 42, 48, 51);
+          context.quadraticCurveTo(72, 58, 96, 47);
+          context.stroke();
+          if (video) {
+            context.fillStyle = "rgba(4,8,14,.58)";
+            context.fillRect(0, 0, 96, 64);
+            context.fillStyle = "rgba(255,255,255,.95)";
+            context.beginPath();
+            context.moveTo(43, 23);
+            context.lineTo(43, 43);
+            context.lineTo(59, 33);
+            context.closePath();
+            context.fill();
+            context.fillStyle = "rgba(255,255,255,.72)";
+            for (let x = 5; x < 94; x += 14) {
+              context.fillRect(x, 4, 7, 3);
+              context.fillRect(x, 57, 7, 3);
+            }
+          }
           return canvas.toDataURL("image/png").split(",")[1];
         };
         addAttachments([
-          { kind: "image", mediaType: "image/png", data: previewData("PNG", "#45e2c4", "#7166ff"), path: "C:\\demo\\widget-preview.png", name: "widget-preview.png" },
-          { kind: "reference", previewKind: "video", thumbnailData: previewData("VIDEO", "#ff748f", "#8b79ff"), thumbnailMediaType: "image/png", path: "C:\\demo\\widget-motion.mp4", name: "widget-motion.mp4" },
+          { kind: "image", mediaType: "image/png", data: await previewData(), path: "C:\\demo\\neoxider-agent.png", name: "neoxider-agent.png" },
+          { kind: "reference", previewKind: "video", thumbnailData: await previewData(true), thumbnailMediaType: "image/png", path: "C:\\demo\\agent-mode-demo.mp4", name: "agent-mode-demo.mp4" },
+          { kind: "reference", previewKind: "file", path: "C:\\demo\\release-notes.md", name: "release-notes.md" },
         ]);
       }
     } else if (["orb-recent-three", "orb-recent-three-left", "orb-quick-reply"].includes(screenshotFixture)) {
@@ -3477,6 +4247,13 @@ if (screenshotFixture) {
         { role: "assistant", text: "Result", html: "<h3>Workspace checked</h3><p><strong>Build</strong> is clean and <em>visually verified</em>.</p><blockquote>Accent colors remain readable on the dark surface.</blockquote><pre><code class=\"language-js\"><span class=\"hljs-keyword\">const</span> status = <span class=\"hljs-string\">\"ready\"</span>; <span class=\"hljs-comment\">// verified</span></code></pre>" },
         { role: "tool", name: "read_file", arguments: "{\n  \"path\": \"src/main.cjs\"\n}", result: "Loaded 412 lines", status: "done", durationMs: 184 },
         { role: "tool", name: "run_tests", arguments: "{\n  \"suite\": \"widget\"\n}", result: "18 tests passed", status: "done", durationMs: 1260, nested: true },
+      ]);
+    } else if (screenshotFixture === "mixed-tools") {
+      setTab("chat");
+      renderMessages([
+        { role: "assistant", text: "Most checks completed; one optional write was denied." },
+        { role: "tool", callId: "tool-ok", name: "read", arguments: "{\"path\":\"README.md\"}", result: "Read complete", status: "completed", durationMs: 84 },
+        { role: "tool", callId: "tool-failed", name: "write", arguments: "{\"path\":\"protected.md\"}", result: "Permission denied", status: "completed", isError: true, durationMs: 21 },
       ]);
     }
   }, 700);

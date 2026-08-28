@@ -21,6 +21,44 @@ function withTemporaryStore(run) {
   }
 }
 
+function retryHarness() {
+  const scheduled = [];
+  return {
+    scheduleRetry(callback, delay) {
+      const handle = { callback, delay, canceled: false, unref() {} };
+      scheduled.push(handle);
+      return handle;
+    },
+    cancelRetry(handle) {
+      handle.canceled = true;
+    },
+    runNext() {
+      const handle = scheduled.find((candidate) => !candidate.canceled && !candidate.ran);
+      if (!handle) return false;
+      handle.ran = true;
+      handle.callback();
+      return true;
+    },
+    pending() {
+      return scheduled.filter((candidate) => !candidate.canceled && !candidate.ran);
+    },
+  };
+}
+
+function fileSystemFailingRenames(failureState) {
+  const fileSystem = Object.create(fs);
+  fileSystem.renameSync = (source, destination) => {
+    if (failureState.remaining > 0) {
+      failureState.remaining -= 1;
+      const error = new Error("settings file is temporarily locked");
+      error.code = failureState.code;
+      throw error;
+    }
+    return fs.renameSync(source, destination);
+  };
+  return fileSystem;
+}
+
 const completePreferences = {
   opacity: 0.73,
   glowIntensity: 0.41,
@@ -42,6 +80,124 @@ test("all preferences and all mode bounds survive a disk round-trip", () => {
     assert.deepEqual(store.save(completePreferences), completePreferences);
     const afterRestart = createSettingsStore({ filePath });
     assert.deepEqual(afterRestart.load(), completePreferences);
+  });
+});
+
+test("a transient write failure keeps the latest preferences dirty and retries them", () => {
+  withTemporaryStore(({ filePath }) => {
+    const failureState = { remaining: 1, code: "EPERM" };
+    const retries = retryHarness();
+    const statuses = [];
+    const store = createSettingsStore({
+      filePath,
+      fileSystem: fileSystemFailingRenames(failureState),
+      retryDelaysMs: [25, 75],
+      scheduleRetry: retries.scheduleRetry,
+      cancelRetry: retries.cancelRetry,
+      onStatusChange: (status) => statuses.push(status),
+    });
+
+    assert.throws(() => store.save(completePreferences), { code: "EPERM" });
+    assert.deepEqual(store.getStatus(), {
+      dirty: true,
+      retryScheduled: true,
+      retriesStarted: 1,
+      retriesRemaining: 1,
+      lastError: { code: "EPERM", message: "settings file is temporarily locked" },
+      readOnly: false,
+    });
+    assert.deepEqual(retries.pending().map((entry) => entry.delay), [25]);
+
+    assert.equal(retries.runNext(), true);
+    assert.deepEqual(store.getStatus(), {
+      dirty: false,
+      retryScheduled: false,
+      retriesStarted: 0,
+      retriesRemaining: 2,
+      lastError: null,
+      readOnly: false,
+    });
+    assert.deepEqual(createSettingsStore({ filePath }).load(), completePreferences);
+    assert.equal(statuses.some((status) => status.dirty && status.retryScheduled), true);
+    assert.equal(statuses.at(-1).dirty, false);
+  });
+});
+
+test("retry exhaustion remains observable and flush can persist the retained dirty state", () => {
+  withTemporaryStore(({ filePath }) => {
+    const failureState = { remaining: 3, code: "EBUSY" };
+    const retries = retryHarness();
+    const store = createSettingsStore({
+      filePath,
+      fileSystem: fileSystemFailingRenames(failureState),
+      retryDelaysMs: [10, 30],
+      scheduleRetry: retries.scheduleRetry,
+      cancelRetry: retries.cancelRetry,
+    });
+
+    assert.throws(() => store.save(completePreferences), { code: "EBUSY" });
+    while (retries.runNext()) {}
+    assert.deepEqual(store.getStatus(), {
+      dirty: true,
+      retryScheduled: false,
+      retriesStarted: 2,
+      retriesRemaining: 0,
+      lastError: { code: "EBUSY", message: "settings file is temporarily locked" },
+      readOnly: false,
+    });
+    assert.equal(fs.existsSync(filePath), false);
+
+    failureState.remaining = 0;
+    assert.equal(store.flush(), true);
+    assert.equal(store.getStatus().dirty, false);
+    assert.deepEqual(createSettingsStore({ filePath }).load(), completePreferences);
+  });
+});
+
+test("non-transient failures stay dirty without a background retry", () => {
+  withTemporaryStore(({ filePath }) => {
+    const failureState = { remaining: 1, code: "ENOSPC" };
+    const retries = retryHarness();
+    const store = createSettingsStore({
+      filePath,
+      fileSystem: fileSystemFailingRenames(failureState),
+      retryDelaysMs: [10, 30],
+      scheduleRetry: retries.scheduleRetry,
+      cancelRetry: retries.cancelRetry,
+    });
+
+    assert.throws(() => store.save(completePreferences), { code: "ENOSPC" });
+    assert.equal(store.getStatus().dirty, true);
+    assert.equal(store.getStatus().retryScheduled, false);
+    assert.equal(retries.pending().length, 0);
+
+    assert.equal(store.flush(), true);
+    assert.deepEqual(createSettingsStore({ filePath }).load(), completePreferences);
+  });
+});
+
+test("final synchronous save keeps the latest state and does not start a shutdown retry loop", () => {
+  withTemporaryStore(({ filePath }) => {
+    const failureState = { remaining: 2, code: "EBUSY" };
+    const finalPreferences = { ...completePreferences, opacity: 0.88 };
+    const retries = retryHarness();
+    const store = createSettingsStore({
+      filePath,
+      fileSystem: fileSystemFailingRenames(failureState),
+      retryDelaysMs: [10, 30],
+      scheduleRetry: retries.scheduleRetry,
+      cancelRetry: retries.cancelRetry,
+    });
+
+    assert.throws(() => store.save(completePreferences), { code: "EBUSY" });
+    assert.equal(retries.pending().length, 1);
+    assert.throws(() => store.save(finalPreferences, { retryOnFailure: false }), { code: "EBUSY" });
+    assert.equal(store.getStatus().dirty, true);
+    assert.equal(store.getStatus().retryScheduled, false);
+    assert.equal(retries.pending().length, 0);
+
+    assert.equal(store.flush({ retryOnFailure: false }), true);
+    assert.deepEqual(createSettingsStore({ filePath }).load(), finalPreferences);
   });
 });
 
