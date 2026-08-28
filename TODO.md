@@ -67,6 +67,13 @@ things a reader of the verification folder would otherwise have to infer.
   - Practical note: LM Studio defaults to 111 parallel slots and sizes a per-slot cache,
     which can claim the whole 24 GB card and is what blocked the retry. Load with
     `--parallel 1`.
+  - Qwen 3.5 4B MTP was tried as a stand-in and is **not a substitute**. The first run
+    passed cleanly with three tool calls, but two subsequent runs looped to the 100-call
+    cap on `grep` and never emitted the completion marker, so the recorded receipt is
+    `qwen3.5-4b-mtp-multi-tool-parity-v064-no-marker.json`. Tool *parity* held throughout —
+    100 calls, 100 results, zero errors, clean turn end, no lingering activity — so the
+    widget side is fine and the instability is the 4B model's planning, not the transport.
+    Re-running until one came back green would have been cherry-picking.
 - **Live update flow has not been walked end to end by a human on this machine.** Staging,
   digest verification and restart survival are covered by
   `test/update-orchestrator.test.cjs` and `test/portable-update-stage.test.cjs`, and
