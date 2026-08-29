@@ -1151,18 +1151,23 @@ function initials(title) {
   return String(title || "AI").split(/\s+/).slice(0, 2).map((part) => part[0] || "").join("").toUpperCase();
 }
 
-function counts(dashboard) {
-  let active = 0;
-  let subagents = 0;
-  for (const session of dashboard.sessions || []) {
-    if (session.running) active += 1;
-    for (const child of session.subagents || []) {
-      if (child.kind !== "child") continue;
-      subagents += 1;
-      if (child.activity === "running") active += 1;
-    }
-  }
-  return { active, sessions: (dashboard.sessions || []).length, subagents };
+// Background tasks are Harness subagents running under a session. The card used to spell
+// out "2 subagents" — the roster size, including children that had already finished — which
+// spent most of a narrow card's width to say something that was often no longer true. What
+// is worth knowing at a glance is how many are working right now, so that is all it says.
+function activeBackgroundTasks(session) {
+  return (session?.subagents || []).filter((child) => child.kind === "child" && child.activity === "running").length;
+}
+
+function applyBackgroundTaskCount(node, count) {
+  if (!node) return;
+  // Written into the <b>, never onto the wrapper: textContent on the wrapper would delete
+  // the icon beside it, and the icon is what makes a bare number mean anything.
+  const value = node.querySelector("b");
+  if (value) value.textContent = count > 9 ? "9+" : String(count);
+  node.classList.toggle("visible", count > 0);
+  node.title = count ? `${count} background task${count === 1 ? "" : "s"} running` : "";
+  node.setAttribute("aria-label", node.title);
 }
 
 function contextPressure(session) {
@@ -1301,12 +1306,13 @@ function updateSessionCard(card, session) {
   card.tabIndex = 0;
   card.setAttribute("role", "button");
   card.setAttribute("aria-label", `Open ${session.title || "New session"}`);
-  const childCount = (session.subagents || []).filter((item) => item.kind === "child").length;
+  const background = activeBackgroundTasks(session);
   const pressure = contextPressure(session);
   card.querySelector(".agent-avatar").className = `agent-avatar ${agentState}`;
   card.querySelector(".agent-avatar img").src = AVATARS[agentState] || AVATARS.idle;
   card.querySelector(".session-name").textContent = session.title || "New session";
-  card.querySelector(".session-meta-text").textContent = `${agentState}${childCount ? ` · ${childCount} subagent${childCount === 1 ? "" : "s"}` : ""}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}`;
+  card.querySelector(".session-meta-text").textContent = `${agentState}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}`;
+  applyBackgroundTaskCount(card.querySelector(".session-background"), background);
   applySessionTime(card.querySelector(".session-time"), session);
   const status = card.querySelector(".session-state");
   status.className = `session-state ${agentState}`;
@@ -1330,7 +1336,10 @@ function createSessionCard(session) {
   metaText.className = "session-meta-text";
   const metaTime = document.createElement("span");
   metaTime.className = "session-time";
-  meta.append(metaText, metaTime);
+  const metaBackground = document.createElement("span");
+  metaBackground.className = "session-background";
+  metaBackground.append(createIcon("agents"), document.createElement("b"));
+  meta.append(metaText, metaTime, metaBackground);
   main.append(name, meta);
   const status = document.createElement("div");
   status.className = "session-state";
@@ -1464,7 +1473,7 @@ function renderSessions() {
     [...state.collapsedSessionGroupKeys].sort(),
     ...groups.map((group) => [group.key, group.label, group.path, ...group.sessions.map((session) => {
       const pressure = contextPressure(session);
-      return [session.sessionId, session.title || "", sessionAgentState(session), (session.subagents || []).length, pressure ? Math.round(pressure.percent) : null];
+      return [session.sessionId, session.title || "", sessionAgentState(session), activeBackgroundTasks(session), pressure ? Math.round(pressure.percent) : null];
     })]),
   ]);
   if (signature === state.sessionListSignature && root.childElementCount) return false;
@@ -4956,8 +4965,8 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.5", latestVersion: "0.6.6", installMode: "portable-replace", progress: 100 }
-        : { status: "available", currentVersion: "0.6.5", latestVersion: "0.6.6", installMode: "managed", progress: 0 });
+        ? { status: "ready", currentVersion: "0.6.6", latestVersion: "0.6.7", installMode: "portable-replace", progress: 100 }
+        : { status: "available", currentVersion: "0.6.6", latestVersion: "0.6.7", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {
       setTab("chat");
@@ -5105,9 +5114,11 @@ if (screenshotFixture) {
       setTab("agents");
       const now = Date.now();
       state.dashboard = { harness: true, sessions: [
-        { sessionId: "demo-running", title: "Long build", updatedAt: now, running: true, state: "working", runningSince: now - 754000, projections: { values: {} }, subagents: [] },
+        // Two background tasks running out of three children: the finished one must not be
+        // counted, which is what the old "3 subagents" roster size got wrong.
+        { sessionId: "demo-running", title: "Long build", updatedAt: now, running: true, state: "working", runningSince: now - 754000, projections: { values: {} }, subagents: [{ kind: "child", activity: "running" }, { kind: "child", activity: "running" }, { kind: "child", activity: "idle" }] },
         { sessionId: "demo-just-started", title: "Fresh turn", updatedAt: now, running: true, state: "working", runningSince: now - 7000, projections: { values: {} }, subagents: [] },
-        { sessionId: "demo-finished", title: "Finished earlier", updatedAt: now - 5000, running: false, state: "idle", lastRunMs: 128000, projections: { values: {} }, subagents: [] },
+        { sessionId: "demo-finished", title: "Finished earlier", updatedAt: now - 5000, running: false, state: "idle", lastRunMs: 128000, projections: { values: {} }, subagents: [{ kind: "child", activity: "idle" }] },
       ] };
       renderSessions();
     } else if (screenshotFixture === "writing") {

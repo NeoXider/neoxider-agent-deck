@@ -5,6 +5,12 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.7] - 2026-08-29
+
+### Changed
+
+- **Background tasks are a count of what is running, not a roster size.** A session card spelled out `2 subagents` — the number of children Harness had ever started under it, finished ones included — which spent most of a narrow card's width on something that was often no longer true. It is now one badge showing how many background tasks are working right now, and nothing at all when none are. The count feeds the render signature, so a task starting or finishing repaints the list; `counts()`, a helper that computed the same thing and was called from nowhere, has been removed.
+
 ## [0.6.6] - 2026-08-29
 
 ### Added

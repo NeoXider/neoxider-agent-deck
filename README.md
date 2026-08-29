@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.6-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.6-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.7-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.7-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -170,6 +170,7 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Classic NeoXider slimes** — idle, working, waiting, error, and done now use the original soft-bottom mascot shapes from NeoXider Video Studio instead of the round variants.
 - **Click-or-drag brand** — click the full-size avatar to collapse, click the NeoXider title to open the repository, or drag anywhere across the brand area to move the full widget. Brand text is non-selectable, so a drag cannot turn into a text selection.
 - **Collapsed by default** — Avatar mode stays a circle with a count of working agents on its expand button; the session panel opens only when asked. **Expand avatar on activity** in settings restores the old always-opening behaviour.
+- **Background task count** — a session card shows how many background tasks (Harness subagents) are running under it right now, and nothing when none are; the roster size, which counted children that had already finished, is gone.
 - **Elapsed turn time** — every session card and the session picker show how long the agent has been on the current turn, ticking live, and how long the last completed turn took. The clock is read from the turn's own events, so it survives a widget restart.
 - **Exact-session pet reply** — collapsed pet mode keeps one useful reply button instead of create/command/attachment clutter; it opens the agent and session that produced the reply.
 - **Session-aware notifications** — a completed reply slides out for about 2.7 seconds with its session name and answer preview; clicking it restores that exact session. The edge handle still bounces when work finishes.
@@ -271,7 +272,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.6.6-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.6.7-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
@@ -291,7 +292,7 @@ Screen capture, configurable global hotkeys, and the three-session pet switcher 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.6,
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.7,
 mirrors Harness Workspaces and Ungrouped sessions across both main views, keeps folder creation
 compact, restores complete long-session history and the always-available jump to the latest
 message, adds the optional non-shifting Think overlay and clipboard attachment previews,

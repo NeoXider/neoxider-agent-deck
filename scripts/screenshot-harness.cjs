@@ -208,6 +208,10 @@ function attachScreenshotHarness({
             orbReplyTarget: document.querySelector('#orbReplyTitle')?.textContent || '',
             orbStatusLabel: document.querySelector('#orbStatusLabel')?.textContent || '',
             orbStatusText: document.querySelector('#orbStatusText')?.textContent || '',
+            // A visible counter per session, and its values. A roster size counted children
+            // that had already finished, so the idle-only session must show nothing at all.
+            sessionBackgroundBadges: document.querySelectorAll('#sessions .session-background.visible').length,
+            sessionBackgroundCounts: [...document.querySelectorAll('#sessions .session-background.visible b')].map((node) => node.textContent).join('|'),
             sessionElapsedRunning: document.querySelectorAll('#sessions .session-time.running').length,
             sessionElapsedWellFormed: [...document.querySelectorAll('#sessions .session-time')]
               .map((node) => node.textContent)

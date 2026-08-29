@@ -26,9 +26,9 @@ const cases = [
   { name: "live-stream", tab: "chat", fixture: "live-stream", width: 360, height: 500, expect: { liveBubbles: 1, historicalReasoning: 0 } },
   { name: "scroll-away", tab: "chat", fixture: "scroll-away", width: 360, height: 500, expect: { scrollLatestVisible: true } },
   { name: "glow-settings", tab: "chat", fixture: "glow-settings", expect: { glowControl: 1, glowIntensity: "0.82", showThinkingChecked: true, windowLayerOptions: 3, autoStartHydrated: true } },
-  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.6 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
-  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.6.6 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
-  { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.6 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
+  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.7 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
+  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.6.7 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
+  { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.7 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
   { name: "hotkey-settings", tab: "chat", fixture: "hotkey-settings", width: 420, height: 640, expect: { settingsOpen: true, hotkeySettingsOpen: true, hotkeyRows: 8 } },
   { name: "capture-menu", tab: "chat", fixture: "capture-menu", expect: { captureMenuOpen: true, captureRows: 2 } },
   { name: "model", tab: "chat", fixture: "model", expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B" }, layout: { modelVisibleRows: 6 } },
@@ -52,7 +52,7 @@ const cases = [
   { name: "tool-chat", tab: "chat", fixture: "tool", expect: { activityCardVisible: true, showThinkingChecked: true } },
   // The running clocks tick, so they are checked by shape and count; the finished session's
   // duration is static and is checked exactly.
-  { name: "session-times", tab: "agents", fixture: "session-times", expect: { sessionElapsedRunning: 2, sessionElapsedWellFormed: true, sessionElapsedLastRun: "2m 08s", sessionMetaSingleLine: true } },
+  { name: "session-times", tab: "agents", fixture: "session-times", expect: { sessionElapsedRunning: 2, sessionElapsedWellFormed: true, sessionElapsedLastRun: "2m 08s", sessionMetaSingleLine: true, sessionBackgroundBadges: 1, sessionBackgroundCounts: "2" } },
   { name: "completion-chat", tab: "chat", fixture: "completion-chat", expect: { completionCelebration: true, fullSuccessGlowVisible: true } },
   { name: "compact-chat", tab: "chat", fixture: "chat", width: 360, height: 500, expect: { historicalReasoning: 0, footer: 0, titlebarTabs: 1, setupInToolbar: true, composerUtilitiesStacked: true, contextRingSize: 15, sendWidth: 36, sendHeight: 36 } },
   { name: "compact-tools", tab: "chat", fixture: "markdown-tools", width: 360, height: 500, expect: { toolGroups: 1, toolCalls: 2 } },

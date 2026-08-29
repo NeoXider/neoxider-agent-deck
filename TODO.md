@@ -66,7 +66,11 @@ This backlog records planned work only. Items are not part of the current releas
 - Widened the live-activity preference from `thinking` to the whole live-status strip, made it repaint compact chrome, and gave the overlay its own opaque layer; covered by contract, two visual regressions and the input regression.
 - Forwarded the mouse through the transparent parts of both compact windows, restricted Avatar dragging to the circle, and moved side snapping and clamping onto the visible element so it can reach both screen edges; covered by geometry, hit-tracker and visual regressions.
 
-## Known gaps at 0.6.6
+## Shipped in 0.6.7
+
+- Replaced the `N subagents` roster size on session cards with a badge counting only the background tasks running right now, hidden entirely at zero; covered by contract and visual regressions.
+
+## Known gaps at 0.6.7
 
 - **The animation and accessibility audit did not complete.** Three attempts stalled on
   infrastructure, so the CSS animation system had no systematic review this cycle — only the

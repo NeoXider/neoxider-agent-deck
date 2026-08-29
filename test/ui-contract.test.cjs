@@ -1252,3 +1252,21 @@ test("the compact status commits its signature only after the DOM is painted", (
   // "no resize", never holds the panel back, and the resize jerk returns.
   assert.match(renderer, /state\.compactStatusExpanded = previousExpanded;/);
 });
+
+test("background tasks are a count of what is running, not a roster size", () => {
+  // The card used to spell out "2 subagents" — the size of the roster, including children
+  // that had already finished — spending most of a narrow card's width on something that
+  // was often no longer true.
+  assert.match(renderer, /function activeBackgroundTasks\(session\)/);
+  assert.match(renderer, /child\.kind === "child" && child\.activity === "running"/);
+  assert.doesNotMatch(renderer, /subagent\$\{childCount === 1 \? "" : "s"\}/, "the old sentence is gone");
+  // The count has to reach the render signature, or a task starting or finishing would not
+  // repaint the list.
+  const signature = renderer.slice(renderer.indexOf("function renderSessions"), renderer.indexOf("function renderSessionSelect"));
+  assert.match(signature, /activeBackgroundTasks\(session\)/);
+  // Written into the <b>, never onto the wrapper, which also holds the icon.
+  assert.match(renderer, /const value = node\.querySelector\("b"\);/);
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  assert.match(css, /\.session-background \{ display:none; \}/, "zero running tasks must take no width");
+  assert.match(css, /\.session-background b \{[^}]*font-variant-numeric:tabular-nums/);
+});
