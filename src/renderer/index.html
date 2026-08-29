@@ -194,7 +194,8 @@
         <label class="autostart-setting"><span><span id="autoStartLabel">Start at login</span><small id="autoStartStatus" role="status" aria-live="polite">Checking…</small></span><input id="autoStartToggle" type="checkbox" disabled /></label>
         <label id="opacitySetting" class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /><small id="opacityStatus" class="setting-hint" role="status" hidden></small></label>
         <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>
-        <label class="toggle-setting"><span><span>Show live Think</span><small>Compact one-line reasoning status</small></span><input id="showThinkingToggle" type="checkbox" checked /></label>
+        <label class="toggle-setting"><span><span>Show live activity</span><small>Thinking, tool and working status above the chat</small></span><input id="showThinkingToggle" type="checkbox" checked /></label>
+        <label class="toggle-setting"><span><span>Expand avatar on activity</span><small>Off: the orb stays a circle and counts on its button</small></span><input id="compactAutoExpandToggle" type="checkbox" /></label>
         <div class="setting-block"><span>Size</span><div id="sizeSwitch" class="size-switch" role="group" aria-label="Widget size"><button data-size="compact" type="button" aria-pressed="false">S</button><button data-size="standard" type="button" aria-pressed="true">M</button><button data-size="large" type="button" aria-pressed="false">L</button></div></div>
         <div id="updateSettings" class="update-settings setting-block">
           <div class="update-heading"><span><b>Updates</b><small id="updateVersion">Current version</small></span><span id="updateBadge" class="update-badge" hidden>New</span></div>
@@ -234,7 +235,7 @@
           <small id="orbReplyFeedback" class="orb-reply-feedback" role="status"></small>
         </form>
       </div>
-      <button id="orbHistoryButton" class="orb-history-button" type="button" title="Recent messages" aria-label="Recent messages" aria-pressed="false"><svg class="ui-icon"><use href="#icon-chat"/></svg></button>
+      <button id="orbHistoryButton" class="orb-history-button" type="button" title="Recent messages" aria-label="Recent messages" aria-pressed="false"><svg class="ui-icon"><use href="#icon-chat"/></svg><span id="orbPanelCount" class="orb-panel-count" aria-hidden="true">0</span></button>
       <button id="orbRestore" class="orb-avatar" type="button" title="Restore widget" aria-label="Restore widget">
         <span class="orb-glow"></span>
         <img data-avatar src="assets/neoxider-github.png" alt="NeoXider agent" draggable="false" />

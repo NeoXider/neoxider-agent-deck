@@ -6,7 +6,7 @@ const { createAutoStartController } = require("./auto-start.cjs");
 const { createHarnessLauncher } = require("./harness-launcher.cjs");
 const { createGameLayerKeeper } = require("./game-layer-keeper.cjs");
 const { createGameBarController, createSharedDashboardReader } = require("./gamebar-controller.cjs");
-const { createEdgeHitTracker } = require("./edge-hit-tracker.cjs");
+const { createCompactHitTracker } = require("./compact-hit-tracker.cjs");
 const { createHotkeyManager } = require("./hotkey-manager.cjs");
 const { createQuitCoordinator } = require("./quit-coordinator.cjs");
 const { createRegionSelector } = require("./region-selector.cjs");
@@ -34,8 +34,14 @@ const { createMuxClient } = require("./mux-client.cjs");
 const { createStreamPublisher } = require("./stream-publisher.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
 const { configureProductUserData } = require("./user-data-migration.cjs");
-const { edgeDragBounds, moveCompactBounds, snapCompactBounds } = require("./window-geometry.cjs");
-const { captureModeBounds, fitFullBounds, resizeCompactAnchor, restoreCompactBounds } = require("./window-state.cjs");
+const {
+  compactVisibleInset,
+  edgeDragBounds,
+  moveCompactBounds,
+  snapCompactBounds,
+} = require("./window-geometry.cjs");
+const { captureModeBounds, fitFullBounds, resizeCompactAnchor } = require("./window-state.cjs");
+const { COMPACT_SIZES, compactTargetBounds, compactWindowSize } = require("./compact-window.cjs");
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
 const SCREENSHOT_MODE = Boolean(process.env.WIDGET_SCREENSHOT_PATH);
@@ -73,15 +79,10 @@ const SIZE_PRESETS = {
 const FULL_MIN_WIDTH = 360;
 const FULL_MIN_HEIGHT = 360;
 // The transparent margin prevents the animated bloom around the pet from being clipped.
-const ORB_SIZE = 128;
-const ORB_EXPANDED_HEIGHT = 158;
-const ORB_QUICK_WIDTH = 172;
-const ORB_STATUS_WIDTH = 400;
-const ORB_EXPANDED_WIDTH = 460;
-// Keep enough transparent space for the edge glow to fade out naturally.
-// The visible handle is still flush with the screen edge.
-const EDGE_WIDTH = 88;
-const EDGE_HEIGHT = 132;
+// Every compact size now lives in compact-window.cjs, next to the placement rules that
+// depend on it.
+const ORB_SIZE = COMPACT_SIZES.orb.height;
+const ORB_EXPANDED_HEIGHT = COMPACT_SIZES.orbPanel.height;
 const openExternalUrl = createExternalLinkOpener({ openExternal: (url) => shell.openExternal(url) });
 
 let windowRef;
@@ -93,7 +94,7 @@ let settingsStore;
 let autoStartController;
 let harnessLauncher;
 let gameLayerKeeper;
-let edgeHitTracker;
+let compactHitTracker;
 let hotkeyManager;
 let quitCoordinator;
 let screenshotService;
@@ -105,6 +106,9 @@ let preferenceSaveTimer = null;
 let compactStatus = { active: false, expanded: false, label: "Ready", text: "" };
 let compactDragOrigin = null;
 let compactStatusResizePending = false;
+// Window-relative rectangles the renderer has measured for the parts of the orb that draw
+// something. Empty means "not measured yet", which keeps the whole window interactive.
+let compactHitAreas = [];
 let fullDragOrigin = null;
 let compactDragTrace = [];
 const queueSnapshots = new Map();
@@ -129,7 +133,7 @@ function cleanupApplication() {
   if (settingsStore) savePreferences({ retryOnFailure: false });
   muxClient.stop();
   gameLayerKeeper?.stop();
-  edgeHitTracker?.stop();
+  compactHitTracker?.stop();
   hotkeyManager?.dispose();
   selectRegion?.dispose();
   screenshotService?.cleanupCaptures({ maxAgeMs: 0, maxFiles: 0 });
@@ -360,21 +364,35 @@ function setWindowLayerPreference(value) {
   return preferences.windowLayer;
 }
 
-function applyEdgePointerHit(active = false) {
+// Both compact modes forward the mouse through their empty space now. The orb window is up
+// to 460x158 for a 68 px circle, and all of that emptiness used to swallow clicks meant for
+// the desktop behind it.
+function applyCompactPointerHit(active = false) {
   if (!windowRef || windowRef.isDestroyed()) return;
   if (!PLATFORM_CAPABILITIES.edgeMouseForwarding) {
     windowRef.setIgnoreMouseEvents(false);
     return;
   }
-  const ignore = windowMode === "edge" && !active && !compactDragOrigin;
+  const compact = windowMode === "edge" || windowMode === "orb";
+  const ignore = compact && !active && !compactDragOrigin;
   if (ignore) windowRef.setIgnoreMouseEvents(true, { forward: true });
   else windowRef.setIgnoreMouseEvents(false);
+}
+
+// The inset is read from the window's CURRENT size, never from a size captured when a drag
+// began: a status change that resizes the orb mid-drag would otherwise clamp against a
+// width the window no longer has, and push the circle off the screen.
+function currentCompactInset(bounds = windowRef?.getBounds()) {
+  return compactVisibleInset(windowMode, preferences.compactSide, bounds || { width: 1, height: 1 });
 }
 
 function moveWindowWithinNearestDisplay(bounds, candidate, preserveSize = false) {
   if (!PLATFORM_CAPABILITIES.programmaticPosition) return bounds;
   const display = screen.getDisplayNearestPoint({ x: Math.round(candidate.x), y: Math.round(candidate.y) }).workArea;
-  const moved = moveCompactBounds(bounds, candidate, display);
+  const compact = windowMode !== "full";
+  const size = compact ? windowRef.getBounds() : bounds;
+  const live = { ...bounds, width: size.width, height: size.height };
+  const moved = moveCompactBounds(live, candidate, display, compact ? currentCompactInset(live) : null);
   if (preserveSize) setPlatformBounds(windowRef, moved, false, PLATFORM_CAPABILITIES); else windowRef.setPosition(moved.x, moved.y, false);
   return moved;
 }
@@ -385,7 +403,10 @@ function moveEdgeWindowToPointer(bounds, pointer) {
   if (!PLATFORM_CAPABILITIES.programmaticPosition) return bounds;
   const display = screen.getDisplayNearestPoint({ x: Math.round(pointer.x), y: Math.round(pointer.y) }).workArea;
   const flush = edgeDragBounds(bounds, pointer, display);
-  const moved = moveCompactBounds(flush, { x: flush.x, y: pointer.y - bounds.height / 2 }, display);
+  // Clamped by the visible line, so the pointer can carry it right up to the top or bottom
+  // of the screen instead of stopping 28 px short on the window's transparent padding.
+  const inset = compactVisibleInset("edge", flush.side, flush);
+  const moved = moveCompactBounds(flush, { x: flush.x, y: pointer.y - bounds.height / 2 }, display, inset);
   windowRef.setPosition(moved.x, moved.y, false);
   if (flush.side !== preferences.compactSide) {
     preferences.compactSide = flush.side;
@@ -399,7 +420,10 @@ function snapCurrentCompactWindow({ traceEnd = false } = {}) {
   const bounds = windowRef.getBounds();
   if (!PLATFORM_CAPABILITIES.programmaticPosition) return { ...bounds, side: preferences.compactSide };
   const display = screen.getDisplayMatching(bounds).workArea;
-  const snapped = snapCompactBounds(bounds, display, windowMode);
+  // The side is decided by where the CIRCLE was dropped, not by the window's centre. With
+  // the panel open the circle sits ~300 px from that centre, so a drag that ended plainly
+  // on the left used to snap back to the right — the orb "moving on its own".
+  const snapped = snapCompactBounds(bounds, display, windowMode, currentCompactInset(bounds));
   if (traceEnd) traceCompactDrag("end", { before: bounds, snapped });
   preferences.compactSide = snapped.side;
   setPlatformBounds(windowRef, { x: snapped.x, y: snapped.y, width: snapped.width, height: snapped.height }, true, PLATFORM_CAPABILITIES);
@@ -435,59 +459,27 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
       SCREENSHOT_MODE ? 1 : Math.min(FULL_MIN_HEIGHT, display.height),
     );
     captureWindowBounds("full", restored);
-  } else if (nextMode === "orb") {
-    const source = fullBounds || windowRef.getBounds();
-    const orbWidth = compactStatus.expanded ? ORB_EXPANDED_WIDTH : compactStatus.active ? ORB_STATUS_WIDTH : ORB_QUICK_WIDTH;
-    const orbHeight = compactStatus.expanded ? ORB_EXPANDED_HEIGHT : ORB_SIZE;
-    const saved = compactStatus.expanded
-      ? resizeCompactAnchor(preferences.windowState.orb, ORB_SIZE, ORB_EXPANDED_HEIGHT)
-      : preferences.windowState.orb;
-    const fallbackAnchor = { x: source.x, y: source.y, side: preferences.compactSide };
-    const runtimeFallback = compactStatus.expanded
-      ? resizeCompactAnchor(fallbackAnchor, ORB_SIZE, ORB_EXPANDED_HEIGHT)
-      : fallbackAnchor;
-    const fallback = { ...runtimeFallback, width: orbWidth, height: orbHeight };
-    const display = screen.getDisplayMatching(saved ? { ...fallback, x: saved.x, y: saved.y } : source).workArea;
-    const restored = restoreCompactBounds(saved, fallback, display, {
-      mode: "orb",
-      width: orbWidth,
-      height: orbHeight,
-      side: preferences.compactSide,
-    });
-    windowRef.setResizable(false);
-    setPlatformSkipTaskbar(windowRef, true, PLATFORM_CAPABILITIES);
-    preferences.compactSide = restored.side;
-    setPlatformBounds(windowRef, { x: restored.x, y: restored.y, width: restored.width, height: restored.height }, true, PLATFORM_CAPABILITIES);
-    captureWindowBounds("orb", restored, restored.side);
-    if (preservedOrbPosition) preferences.windowState.orb = preservedOrbPosition;
   } else {
-    const source = fullBounds || windowRef.getBounds();
-    const saved = preferences.windowState.edge;
-    const fallback = {
-      x: source.x,
-      y: source.y + Math.round((source.height - EDGE_HEIGHT) / 2),
-      width: EDGE_WIDTH,
-      height: EDGE_HEIGHT,
+    const restored = compactTargetBounds({
+      mode: nextMode,
+      status: compactStatus,
+      saved: preferences.windowState[nextMode],
+      source: fullBounds || windowRef.getBounds(),
       side: preferences.compactSide,
-    };
-    const display = screen.getDisplayMatching(saved ? { ...fallback, x: saved.x, y: saved.y } : source).workArea;
-    const restored = restoreCompactBounds(saved, fallback, display, {
-      mode: "edge",
-      width: EDGE_WIDTH,
-      height: EDGE_HEIGHT,
-      side: preferences.compactSide,
+      getWorkArea: (probe) => screen.getDisplayMatching(probe).workArea,
     });
     windowRef.setResizable(false);
     setPlatformSkipTaskbar(windowRef, true, PLATFORM_CAPABILITIES);
     preferences.compactSide = restored.side;
     setPlatformBounds(windowRef, { x: restored.x, y: restored.y, width: restored.width, height: restored.height }, true, PLATFORM_CAPABILITIES);
-    captureWindowBounds("edge", restored, restored.side);
+    captureWindowBounds(nextMode, restored, restored.side);
+    if (preservedOrbPosition) preferences.windowState.orb = preservedOrbPosition;
   }
 
   if (persist) savePreferences();
   applyWindowLayer(nextMode);
-  applyEdgePointerHit(false);
-  edgeHitTracker?.sync();
+  applyCompactPointerHit(false);
+  compactHitTracker?.sync();
   if (nextMode === "full") windowRef.show();
   else windowRef.showInactive();
   gameLayerKeeper?.trigger();
@@ -653,20 +645,22 @@ function registerWidgetIpc() {
     setFullDragOrigin: (value) => { fullDragOrigin = value; },
     getCompactStatusResizePending: () => compactStatusResizePending,
     setCompactStatusResizePending: (value) => { compactStatusResizePending = value; },
+    setCompactHitAreas: (areas) => { compactHitAreas = areas; },
     getHotkeyRegistrationError: () => hotkeyRegistrationError,
     setHotkeyRegistrationError: (value) => { hotkeyRegistrationError = value; },
     getAutoStartController: () => autoStartController,
     getHarnessLauncher: () => harnessLauncher,
     getHotkeyManager: () => hotkeyManager,
-    getEdgeHitTracker: () => edgeHitTracker,
+    getCompactHitTracker: () => compactHitTracker,
     getScreenshotService: () => screenshotService,
     getUpdateService: () => updateService,
     checkForUpdates: () => updateOrchestrator?.checkAndStage() || null,
     getGameBarController: () => gameBarController,
     getCursorScreenPoint: () => screen.getCursorScreenPoint(),
     readDashboard: dashboardReader.read,
+    invalidateDashboard: dashboardReader.invalidate,
     applyWindowMode,
-    applyEdgePointerHit,
+    applyCompactPointerHit,
     captureFullBounds,
     captureWindowBounds,
     savePreferences,
@@ -718,13 +712,16 @@ app.whenReady().then(() => {
     capabilities: PLATFORM_CAPABILITIES,
   });
   if (PLATFORM_CAPABILITIES.edgeMouseForwarding) {
-    edgeHitTracker = createEdgeHitTracker({
+    compactHitTracker = createCompactHitTracker({
       screen,
       getWindow: () => windowRef,
       getMode: () => windowMode,
       getSide: () => preferences.compactSide,
+      // Orb hit areas are measured by the renderer, because the buttons move with the
+      // docked side and the panel changes size. Edge falls back to its own constants.
+      getAreas: () => (windowMode === "orb" ? compactHitAreas : null),
       isDragging: () => Boolean(compactDragOrigin),
-      setActive: applyEdgePointerHit,
+      setActive: applyCompactPointerHit,
     });
   }
   selectRegion = createRegionSelector({ BrowserWindow, screen, platform: process.platform });

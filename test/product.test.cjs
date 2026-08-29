@@ -138,10 +138,13 @@ test("Windows packaging workflows pin .NET 9 while Game Bar CI publishes bridge 
 test("tag releases retain updater metadata and publish it with platform artifacts", () => {
   const workflow = readFileSync(path.join(__dirname, "..", ".github", "workflows", "release.yml"), "utf8");
   assert.match(workflow, /tags:[\s\S]+"v\*\.\*\.\*"/);
-  for (const artifact of ["latest.yml", "latest-linux.yml", "*.blockmap", "*.AppImage", "*-setup.exe"]) {
-    if (artifact === "*-setup.exe") assert.match(packageJson.build.nsis.artifactName, /setup\.\$\{ext\}/);
-    else assert.match(workflow, new RegExp(artifact.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  for (const artifact of ["latest.yml", "latest-linux.yml", "*.blockmap", "*.AppImage", "release/*.exe"]) {
+    assert.match(workflow, new RegExp(artifact.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
+  // The loop used to swap this one entry for a package.json check that line 56 already
+  // makes, so the test named "publish it with platform artifacts" never verified that the
+  // Windows installer is among the artifacts the workflow uploads.
+  assert.match(packageJson.build.nsis.artifactName, /setup\.\$\{ext\}/);
   assert.match(workflow, /verify-release-version\.cjs/);
   assert.match(workflow, /permissions:\s+contents: read/);
   assert.match(workflow, /publish:[\s\S]+permissions:\s+contents: write/);
@@ -170,9 +173,9 @@ test("release documentation uses the current window-layer label and previews eve
 test("the update-ready visual fixture shows the released upgrade path", () => {
   const renderer = readFileSync(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
   const visualSmoke = readFileSync(path.join(__dirname, "..", "scripts", "ui-visual-smoke.cjs"), "utf8");
-  assert.match(renderer, /status: "ready", currentVersion: "0\.6\.4", latestVersion: "0\.6\.5"/);
-  assert.match(visualSmoke, /updateStatus: "v0\.6\.5 is verified and ready"/);
-  assert.equal(packageJson.version, "0.6.5");
+  assert.match(renderer, /status: "ready", currentVersion: "0.6.5", latestVersion: "0.6.6"/);
+  assert.match(visualSmoke, /updateStatus: "v0.6.6 is verified and ready"/);
+  assert.equal(packageJson.version, "0.6.6");
 });
 
 test("the Windows installer follows the canonical repository, artifact, and product name", () => {

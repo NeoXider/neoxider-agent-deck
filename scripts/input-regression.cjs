@@ -833,19 +833,44 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 30));
     setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Hidden reasoning" });
     const hidden = { visible: document.querySelector("#activityCard").classList.contains("has-activity"), top: messages.scrollTop, height: messages.clientHeight };
-    setActivity({ active: true, kind: "tool", label: "Using tool", text: "read" });
-    const tool = { visible: document.querySelector("#activityCard").classList.contains("has-activity"), label: document.querySelector("#activityLabel").textContent };
-    setActivity({ active: true, kind: "writing", label: "Writing", text: "Composing" });
-    const writing = { visible: document.querySelector("#activityCard").classList.contains("has-activity"), label: document.querySelector("#activityLabel").textContent };
+    const showThinkingWhileOff = state.showThinking;
+    // The preference governs the whole live-status strip. Gating "thinking" alone was the
+    // reported bug: every tool result clears the activity and the "working" fallback took
+    // its place, so the card the user had just switched off came back a second later.
+    const probe = (kind, label, text) => {
+      setActivity({ active: true, kind, label, text });
+      return { visible: document.querySelector("#activityCard").classList.contains("has-activity"), label: document.querySelector("#activityLabel").textContent };
+    };
+    const tool = probe("tool", "Using tool", "read");
+    const writing = probe("writing", "Writing", "Composing");
+    const working = probe("working", "Working", "Agent is processing the current turn…");
+    // An outcome is not live agent internals, so it is still announced.
+    const done = probe("done", "Done", "Agent finished the current task.");
     setActivity(null);
-    return { baseline, appeared, streamed, disappeared, hidden, tool, writing, showThinking: state.showThinking };
+
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const shownAgain = {
+      thinking: probe("thinking", "Thinking", "Visible again"),
+      tool: probe("tool", "Using tool", "read"),
+      working: probe("working", "Working", "Agent is processing the current turn…"),
+    };
+    setActivity(null);
+    return { baseline, appeared, streamed, disappeared, hidden, tool, writing, working, done, shownAgain, showThinking: showThinkingWhileOff, restored: state.showThinking };
   })()`);
   const stableThinkingViewport = [thinkingPreference.appeared, thinkingPreference.streamed, thinkingPreference.disappeared, thinkingPreference.hidden]
     .every((snapshot) => snapshot.top === thinkingPreference.baseline.top && snapshot.height === thinkingPreference.baseline.height);
-  if (!thinkingPreference.appeared.visible || !stableThinkingViewport || thinkingPreference.hidden.visible || thinkingPreference.showThinking
-      || !thinkingPreference.tool.visible || thinkingPreference.tool.label !== "Using tool"
-      || !thinkingPreference.writing.visible || thinkingPreference.writing.label !== "Writing"
-      || showThinkingPreference !== false) {
+  const liveHiddenWhenOff = [thinkingPreference.hidden, thinkingPreference.tool, thinkingPreference.writing, thinkingPreference.working]
+    .every((snapshot) => snapshot.visible === false);
+  const liveShownWhenOn = Object.values(thinkingPreference.shownAgain).every((snapshot) => snapshot.visible === true);
+  if (!thinkingPreference.appeared.visible || !stableThinkingViewport || thinkingPreference.showThinking
+      || !liveHiddenWhenOff
+      || !thinkingPreference.done.visible || thinkingPreference.done.label !== "Done"
+      || !liveShownWhenOn || thinkingPreference.restored !== true
+      // The preference has to round-trip through the main process both ways, not just live
+      // in renderer state: it was left at true here and the toggle looked like it worked.
+      || showThinkingPreference !== true) {
     failures.push(`live Think visibility or viewport stability regressed: ${JSON.stringify({ thinkingPreference, showThinkingPreference })}`);
   }
 

@@ -16,6 +16,25 @@ const settingsStore = readFileSync(path.join(root, "src", "settings-store.cjs"),
 const harnessApi = readFileSync(path.join(root, "src", "harness-api.cjs"), "utf8");
 const updateOrchestrator = readFileSync(path.join(root, "src", "update-orchestrator.cjs"), "utf8");
 
+// Two negative assertions here were written as `doesNotMatch(source, /name[\s\S]{0,N}…/)`.
+// A character budget is a guess about how long a function is, and both functions had
+// already outgrown theirs — so the very thing they forbade could be added at the tail and
+// the test stayed green. This brace-matches the real body instead, and throws rather than
+// silently returning "" if a declaration ever moves.
+function functionBody(source, declaration) {
+  const start = source.indexOf(declaration);
+  if (start < 0) throw new Error(`${declaration} not found; re-anchor the test`);
+  let depth = 0;
+  for (let index = source.indexOf("{", start); index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    else if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(start, index + 1);
+    }
+  }
+  throw new Error(`${declaration} is unbalanced`);
+}
+
 test("visible widget copy is English and required controls are present", () => {
   assert.doesNotMatch(`${html}\n${renderer}`, /[\u0400-\u04ff]/);
   for (const id of [
@@ -108,7 +127,11 @@ test("main composer starts on one line, grows to one third of the viewport, scro
   assert.match(renderer, /classList\.toggle\("composer-multiline", targetHeight > COMPOSER_INPUT_MIN_HEIGHT\)/);
   assert.match(renderer, /input\.value = "";\s*\n\s*resizeMessageInput\(\);/);
   assert.match(renderer, /input\.value = text;\s*\n\s*resizeMessageInput\(\);/);
-  assert.match(renderer, /window\.addEventListener\("resize", \(\) => \{[\s\S]+resizeMessageInput\(\{ immediate: true \}\)/);
+  // Sliced, not spanned by a greedy [\s\S]+: the same call appears 160 lines later, so
+  // deleting it from the resize listener still matched the copy and the test stayed green.
+  const resizeListener = renderer.slice(renderer.indexOf('window.addEventListener("resize"'), renderer.indexOf('for (const target of [$(".titlebar")])'));
+  assert.ok(resizeListener.length > 0 && resizeListener.length < 400, "the resize listener moved; re-anchor this test");
+  assert.match(resizeListener, /resizeMessageInput\(\{ immediate: true \}\)/);
   assert.match(renderer, /function captureMessageLayoutSnapshot\(\)/);
   assert.match(renderer, /function restoreMessageLayoutSnapshot\(snapshot\)/);
   assert.match(renderer, /snapshot\.pinned[\s\S]+snapshot\.root\.scrollTop = snapshot\.root\.scrollHeight/);
@@ -238,7 +261,11 @@ test("Ctrl+V attachments reuse reviewed preparation while sent history stays com
   assert.match(clipboard, /if \(!files\.length\) return null/);
   assert.match(clipboard, /MAX_IMAGE_BYTES = 8 \* 1024 \* 1024/);
   assert.match(clipboard, /path: `clipboard:\$\{digest\}`/);
-  assert.doesNotMatch(renderer, /handleComposerPaste[\s\S]{0,900}requestSubmit/);
+  // Measured against the whole function, not a character budget that the function has
+  // already outgrown: at 852 characters against a 900-character window, adding
+  // requestSubmit() to its tail would have passed.
+  const paste = functionBody(renderer, "function handleComposerPaste");
+  assert.doesNotMatch(paste, /requestSubmit/);
   assert.match(renderer, /createMessageAttachmentStrip/);
   assert.match(renderer, /attachment-only/);
   assert.match(css, /\.message-attachment \{[^}]+max-width:116px[^}]+height:30px/);
@@ -333,10 +360,24 @@ test("live Think is a persistent optional overlay that cannot move the conversat
   assert.match(ipc, /handle\("set-show-thinking"/);
   assert.match(ipc, /showThinking: preferences\.showThinking !== false/);
   assert.match(preload, /setShowThinking: \(value\) => ipcRenderer\.invoke\("set-show-thinking"/);
-  assert.match(renderer, /activity\?\.kind !== "thinking" \|\| state\.showThinking/);
+  // The preference governs the whole live-status strip, not the word "thinking". Gating one
+  // kind was the bug: every tool result clears the activity, the fallback substitutes kind
+  // "working", and the card the user had just switched off came straight back as "Working".
+  // This assertion used to pin that narrow predicate verbatim, so the fix had to change it.
+  assert.match(renderer, /LIVE_ACTIVITY_KINDS = new Set\(\["thinking", "writing", "tool", "working"\]\)/);
+  assert.match(renderer, /state\.showThinking \|\| !LIVE_ACTIVITY_KINDS\.has\(activity\?\.kind\)/);
+  // Flipping the toggle must repaint the compact chrome too, which shows the same text.
+  const showThinking = renderer.slice(renderer.indexOf("function applyShowThinking"), renderer.indexOf("function applyCompactAutoExpand"));
+  assert.ok(showThinking.length > 0 && showThinking.length < 600);
+  assert.match(showThinking, /syncActivityCard\(\)/);
+  assert.match(showThinking, /syncCompactStatus\(\)/);
   assert.match(renderer, /const messageLayout = captureMessageLayoutSnapshot\(\)/);
   assert.match(renderer, /restoreMessageLayoutSnapshot\(messageLayout\)/);
+  // An overlay that inherits the card's translucent gradient reads as part of the
+  // conversation behind it; it has to be an opaque layer of its own.
   assert.match(css, /\.activity-card\.thinking-compact \{ position:absolute;/);
+  assert.match(css, /\.activity-card\.thinking-compact \{[^}]*background:linear-gradient\(100deg,rgba\(18,17,38,\.98\)/);
+  assert.match(css, /\.activity-card\[hidden\] \{ display:none; \}/);
   assert.match(renderer, /if \(compactThinking && card\.parentElement !== messagesWrap\) messagesWrap\.prepend\(card\)/);
   assert.match(renderer, /else if \(!compactThinking && card\.parentElement === messagesWrap\) messagesWrap\.before\(card\)/);
   assert.match(renderer, /applyShowThinking\(await window\.widget\.setShowThinking\(requested\)\)/);
@@ -363,10 +404,15 @@ test("collapsed pet exposes three exact recent sessions and inline quick reply w
   assert.match(renderer, /if \(state\.compactReplyBusy\) return/);
   assert.match(renderer, /event\.key === "Enter" && !event\.shiftKey/);
   assert.match(renderer, /event\.key === "Escape" && state\.windowMode === "orb"/);
-  assert.match(renderer, /event\.target\.closest\("#orbStatus, #orbHistoryButton"\)/);
-  assert.match(main, /const ORB_SIZE = 128/);
-  assert.match(main, /const ORB_EXPANDED_HEIGHT = 158/);
-  assert.match(main, /const ORB_EXPANDED_WIDTH = 460/);
+  // Avatar mode is dragged by the circle alone — the window around it is transparent and
+  // belongs to whatever is behind it. Edge mode still excludes only its two controls.
+  assert.match(renderer, /if \(state\.windowMode === "orb"\) return target\.closest\("#orbRestore"\)/);
+  assert.match(renderer, /target\.closest\("#orbStatus, #orbHistoryButton"\) \? null : target/);
+  const compactWindow = readFileSync(path.join(root, "src", "compact-window.cjs"), "utf8");
+  assert.match(compactWindow, /orb: \{ width: 172, height: 128 \}/);
+  assert.match(compactWindow, /orbStatus: \{ width: 400, height: 128 \}/);
+  assert.match(compactWindow, /orbPanel: \{ width: 460, height: 158 \}/);
+  assert.match(compactWindow, /edge: \{ width: 88, height: 132 \}/);
   assert.match(ipc, /preserveCompactPosition: true/);
 });
 
@@ -423,7 +469,10 @@ test("window contract has no close control and supports avatar and edge modes", 
   assert.doesNotMatch(html, /id="(?:close|hide)Button"/);
   assert.match(main, /\["full", "orb", "edge"\]\.includes\(nextMode\)/);
   assert.match(main, /nextMode === "orb"/);
-  assert.match(main, /ORB_QUICK_WIDTH/);
+  // Compact placement moved into its own module when the orb and edge branches were merged;
+  // main.cjs now only wires it up.
+  assert.match(main, /compactTargetBounds\(\{/);
+  assert.match(main, /mode: nextMode,/);
   assert.match(ipc, /set-compact-status/);
   assert.match(main, /quitCoordinator\.handleWindowClose\(event, \(\) => applyWindowMode\("edge"\)\)/);
 });
@@ -544,7 +593,12 @@ test("first entry waits for the native show acknowledgement and honors reduced m
   const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   const readyToShow = main.slice(main.indexOf('windowRef.once("ready-to-show"'), main.indexOf('windowRef.on("close"'));
-  assert.ok(readyToShow.indexOf('windowRef.once("show"') < readyToShow.indexOf('applyWindowMode('));
+  // indexOf returns -1 for a missing needle, and -1 is less than everything: deleting the
+  // show acknowledgement entirely — reintroducing the first-frame jump this exists to
+  // prevent — used to satisfy the comparison below.
+  const showAt = readyToShow.indexOf('windowRef.once("show"');
+  assert.ok(showAt > 0, "the show acknowledgement is missing");
+  assert.ok(showAt < readyToShow.indexOf("applyWindowMode("));
   assert.match(readyToShow, /sendToRenderer\("first-visible-entry"\)/);
   assert.match(preload, /onFirstVisible:[^\n]+first-visible-entry/);
   assert.match(html, /<body class="mode-full pre-native-visible">/);
@@ -738,7 +792,9 @@ test("screen capture is a visible header action and only prepares reviewed chat 
   assert.match(ipc, /await cleanupSentCaptureFiles\(attachments\)/);
   assert.match(renderer, /addAttachments\(result\.prepared\)/);
   assert.match(renderer, /Screenshot attached above the message field\. Review it before sending\./);
-  assert.doesNotMatch(renderer, /handleScreenshotResult[\s\S]{0,700}requestSubmit\(/);
+  // Same reason as the paste guard: this function is 709 characters and the budget was 700,
+  // so its last nine characters were already outside the window this was meant to police.
+  assert.doesNotMatch(functionBody(renderer, "function handleScreenshotResult"), /requestSubmit\(/);
 });
 
 test("all eight global shortcuts can be rebound, disabled, reset, and persisted", () => {
@@ -1109,4 +1165,90 @@ test("re-asserting the same avatar state does not touch the DOM", () => {
   }
   // An identical image src is a needless decode on every poll.
   assert.match(body, /if \(!image\.src\.endsWith\(next\)\) image\.src = next;/);
+});
+
+test("a single unhealthy poll cannot take the session and its transcript away", () => {
+  // One failed dashboard read answers {harness:false, sessions:[]}. That used to be treated
+  // as authoritative: the selection was dropped, the chat re-rendered empty, and the next
+  // healthy poll re-selected whichever session happened to be running — so a one-second blip
+  // left the user reading a different conversation.
+  const start = renderer.indexOf("const dashboardVisibleSessions");
+  const end = renderer.indexOf("if (!selectionChangedWhileLoading && state.selectedSessionId !== selectedAtRequest)");
+  assert.ok(start > 0 && end > start, "the selection block moved; re-anchor this test");
+  const refresh = renderer.slice(start, end);
+  assert.ok(refresh.length < 2400, `selection block grew to ${refresh.length} chars`);
+  // Forgetting requires a HEALTHY dashboard to miss the session twice.
+  assert.match(refresh, /if \(present \|\| !dashboard\.harness\) \{\s*state\.missingSelectionPolls = 0;/);
+  assert.match(refresh, /state\.missingSelectionPolls \+= 1;/);
+  assert.match(refresh, /if \(state\.missingSelectionPolls >= 2\)/);
+  // Auto-selection may not run against an offline dashboard at all.
+  assert.match(refresh, /!state\.selectedSessionId && dashboard\.harness && dashboardVisibleSessions\.length/);
+  // Recovery restores what the user had chosen before guessing.
+  assert.match(refresh, /const remembered = dashboardVisibleSessions\.find\(\(session\) => session\.sessionId === state\.lastSelectedSessionId\)/);
+  assert.match(refresh, /\(remembered \|\| dashboardVisibleSessions\.find\(\(session\) => session\.running\) \|\| dashboardVisibleSessions\[0\]\)/);
+  // And the id has to be remembered before it is cleared, or there is nothing to restore.
+  assert.ok(refresh.indexOf("state.lastSelectedSessionId = state.selectedSessionId;") < refresh.indexOf("state.selectedSessionId = null;"));
+});
+
+test("skills appear in the slash menu and are sent as prompts, not host commands", () => {
+  // Harness feeds its own "/" menu from two sources; the widget read only commands/list, so
+  // a skill installed in the workspace showed up in Harness and was missing here.
+  const api = readFileSync(path.join(root, "src", "harness-api.cjs"), "utf8");
+  assert.match(api, /async skills\(sessionId\) \{[\s\S]*?this\.rpc\("skill\.list", \{ sessionId \}/);
+  assert.match(api, /async commandCatalog\(sessionId\)/);
+  assert.match(api, /this\.skills\(sessionId\)\.catch\(\(\) => \[\]\)/, "a Harness without the skill plugin still lists its commands");
+  assert.match(ipc, /handle\("commands", async \(_event, sessionId\) => api\.commandCatalog\(sessionId\)\)/);
+  // A skill is not a host command: commands/execute would reject it.
+  assert.match(renderer, /if \(commandEntry && commandEntry\.kind !== "skill"\)/);
+  assert.match(renderer, /command\.kind === "skill" \? "skill" :/);
+});
+
+test("the session list shows how long each agent has been working", () => {
+  const sessionActivity = readFileSync(path.join(root, "src", "session-activity.cjs"), "utf8");
+  assert.match(sessionActivity, /function turnTimingFromHistory\(entries\)/);
+  assert.match(sessionActivity, /return \{ runningSince: openedAt, lastRunMs \};/);
+  // Taken from the turn's own events, so it survives a widget restart.
+  assert.match(renderer, /function formatWorkDuration\(ms\)/);
+  assert.match(renderer, /node\.dataset\.runningSince = live \? String\(runningSince\) : "";/);
+  // The ticking value must stay out of the render signature, or the list rebuilds every
+  // second; and the interval must stop when nothing is running.
+  const signature = renderer.slice(renderer.indexOf("function renderSessions"), renderer.indexOf("function renderSessionSelect"));
+  assert.doesNotMatch(signature, /runningSince|lastRunMs/);
+  assert.match(renderer, /\} else if \(!live && state\.sessionTimerTick\) \{\s*clearInterval\(state\.sessionTimerTick\);/);
+});
+
+test("the orb window only takes the mouse where it draws something", () => {
+  // A 172x128 transparent window for a 68px circle used to swallow every click that landed
+  // near the avatar. The renderer measures its live controls; everything else forwards.
+  assert.match(renderer, /function publishCompactHitAreas\(\)/);
+  assert.match(renderer, /for \(const selector of \["#orbRestore", "#orbHistoryButton", "#orbStatus"\]\)/);
+  assert.match(renderer, /if \(!element \|\| element\.hidden \|\| !element\.offsetParent\) continue;/);
+  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  assert.match(preload, /setCompactHitAreas: \(areas\) => ipcRenderer\.send\("set-compact-hit-areas", areas\)/);
+  assert.match(ipc, /on\("set-compact-hit-areas"/);
+  const tracker = readFileSync(path.join(root, "src", "compact-hit-tracker.cjs"), "utf8");
+  // No measurement yet must mean "everything is live", never "nothing is clickable".
+  assert.match(tracker, /if \(!areas\) \{\s*publish\(true\);/);
+  assert.match(main, /const compact = windowMode === "edge" \|\| windowMode === "orb";/);
+});
+
+test("avatar mode is collapsed until the user opens it", () => {
+  assert.match(settingsStore, /compactAutoExpand: false,/);
+  assert.match(settingsStore, /compactAutoExpand: source\.compactAutoExpand === true/);
+  assert.match(ipc, /handle\("set-compact-auto-expand"/);
+  assert.match(html, /id="compactAutoExpandToggle" type="checkbox" \/>/, "off by default, with no checked attribute");
+  assert.match(renderer, /const active = Boolean\(expanded \|\| state\.compactStatusClosing \|\| \(state\.compactAutoExpand && autoActive\)\)/);
+  // The count moves onto the expand button so the collapsed orb still says something.
+  assert.match(html, /id="orbPanelCount"/);
+  assert.match(renderer, /badge\.classList\.toggle\("visible", !expanded && badgeCount > 0\)/);
+});
+
+test("the compact status commits its signature only after the DOM is painted", () => {
+  // Caching the signature first meant one throw anywhere in the block froze the orb at its
+  // last painted state for the rest of the session: every later call matched and returned.
+  const body = renderer.slice(renderer.indexOf("if (domSignature !== state.compactStatusDomSignature)"), renderer.indexOf("const compactStatus = { active"));
+  assert.ok(body.indexOf("$(\"#orbStatusLabel\").textContent") < body.indexOf("state.compactStatusDomSignature = domSignature;"));
+  // A failed setCompactStatus has to roll the expanded flag back too, or the retry computes
+  // "no resize", never holds the panel back, and the resize jerk returns.
+  assert.match(renderer, /state\.compactStatusExpanded = previousExpanded;/);
 });

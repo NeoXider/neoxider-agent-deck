@@ -6,6 +6,10 @@ const DEFAULT_PREFERENCES = Object.freeze({
   opacity: 0.96,
   glowIntensity: 0.82,
   showThinking: true,
+  // Avatar mode starts collapsed to the circle. Widening it to a 400 px status card on
+  // every turn is what made the orb cover a slab of the screen the user never asked for,
+  // so the panel is now opened by the user and this restores the old behaviour opt-in.
+  compactAutoExpand: false,
   size: "standard",
   windowLayer: "above",
   compactSide: "right",
@@ -65,6 +69,7 @@ function normalizePreferences(raw = {}) {
     opacity: boundedNumber(source.opacity, DEFAULT_PREFERENCES.opacity, 0.65, 1),
     glowIntensity: boundedNumber(source.glowIntensity, DEFAULT_PREFERENCES.glowIntensity, 0, 1),
     showThinking: source.showThinking !== false,
+    compactAutoExpand: source.compactAutoExpand === true,
     size: ["compact", "standard", "large"].includes(source.size) ? source.size : DEFAULT_PREFERENCES.size,
     windowLayer,
     compactSide,

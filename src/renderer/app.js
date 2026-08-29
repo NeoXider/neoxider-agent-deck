@@ -34,6 +34,7 @@ const state = {
   avatarLabel: "ready",
   currentActivity: null,
   showThinking: true,
+  compactAutoExpand: false,
   activityCardSignature: "",
   currentMode: "agent",
   agentModesBySessionId: new Map(),
@@ -60,6 +61,12 @@ const state = {
   compactStatusIpcSignature: "",
   compactStatusExpanded: false,
   compactResizeTimer: null,
+  compactHitAreaSignature: "",
+  sessionTimerTick: null,
+  // A session is only given up on after a healthy dashboard has failed to mention it twice,
+  // and the id is kept so recovery restores the user's choice instead of guessing.
+  missingSelectionPolls: 0,
+  lastSelectedSessionId: null,
   sessionListSignature: "",
   sessionSelectSignature: "",
   collapsedSessionGroupKeys: new Set(),
@@ -137,6 +144,12 @@ const AVATAR_LABELS = {
   error: "error",
   done: "done",
 };
+// What the live-activity preference governs. Gating only "thinking" was the reported bug:
+// every tool result clears the activity, the fallback below substitutes kind "working", and
+// the card the user had just switched off reappeared as "Working" a second later.
+// Outcomes — done, error — and the user's own file and capture notices are not live agent
+// internals, so they stay.
+const LIVE_ACTIVITY_KINDS = new Set(["thinking", "writing", "tool", "working"]);
 
 function createIcon(name, className = "ui-icon") {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -467,12 +480,21 @@ function syncCompactStatus() {
   const compactSessions = renderCompactSessions();
   const expanded = state.compactHistoryOpen || state.compactReplyOpen;
   const offline = state.harnessOffline;
-  const active = Boolean(offline || expanded || state.compactStatusClosing || preview || activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
+  // Avatar mode is collapsed unless the user opens it. Activity, a finished turn and even
+  // an offline Harness used to widen the orb to 400 px on their own, which is what put a
+  // panel over the user's screen without being asked. They now show as the ring colour and
+  // the count on the expand button; the panel is a deliberate act.
+  const autoActive = Boolean(offline || preview || activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
+  const active = Boolean(expanded || state.compactStatusClosing || (state.compactAutoExpand && autoActive));
   const label = offline ? "Harness offline" : preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
   const text = compactText(offline ? "Start Harness to reconnect." : preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
   const statusKind = offline ? "error" : preview?.kind || "";
   const compactButton = $("#orbHistoryButton");
   const replySession = state.dashboard?.sessions?.find((session) => session.sessionId === state.compactReplySessionId);
+  // What someone glancing at a collapsed circle wants to know: how many agents are working
+  // right now. With none running it falls back to how many replies are waiting to be read.
+  const runningCount = (state.dashboard?.sessions || []).filter((session) => session.running).length;
+  const badgeCount = runningCount || compactSessions.length;
   const compactButtonLabel = expanded ? "Close recent replies" : `Recent replies${compactSessions.length ? ` (${compactSessions.length})` : ""}`;
   const replyTitle = replySession?.title || "Quick reply";
   const domSignature = JSON.stringify([
@@ -486,13 +508,13 @@ function syncCompactStatus() {
     state.compactReplyOpen,
     state.compactErrorUnread,
     compactButtonLabel,
+    badgeCount,
     replyTitle,
     state.compactReplyError,
     state.compactReplyBusy,
     state.selectedSessionId,
   ]);
   if (domSignature !== state.compactStatusDomSignature) {
-    state.compactStatusDomSignature = domSignature;
     document.body.classList.toggle("orb-has-status", active);
     document.body.classList.toggle("orb-has-notification", statusKind === "notification");
     document.body.classList.toggle("orb-status-closing", state.compactStatusClosing);
@@ -510,9 +532,17 @@ function syncCompactStatus() {
     compactButton.title = compactButtonLabel;
     compactButton.setAttribute("aria-label", compactButtonLabel);
     compactButton.querySelector("use")?.setAttribute("href", expanded ? "#icon-close" : "#icon-chat");
+    const badge = $("#orbPanelCount");
+    badge.textContent = badgeCount > 9 ? "9+" : String(badgeCount);
+    badge.classList.toggle("visible", !expanded && badgeCount > 0);
     $("#orbReplyTitle").textContent = replyTitle;
     $("#orbReplyFeedback").textContent = state.compactReplyError;
     $("#orbReplySend").disabled = state.compactReplyBusy;
+    // Committed only once every write above has happened. Caching the signature first meant
+    // that a single throw anywhere in this block froze the orb at its last painted state for
+    // the rest of the session, because every later call matched and returned early.
+    state.compactStatusDomSignature = domSignature;
+    publishCompactHitAreas();
   }
   const compactStatus = { active, expanded, label, text };
   const ipcSignature = JSON.stringify([active, expanded, label, text]);
@@ -543,11 +573,39 @@ function syncCompactStatus() {
       clearTimeout(state.compactResizeTimer);
       state.compactResizeTimer = setTimeout(settle, COMPACT_RESIZE_SETTLE_TIMEOUT);
     }
-    window.widget.setCompactStatus(compactStatus).then(settle, () => {
+    window.widget.setCompactStatus(compactStatus).then(() => {
       settle();
-      if (state.compactStatusIpcSignature === ipcSignature) state.compactStatusIpcSignature = "";
+      publishCompactHitAreas();
+    }, () => {
+      settle();
+      // Roll the expanded flag back too. Keeping it meant the retry computed "no resize",
+      // never held the panel back, and the jerk this whole block exists to remove returned
+      // after the first failed call.
+      if (state.compactStatusIpcSignature !== ipcSignature) return;
+      state.compactStatusIpcSignature = "";
+      state.compactStatusExpanded = previousExpanded;
     });
   }
+}
+
+// Only the pixels that draw something should take the mouse. Everything else in the orb
+// window forwards clicks to whatever is behind it, so the widget stops being a transparent
+// slab over the desktop. The rectangles are measured live because the controls swap sides
+// with the dock and the panel changes size.
+function publishCompactHitAreas() {
+  if (!window.widget.setCompactHitAreas || state.windowMode !== "orb") return;
+  const areas = [];
+  for (const selector of ["#orbRestore", "#orbHistoryButton", "#orbStatus"]) {
+    const element = $(selector);
+    if (!element || element.hidden || !element.offsetParent) continue;
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) continue;
+    areas.push({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+  }
+  const signature = JSON.stringify(areas);
+  if (signature === state.compactHitAreaSignature) return;
+  state.compactHitAreaSignature = signature;
+  window.widget.setCompactHitAreas(areas);
 }
 
 function syncGameBarSelection() {
@@ -563,7 +621,7 @@ function syncActivityCard() {
   const messagesWrap = $(".messages-wrap");
   const hasActivity = Boolean(activity?.text);
   const hasWritingBubble = activity?.kind === "writing" && Boolean($("#messages .live-assistant"));
-  const showCard = hasActivity && !hasWritingBubble && (activity?.kind !== "thinking" || state.showThinking);
+  const showCard = hasActivity && !hasWritingBubble && (state.showThinking || !LIVE_ACTIVITY_KINDS.has(activity?.kind));
   const compactThinking = showCard && activity?.kind === "thinking";
   messagesWrap.classList.toggle("has-thinking-overlay", compactThinking);
   syncCrowdedChatState();
@@ -838,6 +896,11 @@ function applyWindowMode(mode) {
   }
   animateModeEnter(previousMode);
   syncCompactStatus();
+  // syncCompactStatus only republishes when its own signature changed, and entering avatar
+  // mode usually changes nothing it tracks — so the measurement has to be forced here, or
+  // the freshly shown orb would keep the whole window interactive until something else moved.
+  state.compactHitAreaSignature = "";
+  requestAnimationFrame(publishCompactHitAreas);
 }
 
 async function setWindowMode(mode) {
@@ -1003,8 +1066,19 @@ function activateBrandTarget(origin) {
   else if (origin.closest("#projectLink")) window.widget.openProject();
 }
 
+// Avatar mode is dragged BY THE CIRCLE, not by the 172x128 window around it. Treating the
+// whole window as a drag handle meant a click anywhere near the avatar picked the widget up,
+// including the transparent space the user was aiming past. Edge mode keeps the old rule:
+// its window is one thin line with nothing else in it.
+function compactDragHandle(target) {
+  if (!target || typeof target.closest !== "function") return null;
+  if (state.windowMode === "orb") return target.closest("#orbRestore");
+  return target.closest("#orbStatus, #orbHistoryButton") ? null : target;
+}
+
 function beginCompactDrag(event) {
-  if (event.button !== 0 || state.platformPresentation?.positionAvailable === false || event.target.closest("#orbStatus, #orbHistoryButton")) return;
+  if (event.button !== 0 || state.platformPresentation?.positionAvailable === false) return;
+  if (!compactDragHandle(event.target)) return;
   compactDrag = {
     target: event.currentTarget,
     pointerId: event.pointerId,
@@ -1159,6 +1233,67 @@ function sessionAgentState(session) {
   return ["working", "error"].includes(session.state) ? session.state : (session.running ? "working" : "idle");
 }
 
+// "How long has it been working?" is the first thing anyone asks a list of running agents,
+// and the widget made them guess. Below a minute the seconds matter; past an hour they do
+// not, so they are dropped rather than shown ticking at the end of a long number.
+function formatWorkDuration(ms) {
+  const total = Math.max(0, Math.round(Number(ms) || 0) / 1000);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = Math.floor(total % 60);
+  if (hours) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  if (minutes) return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  return `${seconds}s`;
+}
+
+// The elapsed clock is written straight into the node and deliberately left out of every
+// render signature: a value that changes every second would otherwise rebuild the whole
+// session list once a second, and nothing else on the card has changed.
+function applySessionTime(node, session) {
+  if (!node) return;
+  const runningSince = Number(session?.runningSince);
+  const live = sessionAgentState(session) === "working" && Number.isFinite(runningSince) && runningSince > 0;
+  const lastRun = Number(session?.lastRunMs);
+  node.dataset.runningSince = live ? String(runningSince) : "";
+  node.classList.toggle("running", live);
+  if (live) {
+    node.textContent = formatWorkDuration(Date.now() - runningSince);
+    node.title = "Time on the current turn";
+  } else if (Number.isFinite(lastRun) && lastRun > 0) {
+    node.textContent = formatWorkDuration(lastRun);
+    node.title = "Duration of the last turn";
+  } else {
+    node.textContent = "";
+    node.title = "";
+  }
+}
+
+function refreshSessionTimers() {
+  const now = Date.now();
+  let live = 0;
+  for (const node of $$("[data-running-since]")) {
+    const since = Number(node.dataset.runningSince);
+    if (!Number.isFinite(since) || since <= 0) continue;
+    live += 1;
+    node.textContent = formatWorkDuration(now - since);
+  }
+  return live;
+}
+
+// One interval for the whole list, and only while something is actually running.
+function scheduleSessionTimers() {
+  const live = refreshSessionTimers();
+  if (live && !state.sessionTimerTick) {
+    state.sessionTimerTick = setInterval(() => {
+      if (!refreshSessionTimers()) scheduleSessionTimers();
+    }, 1000);
+  } else if (!live && state.sessionTimerTick) {
+    clearInterval(state.sessionTimerTick);
+    state.sessionTimerTick = null;
+  }
+  return live;
+}
+
 function updateSessionCard(card, session) {
   const agentState = sessionAgentState(session);
   card.dataset.sessionId = session.sessionId;
@@ -1171,7 +1306,8 @@ function updateSessionCard(card, session) {
   card.querySelector(".agent-avatar").className = `agent-avatar ${agentState}`;
   card.querySelector(".agent-avatar img").src = AVATARS[agentState] || AVATARS.idle;
   card.querySelector(".session-name").textContent = session.title || "New session";
-  card.querySelector(".session-meta").textContent = `${agentState}${childCount ? ` · ${childCount} subagent${childCount === 1 ? "" : "s"}` : ""}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}`;
+  card.querySelector(".session-meta-text").textContent = `${agentState}${childCount ? ` · ${childCount} subagent${childCount === 1 ? "" : "s"}` : ""}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}`;
+  applySessionTime(card.querySelector(".session-time"), session);
   const status = card.querySelector(".session-state");
   status.className = `session-state ${agentState}`;
   status.textContent = agentState;
@@ -1190,6 +1326,11 @@ function createSessionCard(session) {
   name.className = "session-name";
   const meta = document.createElement("div");
   meta.className = "session-meta";
+  const metaText = document.createElement("span");
+  metaText.className = "session-meta-text";
+  const metaTime = document.createElement("span");
+  metaTime.className = "session-time";
+  meta.append(metaText, metaTime);
   main.append(name, meta);
   const status = document.createElement("div");
   status.className = "session-state";
@@ -1302,6 +1443,13 @@ function updatePickerSessionOption(option, session) {
       : pressure
         ? `idle · ${Math.round(pressure.percent)}%`
         : "idle";
+  let elapsed = option.querySelector(".session-time");
+  if (!elapsed) {
+    elapsed = document.createElement("small");
+    elapsed.className = "session-time";
+    meta.after(elapsed);
+  }
+  applySessionTime(elapsed, session);
   const mark = option.querySelector(".picker-check");
   mark.replaceChildren();
   if (selected) mark.append(createIcon("check"));
@@ -1335,6 +1483,7 @@ function renderSessions() {
       updateSessionGroup(wrapper, group);
       [...wrapper.querySelector(".session-group-items").children].forEach((card, sessionIndex) => updateSessionCard(card, group.sessions[sessionIndex]));
     });
+    scheduleSessionTimers();
     return true;
   }
   root.replaceChildren();
@@ -1343,6 +1492,7 @@ function renderSessions() {
     group.sessions.forEach((session) => body.append(createSessionCard(session)));
     root.append(wrapper);
   }
+  scheduleSessionTimers();
   return true;
 }
 
@@ -1403,6 +1553,7 @@ function renderSessionSelect() {
     }
     root.append(wrapper);
   }
+  scheduleSessionTimers();
   return true;
 }
 
@@ -1701,7 +1852,7 @@ function chooseCommand(command) {
   const input = $("#messageInput");
   input.value = command.name.toLowerCase() === "permission"
     ? "/permission danger-full-access"
-    : `/${command.name}${command.input?.hint ? " " : ""}`;
+    : `/${command.name}${command.kind === "skill" || command.input?.hint ? " " : ""}`;
   resizeMessageInput();
   input.placeholder = "Run Harness command…";
   state.commandSelectionIndex = 0;
@@ -1743,7 +1894,7 @@ function renderCommands(query = commandQuery()) {
   for (const [index, command] of commands.entries()) {
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `command-row${index === state.commandSelectionIndex ? " selected" : ""}`;
+    row.className = `command-row${index === state.commandSelectionIndex ? " selected" : ""}${command.kind === "skill" ? " skill" : ""}`;
     row.setAttribute("role", "option");
     row.setAttribute("aria-selected", String(index === state.commandSelectionIndex));
     row.dataset.command = command.name;
@@ -1752,7 +1903,9 @@ function renderCommands(query = commandQuery()) {
     name.textContent = `/${command.name}`;
     const hint = document.createElement("span");
     hint.className = "command-hint";
-    hint.textContent = command.input?.hint ? "args" : "run";
+    // Skills and host commands look the same in the menu but run through different paths,
+    // so the badge says which one the user is about to trigger.
+    hint.textContent = command.kind === "skill" ? "skill" : command.input?.hint ? "args" : "run";
     const description = document.createElement("span");
     description.className = "command-description";
     description.textContent = commandGuidance(command.name) || command.description || command.name;
@@ -3438,10 +3591,34 @@ async function performRefresh() {
     if (!dashboard.harness && state.focusMode) setFocusMode(false);
     const dashboardVisibleSessions = visibleSessions(selectedAtRequest);
     const selectionChangedWhileLoading = state.selectedSessionId !== selectedAtRequest;
-    if (!selectionChangedWhileLoading && state.selectedSessionId && !dashboardVisibleSessions.some((session) => session.sessionId === state.selectedSessionId)) state.selectedSessionId = null;
-    if (!selectionChangedWhileLoading && !state.selectedSessionId && dashboardVisibleSessions.length) {
-      state.selectedSessionId = (dashboardVisibleSessions.find((session) => session.running) || dashboardVisibleSessions[0]).sessionId;
+    // "The session disappears and the chat empties." One unhealthy poll — a Harness restart,
+    // an 8s RPC timeout, a laptop waking up — answers {harness:false, sessions:[]}. This used
+    // to be treated as authoritative: the selection was dropped, the transcript re-rendered
+    // empty, and the next healthy poll re-selected whatever ran first, so a one-second blip
+    // left the user reading somebody else's conversation.
+    //
+    // Two rules now. A session is only forgotten when a HEALTHY dashboard has failed to
+    // mention it twice running, and the id is remembered so recovery restores the user's
+    // choice instead of guessing.
+    if (!selectionChangedWhileLoading && state.selectedSessionId) {
+      const present = dashboardVisibleSessions.some((session) => session.sessionId === state.selectedSessionId);
+      if (present || !dashboard.harness) {
+        state.missingSelectionPolls = 0;
+      } else {
+        state.missingSelectionPolls += 1;
+        if (state.missingSelectionPolls >= 2) {
+          state.lastSelectedSessionId = state.selectedSessionId;
+          state.selectedSessionId = null;
+          state.missingSelectionPolls = 0;
+        }
+      }
     }
+    if (!selectionChangedWhileLoading && !state.selectedSessionId && dashboard.harness && dashboardVisibleSessions.length) {
+      const remembered = dashboardVisibleSessions.find((session) => session.sessionId === state.lastSelectedSessionId);
+      state.selectedSessionId = (remembered || dashboardVisibleSessions.find((session) => session.running) || dashboardVisibleSessions[0]).sessionId;
+      if (remembered) state.lastSelectedSessionId = null;
+    }
+    if (state.selectedSessionId) state.lastSelectedSessionId = state.selectedSessionId;
     if (!selectionChangedWhileLoading && state.selectedSessionId !== selectedAtRequest) invalidateSelectedHistoryVersion();
     syncGameBarSelection();
     if (dashboard.harness) {
@@ -3791,7 +3968,18 @@ function applyShowThinking(value) {
   state.showThinking = value !== false;
   $("#showThinkingToggle").checked = state.showThinking;
   syncActivityCard();
+  // The compact status shows the same live text on a different chrome. Without this the
+  // preference did nothing at all while the widget was collapsed, until some unrelated
+  // status change happened to repaint it.
+  syncCompactStatus();
   return state.showThinking;
+}
+
+function applyCompactAutoExpand(value) {
+  state.compactAutoExpand = value === true;
+  $("#compactAutoExpandToggle").checked = state.compactAutoExpand;
+  syncCompactStatus();
+  return state.compactAutoExpand;
 }
 
 function setAutoStartStatus(text, error = false) {
@@ -4010,6 +4198,7 @@ async function hydratePreferences() {
     $("#opacityValue").textContent = `${Math.round(preferences.opacity * 100)}%`;
     applyGlowIntensity(preferences.glowIntensity);
     applyShowThinking(preferences.showThinking);
+    applyCompactAutoExpand(preferences.compactAutoExpand);
     syncPressed($$('#sizeSwitch button'), preferences.size, "size");
     applyPlatformCapabilities(preferences.platformCapabilities);
     applyCompactSide(preferences.compactSide || "right");
@@ -4152,14 +4341,18 @@ $("#chatForm").addEventListener("submit", async (event) => {
   renderCommandHint();
   try {
     const slashMatch = /^\/(\S+)/.exec(text);
-    if (slashMatch) {
-      if (state.commandsLoadedSessionId !== targetSessionId) await loadCommands();
-      const commandEntry = state.commandCatalog.find((command) => command.name.toLowerCase() === slashMatch[1].toLowerCase());
-      if (!commandEntry) {
-        throw new Error(state.commandCatalog.length
-          ? `Unknown Harness command: /${slashMatch[1]}`
-          : "Harness commands are unavailable. Try again when Harness is online.");
-      }
+    if (slashMatch && state.commandsLoadedSessionId !== targetSessionId) await loadCommands();
+    const commandEntry = slashMatch
+      ? state.commandCatalog.find((command) => command.name.toLowerCase() === slashMatch[1].toLowerCase())
+      : null;
+    if (slashMatch && !commandEntry) {
+      throw new Error(state.commandCatalog.length
+        ? `Unknown Harness command: /${slashMatch[1]}`
+        : "Harness commands are unavailable. Try again when Harness is online.");
+    }
+    // A skill is not a host command. Harness's own composer inserts "/name" and sends it as
+    // an ordinary message for the model to act on; commands/execute would reject it.
+    if (commandEntry && commandEntry.kind !== "skill") {
       submittedCommand = true;
       await executeHarnessCommand(text, targetSessionId, submittedAttachments, commandEntry);
     } else {
@@ -4353,6 +4546,19 @@ $("#showThinkingToggle").addEventListener("change", async (event) => {
     applyShowThinking(await window.widget.setShowThinking(requested));
   } catch {
     applyShowThinking(previous);
+  } finally {
+    toggle.disabled = false;
+  }
+});
+$("#compactAutoExpandToggle").addEventListener("change", async (event) => {
+  const toggle = event.currentTarget;
+  const previous = state.compactAutoExpand;
+  const requested = applyCompactAutoExpand(toggle.checked);
+  toggle.disabled = true;
+  try {
+    applyCompactAutoExpand(await window.widget.setCompactAutoExpand(requested));
+  } catch {
+    applyCompactAutoExpand(previous);
   } finally {
     toggle.disabled = false;
   }
@@ -4750,8 +4956,8 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.4", latestVersion: "0.6.5", installMode: "portable-replace", progress: 100 }
-        : { status: "available", currentVersion: "0.6.4", latestVersion: "0.6.5", installMode: "managed", progress: 0 });
+        ? { status: "ready", currentVersion: "0.6.5", latestVersion: "0.6.6", installMode: "portable-replace", progress: 100 }
+        : { status: "available", currentVersion: "0.6.5", latestVersion: "0.6.6", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {
       setTab("chat");
@@ -4866,6 +5072,44 @@ if (screenshotFixture) {
       applyShowThinking(false);
       setAvatar("working", "thinking");
       setActivity({ active: true, kind: "thinking", label: "Thinking", text: "This compact reasoning line stays hidden by preference." });
+    } else if (screenshotFixture === "working-hidden") {
+      // The reported regression: every tool result clears the activity and this "working"
+      // fallback took its place, so the card came back a second after being switched off.
+      setTab("chat");
+      applyShowThinking(false);
+      setAvatar("working", "working");
+      setActivity({ active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" });
+    } else if (screenshotFixture === "tool-hidden") {
+      setTab("chat");
+      applyShowThinking(false);
+      setAvatar("working", "using tool");
+      setActivity({ active: true, kind: "tool", label: "Using tool", text: "read_file" });
+    } else if (screenshotFixture === "orb-collapsed") {
+      // Avatar mode with an agent working: the circle stays a circle and the count goes on
+      // the expand button instead of a 400 px panel opening over the user's screen.
+      applyCompactAutoExpand(false);
+      state.dashboard = { harness: true, sessions: [
+        { sessionId: "demo-a", title: "Release verification", updatedAt: Date.now(), running: true, state: "working", preview: "Building the installer.", projections: { values: {} }, subagents: [] },
+        { sessionId: "demo-b", title: "Docs pass", updatedAt: Date.now() - 900, running: true, state: "working", preview: "Rewriting the changelog.", projections: { values: {} }, subagents: [] },
+      ] };
+      setAvatar("working", "working");
+      setActivity({ active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" });
+      renderSessions();
+      syncCompactStatus();
+    } else if (screenshotFixture === "orb-auto-expand") {
+      applyCompactAutoExpand(true);
+      setAvatar("working", "working");
+      setActivity({ active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" });
+      syncCompactStatus();
+    } else if (screenshotFixture === "session-times") {
+      setTab("agents");
+      const now = Date.now();
+      state.dashboard = { harness: true, sessions: [
+        { sessionId: "demo-running", title: "Long build", updatedAt: now, running: true, state: "working", runningSince: now - 754000, projections: { values: {} }, subagents: [] },
+        { sessionId: "demo-just-started", title: "Fresh turn", updatedAt: now, running: true, state: "working", runningSince: now - 7000, projections: { values: {} }, subagents: [] },
+        { sessionId: "demo-finished", title: "Finished earlier", updatedAt: now - 5000, running: false, state: "idle", lastRunMs: 128000, projections: { values: {} }, subagents: [] },
+      ] };
+      renderSessions();
     } else if (screenshotFixture === "writing") {
       setTab("chat");
       setAvatar("working", "writing");

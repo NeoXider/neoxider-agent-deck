@@ -190,7 +190,15 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .agent-avatar.error img { animation:avatar-shake .35s linear 2; }
 .session-main { min-width:0; }
 .session-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:650; }
-.session-meta { margin-top:4px; overflow:hidden; color:var(--muted); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.session-meta { margin-top:4px; min-width:0; display:flex; align-items:baseline; gap:6px; overflow:hidden; color:var(--muted); font-size:9px; white-space:nowrap; }
+.session-meta-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+/* Tabular figures keep the clock from twitching sideways as the digits change, and the
+   dot separator only appears when there is something to separate. */
+.session-time { flex:none; color:#8b96a8; font-variant-numeric:tabular-nums; transition:color .3s ease; }
+.session-time:empty { display:none; }
+.session-time::before { content:"·"; margin-right:6px; color:#5d6675; }
+.session-time.running { color:var(--mint); }
+.picker-option .session-time { margin-left:6px; }
 .session-state { min-width:48px; padding:5px 7px; border:1px solid rgba(255,255,255,.08); border-radius:9px; background:rgba(255,255,255,.04); color:#8996a8; text-align:center; font-size:8px; font-weight:750; letter-spacing:.04em; text-transform:uppercase; }
 .session-state.working { border-color:rgba(73,231,198,.18); background:rgba(73,231,198,.09); color:#83ead5; }
 .session-state.error { border-color:rgba(255,115,143,.22); background:rgba(255,115,143,.09); color:#ff91a7; }
@@ -303,6 +311,8 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .command-row:hover, .command-row.selected { background:linear-gradient(100deg,rgba(73,231,198,.09),rgba(139,121,255,.13)); color:white; }
 .command-name { min-width:0; color:#b9afff; font-family:"Cascadia Code",Consolas,monospace; font-size:10px; font-weight:700; }
 .command-hint { max-width:150px; overflow:hidden; color:#78869a; font-family:"Cascadia Code",Consolas,monospace; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.command-row.skill .command-name { color:#c8bcff; }
+.command-row.skill .command-hint { padding:1px 6px; border-radius:99px; background:rgba(139,121,255,.16); color:#cfc6ff; }
 .command-description { min-width:0; grid-column:1 / -1; overflow:hidden; color:#8793a5; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
 .command-empty { padding:17px 10px; color:#758196; font-size:9px; text-align:center; }
 .command-hint-bar { min-width:0; display:flex; align-items:center; gap:7px; padding:5px 9px; border:1px solid rgba(139,121,255,.18); border-radius:9px; background:rgba(139,121,255,.07); color:#8996aa; font-size:8px; }
@@ -313,6 +323,10 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 
 .activity-card { display:none; border:1px solid rgba(139,121,255,.2); border-radius:12px; background:linear-gradient(110deg,rgba(73,231,198,.055),rgba(139,121,255,.09)); }
 .activity-card.has-activity { display:block; }
+/* .has-activity (0,2,0) outranks the UA rule for [hidden] (0,1,0), so without this the
+   attribute alone would not hide the card. It worked only because both are always set
+   together — a coincidence, not a rule. */
+.activity-card[hidden] { display:none; }
 .activity-card > summary { min-height:42px; padding:7px 10px; }
 .activity-card > summary > .ui-icon:first-child { color:#a697ff; }
 .activity-card > summary > span { min-width:0; flex:1; display:flex; align-items:baseline; gap:7px; }
@@ -322,7 +336,14 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .activity-card[open] .activity-chevron { transform:rotate(180deg); }
 .activity-body { max-height:120px; overflow:auto; padding:0 10px 10px 35px; color:#b9c2d0; font-size:10px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
 .activity-card.thinking-compact > summary { min-height:26px; height:26px; padding:0 8px; cursor:default; }
-.activity-card.thinking-compact { position:absolute; z-index:24; top:0; right:0; left:0; width:100%; box-shadow:0 8px 24px rgba(0,0,0,.24); }
+/* The live Think line floats over the conversation, so it has to read as a separate layer.
+   It used to inherit the card's translucent gradient and the messages showed straight
+   through it — the overlay and the chat became one soup of text. Opaque base, its own
+   border and a real shadow now put it clearly on top. */
+.activity-card.thinking-compact { position:absolute; z-index:30; top:0; right:0; left:0; width:100%; border-color:rgba(139,121,255,.42); border-radius:0 0 12px 12px; background:linear-gradient(100deg,rgba(18,17,38,.98),rgba(13,20,30,.98)); box-shadow:0 10px 26px rgba(0,0,0,.5),0 1px 0 rgba(139,121,255,.16) inset; backdrop-filter:blur(10px); animation:thinking-overlay-in .28s cubic-bezier(.18,.92,.24,1.06); }
+.activity-card.thinking-compact b { color:#d8d1ff; }
+.activity-card.thinking-compact small { color:#a9b4c6; }
+@keyframes thinking-overlay-in { from { opacity:0; transform:translateY(-100%); } to { opacity:1; transform:none; } }
 .activity-card.thinking-compact .activity-chevron, .activity-card.thinking-compact .activity-body { display:none; }
 
 .messages-wrap { position:relative; width:100%; min-width:0; min-height:0; flex:1 1 auto; }
@@ -584,9 +605,12 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .orb-mode, .edge-mode { display:none; border:0; outline:0; background:transparent; -webkit-app-region:no-drag; }
 .mode-orb .widget-shell, .mode-edge .widget-shell { display:none; }
 .mode-orb .orb-mode { width:100%; height:100%; display:flex; align-items:center; justify-content:flex-end; gap:7px; padding:0; overflow:visible; }
-.mode-orb .orb-mode, .mode-edge .edge-mode { touch-action:none; cursor:grab; }
-.mode-orb .orb-mode:active, .mode-edge .edge-mode:active { cursor:grabbing; }
-.position-unavailable .brand, .position-unavailable .mode-orb .orb-mode, .position-unavailable .mode-edge .edge-mode { cursor:default; touch-action:auto; }
+/* The grab cursor belongs to the handle, not to the window: in Avatar mode only the circle
+   drags, and showing "grab" over 172x128 of transparent space promised otherwise. */
+.mode-orb .orb-avatar, .mode-edge .edge-mode { touch-action:none; cursor:grab; }
+.mode-orb .orb-mode { touch-action:none; }
+.mode-orb .orb-avatar:active, .mode-edge .edge-mode:active { cursor:grabbing; }
+.position-unavailable .brand, .position-unavailable .mode-orb .orb-avatar, .position-unavailable .mode-edge .edge-mode { cursor:default; touch-action:auto; }
 .orb-mode img, .orb-mode .orb-glow, .orb-mode .orb-count, .edge-mode > span { pointer-events:none; user-select:none; -webkit-user-drag:none; }
 .orb-avatar { position:relative; isolation:isolate; width:68px; height:68px; flex:none; display:grid; place-items:center; margin:30px; padding:0; border:0; border-radius:50%; background:radial-gradient(circle at 35% 25%,rgba(73,231,198,.08),rgba(11,14,22,.97) 64%); box-shadow:inset 0 0 15px rgba(139,121,255,.08); cursor:pointer; transition:--orb-ring-primary .58s ease,--orb-ring-secondary .58s ease,--orb-halo-primary .58s ease,--orb-halo-secondary .58s ease,box-shadow .58s ease; }
 .orb-avatar::before { content:""; position:absolute; z-index:-1; inset:-10px; border-radius:50%; background:transparent; opacity:0; }
@@ -642,7 +666,15 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .orb-reply-compose button:disabled { opacity:.48; cursor:wait; }
 .orb-reply-compose .ui-icon { width:17px; height:17px; }
 .orb-reply-feedback { min-height:12px; padding:0 7px; color:#ff9bad; font-size:8px; }
-.orb-history-button { width:38px; height:46px; flex:none; display:grid; place-items:center; padding:0; border:1px solid rgba(255,255,255,.1); border-radius:14px; background:rgba(12,16,24,.95); color:#9ca9ba; cursor:pointer; transition:.17s ease; }
+.orb-history-button { position:relative; width:38px; height:46px; flex:none; display:grid; place-items:center; padding:0; border:1px solid rgba(255,255,255,.1); border-radius:14px; background:rgba(12,16,24,.95); color:#9ca9ba; cursor:pointer; transition:transform .34s cubic-bezier(.18,.9,.24,1.1),border-color .17s ease,background-color .17s ease,color .17s ease; }
+.orb-history-button:active { transform:scale(.92); transition-duration:.08s; }
+/* The collapsed orb says everything it needs to with a circle and one number. The badge
+   uses tabular figures so 1 -> 2 does not nudge the glyph sideways. */
+.orb-panel-count { position:absolute; top:-6px; right:-6px; min-width:17px; height:17px; display:none; place-items:center; padding:0 4px; border:2px solid #0b0e16; border-radius:9px; background:linear-gradient(140deg,var(--mint),#8b79ff); color:#06100e; font-size:8px; font-weight:900; font-variant-numeric:tabular-nums; pointer-events:none; }
+.orb-panel-count.visible { display:grid; animation:orb-badge-pop .42s cubic-bezier(.18,.9,.22,1.16); }
+.mode-orb.state-working .orb-panel-count.visible { animation:orb-badge-pop .42s cubic-bezier(.18,.9,.22,1.16),orb-badge-breathe 2.1s ease-in-out .42s infinite; }
+@keyframes orb-badge-pop { 0% { opacity:0; transform:scale(.4) translateY(4px); } 60% { opacity:1; transform:scale(1.14) translateY(0); } 100% { opacity:1; transform:scale(1); } }
+@keyframes orb-badge-breathe { 0%,100% { transform:scale(1); } 50% { transform:scale(1.09); } }
 .orb-history-button:hover, .orb-history-button.active { border-color:rgba(139,121,255,.34); background:linear-gradient(135deg,rgba(43,38,72,.97),rgba(15,20,31,.97)); color:white; box-shadow:none; }
 .orb-history-button .ui-icon { width:18px; height:18px; }
 .orb-count { position:absolute; z-index:3; top:4px; right:3px; min-width:20px; height:20px; display:none; place-items:center; padding:0 5px; border:2px solid #0b0e16; border-radius:11px; background:var(--mint); color:#06100e; font-size:9px; font-weight:900; }

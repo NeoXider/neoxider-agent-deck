@@ -80,7 +80,16 @@ function createSharedDashboardReader({
     return inflight;
   }
 
-  return Object.freeze({ read });
+  // Creating a session and immediately refreshing hit the one-second cache and got the
+  // snapshot from BEFORE the session existed. The renderer then saw its brand-new id missing
+  // from the list — and a blank, unselected session is hidden from every group, so it became
+  // unreachable. Anything that changes the session set drops the cache first.
+  function invalidate() {
+    cached = null;
+    cachedAt = -Infinity;
+  }
+
+  return Object.freeze({ invalidate, read });
 }
 
 function resolveGameBarBridgeHost({

@@ -26,9 +26,9 @@ const cases = [
   { name: "live-stream", tab: "chat", fixture: "live-stream", width: 360, height: 500, expect: { liveBubbles: 1, historicalReasoning: 0 } },
   { name: "scroll-away", tab: "chat", fixture: "scroll-away", width: 360, height: 500, expect: { scrollLatestVisible: true } },
   { name: "glow-settings", tab: "chat", fixture: "glow-settings", expect: { glowControl: 1, glowIntensity: "0.82", showThinkingChecked: true, windowLayerOptions: 3, autoStartHydrated: true } },
-  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.5 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
-  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.6.5 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
-  { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.5 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
+  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.6 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
+  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.6.6 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
+  { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.6 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
   { name: "hotkey-settings", tab: "chat", fixture: "hotkey-settings", width: 420, height: 640, expect: { settingsOpen: true, hotkeySettingsOpen: true, hotkeyRows: 8 } },
   { name: "capture-menu", tab: "chat", fixture: "capture-menu", expect: { captureMenuOpen: true, captureRows: 2 } },
   { name: "model", tab: "chat", fixture: "model", expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B" }, layout: { modelVisibleRows: 6 } },
@@ -44,8 +44,15 @@ const cases = [
   { name: "markdown-tools", tab: "chat", fixture: "markdown-tools", expect: { toolGroups: 1, toolCalls: 2, historicalReasoning: 0 } },
   { name: "thinking-chat", tab: "chat", fixture: "thinking", expect: { activityCardVisible: true, showThinkingChecked: true, thinkingOverMessages: true } },
   { name: "thinking-hidden", tab: "chat", fixture: "thinking-hidden", expect: { activityCardVisible: false, showThinkingChecked: false } },
+  // "thinking" was the one kind the old gate covered. These two are what the user actually
+  // saw come back above the conversation with the preference switched off.
+  { name: "working-hidden", tab: "chat", fixture: "working-hidden", expect: { activityCardVisible: false, showThinkingChecked: false } },
+  { name: "tool-hidden", tab: "chat", fixture: "tool-hidden", expect: { activityCardVisible: false, showThinkingChecked: false } },
   { name: "writing-chat", tab: "chat", fixture: "writing", expect: { liveBubbles: 1, liveCaretDisplay: "inline-block" } },
-  { name: "tool-chat", tab: "chat", fixture: "tool" },
+  { name: "tool-chat", tab: "chat", fixture: "tool", expect: { activityCardVisible: true, showThinkingChecked: true } },
+  // The running clocks tick, so they are checked by shape and count; the finished session's
+  // duration is static and is checked exactly.
+  { name: "session-times", tab: "agents", fixture: "session-times", expect: { sessionElapsedRunning: 2, sessionElapsedWellFormed: true, sessionElapsedLastRun: "2m 08s", sessionMetaSingleLine: true } },
   { name: "completion-chat", tab: "chat", fixture: "completion-chat", expect: { completionCelebration: true, fullSuccessGlowVisible: true } },
   { name: "compact-chat", tab: "chat", fixture: "chat", width: 360, height: 500, expect: { historicalReasoning: 0, footer: 0, titlebarTabs: 1, setupInToolbar: true, composerUtilitiesStacked: true, contextRingSize: 15, sendWidth: 36, sendHeight: 36 } },
   { name: "compact-tools", tab: "chat", fixture: "markdown-tools", width: 360, height: 500, expect: { toolGroups: 1, toolCalls: 2 } },
@@ -58,6 +65,10 @@ const cases = [
   { name: "crowded-chat-400", tab: "chat", fixture: "crowded-chat", width: 400, height: 400, expect: { crowdedChat: true, todoRows: 3, todoExpanded: true, queueRows: 2, attachmentChips: 1, activityCardVisible: true, thinkingOverMessages: true, conversationBubbles: 6, shortMessageVisible: true, messageViewportScrollable: true, crowdedSurfacesWithinPanel: true }, min: { messageViewportHeight: 62 } },
   { name: "crowded-chat-360", tab: "chat", fixture: "crowded-chat", width: 360, height: 360, expect: { crowdedChat: true, todoRows: 3, todoExpanded: true, queueRows: 2, attachmentChips: 1, activityCardVisible: true, thinkingOverMessages: true, conversationBubbles: 6, shortMessageVisible: true, messageViewportScrollable: true, crowdedSurfacesWithinPanel: true, titlebarOverlap: false }, min: { messageViewportHeight: 62 } },
   { name: "thinking-orb", tab: "chat", fixture: "thinking", mode: "orb", expect: { orbUtilityButtons: 1 } },
+  // A working agent must not open a 400 px panel over the screen on its own. The count goes
+  // on the expand button, and only the circle and the two controls take the mouse.
+  { name: "collapsed-orb", tab: "chat", fixture: "orb-collapsed", mode: "orb", expect: { orbHasStatus: false, orbStatusWidth: 0, orbPanelCountVisible: true, orbPanelCount: "2" }, max: { orbInteractiveArea: 6600 } },
+  { name: "auto-expand-orb", tab: "chat", fixture: "orb-auto-expand", mode: "orb", expect: { orbHasStatus: true, orbPanelCountVisible: false }, min: { orbStatusWidth: 100 } },
   { name: "offline-orb", tab: "chat", fixture: "offline", mode: "orb", expect: { orbUtilityButtons: 1, orbStatusLabel: "Harness offline", orbStatusText: "Start Harness to reconnect." } },
   { name: "notification-orb", tab: "chat", fixture: "orb-notification", mode: "orb", expect: { orbUtilityButtons: 1, orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
   { name: "notification-orb-black", tab: "chat", fixture: "orb-notification", mode: "orb", backdrop: "black", expect: { orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },

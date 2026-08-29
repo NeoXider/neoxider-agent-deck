@@ -1,4 +1,12 @@
 const { createHash, randomUUID } = require("node:crypto");
+// Session state derivation lives next door so that this module stays the transport.
+const {
+  activityFromHistory,
+  resultCallId,
+  sessionStateFromHistory,
+  toMillis,
+  turnTimingFromHistory,
+} = require("./session-activity.cjs");
 
 const HISTORY_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const HISTORY_IMAGE_BASE64_LIMIT = Math.ceil(8 * 1024 * 1024 * 4 / 3) + 8;
@@ -171,22 +179,7 @@ function toolResultFromBlocks(blocks) {
   return parts.join("\n").trim();
 }
 
-function resultCallId(data) {
-  const message = data && data.message;
-  const sourceId = message && message.source && message.source.callId;
-  if (sourceId) return String(sourceId);
-  const block = Array.isArray(message && message.content)
-    ? message.content.find((item) => item && item.type === "tool-result")
-    : null;
-  return block && block.toolCallId ? String(block.toolCallId) : "";
-}
-
 function durationBetween(start, end) {
-  const toMillis = (value) => {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    const parsed = Date.parse(String(value || ""));
-    return Number.isFinite(parsed) ? parsed : null;
-  };
   const startMs = toMillis(start);
   const endMs = toMillis(end);
   if (startMs == null || endMs == null || endMs < startMs) return null;
@@ -324,80 +317,6 @@ function messagesFromHistory(entries) {
   return messages.sort((left, right) => (left.seq || 0) - (right.seq || 0));
 }
 
-function activityFromHistory(entries) {
-  if (!Array.isArray(entries)) return null;
-  let turnOpen = false;
-  let reasoning = "";
-  let writing = "";
-  let latestSignal = null;
-  let activeTool = null;
-  const pendingTools = new Map();
-  for (const entry of entries) {
-    const event = entry && entry.event;
-    const data = event && event.data || {};
-    if (!event) continue;
-    if (event.type === "turn/start") {
-      turnOpen = true;
-      reasoning = "";
-      writing = "";
-      latestSignal = null;
-      activeTool = null;
-      pendingTools.clear();
-    } else if (event.type === "assistant/chunk") {
-      const chunk = data.chunk || {};
-      if (chunk.type === "reasoning-delta" && typeof chunk.text === "string") {
-        reasoning += chunk.text;
-        if (chunk.text) latestSignal = "thinking";
-      }
-      if (chunk.type === "text-delta" && typeof chunk.text === "string") {
-        writing += chunk.text;
-        if (chunk.text) latestSignal = "writing";
-      }
-    } else if (event.type === "tool/call" && data.callId) {
-      pendingTools.set(String(data.callId), String(data.name || "tool"));
-      activeTool = String(data.name || "tool");
-      latestSignal = "tool";
-    } else if (event.type === "tool/result") {
-      const callId = resultCallId(data);
-      if (callId) pendingTools.delete(callId);
-      if (pendingTools.size === 0) {
-        activeTool = null;
-        latestSignal = null;
-      }
-    } else if (event.type === "tool/code-dispatch-start" && data.subCallId) {
-      pendingTools.set(String(data.subCallId), String(data.name || "tool"));
-      activeTool = String(data.name || "tool");
-      latestSignal = "tool";
-    } else if (event.type === "tool/code-dispatch" && data.subCallId) {
-      pendingTools.delete(String(data.subCallId));
-      if (pendingTools.size === 0) {
-        activeTool = null;
-        latestSignal = null;
-      }
-    } else if (event.type === "turn/end") {
-      turnOpen = false;
-    }
-  }
-  if (turnOpen) {
-    if (latestSignal === "tool" && activeTool) return { active: true, kind: "tool", label: "Using tool", text: activeTool };
-    if (latestSignal === "thinking" && reasoning.trim()) return { active: true, kind: "thinking", label: "Thinking", text: reasoning.trim() };
-    if (latestSignal === "writing" && writing.trim()) return { active: true, kind: "writing", label: "Writing", text: writing.trim() };
-    return { active: true, kind: "working", label: "Working", text: "Preparing the next step…" };
-  }
-  return null;
-}
-
-function sessionStateFromHistory(entries, running = false) {
-  if (running) return "working";
-  if (!Array.isArray(entries)) return "idle";
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const event = entries[index]?.event;
-    if (event?.type !== "turn/end") continue;
-    return event.data?.reason?.kind === "error" ? "error" : "idle";
-  }
-  return "idle";
-}
-
 class HarnessApi {
   constructor(baseUrl = "http://127.0.0.1:3080", fetchImpl = globalThis.fetch, options = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
@@ -474,7 +393,40 @@ class HarnessApi {
       }
     }
     const sessions = (sessionsValue.items || []).filter((session) => session.origin !== "subagent" && !archived.has(session.sessionId));
+    // Per session, and never rejecting. Only the two RPCs used to be guarded, so a single
+    // malformed history event thrown by one of the derivation readers rejected the whole
+    // Promise.all — and the renderer received {harness:false, sessions:[]}, which is what
+    // made every session on screen disappear at once.
     const enriched = await Promise.all(sessions.map(async (session, index) => {
+      try {
+        return await this.enrichSession(session, index, workspaceBySessionId);
+      } catch (error) {
+        const cachedState = this.sessionStateCache.get(session.sessionId);
+        return {
+          ...session,
+          title: titleFromSession(session),
+          subagents: cachedState?.subagents ?? [],
+          degraded: true,
+          activity: null,
+          state: cachedState?.state ?? (session.running ? "working" : "idle"),
+          preview: cachedState?.preview ?? "",
+          runningSince: session.running ? (cachedState?.runningSince ?? null) : null,
+          lastRunMs: cachedState?.lastRunMs ?? null,
+          enrichmentError: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }));
+    return {
+      host,
+      sessions: enriched,
+      workspaces: Array.isArray(workspaceValue?.items) ? workspaceValue.items : [],
+      archivedSessionIds,
+      workspaceDegraded,
+    };
+  }
+
+  async enrichSession(session, index, workspaceBySessionId) {
+    {
       const cachedState = this.sessionStateCache.get(session.sessionId);
       const shouldEnrich = Boolean(session.running || index < 18);
       const shouldReadState = shouldEnrich && (!cachedState || cachedState.updatedAt !== session.updatedAt);
@@ -511,11 +463,18 @@ class HarnessApi {
         ? messagesFromHistory(events).findLast((message) => message.role === "assistant")
         : null;
       const preview = latestAssistant?.text || cachedState?.preview || "";
+      // Timing is cached alongside state so a poll that reuses history — most of them —
+      // keeps reporting the same turn start instead of dropping the elapsed clock to zero.
+      const timing = historyValue ? turnTimingFromHistory(events) : null;
+      const runningSince = timing ? timing.runningSince : (cachedState?.runningSince ?? null);
+      const lastRunMs = timing?.lastRunMs ?? cachedState?.lastRunMs ?? null;
       this.sessionStateCache.set(session.sessionId, {
         updatedAt: historyValue ? session.updatedAt : cachedState?.updatedAt,
         state: agentState,
         preview,
         subagents,
+        runningSince,
+        lastRunMs,
       });
       return {
         ...session,
@@ -527,15 +486,10 @@ class HarnessApi {
         activity,
         state: agentState,
         preview,
+        runningSince: effectiveRunning ? runningSince : null,
+        lastRunMs,
       };
-    }));
-    return {
-      host,
-      sessions: enriched,
-      workspaces: Array.isArray(workspaceValue?.items) ? workspaceValue.items : [],
-      archivedSessionIds,
-      workspaceDegraded,
-    };
+    }
   }
 
   async history(sessionId) {
@@ -559,9 +513,15 @@ class HarnessApi {
       pages.push(events);
       overlapsCache = events.some((entry) => cachedSequences.has(entry?.event?.seq));
     }
-    const entries = tailHasMore
-      ? [...cached, ...pages.flat()]
-      : pages.flat();
+    // When the newest page says there is nothing more, its contents REPLACE the cached tail.
+    // That is right for /compact, which legitimately shrinks a history — but an empty answer
+    // is not a shrink, it is a fault: a Harness restart or a log still being re-indexed
+    // returned nothing, the conversation on screen blanked, and the empty result was cached
+    // as complete. So the cache is a floor only against emptiness. The sequence map below
+    // still lets fresh events supersede cached ones.
+    const fresh = pages.flat();
+    const blankedOut = fresh.length === 0 && cached.length > 0;
+    const entries = tailHasMore || blankedOut ? [...cached, ...fresh] : fresh;
     const sequenced = new Map();
     const unsequenced = [];
     for (const entry of entries) {
@@ -641,6 +601,40 @@ class HarnessApi {
     return this.rpc("commands/list", { args: { agentId: sessionId } }, 10000);
   }
 
+  // Skills are a second, separate source for the same "/" menu. Harness's own composer
+  // merges them; the widget listed only commands/list, which is why a skill installed in the
+  // workspace showed up in Harness and was missing here.
+  async skills(sessionId) {
+    const value = await this.rpc("skill.list", { sessionId }, 8000);
+    return Array.isArray(value?.skills) ? value.skills : [];
+  }
+
+  // One catalog for the renderer, tagged by source. A Harness build without the skill
+  // plugin answers "not found", and that must not take the built-in commands down with it.
+  async commandCatalog(sessionId) {
+    const [commands, skills] = await Promise.all([
+      this.commands(sessionId),
+      this.skills(sessionId).catch(() => []),
+    ]);
+    const entries = (Array.isArray(commands) ? commands : []).map((command) => ({ ...command, kind: "command" }));
+    const known = new Set(entries.map((entry) => entry.name.toLowerCase()));
+    for (const skill of skills) {
+      const name = String(skill?.name || "").trim();
+      if (!name || known.has(name.toLowerCase())) continue;
+      known.add(name.toLowerCase());
+      entries.push({
+        name,
+        // Harness labels a skill the model cannot start on its own, so the menu says so too
+        // instead of promising something that will not happen.
+        description: skill.modelInvocable === false
+          ? `User only · ${skill.description || ""}`.trim()
+          : String(skill.description || ""),
+        kind: "skill",
+      });
+    }
+    return entries;
+  }
+
   async executeCommand(sessionId, line, images = []) {
     return this.rpc("commands/execute", {
       args: { agentId: sessionId, line, images },
@@ -694,5 +688,6 @@ module.exports = {
   titleFromSession,
   toolMessagesFromHistory,
   toolResultFromBlocks,
+  turnTimingFromHistory,
   userContentFromBlocks,
 };

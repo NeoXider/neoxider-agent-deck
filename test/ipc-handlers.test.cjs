@@ -66,13 +66,13 @@ function register(overrides = {}) {
     getAutoStartController: () => ({ available: false, getEnabled: () => false, setEnabled: () => false }),
     getHarnessLauncher: () => ({ start: async () => ({ ok: true }) }),
     getHotkeyManager: () => ({ current: () => ({}), apply: () => ({}), reset: () => ({}) }),
-    getEdgeHitTracker: () => ({ setPointerActive: () => {} }),
+    getCompactHitTracker: () => ({ setPointerActive: () => {} }),
     getScreenshotService: () => ({ capture: async () => ({}) }),
     getUpdateState: () => ({ status: "idle" }),
     getUpdateService: () => ({ snapshot: () => ({ status: "idle" }), check: async () => ({}), download: async () => ({}), install: async () => ({}) }),
     checkForUpdates: async () => ({}),
     applyWindowMode: () => {},
-    applyEdgePointerHit: () => {},
+    applyCompactPointerHit: () => {},
     captureFullBounds: () => {},
     captureWindowBounds: () => {},
     savePreferences: () => {},
@@ -113,15 +113,54 @@ test("every registered channel refuses a foreign sender before running", async (
 });
 
 test("fire-and-forget channels also refuse a foreign sender", () => {
-  const { ipcMain } = register();
-  const refused = [];
-  const foreign = { sender: { id: 99 }, senderFrame: null };
-  for (const channel of ipcMain.listened()) {
-    // ipcMain.on has no return path, so a refusal is silent — it must simply not act.
-    assert.doesNotThrow(() => ipcMain.emit(channel, foreign), `${channel} threw instead of ignoring`);
-    refused.push(channel);
+  // ipcMain.on has no return path, so a refusal is silent. This test used to assert only
+  // that nothing threw — and seven of the eight handler bodies complete without throwing
+  // anyway, so a build with the guard deleted passed it unchanged. What has to be observed
+  // is the absence of the EFFECT.
+  const effects = [];
+  const spy = (name, result) => (...args) => { effects.push({ name, args }); return result; };
+  const overrides = () => ({
+    getWindowMode: () => "orb",
+    getCompactDragOrigin: () => ({ screenX: 0, screenY: 0, bounds: { x: 0, y: 0, width: 172, height: 128 } }),
+    getFullDragOrigin: () => ({ screenX: 0, screenY: 0, bounds: { x: 0, y: 0, width: 420, height: 640 } }),
+    setCompactDragOrigin: spy("setCompactDragOrigin"),
+    setFullDragOrigin: spy("setFullDragOrigin"),
+    setFullBounds: spy("setFullBounds"),
+    setCompactHitAreas: spy("setCompactHitAreas"),
+    moveWithinNearestDisplay: spy("moveWithinNearestDisplay", { x: 1, y: 1 }),
+    moveEdgeDragToPointer: spy("moveEdgeDragToPointer", { x: 1, y: 1, side: "right" }),
+    applyCompactPointerHit: spy("applyCompactPointerHit"),
+    traceCompactDrag: spy("traceCompactDrag"),
+    sendToRenderer: spy("sendToRenderer"),
+    getCompactHitTracker: () => null,
+    getGameBarController: () => ({ setSelectedSessionId: spy("setSelectedSessionId") }),
+    selectedFiles: { remember: spy("remember", "selected-file:test"), prepare: async () => ({ attachments: [], failures: [] }) },
+    getCursorScreenPoint: () => ({ x: 10, y: 10 }),
+  });
+  const payloads = {
+    "set-compact-hit-areas": [{ x: 0, y: 0, width: 10, height: 10 }],
+    "register-selected-file": "C:\\tmp\\file.txt",
+    "gamebar-selected-session": "session-1",
+  };
+  const payloadFor = (channel) => (channel in payloads ? payloads[channel] : { x: 40, y: 60 });
+
+  const foreignRun = register(overrides());
+  const channels = foreignRun.ipcMain.listened();
+  assert.ok(channels.length > 0, "no ipcMain.on channels were registered");
+  for (const channel of channels) {
+    const foreign = { sender: { id: 99 }, senderFrame: null, returnValue: undefined };
+    assert.doesNotThrow(() => foreignRun.ipcMain.emit(channel, foreign, payloadFor(channel)), `${channel} threw instead of ignoring`);
   }
-  assert.ok(refused.length > 0, "no ipcMain.on channels were registered");
+  assert.deepEqual(effects, [], `a foreign sender reached these handlers: ${effects.map((effect) => effect.name).join(", ")}`);
+
+  // The same emits from the real window DO act, so the assertion above is measuring the
+  // guard rather than a set of handlers that happen to be inert.
+  const trusted = register(overrides());
+  for (const channel of trusted.ipcMain.listened()) {
+    const legitimate = { sender: trusted.window.webContents, senderFrame: { parent: null }, returnValue: undefined };
+    trusted.ipcMain.emit(channel, legitimate, payloadFor(channel));
+  }
+  assert.ok(effects.length >= 5, `the trusted run produced only ${effects.length} effects: ${effects.map((effect) => effect.name).join(", ")}`);
 });
 
 test("the real window is accepted", async () => {

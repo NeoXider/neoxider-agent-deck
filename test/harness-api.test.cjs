@@ -639,3 +639,113 @@ test("prompt carries image attachments through the official content blocks", asy
     { type: "image", mediaType: "image/png", data: "AA==", name: "shot.png" },
   ]);
 });
+
+// One bad session used to take the whole dashboard offline: only the two RPCs were guarded,
+// so a throw from the derivation readers rejected the shared Promise.all and the renderer
+// received {harness:false, sessions:[]} — every session on screen vanished at once.
+test("a session that fails to enrich degrades alone", async () => {
+  const api = new HarnessApi();
+  api.rpc = async (method, payload) => {
+    if (method === "host.describe") return { version: "test" };
+    if (method === "session.list") {
+      return { items: [
+        { sessionId: "poison", running: true, updatedAt: 1, cwd: "C:\AI\poison" },
+        { sessionId: "healthy", running: false, updatedAt: 2, cwd: "C:\AI\healthy" },
+      ] };
+    }
+    if (method === "subagent.list") return { entries: [] };
+    if (method === "session.history") {
+      if (payload.sessionId === "poison") return { get events() { throw new Error("malformed history page"); } };
+      return { events: [{ event: { type: "turn/end", seq: 1, time: 2, data: { reason: { kind: "success" } } } }] };
+    }
+    if (method === "workspace.list") return { items: [], archivedSessionIds: [] };
+    throw new Error(`Unexpected RPC ${method}`);
+  };
+
+  const { sessions } = await api.dashboard();
+  assert.equal(sessions.length, 2, "the healthy session still arrives");
+  const poison = sessions.find((session) => session.sessionId === "poison");
+  assert.equal(poison.degraded, true);
+  assert.match(poison.enrichmentError, /malformed history page/);
+  assert.equal(sessions.find((session) => session.sessionId === "healthy").state, "idle");
+});
+
+test("dashboard reports how long the current turn has been running", async () => {
+  const api = new HarnessApi();
+  let historyCalls = 0;
+  api.rpc = async (method) => {
+    if (method === "host.describe") return { version: "test" };
+    if (method === "session.list") return { items: [{ sessionId: "busy", running: true, updatedAt: 7, cwd: "C:\AI\busy" }] };
+    if (method === "subagent.list") return { entries: [] };
+    if (method === "session.history") {
+      historyCalls += 1;
+      return { events: [
+        { event: { type: "turn/start", seq: 1, time: 1000, data: {} } },
+        { event: { type: "assistant/chunk", seq: 2, time: 1200, data: { chunk: { type: "text-delta", text: "…" } } } },
+      ] };
+    }
+    if (method === "workspace.list") return { items: [], archivedSessionIds: [] };
+    throw new Error(`Unexpected RPC ${method}`);
+  };
+
+  const first = await api.dashboard();
+  assert.equal(first.sessions[0].runningSince, 1000);
+  // The second poll reuses the cached history, and the clock must not reset to null with it.
+  const second = await api.dashboard();
+  assert.equal(historyCalls, 1, "history was served from the cache");
+  assert.equal(second.sessions[0].runningSince, 1000);
+});
+
+// A restart that answers an empty page for a session that had a conversation is a fault, not
+// a compaction. Replacing the cache with it blanked the chat and cached the blank as final.
+test("an empty history answer cannot blank a conversation the widget already had", async () => {
+  const api = new HarnessApi();
+  const full = [1, 2, 3].map((seq) => ({ event: { type: "assistant/message", seq, time: seq, data: { message: { content: [{ type: "text", text: `line ${seq}` }] } } } }));
+  let page = { events: full, hasMore: false };
+  api.rpc = async () => page;
+
+  const before = await api.history("s1");
+  assert.equal(before.messages.length, 3);
+
+  page = { events: [], hasMore: false };
+  const during = await api.history("s1");
+  assert.equal(during.messages.length, 3, "the transcript survives the empty answer");
+
+  // A real compaction still shrinks it: a shorter but non-empty answer is authoritative.
+  page = { events: full.slice(2), hasMore: false };
+  const compacted = await api.history("s1");
+  assert.equal(compacted.messages.length, 1, "/compact still truncates");
+});
+
+test("the command catalog merges Harness commands with installed skills", async () => {
+  const api = new HarnessApi();
+  api.rpc = async (method) => {
+    if (method === "commands/list") return [{ name: "goal", description: "Set a goal" }];
+    if (method === "skill.list") {
+      return { skills: [
+        { name: "neoxider-agents", description: "Run the agent fleet", modelInvocable: true },
+        { name: "manual-only", description: "Needs a human", modelInvocable: false },
+        { name: "goal", description: "shadows a real command", modelInvocable: true },
+      ] };
+    }
+    throw new Error(`Unexpected RPC ${method}`);
+  };
+
+  const catalog = await api.commandCatalog("s1");
+  assert.deepEqual(catalog.map(({ name, kind }) => ({ name, kind })), [
+    { name: "goal", kind: "command" },
+    { name: "neoxider-agents", kind: "skill" },
+    { name: "manual-only", kind: "skill" },
+  ], "a skill cannot shadow a host command of the same name");
+  assert.match(catalog[2].description, /^User only · /);
+});
+
+// Not every Harness build has the skill plugin; skill.list answers "not found" there.
+test("a Harness without skills still returns its commands", async () => {
+  const api = new HarnessApi();
+  api.rpc = async (method) => {
+    if (method === "commands/list") return [{ name: "compact", description: "Compact history" }];
+    throw new Error("not found");
+  };
+  assert.deepEqual(await api.commandCatalog("s1"), [{ name: "compact", description: "Compact history", kind: "command" }]);
+});

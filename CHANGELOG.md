@@ -5,6 +5,36 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] - 2026-08-29
+
+### Added
+
+- **Harness skills in the `/` menu.** Harness feeds its own slash menu from two sources; the widget read only `commands/list`, so a skill installed in the workspace appeared in Harness and was missing here. The catalog now merges `skill.list` as well, badges each entry as `skill`, refuses to let a skill shadow a host command of the same name, and marks skills the model cannot start itself as *User only*. Picking one inserts `/name ` and sends it as an ordinary prompt, because a skill is invoked by the model rather than executed by the host — routing it through `commands/execute` would be rejected as an unknown command. A Harness build without the skill plugin answers "not found" and still returns its commands.
+- **Elapsed turn time in the session list.** Every session card and picker entry shows how long the agent has been on the current turn, ticking once a second, and how long the last completed turn took. The value is derived from the turn's own `turn/start` and `turn/end` events rather than timed in the widget, so it is already correct for a session that was running before the widget opened and survives a restart. The clock is written straight into the node and deliberately kept out of every render signature, so it cannot rebuild the list once a second, and the interval stops when nothing is running.
+- **Expand avatar on activity** — a settings toggle, off by default, that restores the previous behaviour of opening the status panel by itself.
+
+### Changed
+
+- **Avatar mode is collapsed until you open it.** Activity, a finished turn and even an offline Harness used to widen the orb to 400 px on their own, putting a panel over the screen without being asked. The collapsed orb is now a circle plus an expand button carrying a count of the agents currently working; the panel opens on request.
+- **Show live Think became Show live activity**, and now governs the whole live-status strip rather than the single word "thinking".
+
+### Fixed
+
+- **The session and its conversation disappeared on their own.** A single unhealthy dashboard poll — a Harness restart, an 8 s RPC timeout, a laptop waking up — answers `{harness:false, sessions:[]}`, and that was treated as authoritative: the selection was dropped, the chat re-rendered empty, and the next healthy poll re-selected whichever session happened to be running. A one-second blip left the user reading a different conversation, with no way back. A session is now only given up on after a *healthy* dashboard has failed to mention it twice in a row, auto-selection never runs against an offline dashboard, and the previous choice is remembered so recovery restores it instead of guessing.
+- **A newly created session could become unreachable.** Creating a session and refreshing immediately hit the one-second shared dashboard cache and was served the snapshot from before it existed; because a blank, unselected session is hidden from every group, it then vanished from the UI entirely. Anything that changes the session set now drops that cache first.
+- **One malformed session took the whole dashboard offline.** Only the two enrichment RPCs were guarded, so a throw from any of the history readers rejected the shared `Promise.all` and produced the empty payload above — every session on screen disappeared at once. Enrichment is now per session and degrades alone, carrying the reason.
+- **An empty history answer could blank a conversation and cache the blank.** When the newest page reported no more data its contents replaced the cached transcript outright, so a restart that answered with nothing wiped the chat and stored the empty result as complete. The cache is now a floor against emptiness specifically; `/compact` still legitimately shrinks a history.
+- **Turning off live Think left "Working" above the conversation.** Only `kind === "thinking"` was gated. Every tool result clears the activity and a `working` fallback takes its place, so the card came back a second after being switched off. The preference now covers thinking, writing, tool and working, and flipping it repaints the compact chrome too — previously it did nothing at all while the widget was collapsed.
+- **The live Think overlay blended into the chat.** It inherited the activity card's translucent gradient, so the conversation showed straight through it. It now floats on its own opaque layer with a border, shadow and blur, and eases in from the top edge.
+- **The avatar occupied a huge invisible click target.** A 172 × 128 transparent window — up to 460 × 158 with the panel open — sat over the desktop for a 68 px circle, swallowing clicks and starting a drag anywhere inside it. Both compact windows now forward the mouse through their empty space: the renderer measures its live controls and only those rectangles take input. Avatar mode is dragged by the circle alone.
+- **The avatar jumped sideways after a drag, and could leave the screen.** The docked side was decided from the window's centre, but with the panel open the circle sits up to 300 px away from it — so a drag that plainly ended on one side snapped back to the other. Placement is now measured on the visible element throughout: the side follows the circle, clamping uses the live window size instead of the size captured when the drag began, and the transparent margin may hang off the screen while the visible part may not.
+- **The avatar and the edge line could not reach the top or bottom of the screen.** Clamping the whole window to the work area stopped the visible circle 30 px short at each end and the line 28 px short. Both can now be parked flush against either edge.
+
+### Internal
+
+- Compact placement moved out of `applyWindowMode` into `compact-window.cjs`, so the orb and edge branches share one set of rules; `session-activity.cjs` now owns turn and activity derivation, keeping `harness-api.cjs` a transport.
+- Six tests that could not fail were replaced rather than deleted: the fire-and-forget sender guard now observes the absence of effects instead of the absence of a throw (seven of eight handlers complete without throwing anyway); two `doesNotMatch` guards were measured against character budgets their functions had already outgrown; the show-acknowledgement ordering check passed on a missing needle; the preference round-trip built its expectation with the same normalizer it was testing; and the release-artifact loop silently swapped one assertion for an unrelated one.
+
 ## [0.6.5] - 2026-08-29
 
 ### Fixed

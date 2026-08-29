@@ -1,4 +1,4 @@
-const { clamp, compactMargin } = require("./window-geometry.cjs");
+const { clamp, compactMargin, compactVisibleInset } = require("./window-geometry.cjs");
 
 function finite(value, fallback) {
   const numeric = Number(value);
@@ -32,10 +32,14 @@ function restoreCompactBounds(saved, fallback, workArea, options = {}) {
   const height = Math.max(1, finite(options.height, fallback?.height || 1));
   const side = [saved?.side, options.side, fallback?.side].find((value) => value === "left" || value === "right") || "right";
   const margin = compactMargin(mode);
+  // Clamped by the VISIBLE rectangle, not the window: the transparent margin around the
+  // circle and the line is allowed to hang off the screen, which is what lets the user
+  // park either of them flush against the top or bottom edge.
+  const inset = compactVisibleInset(mode, side, { width, height });
   const y = clamp(
     finite(saved?.y, finite(fallback?.y, workArea.y)),
-    workArea.y,
-    workArea.y + workArea.height - height,
+    workArea.y - inset.top,
+    workArea.y + workArea.height - height + inset.bottom,
   );
   return {
     x: side === "left" ? workArea.x + margin : workArea.x + workArea.width - width - margin,

@@ -63,6 +63,7 @@ const completePreferences = {
   opacity: 0.73,
   glowIntensity: 0.41,
   showThinking: false,
+  compactAutoExpand: true,
   size: "large",
   windowLayer: "game",
   compactSide: "left",
@@ -234,10 +235,13 @@ const preferenceMutations = [
   ["opacity", (value) => ({ ...value, opacity: 0.88 })],
   ["glow intensity", (value) => ({ ...value, glowIntensity: 0.67 })],
   ["live Think visibility", (value) => ({ ...value, showThinking: true })],
+  ["avatar auto expand", (value) => ({ ...value, compactAutoExpand: false })],
   ["size", (value) => ({ ...value, size: "compact" })],
   ["window layer", (value) => ({ ...value, windowLayer: "normal" })],
   ["compact side", (value) => ({ ...value, compactSide: "right" })],
-  ["hotkeys", (value) => ({ ...value, hotkeys: { ...value.hotkeys, captureDisplay: false } })],
+  // normalizeHotkeyBindings, not normalizePreferences: the expectation still has to be
+  // built independently of the store's own preference normalizer.
+  ["hotkeys", (value) => ({ ...value, hotkeys: normalizeHotkeyBindings({ ...value.hotkeys, captureDisplay: false }) })],
   ["startup mode", (value) => ({ ...value, windowState: { ...value.windowState, mode: "edge" } })],
   ["full bounds", (value) => ({ ...value, windowState: { ...value.windowState, full: { x: 80, y: 90, width: 380, height: 520 } } })],
   ["orb bounds", (value) => ({ ...value, windowState: { ...value.windowState, orb: { x: 1740, y: 260, side: "right" } } })],
@@ -248,9 +252,17 @@ for (const [label, mutate] of preferenceMutations) {
   test(`${label} changes without resetting any other preference`, () => {
     withTemporaryStore(({ filePath, store }) => {
       store.save(completePreferences);
-      const expected = normalizePreferences(mutate(store.load()));
+      // Built from the literal, NOT by re-running normalizePreferences over the mutation.
+      // The expectation used to come out of the same normalizer the store applies, so a
+      // normalizer that started dropping a field dropped it from the expectation too and
+      // all eleven of these tests still passed while the setting was being destroyed.
+      const expected = mutate(completePreferences);
       store.save(expected);
-      assert.deepEqual(createSettingsStore({ filePath }).load(), expected);
+      const reloaded = createSettingsStore({ filePath }).load();
+      assert.deepEqual(reloaded, expected);
+      // And the mutation has to be the ONLY difference from where we started.
+      const changed = Object.keys(expected).filter((key) => JSON.stringify(reloaded[key]) !== JSON.stringify(completePreferences[key]));
+      assert.deepEqual(changed, Object.keys(expected).filter((key) => JSON.stringify(expected[key]) !== JSON.stringify(completePreferences[key])));
     });
   });
 }
@@ -352,6 +364,9 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     opacity: 0.75,
     glowIntensity: 0.25,
     showThinking: true,
+    // Absent from an older file, so the collapsed default applies rather than the old
+    // always-expanding behaviour being silently carried forward.
+    compactAutoExpand: false,
     size: "compact",
     windowLayer: "normal",
     compactSide: "left",

@@ -639,3 +639,21 @@ test("the sandbox bridge carries exact Game Bar selection in both directions", (
   assert.match(renderer, /onGameBarSelectSession\(\(sessionId\) => \{ selectSession\(sessionId, true\)/);
   assert.match(renderer, /selectGameBarSession\(state\.selectedSessionId\)/);
 });
+
+// Creating a session and refreshing immediately used to be served the snapshot from before
+// the session existed, so the renderer concluded its brand-new id did not exist.
+test("the shared dashboard cache can be dropped when the session set changes", async () => {
+  let reads = 0;
+  let clock = 0;
+  const reader = createSharedDashboardReader({
+    readDashboard: async () => ({ ok: true, harness: true, sessions: [{ sessionId: `s${reads++}` }] }),
+    now: () => clock,
+    cacheMs: 1000,
+  });
+
+  assert.deepEqual((await reader.read()).sessions, [{ sessionId: "s0" }]);
+  assert.deepEqual((await reader.read()).sessions, [{ sessionId: "s0" }], "served from the cache");
+  reader.invalidate();
+  assert.deepEqual((await reader.read()).sessions, [{ sessionId: "s1" }], "a fresh read after invalidation");
+  assert.equal(reads, 2);
+});

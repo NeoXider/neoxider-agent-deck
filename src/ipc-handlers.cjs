@@ -116,21 +116,23 @@ function registerIpcHandlers({
   setFullDragOrigin,
   getCompactStatusResizePending,
   setCompactStatusResizePending,
+  setCompactHitAreas = () => {},
   getHotkeyRegistrationError,
   setHotkeyRegistrationError,
   getAutoStartController,
   getHarnessLauncher,
   getHotkeyManager,
-  getEdgeHitTracker,
+  getCompactHitTracker,
   getScreenshotService,
   getUpdateService,
   checkForUpdates = () => getUpdateService()?.check() || null,
   getGameBarController = () => null,
   getCursorScreenPoint = () => null,
   readDashboard,
+  invalidateDashboard = () => {},
   // Window-manager behaviour that stays in main.cjs, where the window state lives.
   applyWindowMode,
-  applyEdgePointerHit,
+  applyCompactPointerHit,
   captureFullBounds,
   captureWindowBounds,
   savePreferences,
@@ -204,7 +206,7 @@ function registerIpcHandlers({
     };
   });
   handle("models", async (_event, sessionId) => api.models(sessionId || undefined));
-  handle("commands", async (_event, sessionId) => api.commands(sessionId));
+  handle("commands", async (_event, sessionId) => api.commandCatalog(sessionId));
   handle("execute-command", async (_event, payload) => {
     const images = attachmentRegistry.resolvePayload(payload?.images, { imagesOnly: true });
     const result = await api.executeWidgetCommand(payload?.sessionId, payload?.line, images);
@@ -229,6 +231,9 @@ function registerIpcHandlers({
   handle("create-session", async (_event, options) => {
     const sessionId = await api.createSession(options || {});
     await api.ensureFullAccess(sessionId);
+    // The renderer refreshes straight after this. Without dropping the shared snapshot it
+    // would be served the pre-creation one and conclude the new session does not exist.
+    invalidateDashboard();
     return { sessionId };
   });
   handle("select-model", async (_event, payload) => {
@@ -238,7 +243,9 @@ function registerIpcHandlers({
     const text = String(payload && payload.text || "").trim();
     const attachments = attachmentRegistry.resolvePayload(payload?.attachments);
     if (!text && !attachments.length) throw new Error("Message is empty");
-    const sessionId = payload && payload.sessionId ? payload.sessionId : await api.createSession();
+    const created = !(payload && payload.sessionId);
+    const sessionId = created ? await api.createSession() : payload.sessionId;
+    if (created) invalidateDashboard();
     await api.ensureFullAccess(sessionId);
     if (payload && payload.selection) await api.selectModel(sessionId, payload.selection);
     const references = attachments.filter((item) => item.kind === "reference").map((item) => `@${item.path}`);
@@ -296,6 +303,12 @@ function registerIpcHandlers({
     schedulePreferenceSave();
     return preferences.showThinking;
   });
+  handle("set-compact-auto-expand", (_event, value) => {
+    const preferences = getPreferences();
+    preferences.compactAutoExpand = Boolean(value);
+    schedulePreferenceSave();
+    return preferences.compactAutoExpand;
+  });
   handle("set-size", (_event, preset) => {
     const preferences = getPreferences();
     const window = getWindow();
@@ -347,6 +360,7 @@ function registerIpcHandlers({
       opacity: preferences.opacity,
       glowIntensity: preferences.glowIntensity,
       showThinking: preferences.showThinking !== false,
+      compactAutoExpand: preferences.compactAutoExpand === true,
       size: preferences.size,
       windowMode: getWindowMode(),
       compactSide: preferences.compactSide,
@@ -383,13 +397,27 @@ function registerIpcHandlers({
     }
     return compactStatus;
   });
+  // The orb draws a 68 px circle and two small controls inside a window that is up to
+  // 460x158, and the renderer is the only place that knows where they currently are. It
+  // measures them and reports window-relative rectangles; every other pixel of that window
+  // forwards the mouse through to whatever is behind it.
+  on("set-compact-hit-areas", (_event, areas) => {
+    const rectangles = (Array.isArray(areas) ? areas : []).slice(0, 8).map((area) => ({
+      x: Math.round(Number(area?.x) || 0),
+      y: Math.round(Number(area?.y) || 0),
+      width: Math.max(0, Math.round(Number(area?.width) || 0)),
+      height: Math.max(0, Math.round(Number(area?.height) || 0)),
+    })).filter((area) => area.width > 0 && area.height > 0);
+    setCompactHitAreas(rectangles);
+    getCompactHitTracker()?.tick?.();
+  });
   // The sender checks these five used to carry inline are now the registration guard's
   // job, and the guard also refuses a destroyed window, so only the mode and gesture
   // preconditions are left here.
   on("set-edge-pointer-active", (_event, active) => {
-    const edgeHitTracker = getEdgeHitTracker();
-    if (edgeHitTracker) edgeHitTracker.tick();
-    else applyEdgePointerHit(Boolean(active));
+    const compactHitTracker = getCompactHitTracker();
+    if (compactHitTracker) compactHitTracker.tick();
+    else applyCompactPointerHit(Boolean(active));
   });
   on("move-full-drag", (_event, value) => {
     const fullDragOrigin = getFullDragOrigin();
@@ -428,8 +456,8 @@ function registerIpcHandlers({
     if (getWindowMode() === "full") return;
     const { x: screenX, y: screenY } = compactPointer(value);
     if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
-    applyEdgePointerHit(true);
-    getEdgeHitTracker()?.sync?.();
+    applyCompactPointerHit(true);
+    getCompactHitTracker()?.sync?.();
     const origin = { screenX, screenY, bounds: getWindow().getBounds() };
     setCompactDragOrigin(origin);
     traceCompactDrag("begin", { screenX, screenY, bounds: origin.bounds });
@@ -449,7 +477,7 @@ function registerIpcHandlers({
       applyWindowMode("orb", { captureCurrent: false, persist: false, preserveCompactPosition: true });
       result = { ...getWindow().getBounds(), side: getPreferences().compactSide };
     }
-    getEdgeHitTracker()?.sync?.();
+    getCompactHitTracker()?.sync?.();
     return result;
   });
   on("move-compact-drag", (_event, value) => {

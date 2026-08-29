@@ -208,6 +208,31 @@ function attachScreenshotHarness({
             orbReplyTarget: document.querySelector('#orbReplyTitle')?.textContent || '',
             orbStatusLabel: document.querySelector('#orbStatusLabel')?.textContent || '',
             orbStatusText: document.querySelector('#orbStatusText')?.textContent || '',
+            sessionElapsedRunning: document.querySelectorAll('#sessions .session-time.running').length,
+            sessionElapsedWellFormed: [...document.querySelectorAll('#sessions .session-time')]
+              .map((node) => node.textContent)
+              .filter(Boolean)
+              // Double-escaped on purpose. This whole block is a template literal, so an
+              // unrecognised escape loses its backslash before the page sees it — the first
+              // version compiled to a regex matching nothing and failed on correct output.
+              .every((text) => /^(\\d+h \\d{2}m|\\d+m \\d{2}s|\\d+s)$/.test(text)),
+            sessionElapsedLastRun: document.querySelector('#sessions .session-time:not(.running)')?.textContent || '',
+            // The clock sits on the meta line; a wrap here would push every card taller.
+            sessionMetaSingleLine: [...document.querySelectorAll('#sessions .session-meta')]
+              .every((meta) => meta.getBoundingClientRect().height <= 16),
+            orbHasStatus: document.body.classList.contains('orb-has-status'),
+            // Measured, not inferred from a class: the collapsed panel is width:0, and a
+            // regression that leaves it laid out would still carry the class.
+            orbStatusWidth: Math.round(document.querySelector('#orbStatus')?.getBoundingClientRect().width || 0),
+            orbPanelCountVisible: Boolean(document.querySelector('#orbPanelCount')?.classList.contains('visible')),
+            orbPanelCount: document.querySelector('#orbPanelCount')?.textContent || '',
+            // Every rectangle of the orb window that still takes the mouse. Anything beyond
+            // these forwards clicks to whatever is behind the widget.
+            orbInteractiveArea: ['#orbRestore', '#orbHistoryButton', '#orbStatus'].reduce((total, selector) => {
+              const element = document.querySelector(selector);
+              const rect = element && !element.hidden && element.offsetParent ? element.getBoundingClientRect() : null;
+              return total + (rect && rect.width >= 1 && rect.height >= 1 ? Math.round(rect.width * rect.height) : 0);
+            }, 0),
             orbReplyInputVisible: (() => {
               const input = document.querySelector('#orbReplyInput');
               const rect = input?.getBoundingClientRect();

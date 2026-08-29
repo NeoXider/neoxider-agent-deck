@@ -1,12 +1,81 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { edgeDragBounds, moveCompactBounds, snapCompactBounds } = require("../src/window-geometry.cjs");
+const {
+  compactVisibleInset,
+  compactVisibleRect,
+  edgeDragBounds,
+  moveCompactBounds,
+  snapCompactBounds,
+} = require("../src/window-geometry.cjs");
 
 const workArea = { x: 0, y: 20, width: 1920, height: 1040 };
+const ORB = { width: 172, height: 128 };
+const ORB_PANEL = { width: 460, height: 158 };
+const EDGE = { width: 88, height: 132 };
 
 test("compact drag is clamped to the usable display", () => {
   const result = moveCompactBounds({ x: 100, y: 100, width: 190, height: 76 }, { x: -500, y: 5000 }, workArea);
   assert.deepEqual(result, { x: 0, y: 984, width: 190, height: 76 });
+});
+
+// The reported symptom was "the avatar and the line are strongly limited in height". They
+// were: both windows are mostly transparent, and clamping the WINDOW to the work area
+// stopped the visible circle 30 px short of the top and the line 28 px short.
+test("the visible circle and line can reach the very top and bottom of the screen", () => {
+  const orb = { ...ORB, x: 1740, y: 400 };
+  const inset = compactVisibleInset("orb", "right", orb);
+  assert.deepEqual(inset, { top: 30, right: 30, bottom: 30, left: 74 }, "68px circle, 30px margin, docked right");
+
+  const top = moveCompactBounds(orb, { x: orb.x, y: -9999 }, workArea, inset);
+  const bottom = moveCompactBounds(orb, { x: orb.x, y: 9999 }, workArea, inset);
+  assert.equal(compactVisibleRect(top, inset).y, workArea.y, "the circle touches the top of the work area");
+  assert.equal(
+    compactVisibleRect(bottom, inset).y + 68,
+    workArea.y + workArea.height,
+    "and the bottom, with the transparent margin hanging off the screen",
+  );
+  // Without the inset the same drag stops a full margin short at both ends.
+  assert.equal(moveCompactBounds(orb, { x: orb.x, y: -9999 }, workArea).y, workArea.y);
+  assert.equal(compactVisibleRect(moveCompactBounds(orb, { x: orb.x, y: -9999 }, workArea), inset).y - workArea.y, 30);
+
+  const edge = { ...EDGE, x: 1832, y: 400 };
+  const edgeInset = compactVisibleInset("edge", "right", edge);
+  assert.deepEqual(edgeInset, { top: 28, right: 0, bottom: 28, left: 80 });
+  const edgeTop = moveCompactBounds(edge, { x: edge.x, y: -9999 }, workArea, edgeInset);
+  assert.equal(compactVisibleRect(edgeTop, edgeInset).y, workArea.y);
+});
+
+test("the visible inset follows the docked side", () => {
+  assert.deepEqual(compactVisibleInset("orb", "left", ORB), { top: 30, right: 74, bottom: 30, left: 30 });
+  assert.deepEqual(compactVisibleInset("edge", "left", EDGE), { top: 28, right: 80, bottom: 28, left: 0 });
+});
+
+// "The avatar moves to the right on its own." With the panel open the window is 460 px wide
+// and the circle sits at one end of it, so a drop that plainly ended on the left half was
+// judged by a window centre still sitting on the right, and snapped back.
+test("the snapped side is decided by the circle, not by the window around it", () => {
+  // Docked left with the panel open, the circle sits at the left end of a 460 px window, so
+  // it is 166 px left of the centre the old rule measured.
+  const panel = { ...ORB_PANEL, x: 800, y: 400 };
+  const inset = compactVisibleInset("orb", "left", panel);
+  const rect = compactVisibleRect(panel, inset);
+  const middle = workArea.x + workArea.width / 2;
+  assert.ok(rect.x + rect.width / 2 < middle, "the circle was dropped on the left half");
+  assert.ok(panel.x + panel.width / 2 > middle, "while the window centre is still on the right");
+
+  assert.equal(snapCompactBounds(panel, workArea, "orb", inset).side, "left", "follows the circle");
+  assert.equal(snapCompactBounds(panel, workArea, "orb").side, "right", "the old rule flung it to the right edge");
+});
+
+test("a snapped compact window keeps the visible element on screen", () => {
+  for (const mode of ["orb", "edge"]) {
+    const bounds = mode === "orb" ? { ...ORB, x: 40, y: -400 } : { ...EDGE, x: 40, y: 4000 };
+    const inset = compactVisibleInset(mode, "left", bounds);
+    const snapped = snapCompactBounds(bounds, workArea, mode, inset);
+    const rect = compactVisibleRect(snapped, inset);
+    assert.ok(rect.y >= workArea.y, `${mode} top ${rect.y} is on screen`);
+    assert.ok(rect.y + rect.height <= workArea.y + workArea.height, `${mode} bottom is on screen`);
+  }
 });
 
 test("avatar mode magnetizes to the nearest edge with an eight pixel margin", () => {

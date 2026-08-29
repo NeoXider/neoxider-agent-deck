@@ -56,6 +56,34 @@ This backlog records planned work only. Items are not part of the current releas
 - Restored the ability to move the Edge line to the opposite screen edge: the side now follows the pointer instead of x being frozen for the drag, so crossing the middle of the display moves the line across and another monitor is reachable; covered by geometry and IPC regressions.
 - Removed the Avatar-mode jump when quick reply opens by waiting for the native orb resize before easing the panel in, with a bounded fallback so a hung IPC cannot leave the orb blank; covered by renderer and visual regressions.
 
+## Shipped in 0.6.6
+
+- Merged Harness skills into the `/` menu from `skill.list`, badged as `skill` and sent as prompts rather than host commands; covered by API and contract regressions.
+- Added live elapsed turn time and last-turn duration to session cards and the session picker, derived from turn events so it survives a restart; covered by activity, API and visual regressions.
+- Made Avatar mode collapsed by default with a working-agent count on its expand button, plus an opt-in **Expand avatar on activity** preference; covered by persistence, contract and two new visual regressions.
+- Stopped a single unhealthy dashboard poll from clearing the selected session and its transcript, remembered the user's choice across the outage, and dropped the shared dashboard cache whenever the session set changes; covered by contract and controller regressions.
+- Made session enrichment degrade per session instead of taking the whole dashboard offline, and stopped an empty history answer from blanking and caching over a conversation; covered by API regressions.
+- Widened the live-activity preference from `thinking` to the whole live-status strip, made it repaint compact chrome, and gave the overlay its own opaque layer; covered by contract, two visual regressions and the input regression.
+- Forwarded the mouse through the transparent parts of both compact windows, restricted Avatar dragging to the circle, and moved side snapping and clamping onto the visible element so it can reach both screen edges; covered by geometry, hit-tracker and visual regressions.
+
+## Known gaps at 0.6.6
+
+- **The animation and accessibility audit did not complete.** Three attempts stalled on
+  infrastructure, so the CSS animation system had no systematic review this cycle — only the
+  surfaces touched by these fixes. Worth re-running before the next release. The open
+  questions were: transitions declared on elements that are toggled with `display:none` and
+  therefore snap; `infinite` animations on always-present nodes; the same property animated
+  by two rules with different durations, so the timing depends on cascade order; and contrast
+  on the 8–9 px muted greys.
+- **`forgetSession` is dead code.** `harness-api.cjs` exposes it and nothing in `src/` calls
+  it, so `fullAccessSessions`, `sessionStateCache` and `historyCache` retain archived and
+  deleted sessions for the life of the process. Harmless at current sizes, but it is a leak
+  with a name that promises otherwise.
+- **Sessions ranked past 18 are never enriched**, so they carry an empty preview and a
+  default `idle` state — losing a real `error` — and `recentReplySessions` skips them
+  entirely, so such a session can never reach the Avatar reply list even when it is the most
+  recently updated one.
+
 ## Known gaps at 0.6.5
 
 Recorded rather than quietly dropped. None of these block the release; all of them are
