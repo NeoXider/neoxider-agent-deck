@@ -5,6 +5,14 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.9] - 2026-08-29
+
+### Fixed
+
+- **The portable build never cleaned up after itself.** It unpacks into a fresh `%TEMP%` directory on every launch and left the previous one behind forever — on one machine that had reached 27 GB across 75 directories, roughly 100–350 MB per release kept indefinitely with nothing in the product ever looking at them again. The launcher stub is electron-builder's and cannot be changed, so the app it starts now collects them, including directories left by the pre-rename `DeepSeek Harness Widget` build.
+
+  The whole risk is deleting the wrong directory, so the rules are narrow and each one is asserted: a candidate must sit directly in the temp root, carry an executable named for this product, *and* carry `resources/app.asar`; the directory the running process was unpacked into is never a candidate; a directory still held by another running copy is skipped and collected on a later launch; and each launch removes a bounded number so startup cannot stall.
+
 ## [0.6.8] - 2026-08-29
 
 ### Fixed

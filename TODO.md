@@ -74,6 +74,10 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
 
+## Shipped in 0.6.9
+
+- Made the portable build remove its own previous `%TEMP%` extractions on launch, including pre-rename ones, with the running directory, look-alike directories and directories held by another copy all excluded; covered by eleven regressions against a fake disk.
+
 ## Known gaps at 0.6.7
 
 - **The animation and accessibility audit did not complete.** Three attempts stalled on
@@ -125,8 +129,9 @@ things a reader of the verification folder would otherwise have to infer.
   still a manual step.
 - **The portable build reuses its temp extraction directory.** A relaunch after replacing
   the exe can silently keep running the previous build; confirming a version means checking
-  the unpacked `app.asar`, not the file timestamps. Worth automating before the next
-  release.
+  the unpacked `app.asar`, not the file timestamps. *Partly addressed in 0.6.9*: the app now
+  deletes previous extractions on launch, so they no longer accumulate — but the stub still
+  reuses a directory within a single version, so the version check above still applies.
 
 ## Epic: Overlay quality
 

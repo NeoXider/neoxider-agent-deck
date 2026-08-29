@@ -1,5 +1,6 @@
 const path = require("node:path");
 const { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, session, shell, Tray } = require("electron");
+const { startPortableExtractionSweep } = require("./portable-extraction-cleanup.cjs");
 const { HarnessApi } = require("./harness-api.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createAutoStartController } = require("./auto-start.cjs");
@@ -781,6 +782,9 @@ app.whenReady().then(() => {
   });
   gameBarController.start();
   if (!ISOLATED_SMOKE_MODE) updateOrchestrator.start();
+  // The portable launcher unpacks into a fresh %TEMP% directory on every run and never
+  // removes the previous one; on one machine that had reached 27 GB across 75 directories.
+  if (!ISOLATED_SMOKE_MODE) startPortableExtractionSweep({ tempRoot: app.getPath("temp") });
   // A screenshot run must capture a fixture, not whatever a live Harness pushes.
   if (!ISOLATED_SMOKE_MODE) {
     muxClient.connect();
