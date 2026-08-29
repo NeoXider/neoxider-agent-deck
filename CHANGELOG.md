@@ -5,6 +5,16 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] - 2026-08-29
+
+### Fixed
+
+- **A queued document filled its row with an absolute path.** A file attachment travels to Harness as an `@C:\Users\…\report.pdf` reference inside the message text, so a message queued behind a running turn spent its whole one-line row on a path and was still cut off before the file name — the only part worth reading. The preview now shows the name; the editable text keeps the real path, because saving a shortened one would hand Harness a reference it cannot resolve.
+
+### Internal
+
+- Added `npm run queue-smoke`, which drives a real Harness end to end: it opens a turn, sends text, an image-only message and a document behind it, and reads the queue off the same event multiplexer the widget listens on, through the same two functions the widget renders from. Queuing an attachment crosses four places where it could be lost — the prompt encoder, the multiplexer, `queue-view.cjs` and the placement filter in `stream-publisher.cjs` — and no unit test spans them.
+
 ## [0.6.7] - 2026-08-29
 
 ### Changed

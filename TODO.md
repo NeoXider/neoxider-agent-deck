@@ -70,6 +70,10 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Replaced the `N subagents` roster size on session cards with a badge counting only the background tasks running right now, hidden entirely at zero; covered by contract and visual regressions.
 
+## Shipped in 0.6.8
+
+- Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
+
 ## Known gaps at 0.6.7
 
 - **The animation and accessibility audit did not complete.** Three attempts stalled on

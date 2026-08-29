@@ -3,6 +3,20 @@
 // text only when the item is editable. Pure, so it is asserted directly.
 const MAX_PREVIEW_CHARS = 240;
 
+// A file attachment travels to Harness as an "@C:\...\name.ext" reference inside the message
+// text, so a queued document used to fill its whole one-line row with an absolute path and
+// still be cut off before the file name — the only part worth reading. The preview shows the
+// name; the editable text keeps the real path, because saving a shortened one would break the
+// reference.
+const ABSOLUTE_REFERENCE = /@((?:[a-zA-Z]:[\\/]|\\\\|\/)\S+)/g;
+
+function shortenReferences(value) {
+  return value.replace(ABSOLUTE_REFERENCE, (match, filePath) => {
+    const name = filePath.split(/[\\/]/).filter(Boolean).at(-1);
+    return name ? `@${name}` : match;
+  });
+}
+
 function queueItemView(item) {
   const content = Array.isArray(item?.message?.content) ? item.message.content : [];
   const textBlocks = content.filter((block) => block?.type === "text" && typeof block.text === "string");
@@ -17,8 +31,8 @@ function queueItemView(item) {
     id: String(item?.id || item?.message?.id || ""),
     placement: String(item?.placement || "queued"),
     text: editableText,
-    preview: String(text || fallback).replace(/\s+/g, " ").slice(0, MAX_PREVIEW_CHARS),
+    preview: shortenReferences(String(text || fallback)).replace(/\s+/g, " ").slice(0, MAX_PREVIEW_CHARS),
   };
 }
 
-module.exports = { MAX_PREVIEW_CHARS, queueItemView };
+module.exports = { MAX_PREVIEW_CHARS, queueItemView, shortenReferences };
