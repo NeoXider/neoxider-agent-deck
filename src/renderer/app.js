@@ -618,12 +618,14 @@ function syncGameBarSelection() {
 function syncActivityCard() {
   const activity = state.currentActivity;
   const card = $("#activityCard");
-  const messagesWrap = $(".messages-wrap");
   const hasActivity = Boolean(activity?.text);
   const hasWritingBubble = activity?.kind === "writing" && Boolean($("#messages .live-assistant"));
   const showCard = hasActivity && !hasWritingBubble && (state.showThinking || !LIVE_ACTIVITY_KINDS.has(activity?.kind));
-  const compactThinking = showCard && activity?.kind === "thinking";
-  messagesWrap.classList.toggle("has-thinking-overlay", compactThinking);
+  // Reasoning used to get its own strip: absolutely positioned inside .messages-wrap, with
+  // room reserved by padding-top on .messages. That padding scrolls away with the content,
+  // so a scrolled log put the strip on top of its first visible row and the widget showed
+  // two blocks of text in one place. Every activity kind now shares the one card in flow.
+  const thinking = showCard && activity?.kind === "thinking";
   syncCrowdedChatState();
   const signature = showCard ? JSON.stringify([true, activity?.kind || "", activity?.label || "", activity?.text || ""]) : "hidden";
   if (signature === state.activityCardSignature) return false;
@@ -632,14 +634,12 @@ function syncActivityCard() {
   card.hidden = !showCard;
   card.setAttribute("aria-hidden", String(!showCard));
   card.classList.toggle("has-activity", showCard);
-  card.classList.toggle("thinking-compact", compactThinking);
-  if (compactThinking && card.parentElement !== messagesWrap) messagesWrap.prepend(card);
-  else if (!compactThinking && card.parentElement === messagesWrap) messagesWrap.before(card);
-  if (compactThinking) card.open = false;
+  card.classList.toggle("thinking-activity", thinking);
   if (showCard) {
     $("#activityLabel").textContent = activity.label || "Activity";
-    $("#activityPreview").textContent = compactThinking
-      ? compactRecentText(activity.text, 92)
+    // Reasoning arrives as one growing string; its tail is the part that is still news.
+    $("#activityPreview").textContent = thinking
+      ? compactRecentText(activity.text, 110)
       : compactText(activity.text, 110);
     $("#activityBody").textContent = activity.text;
   }
@@ -4965,7 +4965,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.6.9", latestVersion: "0.6.10", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {

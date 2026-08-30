@@ -5,6 +5,14 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.10] - 2026-08-30
+
+### Fixed
+
+- **The live Think status covered the top of the conversation.** Reasoning was the one activity kind that did not use the status card above the chat: it got a strip of its own, absolutely positioned inside the message wrapper, and the room for it was reserved with `padding-top` on the scroll container. That padding belongs to the scrolled content, so it slid away with the first message — from then on the strip was painted over whatever row happened to be at the top of the log, and the widget showed two blocks of text stacked in the same place. Making the strip opaque in 0.6.9 only made the covering solid.
+
+  There is one activity block now. Thinking renders in the same card as working, tool and writing, in normal flow above the chat, so it cannot reach the conversation at all — and it keeps the expander the strip had to hide, so the full reasoning text is one click away. **Show live activity** in settings still switches the whole block off.
+
 ## [0.6.9] - 2026-08-29
 
 ### Fixed

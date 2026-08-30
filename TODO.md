@@ -74,6 +74,10 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
 
+## Shipped in 0.6.10
+
+- Folded the live Think strip into the one activity block above the chat, so reasoning no longer covers the top row of a scrolled conversation and keeps its expander; covered by contract regressions and a new `thinking-scrolled-chat` visual case that fails on the old floating layout.
+
 ## Shipped in 0.6.9
 
 - Made the portable build remove its own previous `%TEMP%` extractions on launch, including pre-rename ones, with the running directory, look-alike directories and directories held by another copy all excluded; covered by eleven regressions against a fake disk.

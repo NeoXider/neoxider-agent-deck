@@ -308,8 +308,7 @@ test("live tool calls become named cards and split the streaming answer around t
   assert.match(renderer, /const names = \[\.\.\.new Set\(run\.map/);
   assert.match(renderer, /`\$\{names\} · \$\{statusText\}`/);
   assert.match(renderer, /compactRecentText\(stream\.reasoning, 110\)/);
-  assert.match(css, /\.activity-card\.thinking-compact > summary \{[^}]+height:26px/);
-  assert.match(css, /\.activity-card\.thinking-compact \.activity-chevron, \.activity-card\.thinking-compact \.activity-body \{ display:none; \}/);
+  assert.match(css, /\.activity-card\.thinking-activity > summary \{ min-height:30px/);
 });
 
 test("compact status IPC is skipped while its bounded presentation is unchanged", () => {
@@ -373,13 +372,15 @@ test("live Think is a persistent optional overlay that cannot move the conversat
   assert.match(showThinking, /syncCompactStatus\(\)/);
   assert.match(renderer, /const messageLayout = captureMessageLayoutSnapshot\(\)/);
   assert.match(renderer, /restoreMessageLayoutSnapshot\(messageLayout\)/);
-  // An overlay that inherits the card's translucent gradient reads as part of the
-  // conversation behind it; it has to be an opaque layer of its own.
-  assert.match(css, /\.activity-card\.thinking-compact \{ position:absolute;/);
-  assert.match(css, /\.activity-card\.thinking-compact \{[^}]*background:linear-gradient\(100deg,rgba\(18,17,38,\.98\)/);
+  // Reasoning shares the one activity card instead of getting a strip of its own. The
+  // strip was absolutely positioned inside .messages-wrap and reserved its room with
+  // padding-top on .messages, which scrolls away — a scrolled log wore the strip on top
+  // of its first visible row, and opaque paint only made the covering solid.
+  assert.doesNotMatch(css, /thinking-compact/);
+  assert.doesNotMatch(css, /has-thinking-overlay/);
+  assert.doesNotMatch(renderer, /messagesWrap\.prepend\(card\)/);
   assert.match(css, /\.activity-card\[hidden\] \{ display:none; \}/);
-  assert.match(renderer, /if \(compactThinking && card\.parentElement !== messagesWrap\) messagesWrap\.prepend\(card\)/);
-  assert.match(renderer, /else if \(!compactThinking && card\.parentElement === messagesWrap\) messagesWrap\.before\(card\)/);
+  assert.match(renderer, /card\.classList\.toggle\("thinking-activity", thinking\)/);
   assert.match(renderer, /applyShowThinking\(await window\.widget\.setShowThinking\(requested\)\)/);
 });
 
@@ -613,7 +614,7 @@ test("crowded compact chat has an explicit combined fixture and bounded surface 
   const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
   assert.match(renderer, /function syncCrowdedChatState\(\)[\s\S]+window\.innerHeight <= 420/);
   assert.match(renderer, /screenshotFixture === "crowded-chat"/);
-  assert.match(renderer, /messagesWrap\.classList\.toggle\("has-thinking-overlay", compactThinking\)/);
+  assert.match(renderer, /const thinking = showCard && activity\?\.kind === "thinking";\n  syncCrowdedChatState\(\);/);
   assert.match(css, /\.chat-crowded \.messages-wrap \{ min-height:62px; \}/);
   assert.match(css, /\.chat-crowded \.todo-list \{ max-height:26px/);
   assert.match(css, /\.chat-crowded \.queue-list \{ max-height:30px/);

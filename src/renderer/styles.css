@@ -342,20 +342,17 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .activity-chevron { width:14px; height:14px; color:#7f8b9c; transition:transform .15s ease; }
 .activity-card[open] .activity-chevron { transform:rotate(180deg); }
 .activity-body { max-height:120px; overflow:auto; padding:0 10px 10px 35px; color:#b9c2d0; font-size:10px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
-.activity-card.thinking-compact > summary { min-height:26px; height:26px; padding:0 8px; cursor:default; }
-/* The live Think line floats over the conversation, so it has to read as a separate layer.
-   It used to inherit the card's translucent gradient and the messages showed straight
-   through it — the overlay and the chat became one soup of text. Opaque base, its own
-   border and a real shadow now put it clearly on top. */
-.activity-card.thinking-compact { position:absolute; z-index:30; top:0; right:0; left:0; width:100%; border-color:rgba(139,121,255,.42); border-radius:0 0 12px 12px; background:linear-gradient(100deg,rgba(18,17,38,.98),rgba(13,20,30,.98)); box-shadow:0 10px 26px rgba(0,0,0,.5),0 1px 0 rgba(139,121,255,.16) inset; backdrop-filter:blur(10px); animation:thinking-overlay-in .28s cubic-bezier(.18,.92,.24,1.06); }
-.activity-card.thinking-compact b { color:#d8d1ff; }
-.activity-card.thinking-compact small { color:#a9b4c6; }
-@keyframes thinking-overlay-in { from { opacity:0; transform:translateY(-100%); } to { opacity:1; transform:none; } }
-.activity-card.thinking-compact .activity-chevron, .activity-card.thinking-compact .activity-body { display:none; }
+.activity-card.thinking-activity > summary { min-height:30px; padding:0 9px; }
+/* The live Think line is the same block every other activity uses, just a tighter row and
+   a slightly warmer border. It floated over the conversation before, and even opaque it
+   still hid the top message of a scrolled log. */
+.activity-card.thinking-activity { border-color:rgba(139,121,255,.34); animation:thinking-activity-in .24s cubic-bezier(.18,.92,.24,1.06); }
+.activity-card.thinking-activity b { color:#d8d1ff; }
+.activity-card.thinking-activity small { color:#a9b4c6; }
+@keyframes thinking-activity-in { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
 
 .messages-wrap { position:relative; width:100%; min-width:0; min-height:0; flex:1 1 auto; }
 .messages { width:100%; height:100%; min-width:0; min-height:0; overflow:auto; padding:3px 1px 8px; }
-.messages-wrap.has-thinking-overlay .messages { padding-top:29px; }
 .bubble { width:fit-content; max-width:88%; margin:0 0 8px; padding:9px 11px; border-radius:14px 14px 14px 4px; background:rgba(255,255,255,.07); color:#dfe4ec; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
 .bubble.plain, .reasoning-text.plain { white-space:pre-wrap; }
 .bubble.user { margin-left:auto; border-radius:14px 14px 4px 14px; background:linear-gradient(135deg,rgba(73,231,198,.19),rgba(139,121,255,.20)); color:white; }
@@ -856,8 +853,7 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
   .command-options { padding:3px; }
   .chat-crowded .chat-panel.active { gap:3px; }
   .chat-crowded .messages-wrap { min-height:62px; }
-  .chat-crowded .messages-wrap.has-thinking-overlay .messages { padding-top:25px; }
-  .chat-crowded .activity-card.thinking-compact > summary { min-height:22px; height:22px; padding:0 6px; }
+  .chat-crowded .activity-card.thinking-activity > summary { min-height:26px; padding:0 7px; }
   .chat-crowded .todo-toggle { height:24px; padding:0 6px; }
   .chat-crowded .todo-list { max-height:26px; padding:0 3px 2px; }
   .chat-crowded .todo-row { height:22px; padding:0 4px; }

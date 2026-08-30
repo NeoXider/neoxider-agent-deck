@@ -150,10 +150,14 @@ function attachScreenshotHarness({
             glowIntensity: getComputedStyle(document.documentElement).getPropertyValue('--chat-glow-intensity').trim(),
             showThinkingChecked: Boolean(document.querySelector('#showThinkingToggle')?.checked),
             activityCardVisible: Boolean(document.querySelector('#activityCard.has-activity:not([hidden])')),
-            thinkingOverMessages: (() => {
-              const activity = document.querySelector('#activityCard.thinking-compact:not([hidden])')?.getBoundingClientRect();
+            // The live Think block sits above the chat log and never over it. Its predecessor
+            // reserved room with padding-top on the scroll container, so the reserved gap
+            // scrolled away and left the block covering the first visible message.
+            thinkingClearOfMessages: (() => {
+              const activity = document.querySelector('#activityCard.thinking-activity:not([hidden])')?.getBoundingClientRect();
               const messages = document.querySelector('#messages')?.getBoundingClientRect();
-              return !activity || !messages || (activity.top >= messages.top - 1 && activity.bottom <= messages.bottom + 1);
+              if (!activity || !messages) return false;
+              return activity.bottom <= messages.top + 1;
             })(),
             crowdedChat: document.body.classList.contains('chat-crowded'),
             messageViewportHeight: Math.round(document.querySelector('#messages')?.getBoundingClientRect().height || 0),
