@@ -74,6 +74,10 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
 
+## Shipped in 0.6.14
+
+- Added a scroll rail marking the caller's own messages with click-to-jump, and a proximity scroll magnet that settles on them while the log is not following a running turn; covered by a contract regression and the `message-marks` visual case.
+
 ## Shipped in 0.6.13
 
 - Made a queued prompt openable and editable in full inside the queue dock — wrapped untruncated text and a growing textarea instead of a clipped 8px line and a single-line input; covered by a contract regression and the `queued-long` and `queued-editing` visual cases.

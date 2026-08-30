@@ -609,6 +609,26 @@ test("first entry waits for the native show acknowledgement and honors reduced m
   assert.match(css, /\.first-visible-entry\.mode-full \.widget-shell/);
 });
 
+test("the caller's own messages are marked on the scroll rail and pull the scroll to them", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  // Scrolling back to "the thing I asked" meant dragging through everything the agent
+  // said in between. The marks are placed against scrollHeight so a mark means what the
+  // scrollbar beside it means, and the rail sits in the gutter rather than over it, so
+  // dragging the scrollbar still works.
+  assert.match(html, /id="messageMarks" class="message-marks no-drag"/);
+  assert.match(renderer, /bubble\.offsetTop \+ bubble\.offsetHeight \/ 2\) \/ span/);
+  assert.match(renderer, /function renderMessageMarks\(\)/);
+  assert.match(css, /\.message-marks \{[^}]*right:5px/);
+  assert.match(css, /\.message-mark:hover, \.message-mark:focus-visible/);
+  // The magnet is proximity and is off while the log follows a running turn, or it
+  // would fight every repaint that grows the content under the scroller.
+  assert.match(css, /\.messages\.magnet \{ scroll-snap-type:y proximity; \}/);
+  assert.match(css, /\.messages\.magnet \.bubble\.user \{ scroll-snap-align:start/);
+  assert.match(renderer, /toggle\("magnet", !state\.messagesStickToBottom\)/);
+  assert.match(visualSmoke, /messageMarkCount: 5, messageMarksMagnet: true, messageMarksClearOfBubbles: true, messageMarksOrdered: true/);
+});
+
 test("a queued prompt can be read and edited in full without touching the conversation", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");

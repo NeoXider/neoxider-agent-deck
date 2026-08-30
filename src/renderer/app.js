@@ -90,6 +90,8 @@ const state = {
   queueBusyKind: null,
   queueRecoveryGenerations: new Map(),
   queueSignature: "",
+  messageMarksSignature: "",
+  messageMarkFlashTimer: null,
   todoExpandedSessionIds: new Set(),
   todoSignature: "",
   commandFeedbackBySession: new Map(),
@@ -2728,6 +2730,67 @@ function restoreOpenToolKeys(root, keys) {
   });
 }
 
+// Where the caller's own messages sit in the log. Scrolling back to "the thing I
+// asked" meant dragging through everything the agent said in between; the rail turns
+// that into one click, and the marks are placed by real offsets so they line up with
+// the scrollbar beside them rather than approximating.
+function renderMessageMarks() {
+  const rail = $("#messageMarks");
+  const root = $("#messages");
+  const bubbles = [...root.querySelectorAll(".bubble.user")];
+  const span = root.scrollHeight;
+  const scrollable = span - root.clientHeight > 4;
+  const marks = scrollable
+    ? bubbles.map((bubble) => ({
+        bubble,
+        // Against scrollHeight, not clientHeight: the fraction has to mean the same
+        // thing as a scrollbar position or the mark points at the wrong message.
+        ratio: Math.max(0, Math.min(1, (bubble.offsetTop + bubble.offsetHeight / 2) / span)),
+        label: compactText(bubble.textContent || "Your message", 80),
+      }))
+    : [];
+  const signature = JSON.stringify(marks.map((mark) => [Math.round(mark.ratio * 1000), mark.label]));
+  if (signature === state.messageMarksSignature) return false;
+  state.messageMarksSignature = signature;
+  rail.classList.toggle("has-marks", marks.length > 0);
+  rail.replaceChildren();
+  for (const [index, mark] of marks.entries()) {
+    const tick = document.createElement("button");
+    tick.type = "button";
+    tick.className = "message-mark";
+    tick.style.top = `${(mark.ratio * 100).toFixed(3)}%`;
+    tick.title = mark.label;
+    tick.setAttribute("aria-label", `Your message ${index + 1} of ${marks.length}: ${mark.label}`);
+    tick.addEventListener("click", () => {
+      state.messagesStickToBottom = false;
+      state.unseenMessages = 0;
+      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      mark.bubble.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+      flashMessageMark(mark.bubble);
+      updateScrollLatestButton();
+    });
+    rail.append(tick);
+  }
+  return true;
+}
+
+// The rail lands you somewhere in the middle of a long conversation, where one bubble
+// looks like another. The pulse says which one you asked for.
+function flashMessageMark(bubble) {
+  clearTimeout(state.messageMarkFlashTimer);
+  for (const previous of $$("#messages .bubble.mark-target")) previous.classList.remove("mark-target");
+  bubble.classList.add("mark-target");
+  state.messageMarkFlashTimer = setTimeout(() => bubble.classList.remove("mark-target"), 1200);
+}
+
+// The magnet, and only where it helps: while the log is pinned to a running turn the
+// content grows under the scroller and snapping would fight every repaint. It comes on
+// once the caller has scrolled away to read, which is when landing squarely on one of
+// their own messages is the thing they were trying to do.
+function syncMessageMagnet() {
+  $("#messages").classList.toggle("magnet", !state.messagesStickToBottom);
+}
+
 function updateScrollLatestButton() {
   const button = $("#scrollLatestButton");
   const visible = !state.messagesStickToBottom;
@@ -3111,6 +3174,8 @@ function renderMessages(messages) {
   restoreMessageSelection(root, selection);
   syncActivityCard();
   updateScrollLatestButton();
+  renderMessageMarks();
+  syncMessageMagnet();
   return true;
 }
 
@@ -4555,6 +4620,7 @@ $("#messages").addEventListener("scroll", () => {
   state.messagesStickToBottom = nearBottom;
   if (nearBottom) state.unseenMessages = 0;
   updateScrollLatestButton();
+  syncMessageMagnet();
 });
 $("#scrollLatestButton").addEventListener("click", () => {
   clearTimeout(state.scrollLatestAutoScrollTimer);
@@ -5037,6 +5103,21 @@ if (screenshotFixture) {
         { id: "queue-2", placement: "queued", text: "Then summarize only the failures.", preview: "Then summarize only the failures." },
       ]);
       renderQueuedPrompts();
+    } else if (screenshotFixture === "message-marks") {
+      // A conversation long enough to scroll, so the rail has somewhere to put marks.
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-marks", title: "Long conversation", running: false, projections: { values: {} }, subagents: [] }] };
+      state.selectedSessionId = "demo-marks";
+      const history = [];
+      for (let turn = 1; turn <= 5; turn += 1) {
+        history.push({ role: "user", text: `Question ${turn}: what did the last run report?` });
+        history.push({ role: "assistant", text: `Answer ${turn}. ${"The agent explains the result at some length so the log has to scroll. ".repeat(3)}` });
+      }
+      renderMessages(history);
+      $("#messages").scrollTop = 0;
+      state.messagesStickToBottom = false;
+      syncMessageMagnet();
+      renderMessageMarks();
     } else if (["queued-long", "queued-editing"].includes(screenshotFixture)) {
       // The reported case: a queued background job whose command is far longer than the
       // one-line row, opened so the whole of it can be read.
@@ -5085,7 +5166,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.12", latestVersion: "0.6.13", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.6.13", latestVersion: "0.6.14", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {

@@ -152,6 +152,21 @@ function attachScreenshotHarness({
             activityCardVisible: Boolean(document.querySelector('#activityCard.has-activity:not([hidden])')),
             composerErrorVisible: Boolean(document.querySelector('#composerError:not([hidden])')),
             queueRowsExpanded: document.querySelectorAll('.queue-row.expanded').length,
+            messageMarkCount: document.querySelectorAll('#messageMarks .message-mark').length,
+            messageMarksMagnet: (document.querySelector('#messages')?.className || '').includes('magnet'),
+            // The rail sits in the gutter beside the scrollbar, never over a bubble.
+            messageMarksClearOfBubbles: (() => {
+              const rail = document.querySelector('#messageMarks.has-marks')?.getBoundingClientRect();
+              if (!rail) return false;
+              return [...document.querySelectorAll('#messages .bubble')]
+                .every((bubble) => bubble.getBoundingClientRect().right <= rail.left + 1);
+            })(),
+            // A mark's position has to mean what the scrollbar beside it means.
+            messageMarksOrdered: (() => {
+              const tops = [...document.querySelectorAll('#messageMarks .message-mark')]
+                .map((mark) => parseFloat(mark.style.top));
+              return tops.length > 1 && tops.every((top, i) => i === 0 || top > tops[i - 1]);
+            })(),
             queueEditorTag: document.querySelector('.queue-edit-input')?.tagName || '',
             queueEditorLines: (() => {
               const node = document.querySelector('.queue-edit-input');

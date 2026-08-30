@@ -5,6 +5,16 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.14] - 2026-08-31
+
+### Added
+
+- **Your own messages are marked on the scroll rail, and the scroll settles on them.** Getting back to what you asked meant dragging through everything the agent said in between, and in a long turn that is most of the log. A rail beside the scrollbar now carries one mark per message you wrote; clicking it jumps there and pulses the bubble, because the rail lands you in the middle of a conversation where one bubble looks like another.
+
+  Marks are placed against `scrollHeight`, so a mark means what the scrollbar next to it means rather than approximating it, and the rail sits in the gutter beside the scrollbar instead of over it — dragging the scrollbar still works, and no mark covers a bubble.
+
+  The magnet is `scroll-snap-type: y proximity` on your messages: free scrolling is unchanged and the pull only happens when the scroll ends near one of them. It is deliberately off while the log is pinned to a running turn, where content grows under the scroller on every repaint and snapping would fight it — it comes on once you have scrolled away to read, which is when landing squarely on your own message is the thing you were trying to do.
+
 ## [0.6.13] - 2026-08-31
 
 ### Changed
