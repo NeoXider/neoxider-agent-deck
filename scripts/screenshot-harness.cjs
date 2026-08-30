@@ -150,6 +150,18 @@ function attachScreenshotHarness({
             glowIntensity: getComputedStyle(document.documentElement).getPropertyValue('--chat-glow-intensity').trim(),
             showThinkingChecked: Boolean(document.querySelector('#showThinkingToggle')?.checked),
             activityCardVisible: Boolean(document.querySelector('#activityCard.has-activity:not([hidden])')),
+            composerErrorVisible: Boolean(document.querySelector('#composerError:not([hidden])')),
+            composerErrorText: document.querySelector('#composerErrorText')?.textContent || '',
+            composerErrorDismissable: Boolean(document.querySelector('#composerError:not([hidden]) #composerErrorDismiss')),
+            // The failure has to outlive the activity block beside it: that block is
+            // rewritten by the dashboard poll, and this one must not be.
+            composerErrorAboveComposer: (() => {
+              const error = document.querySelector('#composerError:not([hidden])')?.getBoundingClientRect();
+              const form = document.querySelector('#chatForm')?.getBoundingClientRect();
+              const panel = document.querySelector('#chatPanel')?.getBoundingClientRect();
+              if (!error || !form || !panel) return false;
+              return error.bottom <= form.top + 1 && error.left >= panel.left - 1 && error.right <= panel.right + 1;
+            })(),
             // A live clock cannot be asserted exactly — it ticks between render and read —
             // so this is its shape, the same way the session-card clocks are checked.
             activityElapsedRaw: document.querySelector('#activityTime')?.textContent || '',

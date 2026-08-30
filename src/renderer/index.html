@@ -30,6 +30,7 @@
       <symbol id="icon-paperclip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
       <symbol id="icon-send" viewBox="0 0 24 24"><path d="m4 4 17 8-17 8 3-8zM7 12h14"/></symbol>
       <symbol id="icon-close" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
+      <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 20h18.4z"/><path d="M12 10v4M12 17.2v.1"/></symbol>
       <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></symbol>
       <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M4 20h4l11-11-4-4L4 16zM13.5 6.5l4 4"/></symbol>
       <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></symbol>
@@ -166,6 +167,12 @@
 
         <div id="commandMenu" class="command-menu no-drag" role="listbox" aria-label="Harness commands" aria-hidden="true"></div>
         <div id="commandHintBar" class="command-hint-bar no-drag" role="status" aria-live="polite" hidden></div>
+
+        <div id="composerError" class="composer-error no-drag" role="alert" hidden>
+          <svg class="ui-icon"><use href="#icon-alert"/></svg>
+          <span><b id="composerErrorLabel">Message not sent</b><small id="composerErrorText"></small></span>
+          <button id="composerErrorDismiss" type="button" title="Dismiss" aria-label="Dismiss the error"><svg class="ui-icon"><use href="#icon-close"/></svg></button>
+        </div>
 
         <form id="chatForm" class="composer no-drag">
           <div class="composer-view-stack">

@@ -5,6 +5,20 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.12] - 2026-08-30
+
+### Fixed
+
+- **A rejected message never said why it was rejected.** A failed send wrote its reason into the shared activity block on a 3.2 second timer, and while a turn was running the 2.5 second dashboard poll overwrote that block with the turn's own status sooner still. So the message and its attachments stayed in the composer, the send button went back to normal, and nothing on screen said what had happened — the reported symptom was simply "it does not send".
+
+  The composer has its own failure surface now, directly above it, carrying the reason Harness gave. Nothing polls it: it stays until the user dismisses it, until a send gets through, or until they leave the session whose composer content it belongs to. The reason wraps to two lines rather than ellipsising, because a message cut off at "switch to a mo…" is the same as no message; two lines is the ceiling so a long failure cannot push the composer off screen. The avatar is deliberately not turned red — a running turn is not in error because a send was rejected.
+
+  The orb's quick reply already had a persistent feedback field of its own; this brings the main composer level with it.
+
+### Notes
+
+- Harness, not the widget, decides that a model cannot accept images. The widget sends image content as `{ type: "image", mediaType, data, name }`, the same shape Harness uses in its own history blocks, and the model catalog Harness returns carries only `id`, `name` and `reasoning` — no vision capability to check or act on. When Harness answers "The current model does not support images", the widget's job is to show that verdict rather than swallow it, which is what this release does.
+
 ## [0.6.11] - 2026-08-30
 
 ### Added

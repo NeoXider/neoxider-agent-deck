@@ -45,6 +45,7 @@ const state = {
   completedSignalSessionIds: new Set(),
   errorSignalSessionIds: new Set(),
   unacknowledgedErrorSessionIds: new Set(),
+  composerError: null,
   compactErrorUnread: false,
   harnessOffline: false,
   completionSignalTimer: null,
@@ -2477,7 +2478,12 @@ async function applyModelSelection() {
 async function selectSession(sessionId, openChat = false) {
   const previousSessionId = state.selectedSessionId;
   state.selectedSessionId = sessionId || null;
-  if (previousSessionId !== state.selectedSessionId) invalidateSelectedHistoryVersion();
+  // The error belongs to the message that failed, and that message stays behind with its
+  // own session's composer content.
+  if (previousSessionId !== state.selectedSessionId) {
+    invalidateSelectedHistoryVersion();
+    clearComposerError();
+  }
   const selectedGroup = groupedSessions(state.selectedSessionId).find((group) => group.sessions.some((session) => session.sessionId === state.selectedSessionId));
   if (selectedGroup && state.collapsedSessionGroupKeys.delete(selectedGroup.key)) {
     state.sessionListSignature = "";
@@ -3068,6 +3074,30 @@ function renderMessages(messages) {
 
 function showError(error) {
   showTransientActivityError(error, "Something went wrong");
+}
+
+// A send that failed is the one message the user has to read: their text and attachments
+// are still sitting in the composer and nothing will happen until they act. It used to go
+// to the shared activity block on a 3.2s timer, which meant it was gone before it could be
+// read — and while a turn was running the 2.5s dashboard poll overwrote it with the turn's
+// own status even sooner, so in practice a failed send explained itself to nobody. This is
+// the composer's own surface: it stays until the user dismisses it or the next send works,
+// and no poll writes here.
+function showComposerError(error, label) {
+  const text = String(error?.message || error || "").trim();
+  state.composerError = { label, text };
+  $("#composerErrorLabel").textContent = label;
+  $("#composerErrorText").textContent = text;
+  $("#composerError").hidden = false;
+  $("#composerError").title = text;
+}
+
+function clearComposerError() {
+  if (!state.composerError) return;
+  state.composerError = null;
+  $("#composerError").hidden = true;
+  $("#composerErrorText").textContent = "";
+  $("#composerError").title = "";
 }
 
 function showTransientActivityError(error, label) {
@@ -4398,6 +4428,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
         state.selectedSessionId = result.sessionId;
         if (!targetSessionId) setSessionAgentMode(result.sessionId, "agent");
       }
+      clearComposerError();
       if (queueingBehindTurn) trackQueuedPrompt(result.sessionId, { text, attachmentCount }, queueRevisionAtSubmit);
       const submittedPaths = new Set(submittedAttachments.map((attachment) => attachment.path));
       state.pendingAttachments = state.pendingAttachments.filter((attachment) => !submittedPaths.has(attachment.path));
@@ -4411,7 +4442,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
     if (state.selectedSessionId === targetSessionId) {
       if (!input.value.trim()) input.value = text;
       resizeMessageInput();
-      showTransientActivityError(error, submittedCommand ? "Command failed" : "Message not sent");
+      showComposerError(error, submittedCommand ? "Command failed" : "Message not sent");
     }
   } finally {
     composerSubmitInFlight = false;
@@ -4419,6 +4450,10 @@ $("#chatForm").addEventListener("submit", async (event) => {
     $("#sendButton").classList.remove("sending");
     if (state.selectedSessionId === targetSessionId) input.focus();
   }
+});
+$("#composerErrorDismiss").addEventListener("click", () => {
+  clearComposerError();
+  $("#messageInput").focus();
 });
 $("#messageInput").addEventListener("keydown", (event) => {
   if ($("#commandMenu").classList.contains("open") && !event.shiftKey) {
@@ -4985,7 +5020,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.10", latestVersion: "0.6.11", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.6.11", latestVersion: "0.6.12", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {
@@ -5110,6 +5145,20 @@ if (screenshotFixture) {
       state.runningSessionIds = new Set(["demo-long"]);
       setAvatar("working", "thinking");
       setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Weighing the remaining branches before the next tool call…" });
+    } else if (screenshotFixture === "send-rejected") {
+      // The rejection Harness returns for an image the model is not allowed to receive,
+      // with the message and its attachment still in the composer where they were left.
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-rejected", title: "Image message", running: true, state: "working", runningSince: Date.now() - 92000, projections: { values: {} }, subagents: [] }] };
+      state.selectedSessionId = "demo-rejected";
+      state.runningSessionIds = new Set(["demo-rejected"]);
+      state.pendingAttachments = [{ kind: "image", name: "image.png", path: "C:\fixture\image.png" }];
+      renderAttachments();
+      $("#messageInput").value = "Look at this screenshot and tell me what is wrong.";
+      resizeMessageInput();
+      showComposerError(new Error("The current model does not support images; switch to a model with vision support."), "Message not sent");
+      setAvatar("working", "thinking");
+      setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Continuing the turn that was already running…" });
     } else if (screenshotFixture === "thinking-hidden") {
       setTab("chat");
       applyShowThinking(false);

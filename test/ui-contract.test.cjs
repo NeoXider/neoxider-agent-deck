@@ -609,6 +609,35 @@ test("first entry waits for the native show acknowledgement and honors reduced m
   assert.match(css, /\.first-visible-entry\.mode-full \.widget-shell/);
 });
 
+test("a rejected send keeps its reason until the user acts on it", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  // The composer owns this, not the activity block: applyDashboard writes that block from
+  // the 2.5s poll, so a running turn overwrote a failed send's reason within one tick and
+  // the 3.2s transient timer would have erased it moments later anyway.
+  assert.match(html, /id="composerError" class="composer-error no-drag" role="alert" hidden/);
+  assert.match(html, /id="composerErrorDismiss"/);
+  assert.match(renderer, /showComposerError\(error, submittedCommand \? "Command failed" : "Message not sent"\)/);
+  assert.doesNotMatch(renderer, /showTransientActivityError\(error, submittedCommand/);
+  const shows = renderer.slice(renderer.indexOf("function showComposerError"), renderer.indexOf("function showTransientActivityError"));
+  assert.doesNotMatch(shows, /setTimeout/);
+  // Cleared only by the user dismissing it, a send that got through, or leaving the session
+  // whose composer content it belongs to.
+  const dismiss = renderer.indexOf('$("#composerErrorDismiss").addEventListener("click"');
+  assert.ok(dismiss > 0 && renderer.slice(dismiss, dismiss + 120).includes("clearComposerError();"));
+  // Anchored on the composer's own call: the orb quick reply has a second one, and it
+  // already carried its own persistent feedback field.
+  const beforeQueue = renderer.indexOf("trackQueuedPrompt(result.sessionId,");
+  assert.ok(beforeQueue > 0 && renderer.slice(beforeQueue - 80, beforeQueue).includes("clearComposerError();"));
+  const switchStart = renderer.indexOf("async function selectSession");
+  assert.ok(switchStart > 0 && renderer.slice(switchStart, switchStart + 600).includes("clearComposerError();"));
+  // A reason cut off mid-sentence is no reason, but it must not push the composer away.
+  assert.match(css, /\.composer-error small \{[^}]*-webkit-line-clamp:2/);
+  assert.doesNotMatch(css, /\.composer-error small \{[^}]*white-space:nowrap/);
+  assert.match(visualSmoke, /composerErrorVisible: true, composerErrorText: "The current model does not support images/);
+  assert.match(visualSmoke, /composerErrorAboveComposer: true/);
+});
+
 test("chat reports elapsed turn time and running background tasks", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
