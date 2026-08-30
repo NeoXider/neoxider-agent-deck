@@ -609,6 +609,27 @@ test("first entry waits for the native show acknowledgement and honors reduced m
   assert.match(css, /\.first-visible-entry\.mode-full \.widget-shell/);
 });
 
+test("chat reports elapsed turn time and running background tasks", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  // Both numbers were built for the Agents session cards, so the panel the user watches
+  // during a turn showed neither. The card helpers are reused rather than reimplemented:
+  // that keeps one definition of "running background task" and one clock tick for the app.
+  assert.match(html, /id="activityTime" class="session-time"/);
+  assert.match(html, /id="activityBackground" class="session-background"/);
+  assert.match(renderer, /function renderActivityMeta\(visible = !\$\("#activityCard"\)\.hidden\)/);
+  assert.match(renderer, /applySessionTime\(\$\("#activityTime"\), session\)/);
+  assert.match(renderer, /applyBackgroundTaskCount\(\$\("#activityBackground"\), activeBackgroundTasks\(session\)\)/);
+  // Ahead of the signature early return, or a turn whose label never changes would freeze
+  // its own clock and miss background tasks starting and finishing.
+  const sync = renderer.slice(renderer.indexOf("function syncActivityCard"), renderer.indexOf("function setActivity"));
+  assert.ok(sync.indexOf("renderActivityMeta(showCard)") < sync.indexOf("state.activityCardSignature) return false"));
+  const dashboardCalls = renderer.indexOf("renderActivityMeta();");
+  assert.ok(dashboardCalls > 0 && renderer.slice(dashboardCalls, dashboardCalls + 60).includes("renderSessions();"));
+  assert.match(css, /\.activity-meta \{ flex:none; display:flex;/);
+  assert.match(visualSmoke, /activityElapsedMinutes: 21, activityElapsedRunning: true, activityBackgroundCount: "2"/);
+});
+
 test("crowded compact chat has an explicit combined fixture and bounded surface budgets", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");

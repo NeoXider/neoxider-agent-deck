@@ -343,6 +343,11 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .activity-card[open] .activity-chevron { transform:rotate(180deg); }
 .activity-body { max-height:120px; overflow:auto; padding:0 10px 10px 35px; color:#b9c2d0; font-size:10px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
 .activity-card.thinking-activity > summary { min-height:30px; padding:0 9px; }
+/* Elapsed turn time and the running-background count, the two things a long turn is judged
+   by. They keep the card's own font sizes and sit between the preview and the chevron, so
+   a preview that runs long is what gets ellipsised rather than the numbers. */
+.activity-meta { flex:none; display:flex; align-items:center; gap:5px; font-size:9px; }
+.activity-meta .session-time::before { margin-right:5px; }
 /* The live Think line is the same block every other activity uses, just a tighter row and
    a slightly warmer border. It floated over the conversation before, and even opaque it
    still hid the top message of a scrolled log. */

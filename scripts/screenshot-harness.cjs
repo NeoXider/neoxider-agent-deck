@@ -150,6 +150,21 @@ function attachScreenshotHarness({
             glowIntensity: getComputedStyle(document.documentElement).getPropertyValue('--chat-glow-intensity').trim(),
             showThinkingChecked: Boolean(document.querySelector('#showThinkingToggle')?.checked),
             activityCardVisible: Boolean(document.querySelector('#activityCard.has-activity:not([hidden])')),
+            // A live clock cannot be asserted exactly — it ticks between render and read —
+            // so this is its shape, the same way the session-card clocks are checked.
+            activityElapsedRaw: document.querySelector('#activityTime')?.textContent || '',
+            activityElapsedWellFormed: /^(\\d+h \\d{2}m|\\d+m \\d{2}s|\\d+s)$/.test(document.querySelector('#activityTime')?.textContent || ''),
+            activityElapsedMinutes: Number((document.querySelector('#activityTime')?.textContent || '').match(/^(\\d+)m/)?.[1] || 0),
+            activityElapsedRunning: Boolean(document.querySelector('#activityTime.running')),
+            activityBackgroundCount: document.querySelector('#activityBackground.visible b')?.textContent || '',
+            // The numbers must not push the block wider than the panel, and the preview is
+            // what gives way when the row runs out of room.
+            activityMetaWithinCard: (() => {
+              const meta = document.querySelector('#activityCard:not([hidden]) .activity-meta')?.getBoundingClientRect();
+              const card = document.querySelector('#activityCard:not([hidden])')?.getBoundingClientRect();
+              if (!meta || !card) return false;
+              return meta.left >= card.left - 1 && meta.right <= card.right + 1;
+            })(),
             // The live Think block sits above the chat log and never over it. Its predecessor
             // reserved room with padding-top on the scroll container, so the reserved gap
             // scrolled away and left the block covering the first visible message.

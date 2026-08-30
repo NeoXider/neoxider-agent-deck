@@ -615,6 +615,20 @@ function syncGameBarSelection() {
   return true;
 }
 
+// Chat had neither clock nor background-task count: both were built for the session cards
+// in Agents, so the panel the user actually watches during a turn could not say how long
+// the model had been working, nor that anything was running underneath it. Same two
+// helpers as the cards, and the same shared one-second tick — the clock writes straight
+// into its node and stays out of the card's render signature.
+function renderActivityMeta(visible = !$("#activityCard").hidden) {
+  const session = visible
+    ? state.dashboard?.sessions?.find((entry) => entry.sessionId === state.selectedSessionId)
+    : null;
+  applySessionTime($("#activityTime"), session);
+  applyBackgroundTaskCount($("#activityBackground"), activeBackgroundTasks(session));
+  scheduleSessionTimers();
+}
+
 function syncActivityCard() {
   const activity = state.currentActivity;
   const card = $("#activityCard");
@@ -627,6 +641,9 @@ function syncActivityCard() {
   // two blocks of text in one place. Every activity kind now shares the one card in flow.
   const thinking = showCard && activity?.kind === "thinking";
   syncCrowdedChatState();
+  // Ahead of the early return below: a turn that runs for minutes without changing its
+  // label still has to advance its clock and pick up background tasks starting or ending.
+  renderActivityMeta(showCard);
   const signature = showCard ? JSON.stringify([true, activity?.kind || "", activity?.label || "", activity?.text || ""]) : "hidden";
   if (signature === state.activityCardSignature) return false;
   const messageLayout = captureMessageLayoutSnapshot();
@@ -1234,8 +1251,10 @@ function visibleSessions(selectedSessionId = state.selectedSessionId) {
   return groupedSessions(selectedSessionId).flatMap((group) => group.sessions);
 }
 
+// Null-safe because the chat clock asks about the selected session, and Chat can be open
+// with no session at all — every other caller holds a real one from the dashboard list.
 function sessionAgentState(session) {
-  return ["working", "error"].includes(session.state) ? session.state : (session.running ? "working" : "idle");
+  return ["working", "error"].includes(session?.state) ? session.state : (session?.running ? "working" : "idle");
 }
 
 // "How long has it been working?" is the first thing anyone asks a list of running agents,
@@ -3670,6 +3689,7 @@ async function performRefresh() {
     }
     else if ((wasOffline && state.avatarMode === "error" && !state.compactErrorUnread) || !["done", "error"].includes(state.avatarMode)) setAvatar("idle");
     syncSelectedAgentMode();
+    renderActivityMeta();
     renderSessions();
     renderSessionSelect();
     renderContext();
@@ -4965,7 +4985,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.9", latestVersion: "0.6.10", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.6.10", latestVersion: "0.6.11", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {
@@ -5076,6 +5096,20 @@ if (screenshotFixture) {
       setTab("chat");
       setAvatar("working", "thinking");
       setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Reviewing the workspace and preparing the next tool call…" });
+    } else if (screenshotFixture === "activity-meta") {
+      // A turn 21 minutes in with two background tasks running under it — the state the
+      // Chat panel used to describe as nothing but a line of reasoning text.
+      const started = Date.now() - 1310000;
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-long", title: "Long turn", running: true, state: "working", runningSince: started, projections: { values: {} }, subagents: [
+        { kind: "child", activity: "running" },
+        { kind: "child", activity: "running" },
+        { kind: "child", activity: "idle" },
+      ] }] };
+      state.selectedSessionId = "demo-long";
+      state.runningSessionIds = new Set(["demo-long"]);
+      setAvatar("working", "thinking");
+      setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Weighing the remaining branches before the next tool call…" });
     } else if (screenshotFixture === "thinking-hidden") {
       setTab("chat");
       applyShowThinking(false);

@@ -74,6 +74,10 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
 
+## Shipped in 0.6.11
+
+- Brought elapsed turn time and the running background-task count into the Chat activity block, reusing the session-card helpers and the shared one-second tick; covered by a contract regression and the `activity-meta` visual case.
+
 ## Shipped in 0.6.10
 
 - Folded the live Think strip into the one activity block above the chat, so reasoning no longer covers the top row of a scrolled conversation and keeps its expander; covered by contract regressions and a new `thinking-scrolled-chat` visual case that fails on the old floating layout.

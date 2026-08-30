@@ -5,6 +5,18 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.11] - 2026-08-30
+
+### Added
+
+- **Chat says how long the turn has been running, and what is running under it.** Elapsed turn time and the count of active background tasks were built for the session cards in Agents, so the panel a user actually watches during a turn could report neither: a model twenty minutes into a long turn looked exactly like one that had just started, and subagents working underneath it were invisible unless you switched tabs. Both now sit in the live activity block, beside the reasoning line.
+
+  They reuse the card helpers rather than a second implementation, so "background task" keeps one definition — children running *right now*, not the roster — and the clock joins the single one-second tick shared by the whole app instead of adding another. The clock is written straight into its node and stays out of the block's render signature, so a value that changes every second cannot rebuild the block every second. It also updates ahead of the unchanged-signature early return, because a turn whose label never changes still has to advance its clock and notice background tasks starting and finishing.
+
+### Fixed
+
+- `sessionAgentState` assumed it would always be handed a real session and read `.state` off it directly. Chat can be open with no session selected, so the new clock could call it with nothing; it is null-safe now. Every other caller holds a session from the dashboard list and is unaffected.
+
 ## [0.6.10] - 2026-08-30
 
 ### Fixed
