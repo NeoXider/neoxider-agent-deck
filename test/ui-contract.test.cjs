@@ -609,6 +609,32 @@ test("first entry waits for the native show acknowledgement and honors reduced m
   assert.match(css, /\.first-visible-entry\.mode-full \.widget-shell/);
 });
 
+test("a queued prompt can be read and edited in full without touching the conversation", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  // A queued background job is regularly a shell command many times longer than the row.
+  // Opening it prints the text whole; the room comes from the dock, which already sits
+  // between the log and the composer, so nothing is covered and nothing is shrunk.
+  assert.match(renderer, /queueExpandedId: null/);
+  assert.match(renderer, /queueExpandedSessionId: null/);
+  assert.match(renderer, /row\.classList\.toggle\("expanded", expanded \|\| editing\)/);
+  assert.match(renderer, /\? \(item\.text \|\| item\.preview \|\| fallback\)/);
+  assert.match(renderer, /root\.classList\.toggle\("opened", opened\)/);
+  assert.match(css, /\.queue-dock\.opened \.queue-list \{ max-height:186px; \}/);
+  assert.match(css, /\.queue-row\.expanded \.queue-preview \{[^}]*white-space:pre-wrap/);
+  assert.match(css, /\.queue-row\.expanded \.queue-preview \{[^}]*text-overflow:clip/);
+  assert.match(css, /\.queue-row\.expanded \.queue-preview \{[^}]*font-size:9px/);
+  // Editing is a textarea now: one 8px line could not show a command, let alone correct it.
+  assert.match(renderer, /createElement\("textarea"\);\s*$/m);
+  assert.match(renderer, /if \(event\.key === "Enter" && !event\.shiftKey\)/);
+  assert.match(renderer, /Math\.min\(input\.scrollHeight, QUEUE_EDIT_MAX_HEIGHT\)/);
+  assert.match(css, /\.queue-edit-input \{[^}]*max-height:132px/);
+  assert.match(css, /\.queue-edit-input \{[^}]*resize:none/);
+  // The dock may take room from the log while open; it must never reach the composer.
+  assert.match(visualSmoke, /queueRowsExpanded: 1, queueExpandedNotClipped: true, queueExpandedFontPx: 9, queueDockAboveComposer: true/);
+  assert.match(visualSmoke, /queueEditorTag: "TEXTAREA", queueDockAboveComposer: true/);
+});
+
 test("a rejected send keeps its reason until the user acts on it", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");

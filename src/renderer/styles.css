@@ -491,12 +491,25 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 
 .queue-dock { display:none; min-width:0; flex:none; overflow:hidden; padding:4px; border:1px solid rgba(73,231,198,.23); border-radius:12px; background:linear-gradient(110deg,rgba(73,231,198,.075),rgba(139,121,255,.075)); }
 .queue-dock.has-items { display:block; animation:queue-in .2s cubic-bezier(.22,1,.36,1); }
-.queue-list { min-width:0; max-height:86px; overflow-y:auto; }
+.queue-list { min-width:0; max-height:86px; overflow-y:auto; transition:max-height .18s ease; }
+/* An opened row needs room to show a whole shell command. The dock takes it from the
+   conversation for as long as the row is open and hands it straight back, which is the one
+   place that can grow without covering anything: it already sits between the log and the
+   composer, and it scrolls once the text outruns even this. */
+.queue-dock.opened .queue-list { max-height:186px; }
 .queue-row { min-width:0; min-height:34px; display:flex; align-items:center; gap:4px; padding:3px 4px 3px 7px; border-radius:8px; background:rgba(4,9,15,.42); }
 .queue-row + .queue-row { margin-top:3px; }
 .queue-position { width:14px; height:14px; flex:none; display:grid; place-items:center; border-radius:50%; background:rgba(73,231,198,.13); color:#78e4ce; font-size:7px; font-weight:800; }
 .queue-preview { min-width:0; flex:1; overflow:hidden; color:#c5cfda; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
-.queue-edit-input { min-width:0; height:27px; flex:1; border:1px solid rgba(139,121,255,.32); border-radius:7px; outline:0; padding:0 7px; background:#0b111a; color:#e8edf5; font-size:9px; }
+.queue-row.expanded { align-items:flex-start; padding-top:5px; padding-bottom:5px; }
+.queue-row.expanded .queue-position, .queue-row.expanded .queue-actions { margin-top:1px; }
+/* Nothing is trimmed here and nothing is shrunk: the point of opening a row is to read the
+   text that the one-line form had to cut. It is a size up from the collapsed line, keeps
+   its own line breaks, and can be selected and copied. */
+.queue-row.expanded .queue-preview { overflow:visible; color:#d7dfea; font-size:9px; line-height:1.45; text-overflow:clip; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; cursor:text; }
+.queue-action.expand .ui-icon { transition:transform .15s ease; }
+.queue-row.expanded .queue-action.expand .ui-icon { transform:rotate(180deg); }
+.queue-edit-input { min-width:0; height:27px; max-height:132px; flex:1; overflow-y:auto; border:1px solid rgba(139,121,255,.32); border-radius:7px; outline:0; padding:5px 7px; background:#0b111a; color:#e8edf5; font-size:9px; line-height:1.45; font-family:inherit; resize:none; }
 .queue-actions { flex:none; display:flex; align-items:center; gap:2px; }
 .queue-action { width:27px; height:27px; display:grid; place-items:center; border:0; border-radius:7px; background:transparent; color:#7f8c9e; cursor:pointer; }
 .queue-action:hover { background:rgba(139,121,255,.13); color:#d8d2ff; }

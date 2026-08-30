@@ -83,6 +83,8 @@ const state = {
   nextQueuedPromptId: 1,
   queueEditingId: null,
   queueEditingSessionId: null,
+  queueExpandedId: null,
+  queueExpandedSessionId: null,
   queueBusyId: null,
   queueBusySessionId: null,
   queueBusyKind: null,
@@ -836,6 +838,9 @@ const MODE_ENTER_DURATION = 390;
 const FIRST_VISIBLE_ENTRY_DURATION = 460;
 // Upper bound on waiting for the native compact resize before showing the panel anyway.
 const COMPACT_RESIZE_SETTLE_TIMEOUT = 320;
+// An opened queue editor grows with its content and then scrolls, so a pasted script
+// cannot push the composer off the panel.
+const QUEUE_EDIT_MAX_HEIGHT = 132;
 let modeTransitionSequence = 0;
 let modeRequestSequence = 0;
 let firstVisibleEntryPlayed = false;
@@ -2055,11 +2060,16 @@ function renderQueuedPrompts() {
     state.queueEditingSessionId,
     state.queueBusyId,
     state.queueBusySessionId,
+    state.queueExpandedId,
+    state.queueExpandedSessionId,
     ...items.map((item) => [item.id, item.text, item.preview, item.attachmentCount, Boolean(item.optimistic)]),
   ]);
   if (signature === state.queueSignature) return false;
   state.queueSignature = signature;
   root.classList.toggle("has-items", items.length > 0);
+  const opened = items.some((item) => (state.queueExpandedSessionId === state.selectedSessionId && state.queueExpandedId === item.id)
+    || (state.queueEditingSessionId === state.selectedSessionId && state.queueEditingId === item.id));
+  root.classList.toggle("opened", opened);
   root.setAttribute("aria-label", `${items.length} queued message${items.length === 1 ? "" : "s"}`);
   listRoot.replaceChildren();
   for (const [index, item] of items.entries()) {
@@ -2073,21 +2083,34 @@ function renderQueuedPrompts() {
     row.append(position);
     const editing = state.queueEditingSessionId === state.selectedSessionId && state.queueEditingId === item.id;
     const busy = state.queueBusySessionId === state.selectedSessionId && state.queueBusyId === item.id;
+    const expanded = state.queueExpandedSessionId === state.selectedSessionId && state.queueExpandedId === item.id;
+    row.classList.toggle("expanded", expanded || editing);
     const actions = document.createElement("span");
     actions.className = "queue-actions";
     if (editing) {
-      const input = document.createElement("input");
+      // A textarea, not an input: a queued prompt is regularly a shell command that no one
+      // can read — let alone correct — through an eight-pixel single-line window. Enter
+      // still saves, because that is what the row has always done; Shift+Enter is the
+      // newline, matching the composer.
+      const input = document.createElement("textarea");
       input.className = "queue-edit-input";
+      input.rows = 1;
       input.value = item.text || "";
       input.setAttribute("aria-label", "Edit queued message");
+      const grow = () => {
+        input.style.height = "auto";
+        input.style.height = `${Math.min(input.scrollHeight, QUEUE_EDIT_MAX_HEIGHT)}px`;
+      };
       const save = () => {
         const text = input.value.trim();
         if (text) updateQueuedPrompt(item, { kind: "edit", text });
       };
+      input.addEventListener("input", grow);
       input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") { event.preventDefault(); save(); }
+        if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); save(); }
         if (event.key === "Escape") { state.queueEditingId = null; state.queueEditingSessionId = null; renderQueuedPrompts(); }
       });
+      requestAnimationFrame(grow);
       actions.append(
         queueActionButton("check", "Save queued message", "steer", save, busy),
         queueActionButton("close", "Cancel editing", "", () => { state.queueEditingId = null; state.queueEditingSessionId = null; renderQueuedPrompts(); }, busy),
@@ -2097,7 +2120,26 @@ function renderQueuedPrompts() {
     } else {
       const preview = document.createElement("span");
       preview.className = "queue-preview";
-      preview.textContent = compactText(item.preview || item.text || `${item.attachmentCount || 1} attachment${item.attachmentCount === 1 ? "" : "s"}`, 110);
+      const fallback = `${item.attachmentCount || 1} attachment${item.attachmentCount === 1 ? "" : "s"}`;
+      // Expanded shows the queued text as it will actually be sent — the whole of it, no
+      // compaction and no ellipsis. item.preview is the shortened server-side line and
+      // item.text the real one, which is what matters once it is worth reading in full.
+      preview.textContent = expanded
+        ? (item.text || item.preview || fallback)
+        : compactText(item.preview || item.text || fallback, 110);
+      const canExpand = Boolean(item.text || item.preview);
+      if (canExpand) {
+        actions.append(queueActionButton(
+          "chevron",
+          expanded ? "Collapse queued message" : "Show the full queued message",
+          "expand",
+          () => {
+            state.queueExpandedId = expanded ? null : item.id;
+            state.queueExpandedSessionId = expanded ? null : state.selectedSessionId;
+            renderQueuedPrompts();
+          },
+        ));
+      }
       actions.append(
         queueActionButton("edit", "Edit queued message", "", () => { state.queueEditingId = item.id; state.queueEditingSessionId = state.selectedSessionId; renderQueuedPrompts(); }, busy || item.optimistic || item.text === null),
         queueActionButton("trash", "Delete queued message", "danger", () => updateQueuedPrompt(item, { kind: "remove" }), busy || item.optimistic),
@@ -4995,6 +5037,29 @@ if (screenshotFixture) {
         { id: "queue-2", placement: "queued", text: "Then summarize only the failures.", preview: "Then summarize only the failures." },
       ]);
       renderQueuedPrompts();
+    } else if (["queued-long", "queued-editing"].includes(screenshotFixture)) {
+      // The reported case: a queued background job whose command is far longer than the
+      // one-line row, opened so the whole of it can be read.
+      const command = "background job pwsh-4 (pwsh: Set-Location D:\\Git\\web-search-neo; npm run build -- --profile release --target win-x64; if ($LASTEXITCODE -eq 0) { npm run verify -- --suite full --reporter json > artifacts/verify.json })";
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-queue-long", title: "Long-running agent", running: true, projections: { values: {} }, subagents: [] }] };
+      state.selectedSessionId = "demo-queue-long";
+      state.runningSessionIds = new Set(["demo-queue-long"]);
+      $("#chatForm").classList.add("has-running");
+      $("#cancelButton").hidden = false;
+      renderMessages([{ role: "assistant", text: "The current turn is still running…" }]);
+      state.queuedPromptsBySession.set("demo-queue-long", [
+        { id: "queue-long-1", placement: "queued", text: command, preview: command },
+        { id: "queue-long-2", placement: "queued", text: "Then summarize only the failures.", preview: "Then summarize only the failures." },
+      ]);
+      if (screenshotFixture === "queued-editing") {
+        state.queueEditingId = "queue-long-1";
+        state.queueEditingSessionId = "demo-queue-long";
+      } else {
+        state.queueExpandedId = "queue-long-1";
+        state.queueExpandedSessionId = "demo-queue-long";
+      }
+      renderQueuedPrompts();
     } else if (screenshotFixture === "live-stream") {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-live", title: "Streaming response", running: true, state: "working", projections: { values: {} }, subagents: [] }] };
@@ -5020,7 +5085,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.11", latestVersion: "0.6.12", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.6.12", latestVersion: "0.6.13", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {

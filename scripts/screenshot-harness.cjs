@@ -151,6 +151,30 @@ function attachScreenshotHarness({
             showThinkingChecked: Boolean(document.querySelector('#showThinkingToggle')?.checked),
             activityCardVisible: Boolean(document.querySelector('#activityCard.has-activity:not([hidden])')),
             composerErrorVisible: Boolean(document.querySelector('#composerError:not([hidden])')),
+            queueRowsExpanded: document.querySelectorAll('.queue-row.expanded').length,
+            queueEditorTag: document.querySelector('.queue-edit-input')?.tagName || '',
+            queueEditorLines: (() => {
+              const node = document.querySelector('.queue-edit-input');
+              if (!node) return 0;
+              return Math.round(node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight));
+            })(),
+            queueExpandedFullText: document.querySelector('.queue-row.expanded .queue-preview')?.textContent || '',
+            // Opened text is shown whole: nothing clipped by the box, and no ellipsis.
+            queueExpandedNotClipped: (() => {
+              const node = document.querySelector('.queue-row.expanded .queue-preview');
+              if (!node) return false;
+              const style = getComputedStyle(node);
+              return style.textOverflow !== 'ellipsis' && style.whiteSpace !== 'nowrap' && node.scrollWidth <= node.clientWidth + 1;
+            })(),
+            queueExpandedFontPx: Math.round(parseFloat(getComputedStyle(document.querySelector('.queue-row.expanded .queue-preview') || document.body).fontSize)),
+            // It may take room from the log while open, but it must never reach the composer.
+            queueDockAboveComposer: (() => {
+              const dock = document.querySelector('#queueDock.has-items')?.getBoundingClientRect();
+              const form = document.querySelector('#chatForm')?.getBoundingClientRect();
+              const panel = document.querySelector('#chatPanel')?.getBoundingClientRect();
+              if (!dock || !form || !panel) return false;
+              return dock.bottom <= form.top + 1 && dock.top >= panel.top - 1;
+            })(),
             composerErrorText: document.querySelector('#composerErrorText')?.textContent || '',
             composerErrorDismissable: Boolean(document.querySelector('#composerError:not([hidden]) #composerErrorDismiss')),
             // The failure has to outlive the activity block beside it: that block is

@@ -5,6 +5,16 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.13] - 2026-08-31
+
+### Changed
+
+- **A queued message can be read and corrected in full.** A queued prompt is regularly a background job whose shell command runs several times longer than the row that held it — one 8px line, cut with an ellipsis, and the pencil opened a single-line input over the same text. Neither could show the command, let alone let anyone correct it.
+
+  A row now opens: the text prints whole, wrapped, a size up, selectable, with its own line breaks kept. Editing is a textarea that grows with its content to a ceiling and then scrolls, so a pasted script cannot push the composer off the panel; Enter still saves and Shift+Enter is the newline, matching the composer.
+
+  The room comes from the queue dock, which already sits between the conversation and the composer and takes it back the moment the row closes. Nothing is placed in the conversation and nothing floats over it — an overlay was exactly what 0.6.10 removed. The visual case asserts the opened text is neither clipped nor ellipsised and that the dock never reaches the composer.
+
 ## [0.6.12] - 2026-08-30
 
 ### Fixed
