@@ -31,6 +31,9 @@
       <symbol id="icon-send" viewBox="0 0 24 24"><path d="m4 4 17 8-17 8 3-8zM7 12h14"/></symbol>
       <symbol id="icon-close" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
       <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 20h18.4z"/><path d="M12 10v4M12 17.2v.1"/></symbol>
+      <symbol id="icon-goal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+      <symbol id="icon-pause" viewBox="0 0 24 24"><rect x="7" y="6" width="3.4" height="12" rx="1"/><rect x="13.6" y="6" width="3.4" height="12" rx="1"/></symbol>
+      <symbol id="icon-play" viewBox="0 0 24 24"><path d="M8 5.5 18 12 8 18.5z"/></symbol>
       <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></symbol>
       <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M4 20h4l11-11-4-4L4 16zM13.5 6.5l4 4"/></symbol>
       <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></symbol>
@@ -144,6 +147,32 @@
           </summary>
           <div id="activityBody" class="activity-body"></div>
         </details>
+        <details id="goalDock" class="goal-dock no-drag" aria-label="Current goal" hidden>
+          <summary id="goalSummary">
+            <svg class="ui-icon"><use href="#icon-goal"/></svg>
+            <b>Goal</b>
+            <small id="goalPreview"></small>
+            <span id="goalPhase" class="goal-dock-phase"></span>
+            <svg class="ui-icon goal-chevron"><use href="#icon-chevron"/></svg>
+          </summary>
+          <div class="goal-dock-body">
+            <div id="goalObjective" class="goal-dock-objective"></div>
+            <div id="goalMeta" class="goal-dock-meta"></div>
+            <div class="goal-dock-actions">
+              <button id="goalEdit" type="button" class="goal-dock-action"><svg class="ui-icon"><use href="#icon-edit"/></svg><span>Edit</span></button>
+              <button id="goalPauseResume" type="button" class="goal-dock-action"><svg class="ui-icon"><use href="#icon-pause"/></svg><span id="goalPauseResumeLabel">Pause</span></button>
+              <button id="goalDelete" type="button" class="goal-dock-action danger"><svg class="ui-icon"><use href="#icon-trash"/></svg><span>Delete</span></button>
+            </div>
+            <div id="goalEditor" class="goal-dock-editor" hidden>
+              <textarea id="goalEditInput" rows="1" aria-label="Edit the goal objective"></textarea>
+              <div class="goal-dock-editor-actions">
+                <button id="goalEditSave" type="button" class="goal-dock-action steer"><svg class="ui-icon"><use href="#icon-check"/></svg><span>Save</span></button>
+                <button id="goalEditCancel" type="button" class="goal-dock-action"><svg class="ui-icon"><use href="#icon-close"/></svg><span>Cancel</span></button>
+              </div>
+            </div>
+          </div>
+        </details>
+
         <div class="messages-wrap">
           <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions"><div class="empty-state">Select a session or start a new one.</div></div>
           <nav id="messageMarks" class="message-marks no-drag" aria-label="Your messages in this conversation"></nav>

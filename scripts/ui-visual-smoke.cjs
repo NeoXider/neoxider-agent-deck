@@ -26,7 +26,7 @@ const cases = [
   { name: "live-stream", tab: "chat", fixture: "live-stream", width: 360, height: 500, expect: { liveBubbles: 1, historicalReasoning: 0 } },
   { name: "scroll-away", tab: "chat", fixture: "scroll-away", width: 360, height: 500, expect: { scrollLatestVisible: true } },
   { name: "glow-settings", tab: "chat", fixture: "glow-settings", expect: { glowControl: 1, glowIntensity: "0.82", showThinkingChecked: true, windowLayerOptions: 3, autoStartHydrated: true } },
-  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.14 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
+  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.15 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
   { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.6.9 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
   { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.9 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
   { name: "hotkey-settings", tab: "chat", fixture: "hotkey-settings", width: 420, height: 640, expect: { settingsOpen: true, hotkeySettingsOpen: true, hotkeyRows: 8 } },
@@ -55,7 +55,11 @@ const cases = [
   { name: "queued-editing", tab: "chat", fixture: "queued-editing", expect: { queueEditorTag: "TEXTAREA", queueDockAboveComposer: true }, min: { queueEditorLines: 3 } },
   // A mark per message the caller wrote, in the gutter beside the scrollbar, with the
   // magnet on because the log is scrolled away from a running turn.
-  { name: "message-marks", tab: "chat", fixture: "message-marks", expect: { messageMarkCount: 5, messageMarksMagnet: true, messageMarksClearOfBubbles: true, messageMarksOrdered: true } },
+  { name: "message-marks", tab: "chat", fixture: "message-marks", expect: { messageMarkCount: 5, messageMarksMagnet: true, messageMarksClearOfBubbles: true, messageMarksOrdered: true, messageMarksAllResolve: true } },
+  // The goal lives in its own dock above the chat so it never scrolls off in the log.
+  { name: "goal-collapsed", tab: "chat", fixture: "goal-collapsed", expect: { goalDockVisible: true, goalDockOpen: false, goalPhase: "active", goalDockAboveMessages: true } },
+  { name: "goal-expanded", tab: "chat", fixture: "goal-expanded", expect: { goalDockVisible: true, goalDockOpen: true, goalActionCount: 3, goalPauseResumeLabel: "Pause", goalDockAboveMessages: true } },
+  { name: "goal-paused", tab: "chat", fixture: "goal-paused", expect: { goalDockVisible: true, goalPhase: "paused", goalPauseResumeLabel: "Resume" } },
   { name: "thinking-hidden", tab: "chat", fixture: "thinking-hidden", expect: { activityCardVisible: false, showThinkingChecked: false } },
   // The reasoning block over a scrolled conversation is the case the old floating strip got
   // wrong: its room was reserved by padding-top on the scroll container, so scrolling took

@@ -5,6 +5,22 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.15] - 2026-08-31
+
+### Added
+
+- **The goal has its own dock above the chat.** It lived only as a `/goal` card inline in the log, so it scrolled off and was "not always visible". It is a live projection, so it now sits in a persistent strip above the conversation: collapsed to one line — the objective, an active/paused chip, a chevron — and expanded to the full objective with the round count and the same controls a queued message has: **Edit** (an inline growing editor), **Pause/Resume**, and **Delete**. Every control is a `/goal` subcommand over the command path — edit, pause, resume, clear — so Harness stays the one owner of goal state. Delete takes a second press to confirm, since clearing the goal removes the projection with it.
+
+### Fixed
+
+- **The message marks did not always scroll when clicked.** Each mark held a reference to its bubble, but the 2.5-second dashboard poll rebuilds the whole message log, so moments later that bubble was a detached node and `scrollIntoView` on it did nothing. A mark now stores its message's index and resolves the live bubble at click time, so it cannot go stale. This is also what made a mark feel like it pointed at a tool call: it pointed at nothing.
+
+- **The scroll magnet pulled the view off the top of the log (regression in 0.6.14).** The magnet was CSS `scroll-snap`, and proximity snap pulled the scroll down to the first user message even at the very top, hiding the agent's opening reply, and it fought a deliberate drag. It is a guarded JS pull now: it eases a user message flush only once the scroll settles with one already close to the top, never at the top itself, never while the log follows a running turn, and only within a small pull distance — so ordinary scrolling is untouched.
+
+### Note
+
+- Verified that no tool calls are counted as message marks: the marks are exactly the `.bubble.user` elements, and the history parser only ever gives `role: "user"` to real user messages and typed slash commands — checked against a live 76-message session where every mark was a genuine message.
+
 ## [0.6.14] - 2026-08-31
 
 ### Added

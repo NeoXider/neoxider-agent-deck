@@ -153,6 +153,17 @@ function attachScreenshotHarness({
             composerErrorVisible: Boolean(document.querySelector('#composerError:not([hidden])')),
             queueRowsExpanded: document.querySelectorAll('.queue-row.expanded').length,
             messageMarkCount: document.querySelectorAll('#messageMarks .message-mark').length,
+            goalDockVisible: Boolean(document.querySelector('#goalDock:not([hidden])')),
+            goalDockOpen: Boolean(document.querySelector('#goalDock[open]')),
+            goalPhase: document.querySelector('#goalPhase')?.textContent || '',
+            goalPauseResumeLabel: document.querySelector('#goalPauseResumeLabel')?.textContent || '',
+            goalActionCount: document.querySelectorAll('#goalDock[open] .goal-dock-actions .goal-dock-action').length,
+            goalDockAboveMessages: (() => {
+              const dock = document.querySelector('#goalDock:not([hidden])')?.getBoundingClientRect();
+              const messages = document.querySelector('#messages')?.getBoundingClientRect();
+              if (!dock || !messages) return false;
+              return dock.bottom <= messages.top + 1;
+            })(),
             messageMarksMagnet: (document.querySelector('#messages')?.className || '').includes('magnet'),
             // The rail sits in the gutter beside the scrollbar, never over a bubble.
             messageMarksClearOfBubbles: (() => {
@@ -162,6 +173,12 @@ function attachScreenshotHarness({
                 .every((bubble) => bubble.getBoundingClientRect().right <= rail.left + 1);
             })(),
             // A mark's position has to mean what the scrollbar beside it means.
+            messageMarksAllResolve: (() => {
+              const bubbles = document.querySelectorAll('#messages .bubble.user');
+              const marks = [...document.querySelectorAll('#messageMarks .message-mark')];
+              if (!marks.length) return false;
+              return marks.every((mark) => bubbles[Number(mark.dataset.userIndex)] instanceof Element);
+            })(),
             messageMarksOrdered: (() => {
               const tops = [...document.querySelectorAll('#messageMarks .message-mark')]
                 .map((mark) => parseFloat(mark.style.top));

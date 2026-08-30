@@ -609,6 +609,35 @@ test("first entry waits for the native show acknowledgement and honors reduced m
   assert.match(css, /\.first-visible-entry\.mode-full \.widget-shell/);
 });
 
+test("the goal is a persistent dock above the chat with queue-style controls", () => {
+  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  // The goal lived only as a /goal card inline in the log, so it scrolled off. It is a
+  // live projection, so it gets its own dock above the message log - collapsed to a line,
+  // expanded to the objective with the same edit / delete / pause controls a queued
+  // message has. The dock sits before the message-wrap so it never scrolls away.
+  const goalIndex = html.indexOf('id="goalDock"');
+  const messagesIndex = html.indexOf('class="messages-wrap"');
+  assert.ok(goalIndex > 0 && goalIndex < messagesIndex, "the goal dock must sit above the log");
+  assert.match(renderer, /function goalFor\(sessionId = state\.selectedSessionId\)/);
+  assert.match(renderer, /session\?\.projections\?\.values\?\.goal/);
+  assert.match(renderer, /function renderGoal\(\)/);
+  // The controls are /goal subcommands over the command path, so Harness stays the one
+  // owner of goal state rather than the widget guessing at it.
+  assert.match(renderer, /runGoalCommand\(`\/goal edit \$\{text\}`\)/);
+  assert.match(renderer, /runGoalCommand\(goal\.phase === "paused" \? "\/goal resume" : "\/goal pause"\)/);
+  assert.match(renderer, /runGoalCommand\("\/goal clear"\)/);
+  // Clearing is destructive and the projection vanishes with it, so it is a two-press
+  // confirm rather than a modal over a widget this small.
+  assert.match(renderer, /button\.dataset\.confirm !== "1"/);
+  assert.match(renderer, /executeHarnessCommand\(line, sessionId\)/);
+  assert.match(css, /\.goal-dock > summary \{[^}]*min-height:32px/);
+  assert.match(css, /\.goal-dock-phase\.paused/);
+  assert.match(visualSmoke, /goalDockVisible: true, goalDockOpen: false, goalPhase: "active", goalDockAboveMessages: true/);
+  assert.match(visualSmoke, /goalActionCount: 3, goalPauseResumeLabel: "Pause"/);
+  assert.match(visualSmoke, /goalPhase: "paused", goalPauseResumeLabel: "Resume"/);
+});
+
 test("the caller's own messages are marked on the scroll rail and pull the scroll to them", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
@@ -618,13 +647,23 @@ test("the caller's own messages are marked on the scroll rail and pull the scrol
   // dragging the scrollbar still works.
   assert.match(html, /id="messageMarks" class="message-marks no-drag"/);
   assert.match(renderer, /bubble\.offsetTop \+ bubble\.offsetHeight \/ 2\) \/ span/);
+  // The click resolves the live bubble by index, never a captured node - renderMessages
+  // rebuilds the log on the poll and a captured bubble is detached moments later.
+  assert.match(renderer, /function scrollToUserMessage\(userIndex\)/);
+  assert.match(renderer, /\$\$\("#messages \.bubble\.user"\)/);
+  assert.match(renderer, /scrollToUserMessage\(Number\(tick\.dataset\.userIndex\)\)/);
+  assert.doesNotMatch(renderer, /mark\.bubble\.scrollIntoView/);
+  assert.match(visualSmoke, /messageMarksAllResolve: true/);
   assert.match(renderer, /function renderMessageMarks\(\)/);
   assert.match(css, /\.message-marks \{[^}]*right:5px/);
   assert.match(css, /\.message-mark:hover, \.message-mark:focus-visible/);
-  // The magnet is proximity and is off while the log follows a running turn, or it
-  // would fight every repaint that grows the content under the scroller.
-  assert.match(css, /\.messages\.magnet \{ scroll-snap-type:y proximity; \}/);
-  assert.match(css, /\.messages\.magnet \.bubble\.user \{ scroll-snap-align:start/);
+  // The magnet is a guarded JS pull on scroll-idle, not CSS scroll-snap: snap on the whole
+  // log pulled the view off the top and hid the agent's opening reply. It never fires at
+  // the top, never while following a running turn, and only within a small pull distance.
+  assert.doesNotMatch(css, /\.messages(\.magnet)?[^{]*\{[^}]*scroll-snap/);
+  assert.match(renderer, /function scheduleMessageMagnet\(\)/);
+  assert.match(renderer, /if \(root\.scrollTop < 8\) return;/);
+  assert.match(renderer, /Math\.abs\(bestDist\) > MESSAGE_MAGNET_PULL\) return;/);
   assert.match(renderer, /toggle\("magnet", !state\.messagesStickToBottom\)/);
   assert.match(visualSmoke, /messageMarkCount: 5, messageMarksMagnet: true, messageMarksClearOfBubbles: true, messageMarksOrdered: true/);
 });
@@ -700,7 +739,7 @@ test("chat reports elapsed turn time and running background tasks", () => {
   const sync = renderer.slice(renderer.indexOf("function syncActivityCard"), renderer.indexOf("function setActivity"));
   assert.ok(sync.indexOf("renderActivityMeta(showCard)") < sync.indexOf("state.activityCardSignature) return false"));
   const dashboardCalls = renderer.indexOf("renderActivityMeta();");
-  assert.ok(dashboardCalls > 0 && renderer.slice(dashboardCalls, dashboardCalls + 60).includes("renderSessions();"));
+  assert.ok(dashboardCalls > 0 && renderer.slice(dashboardCalls, dashboardCalls + 120).includes("renderSessions();"));
   assert.match(css, /\.activity-meta \{ flex:none; display:flex;/);
   assert.match(visualSmoke, /activityElapsedMinutes: 21, activityElapsedRunning: true, activityBackgroundCount: "2"/);
 });

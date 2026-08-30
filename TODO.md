@@ -74,6 +74,11 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
 
+## Shipped in 0.6.15
+
+- Added a persistent goal dock above the chat, collapsible to a line and expanding to the objective with edit/pause-resume/delete controls driven by `/goal` subcommands; covered by a contract regression and three visual cases.
+- Made message marks resolve the live bubble by index at click time so they no longer go stale against the dashboard poll, and replaced the CSS scroll-snap magnet (which pulled the view off the top of the log) with a guarded JS pull; covered by contract and visual regressions.
+
 ## Shipped in 0.6.14
 
 - Added a scroll rail marking the caller's own messages with click-to-jump, and a proximity scroll magnet that settles on them while the log is not following a running turn; covered by a contract regression and the `message-marks` visual case.

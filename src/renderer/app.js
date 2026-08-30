@@ -92,6 +92,13 @@ const state = {
   queueSignature: "",
   messageMarksSignature: "",
   messageMarkFlashTimer: null,
+  messageMagnetTimer: null,
+  messageMagnetReleaseTimer: null,
+  messageMagnetSnapping: false,
+  goalSignature: "",
+  goalEditing: false,
+  goalBusy: false,
+  goalDeleteConfirmTimer: null,
   todoExpandedSessionIds: new Set(),
   todoSignature: "",
   commandFeedbackBySession: new Map(),
@@ -2283,6 +2290,88 @@ function syncCrowdedChatState() {
   return crowded;
 }
 
+function goalFor(sessionId = state.selectedSessionId) {
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+  const projection = session?.projections?.values?.goal;
+  const goal = projection?.goal;
+  if (!goal || !goal.objective) return null;
+  return {
+    objective: String(goal.objective),
+    phase: goal.phase === "paused" ? "paused" : "active",
+    maxRounds: Number(goal.maxGoalRounds) || null,
+    rounds: Number(projection.roundsStarted) || 0,
+  };
+}
+
+// The goal used to live only as a /goal card inline in the log, so it scrolled off and
+// "was not always visible". It is a live projection, so it can sit in its own dock above
+// the chat - collapsed to a line, expanded to the objective with the same edit / delete /
+// pause controls a queued message has. The actions are /goal subcommands over the command
+// path, so Harness stays the one owner of goal state.
+function renderGoal() {
+  const dock = $("#goalDock");
+  const goal = goalFor();
+  const busy = state.goalBusy;
+  const signature = JSON.stringify([goal, state.goalEditing, busy]);
+  if (signature === state.goalSignature) return false;
+  state.goalSignature = signature;
+  if (!goal) {
+    dock.hidden = true;
+    dock.open = false;
+    state.goalEditing = false;
+    return true;
+  }
+  dock.hidden = false;
+  const paused = goal.phase === "paused";
+  $("#goalPreview").textContent = compactText(goal.objective, 90);
+  $("#goalPhase").textContent = paused ? "paused" : "active";
+  $("#goalPhase").classList.toggle("paused", paused);
+  $("#goalObjective").textContent = goal.objective;
+  const rounds = goal.maxRounds ? `Round ${goal.rounds}/${goal.maxRounds}` : `Round ${goal.rounds}`;
+  $("#goalMeta").textContent = paused ? `${rounds} · paused` : rounds;
+  const pauseIcon = $("#goalPauseResume").querySelector("use");
+  if (pauseIcon) pauseIcon.setAttribute("href", paused ? "#icon-play" : "#icon-pause");
+  $("#goalPauseResumeLabel").textContent = paused ? "Resume" : "Pause";
+  $("#goalEdit").disabled = busy;
+  $("#goalDelete").disabled = busy;
+  $("#goalPauseResume").disabled = busy;
+  $("#goalEditor").hidden = !state.goalEditing;
+  $("#goalObjective").hidden = state.goalEditing;
+  $(".goal-dock-actions").hidden = state.goalEditing;
+  if (state.goalEditing) {
+    const input = $("#goalEditInput");
+    if (input.value === "" || input.dataset.goalObjective !== goal.objective) {
+      input.value = goal.objective;
+      input.dataset.goalObjective = goal.objective;
+    }
+    input.disabled = busy;
+    $("#goalEditSave").disabled = busy;
+    requestAnimationFrame(() => {
+      input.style.height = "auto";
+      input.style.height = `${Math.min(input.scrollHeight, QUEUE_EDIT_MAX_HEIGHT)}px`;
+    });
+  }
+  return true;
+}
+
+async function runGoalCommand(line) {
+  const sessionId = state.selectedSessionId;
+  if (!sessionId || state.goalBusy) return;
+  state.goalBusy = true;
+  renderGoal();
+  try {
+    await executeHarnessCommand(line, sessionId);
+    state.goalEditing = false;
+    await refresh({ afterCurrent: true });
+  } catch (error) {
+    showComposerError(error, "Goal not updated");
+  } finally {
+    state.goalBusy = false;
+    state.goalSignature = "";
+    renderGoal();
+  }
+}
+
 function renderTodos() {
   const root = $("#todoDock");
   const list = $("#todoList");
@@ -2734,6 +2823,22 @@ function restoreOpenToolKeys(root, keys) {
 // asked" meant dragging through everything the agent said in between; the rail turns
 // that into one click, and the marks are placed by real offsets so they line up with
 // the scrollbar beside them rather than approximating.
+function scrollToUserMessage(userIndex) {
+  const bubbles = $$("#messages .bubble.user");
+  // Resolved live, never from a captured node. renderMessages rebuilds the whole log
+  // on the 2.5s poll, so a bubble captured when the mark was drawn is detached moments
+  // later - scrollIntoView on a detached node does nothing, which is exactly the mark
+  // that "did not click". An index into the current bubbles cannot go stale that way.
+  const bubble = bubbles[userIndex];
+  if (!bubble) return;
+  state.messagesStickToBottom = false;
+  state.unseenMessages = 0;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  bubble.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+  flashMessageMark(bubble);
+  updateScrollLatestButton();
+}
+
 function renderMessageMarks() {
   const rail = $("#messageMarks");
   const root = $("#messages");
@@ -2741,8 +2846,8 @@ function renderMessageMarks() {
   const span = root.scrollHeight;
   const scrollable = span - root.clientHeight > 4;
   const marks = scrollable
-    ? bubbles.map((bubble) => ({
-        bubble,
+    ? bubbles.map((bubble, userIndex) => ({
+        userIndex,
         // Against scrollHeight, not clientHeight: the fraction has to mean the same
         // thing as a scrollbar position or the mark points at the wrong message.
         ratio: Math.max(0, Math.min(1, (bubble.offsetTop + bubble.offsetHeight / 2) / span)),
@@ -2754,21 +2859,17 @@ function renderMessageMarks() {
   state.messageMarksSignature = signature;
   rail.classList.toggle("has-marks", marks.length > 0);
   rail.replaceChildren();
-  for (const [index, mark] of marks.entries()) {
+  for (const mark of marks) {
     const tick = document.createElement("button");
     tick.type = "button";
     tick.className = "message-mark";
     tick.style.top = `${(mark.ratio * 100).toFixed(3)}%`;
     tick.title = mark.label;
-    tick.setAttribute("aria-label", `Your message ${index + 1} of ${marks.length}: ${mark.label}`);
-    tick.addEventListener("click", () => {
-      state.messagesStickToBottom = false;
-      state.unseenMessages = 0;
-      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      mark.bubble.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
-      flashMessageMark(mark.bubble);
-      updateScrollLatestButton();
-    });
+    tick.dataset.userIndex = String(mark.userIndex);
+    tick.setAttribute("aria-label", `Your message ${mark.userIndex + 1} of ${marks.length}: ${mark.label}`);
+    // The click reads the index off the element, so it resolves the live bubble at
+    // click time rather than closing over one that a later render will have replaced.
+    tick.addEventListener("click", () => scrollToUserMessage(Number(tick.dataset.userIndex)));
     rail.append(tick);
   }
   return true;
@@ -2783,12 +2884,41 @@ function flashMessageMark(bubble) {
   state.messageMarkFlashTimer = setTimeout(() => bubble.classList.remove("mark-target"), 1200);
 }
 
-// The magnet, and only where it helps: while the log is pinned to a running turn the
-// content grows under the scroller and snapping would fight every repaint. It comes on
-// once the caller has scrolled away to read, which is when landing squarely on one of
-// their own messages is the thing they were trying to do.
+// The magnet, and only where it helps. An earlier version used CSS scroll-snap on the
+// whole log, but proximity snap pulled the view down to the first user message even at the
+// very top, hiding the agent's opening reply, and it fought a deliberate drag. This one is
+// a gentle JS pull on scroll-idle: once the scroll settles with a user message already
+// close to the top of the viewport, it eases that message flush. It never fires at the top
+// (so the opening reply is safe), never while the log follows a running turn, and only
+// within a small pull distance, so ordinary scrolling is untouched.
+const MESSAGE_MAGNET_PULL = 26;
 function syncMessageMagnet() {
+  // The class is only a marker that the magnet is armed; the pull itself is scheduled on
+  // scroll. It carries no scroll-snap CSS any more.
   $("#messages").classList.toggle("magnet", !state.messagesStickToBottom);
+}
+
+function scheduleMessageMagnet() {
+  clearTimeout(state.messageMagnetTimer);
+  if (state.messagesStickToBottom || state.scrollLatestAutoScrolling || state.messageMagnetSnapping) return;
+  state.messageMagnetTimer = setTimeout(() => {
+    const root = $("#messages");
+    if (state.messagesStickToBottom || state.scrollLatestAutoScrolling || state.messageMagnetSnapping) return;
+    if (root.scrollTop < 8) return; // the top is a deliberate place to be; never pull off it
+    const viewportTop = root.getBoundingClientRect().top;
+    let best = null;
+    let bestDist = Infinity;
+    for (const bubble of root.querySelectorAll(".bubble.user")) {
+      const dist = bubble.getBoundingClientRect().top - viewportTop;
+      if (Math.abs(dist) < Math.abs(bestDist)) { bestDist = dist; best = bubble; }
+    }
+    if (!best || Math.abs(bestDist) < 1 || Math.abs(bestDist) > MESSAGE_MAGNET_PULL) return;
+    state.messageMagnetSnapping = true;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    best.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+    clearTimeout(state.messageMagnetReleaseTimer);
+    state.messageMagnetReleaseTimer = setTimeout(() => { state.messageMagnetSnapping = false; }, reduceMotion ? 0 : 420);
+  }, 160);
 }
 
 function updateScrollLatestButton() {
@@ -3827,6 +3957,7 @@ async function performRefresh() {
     else if ((wasOffline && state.avatarMode === "error" && !state.compactErrorUnread) || !["done", "error"].includes(state.avatarMode)) setAvatar("idle");
     syncSelectedAgentMode();
     renderActivityMeta();
+    renderGoal();
     renderSessions();
     renderSessionSelect();
     renderContext();
@@ -4621,6 +4752,7 @@ $("#messages").addEventListener("scroll", () => {
   if (nearBottom) state.unseenMessages = 0;
   updateScrollLatestButton();
   syncMessageMagnet();
+  scheduleMessageMagnet();
 });
 $("#scrollLatestButton").addEventListener("click", () => {
   clearTimeout(state.scrollLatestAutoScrollTimer);
@@ -4638,6 +4770,59 @@ $("#todoToggle").addEventListener("click", () => {
   if (state.todoExpandedSessionIds.has(sessionId)) state.todoExpandedSessionIds.delete(sessionId);
   else state.todoExpandedSessionIds.add(sessionId);
   renderTodos();
+});
+// A <details> toggles itself; the extra work is only closing an open editor when the whole
+// dock is collapsed, so reopening it never lands mid-edit.
+$("#goalDock").addEventListener("toggle", () => {
+  if (!$("#goalDock").open && state.goalEditing) { state.goalEditing = false; state.goalSignature = ""; renderGoal(); }
+});
+$("#goalEdit").addEventListener("click", () => {
+  state.goalEditing = true;
+  state.goalSignature = "";
+  $("#goalDock").open = true;
+  renderGoal();
+  requestAnimationFrame(() => { const input = $("#goalEditInput"); input.focus(); input.select(); });
+});
+$("#goalEditCancel").addEventListener("click", () => { state.goalEditing = false; state.goalSignature = ""; renderGoal(); });
+$("#goalEditInput").addEventListener("input", () => {
+  const input = $("#goalEditInput");
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, QUEUE_EDIT_MAX_HEIGHT)}px`;
+});
+const saveGoalEdit = () => {
+  const text = $("#goalEditInput").value.trim();
+  const current = goalFor();
+  if (!text) return;
+  if (current && text === current.objective) { state.goalEditing = false; state.goalSignature = ""; renderGoal(); return; }
+  runGoalCommand(`/goal edit ${text}`);
+};
+$("#goalEditSave").addEventListener("click", saveGoalEdit);
+$("#goalEditInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); saveGoalEdit(); }
+  if (event.key === "Escape") { state.goalEditing = false; state.goalSignature = ""; renderGoal(); }
+});
+$("#goalPauseResume").addEventListener("click", () => {
+  const goal = goalFor();
+  if (!goal) return;
+  runGoalCommand(goal.phase === "paused" ? "/goal resume" : "/goal pause");
+});
+$("#goalDelete").addEventListener("click", () => {
+  // Clearing the goal is destructive and the projection vanishes with it, so it takes a
+  // second press. The button says so in between rather than opening a modal over a widget
+  // this small.
+  const button = $("#goalDelete");
+  const labelNode = button.querySelector("span");
+  if (button.dataset.confirm !== "1") {
+    button.dataset.confirm = "1";
+    labelNode.textContent = "Confirm";
+    clearTimeout(state.goalDeleteConfirmTimer);
+    state.goalDeleteConfirmTimer = setTimeout(() => { button.dataset.confirm = ""; labelNode.textContent = "Delete"; }, 3200);
+    return;
+  }
+  clearTimeout(state.goalDeleteConfirmTimer);
+  button.dataset.confirm = "";
+  labelNode.textContent = "Delete";
+  runGoalCommand("/goal clear");
 });
 $("#cancelButton").addEventListener("click", () => { stopCurrentTurn().catch(showError); });
 $("#focusChatButton").addEventListener("click", () => setFocusMode(!state.focusMode));
@@ -5103,6 +5288,24 @@ if (screenshotFixture) {
         { id: "queue-2", placement: "queued", text: "Then summarize only the failures.", preview: "Then summarize only the failures." },
       ]);
       renderQueuedPrompts();
+    } else if (["goal-collapsed", "goal-expanded", "goal-paused"].includes(screenshotFixture)) {
+      setTab("chat");
+      const paused = screenshotFixture === "goal-paused";
+      const goal = {
+        goal: {
+          id: "goal-demo", revision: 12,
+          objective: "Reach the checkout flow, apply the launch coupon, and confirm the order total updates before payment. Keep a note of every step that needed a retry.",
+          phase: paused ? "paused" : "active",
+          maxGoalRounds: 12,
+        },
+        roundsStarted: 4,
+      };
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-goal", title: "Long-running agent", running: true, state: "working", projections: { values: { goal } }, subagents: [] }] };
+      state.selectedSessionId = "demo-goal";
+      state.runningSessionIds = new Set(["demo-goal"]);
+      renderMessages([{ role: "user", text: "/goal" }, { role: "assistant", text: "Working on the goal." }]);
+      renderGoal();
+      if (screenshotFixture !== "goal-collapsed") $("#goalDock").open = true;
     } else if (screenshotFixture === "message-marks") {
       // A conversation long enough to scroll, so the rail has somewhere to put marks.
       setTab("chat");
@@ -5166,7 +5369,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.13", latestVersion: "0.6.14", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.6.14", latestVersion: "0.6.15", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {
