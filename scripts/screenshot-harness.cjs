@@ -158,12 +158,56 @@ function attachScreenshotHarness({
             goalPhase: document.querySelector('#goalPhase')?.textContent || '',
             goalPauseResumeLabel: document.querySelector('#goalPauseResumeLabel')?.textContent || '',
             goalActionCount: document.querySelectorAll('#goalDock[open] .goal-dock-actions .goal-dock-action').length,
-            goalDockAboveMessages: (() => {
+            // The activity card grows and vanishes above the log, so the goal sits under the
+            // composer where nothing above it can shove it around.
+            goalDockBelowComposer: (() => {
               const dock = document.querySelector('#goalDock:not([hidden])')?.getBoundingClientRect();
-              const messages = document.querySelector('#messages')?.getBoundingClientRect();
-              if (!dock || !messages) return false;
-              return dock.bottom <= messages.top + 1;
+              const composer = document.querySelector('#chatForm')?.getBoundingClientRect();
+              if (!dock || !composer) return false;
+              return dock.top >= composer.bottom - 1;
             })(),
+            // column-reverse welds the strip to the bottom edge: opening the panel must not
+            // move the line the user clicks.
+            goalStripPinnedToBottom: (() => {
+              const dock = document.querySelector('#goalDock:not([hidden])')?.getBoundingClientRect();
+              const strip = document.querySelector('#goalSummary')?.getBoundingClientRect();
+              if (!dock || !strip) return false;
+              return Math.abs(dock.bottom - strip.bottom) <= 2;
+            })(),
+            goalStripHeight: Math.round(document.querySelector('#goalSummary')?.getBoundingClientRect().height || 0),
+            // Collapsed the strip is a hairline with no objective text on it.
+            goalStripTextFree: (() => {
+              const strip = document.querySelector('#goalSummary');
+              if (!strip) return false;
+              const objective = document.querySelector('#goalObjective')?.textContent?.trim() || '';
+              const text = strip.textContent.replace(/\s+/g, '');
+              return objective.length > 0 && !text.includes(objective.slice(0, 12).replace(/\s+/g, ''));
+            })(),
+            goalTrackFill: document.querySelector('#goalTrackFill')?.style.width || '',
+            goalRounds: document.querySelector('#goalRounds')?.textContent || '',
+            messageMarkHitHeight: Math.round(document.querySelector('#messageMarks .message-mark')?.getBoundingClientRect().height || 0),
+            // The jump-to-latest pill used to sit on top of the last marks and eat their presses.
+            messageMarksClearOfLatest: (() => {
+              const pill = document.querySelector('.scroll-latest:not([hidden])')?.getBoundingClientRect();
+              const marks = [...document.querySelectorAll('#messageMarks .message-mark')];
+              if (!marks.length) return false;
+              if (!pill) return true;
+              return marks.every((mark) => {
+                const rect = mark.getBoundingClientRect();
+                return rect.right <= pill.left + 1 || rect.left >= pill.right - 1 || rect.bottom <= pill.top + 1 || rect.top >= pill.bottom - 1;
+              });
+            })(),
+            // A press has to survive the repaint that lands on top of it: the log is rebuilt
+            // on every poll, and the offset it restores was captured mid-jump.
+            markJumpAligned: (() => {
+              const root = document.querySelector('#messages');
+              const index = window.__markJump?.target;
+              if (!root || index === undefined) return false;
+              const bubble = root.querySelectorAll('.bubble.user')[index];
+              if (!bubble) return false;
+              return Math.abs(bubble.getBoundingClientRect().top - root.getBoundingClientRect().top) <= 10;
+            })(),
+            markJumpFlashed: document.querySelectorAll('#messages .bubble.mark-target').length,
             messageMarksMagnet: (document.querySelector('#messages')?.className || '').includes('magnet'),
             // The rail sits in the gutter beside the scrollbar, never over a bubble.
             messageMarksClearOfBubbles: (() => {

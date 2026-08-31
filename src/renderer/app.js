@@ -92,6 +92,8 @@ const state = {
   queueSignature: "",
   messageMarksSignature: "",
   messageMarkFlashTimer: null,
+  messageMarkFlashIndex: null,
+  messageScrollPin: null,
   messageMagnetTimer: null,
   messageMagnetReleaseTimer: null,
   messageMagnetSnapping: false,
@@ -210,6 +212,12 @@ function captureMessageLayoutSnapshot() {
 
 function restoreMessageLayoutSnapshot(snapshot) {
   if (!snapshot?.root?.isConnected || snapshot.root.clientHeight <= 0) return;
+  // A mark the caller just clicked outranks the offset captured before the rebuild.
+  if (applyMessageScrollPin()) {
+    paintMessageMarkFlash();
+    updateScrollLatestButton();
+    return;
+  }
   if (snapshot.pinned) {
     snapshot.root.scrollTop = snapshot.root.scrollHeight;
     state.messagesStickToBottom = true;
@@ -2304,10 +2312,12 @@ function goalFor(sessionId = state.selectedSessionId) {
 }
 
 // The goal used to live only as a /goal card inline in the log, so it scrolled off and
-// "was not always visible". It is a live projection, so it can sit in its own dock above
-// the chat - collapsed to a line, expanded to the objective with the same edit / delete /
-// pause controls a queued message has. The actions are /goal subcommands over the command
-// path, so Harness stays the one owner of goal state.
+// "was not always visible". It is a live projection, so it gets a dock of its own: a
+// hairline strip pinned under the composer, clear of the activity card that appears and
+// disappears above the log and used to shove the goal around. Collapsed it carries no text
+// at all - the orb, the round rail and the counter - and the objective opens on click or
+// rides the tooltip. The full text is read and rewritten behind the pencil. Every action is
+// a /goal subcommand over the command path, so Harness stays the one owner of goal state.
 function renderGoal() {
   const dock = $("#goalDock");
   const goal = goalFor();
@@ -2323,21 +2333,36 @@ function renderGoal() {
   }
   dock.hidden = false;
   const paused = goal.phase === "paused";
-  $("#goalPreview").textContent = compactText(goal.objective, 90);
+  const rounds = goal.maxRounds ? `Round ${goal.rounds}/${goal.maxRounds}` : `Round ${goal.rounds}`;
+  dock.dataset.phase = paused ? "paused" : "active";
+  dock.classList.toggle("goal-unbounded", !goal.maxRounds);
+  const summary = $("#goalSummary");
+  summary.title = paused ? `${goal.objective}
+${rounds} · paused` : `${goal.objective}
+${rounds}`;
+  summary.setAttribute("aria-label", `Goal, ${paused ? "paused" : "active"}: ${compactText(goal.objective, 90)}`);
+  $("#goalOrbIcon").setAttribute("href", paused ? "#icon-pause" : "#icon-goal-dot");
+  $("#goalRounds").textContent = goal.maxRounds ? `${goal.rounds}/${goal.maxRounds}` : String(goal.rounds);
+  // Only a capped goal has a real fraction to draw; an open-ended one keeps the rail as a
+  // plain hint instead of a bar frozen at zero.
+  const progress = goal.maxRounds ? Math.max(0, Math.min(1, goal.rounds / goal.maxRounds)) : 0;
+  $("#goalTrackFill").style.width = `${Math.round(progress * 100)}%`;
   $("#goalPhase").textContent = paused ? "paused" : "active";
   $("#goalPhase").classList.toggle("paused", paused);
   $("#goalObjective").textContent = goal.objective;
-  const rounds = goal.maxRounds ? `Round ${goal.rounds}/${goal.maxRounds}` : `Round ${goal.rounds}`;
-  $("#goalMeta").textContent = paused ? `${rounds} · paused` : rounds;
+  $("#goalMeta").textContent = rounds;
   const pauseIcon = $("#goalPauseResume").querySelector("use");
   if (pauseIcon) pauseIcon.setAttribute("href", paused ? "#icon-play" : "#icon-pause");
   $("#goalPauseResumeLabel").textContent = paused ? "Resume" : "Pause";
+  $("#goalPauseResume").title = paused ? "Resume the goal" : "Pause the goal";
+  $("#goalPauseResume").setAttribute("aria-label", paused ? "Resume the goal" : "Pause the goal");
   $("#goalEdit").disabled = busy;
   $("#goalDelete").disabled = busy;
   $("#goalPauseResume").disabled = busy;
   $("#goalEditor").hidden = !state.goalEditing;
   $("#goalObjective").hidden = state.goalEditing;
   $(".goal-dock-actions").hidden = state.goalEditing;
+  $(".goal-dock-editor-actions").hidden = !state.goalEditing;
   if (state.goalEditing) {
     const input = $("#goalEditInput");
     if (input.value === "" || input.dataset.goalObjective !== goal.objective) {
@@ -2823,19 +2848,55 @@ function restoreOpenToolKeys(root, keys) {
 // asked" meant dragging through everything the agent said in between; the rail turns
 // that into one click, and the marks are placed by real offsets so they line up with
 // the scrollbar beside them rather than approximating.
+// A rebuild of the log must not throw the jump away. renderMessages replaces every bubble
+// on the 2.5s poll and restores the scroll offset it captured beforehand; a smooth scroll
+// still in flight gets captured half-way and snapped back, which is the click that
+// "did nothing". The pin survives those rebuilds - the restore re-resolves the message and
+// lands on it instead of on a stale offset - and it lets go on the next deliberate scroll.
+const MESSAGE_PIN_MS = 1600;
+const MESSAGE_PIN_OFFSET = 6;
+function activeMessageScrollPin() {
+  const pin = state.messageScrollPin;
+  if (!pin) return null;
+  if (Date.now() > pin.expires) { state.messageScrollPin = null; return null; }
+  return pin;
+}
+
+function releaseMessageScrollPin() {
+  state.messageScrollPin = null;
+}
+
+function applyMessageScrollPin({ smooth = false } = {}) {
+  const pin = activeMessageScrollPin();
+  if (!pin) return false;
+  const root = $("#messages");
+  if (!root || root.clientHeight <= 0) return false;
+  const bubble = root.querySelectorAll(".bubble.user")[pin.userIndex];
+  if (!bubble) return false;
+  // Measured, not offsetTop: the bubble's offsetParent is the wrap, not the scroller, so
+  // only the live rectangles agree with what the scrollbar is actually showing.
+  const delta = bubble.getBoundingClientRect().top - root.getBoundingClientRect().top;
+  const limit = Math.max(0, root.scrollHeight - root.clientHeight);
+  const target = Math.max(0, Math.min(limit, root.scrollTop + delta - MESSAGE_PIN_OFFSET));
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (smooth && !reduceMotion) root.scrollTo({ top: target, behavior: "smooth" });
+  else root.scrollTop = target;
+  state.messagesStickToBottom = false;
+  return true;
+}
+
 function scrollToUserMessage(userIndex) {
   const bubbles = $$("#messages .bubble.user");
   // Resolved live, never from a captured node. renderMessages rebuilds the whole log
   // on the 2.5s poll, so a bubble captured when the mark was drawn is detached moments
   // later - scrollIntoView on a detached node does nothing, which is exactly the mark
   // that "did not click". An index into the current bubbles cannot go stale that way.
-  const bubble = bubbles[userIndex];
-  if (!bubble) return;
+  if (!bubbles[userIndex]) return;
   state.messagesStickToBottom = false;
   state.unseenMessages = 0;
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  bubble.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
-  flashMessageMark(bubble);
+  state.messageScrollPin = { userIndex, expires: Date.now() + MESSAGE_PIN_MS };
+  applyMessageScrollPin({ smooth: true });
+  flashMessageMark(userIndex);
   updateScrollLatestButton();
 }
 
@@ -2858,6 +2919,7 @@ function renderMessageMarks() {
   if (signature === state.messageMarksSignature) return false;
   state.messageMarksSignature = signature;
   rail.classList.toggle("has-marks", marks.length > 0);
+  $("#messages").parentElement?.classList.toggle("has-marks", marks.length > 0);
   rail.replaceChildren();
   for (const mark of marks) {
     const tick = document.createElement("button");
@@ -2876,12 +2938,23 @@ function renderMessageMarks() {
 }
 
 // The rail lands you somewhere in the middle of a long conversation, where one bubble
-// looks like another. The pulse says which one you asked for.
-function flashMessageMark(bubble) {
+// looks like another. The pulse says which one you asked for, and it is re-applied by
+// index after a rebuild so a poll landing mid-flash does not swallow it.
+function flashMessageMark(userIndex) {
   clearTimeout(state.messageMarkFlashTimer);
+  state.messageMarkFlashIndex = userIndex;
+  paintMessageMarkFlash();
+  state.messageMarkFlashTimer = setTimeout(() => {
+    state.messageMarkFlashIndex = null;
+    for (const previous of $$("#messages .bubble.mark-target")) previous.classList.remove("mark-target");
+  }, 1200);
+}
+
+function paintMessageMarkFlash() {
   for (const previous of $$("#messages .bubble.mark-target")) previous.classList.remove("mark-target");
-  bubble.classList.add("mark-target");
-  state.messageMarkFlashTimer = setTimeout(() => bubble.classList.remove("mark-target"), 1200);
+  if (state.messageMarkFlashIndex === null) return;
+  const bubble = $$("#messages .bubble.user")[state.messageMarkFlashIndex];
+  if (bubble) bubble.classList.add("mark-target");
 }
 
 // The magnet, and only where it helps. An earlier version used CSS scroll-snap on the
@@ -2904,6 +2977,7 @@ function scheduleMessageMagnet() {
   state.messageMagnetTimer = setTimeout(() => {
     const root = $("#messages");
     if (state.messagesStickToBottom || state.scrollLatestAutoScrolling || state.messageMagnetSnapping) return;
+    if (activeMessageScrollPin()) return; // a mark jump owns the scroll until it settles
     if (root.scrollTop < 8) return; // the top is a deliberate place to be; never pull off it
     const viewportTop = root.getBoundingClientRect().top;
     let best = null;
@@ -2996,7 +3070,13 @@ function paintLiveAssistant() {
     liveBubble.remove();
     if (!state.currentMessages.length && !steeringPromptsFor().length) root.innerHTML = `<div class="empty-state">${state.selectedSessionId ? "Write a message to start this session." : "Write a message — the widget will create a session."}</div>`;
   }
-  if (wasPinned) {
+  // A mark the caller just clicked outranks the offset captured before this repaint. The
+  // live stream repaints on every poll, and writing scrollTop back also cancels a smooth
+  // scroll mid-flight - which is precisely the mark press that "did nothing" while the
+  // agent was answering.
+  if (applyMessageScrollPin()) {
+    if (liveChanged) state.unseenMessages = 1;
+  } else if (wasPinned) {
     root.scrollTop = root.scrollHeight;
     state.unseenMessages = 0;
   } else {
@@ -3294,13 +3374,16 @@ function renderMessages(messages) {
   appendSteeringPrompts(root);
   appendLiveAssistant(root);
   restoreOpenToolKeys(root, expandedTools);
-  if (wasPinned) {
+  if (applyMessageScrollPin()) {
+    if (changed) state.unseenMessages = 1;
+  } else if (wasPinned) {
     root.scrollTop = root.scrollHeight;
     state.unseenMessages = 0;
   } else {
     root.scrollTop = Math.min(previousTop, Math.max(0, root.scrollHeight - root.clientHeight));
     if (changed) state.unseenMessages = 1;
   }
+  paintMessageMarkFlash();
   restoreMessageSelection(root, selection);
   syncActivityCard();
   updateScrollLatestButton();
@@ -4754,7 +4837,13 @@ $("#messages").addEventListener("scroll", () => {
   syncMessageMagnet();
   scheduleMessageMagnet();
 });
+// Scrolling under your own hand releases the pin at once; it only exists to keep a rebuild
+// from landing on top of a jump that is still in flight.
+for (const eventName of ["wheel", "pointerdown", "keydown"]) {
+  $("#messages").addEventListener(eventName, releaseMessageScrollPin, { passive: true });
+}
 $("#scrollLatestButton").addEventListener("click", () => {
+  releaseMessageScrollPin();
   clearTimeout(state.scrollLatestAutoScrollTimer);
   state.scrollLatestAutoScrolling = true;
   state.messagesStickToBottom = true;
@@ -4811,17 +4900,18 @@ $("#goalDelete").addEventListener("click", () => {
   // second press. The button says so in between rather than opening a modal over a widget
   // this small.
   const button = $("#goalDelete");
-  const labelNode = button.querySelector("span");
+  const labelNode = $("#goalDeleteLabel");
+  const rest = () => { button.dataset.confirm = ""; labelNode.hidden = true; button.title = "Delete the goal"; };
   if (button.dataset.confirm !== "1") {
     button.dataset.confirm = "1";
-    labelNode.textContent = "Confirm";
+    labelNode.hidden = false;
+    button.title = "Press again to delete the goal";
     clearTimeout(state.goalDeleteConfirmTimer);
-    state.goalDeleteConfirmTimer = setTimeout(() => { button.dataset.confirm = ""; labelNode.textContent = "Delete"; }, 3200);
+    state.goalDeleteConfirmTimer = setTimeout(rest, 3200);
     return;
   }
   clearTimeout(state.goalDeleteConfirmTimer);
-  button.dataset.confirm = "";
-  labelNode.textContent = "Delete";
+  rest();
   runGoalCommand("/goal clear");
 });
 $("#cancelButton").addEventListener("click", () => { stopCurrentTurn().catch(showError); });
@@ -5306,7 +5396,7 @@ if (screenshotFixture) {
       renderMessages([{ role: "user", text: "/goal" }, { role: "assistant", text: "Working on the goal." }]);
       renderGoal();
       if (screenshotFixture !== "goal-collapsed") $("#goalDock").open = true;
-    } else if (screenshotFixture === "message-marks") {
+    } else if (["message-marks", "mark-jump"].includes(screenshotFixture)) {
       // A conversation long enough to scroll, so the rail has somewhere to put marks.
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-marks", title: "Long conversation", running: false, projections: { values: {} }, subagents: [] }] };
@@ -5321,6 +5411,19 @@ if (screenshotFixture) {
       state.messagesStickToBottom = false;
       syncMessageMagnet();
       renderMessageMarks();
+      updateScrollLatestButton();
+      if (screenshotFixture === "mark-jump") {
+        // The reported failure: press a mark, then let the poll rebuild the log right on
+        // top of the jump. Without the pin the rebuild restores the offset it captured
+        // mid-flight and the press looks like it did nothing.
+        // An early message, so the jump is a real move rather than a scroll that clamps
+        // at the bottom of the log and proves nothing.
+        const target = 1;
+        window.__markJump = { target };
+        $$("#messageMarks .message-mark")[target].click();
+        renderMessages(history);
+        paintLiveAssistant();
+      }
     } else if (["queued-long", "queued-editing"].includes(screenshotFixture)) {
       // The reported case: a queued background job whose command is far longer than the
       // one-line row, opened so the whole of it can be read.
@@ -5369,7 +5472,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.14", latestVersion: "0.6.15", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.6.15", latestVersion: "0.6.16", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {

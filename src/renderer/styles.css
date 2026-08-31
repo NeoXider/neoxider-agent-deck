@@ -385,8 +385,12 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
    which is what the scrollbar next to them is showing. */
 .message-marks { position:absolute; z-index:6; top:3px; right:5px; bottom:8px; width:7px; display:none; }
 .message-marks.has-marks { display:block; }
-.message-mark { position:absolute; right:0; width:7px; height:3px; padding:0; border:0; border-radius:2px; background:rgba(73,231,198,.5); cursor:pointer; transform:translateY(-50%); transition:background .15s ease, width .15s ease; }
-.message-mark:hover, .message-mark:focus-visible { width:100%; background:var(--mint); outline:0; }
+/* The tick reads as 3px, but a 3px click target is a coin toss - the button carries 11px of
+   transparent hit area around it, so the press lands where the hover tooltip promised. */
+.message-mark { position:absolute; right:0; width:7px; height:11px; padding:0; border:0; background:none; cursor:pointer; transform:translateY(-50%); }
+.message-mark::after { content:""; position:absolute; right:0; top:50%; width:7px; height:3px; border-radius:2px; background:rgba(73,231,198,.5); transform:translateY(-50%); transition:background .15s ease, height .15s ease; }
+.message-mark:hover::after, .message-mark:focus-visible::after { height:5px; background:var(--mint); }
+.message-mark:focus-visible { outline:0; }
 .chat-crowded .message-marks { top:2px; bottom:6px; }
 .bubble { width:fit-content; max-width:88%; margin:0 0 8px; padding:9px 11px; border-radius:14px 14px 14px 4px; background:rgba(255,255,255,.07); color:#dfe4ec; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
 .bubble.plain, .reasoning-text.plain { white-space:pre-wrap; }
@@ -483,35 +487,48 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .hljs-deletion { color:#ff7b92; background:rgba(255,91,120,.08); }
 .hljs-addition { background:rgba(77,223,181,.07); }
 
-/* The goal, always visible above the chat instead of scrolling off in the log. Collapsed
-   it is one line; expanded it reads like a queued message with the same kind of controls. */
-.goal-dock { min-width:0; flex:none; overflow:hidden; border:1px solid rgba(73,231,198,.24); border-radius:11px; background:linear-gradient(110deg,rgba(73,231,198,.08),rgba(139,121,255,.06)); }
+/* The goal is a live projection, so it gets a permanent strip of its own - pinned under the
+   composer, away from the activity card whose appearing and disappearing used to shove it
+   around. Collapsed it is a hairline: the orb, the round rail and the counter, nothing else.
+   The objective opens on click and is read in full behind the pencil. column-reverse keeps
+   the strip welded to the bottom edge so it never moves when the panel opens. */
+.goal-dock { min-width:0; flex:none; display:flex; flex-direction:column-reverse; overflow:hidden; border:1px solid rgba(73,231,198,.18); border-radius:10px; background:linear-gradient(110deg,rgba(73,231,198,.06),rgba(139,121,255,.05)); }
 .goal-dock[hidden] { display:none; }
-.goal-dock > summary { min-width:0; min-height:32px; display:flex; align-items:center; gap:7px; padding:0 9px; list-style:none; cursor:pointer; user-select:none; }
+.goal-dock > summary { min-width:0; height:20px; flex:none; display:flex; align-items:center; gap:7px; padding:0 7px; list-style:none; cursor:pointer; user-select:none; }
 .goal-dock > summary::-webkit-details-marker { display:none; }
-.goal-dock > summary > .ui-icon:first-child { flex:none; width:13px; height:13px; color:#5eead4; }
-.goal-dock b { flex:none; color:#bff3e6; font-size:9px; }
-.goal-dock #goalPreview { min-width:0; flex:1; overflow:hidden; color:#c5cfda; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
-.goal-dock-phase { flex:none; padding:1px 6px; border-radius:99px; background:rgba(73,231,198,.16); color:#63ddc5; font-size:7px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; }
-.goal-dock-phase.paused { background:rgba(255,193,120,.16); color:#ffc178; }
-.goal-chevron { flex:none; width:13px; height:13px; color:#7f8b9c; transition:transform .15s ease; }
+.goal-dock > summary:hover { background:rgba(73,231,198,.05); }
+.goal-orb { flex:none; width:13px; height:13px; display:grid; place-items:center; color:#5eead4; }
+.goal-orb .ui-icon { width:12px; height:12px; }
+.goal-dock[data-phase="paused"] .goal-orb { color:#ffc178; }
+.goal-track { min-width:0; flex:1; height:2px; overflow:hidden; border-radius:99px; background:rgba(255,255,255,.07); }
+.goal-track-fill { display:block; width:0; height:100%; border-radius:99px; background:linear-gradient(90deg,#49e7c6,#8b79ff); transition:width .3s cubic-bezier(.22,1,.36,1); }
+.goal-dock[data-phase="paused"] .goal-track-fill { background:linear-gradient(90deg,#ffc178,#ff9f6a); }
+.goal-dock.goal-unbounded .goal-track { background:linear-gradient(90deg,rgba(73,231,198,.3),rgba(139,121,255,.16),transparent); }
+.goal-rounds { flex:none; color:#7f8b9c; font-size:7px; font-weight:700; letter-spacing:.4px; font-variant-numeric:tabular-nums; }
+.goal-chevron { flex:none; width:11px; height:11px; color:#66717f; transition:transform .15s ease; }
 .goal-dock[open] .goal-chevron { transform:rotate(180deg); }
-.goal-dock-body { padding:0 9px 8px 9px; }
-.goal-dock-objective { color:#d7dfea; font-size:9px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; }
+.goal-dock-body { padding:7px 8px 6px; border-bottom:1px solid rgba(73,231,198,.13); animation:goal-open .16s cubic-bezier(.22,1,.36,1); }
+@keyframes goal-open { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+.goal-dock-objective { max-height:74px; overflow-y:auto; overscroll-behavior:contain; color:#d7dfea; font-size:9px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; }
 .goal-dock-objective[hidden] { display:none; }
-.goal-dock-meta { margin-top:5px; color:#8d98aa; font-size:8px; }
-.goal-dock-actions { margin-top:7px; display:flex; gap:5px; }
-.goal-dock-actions[hidden] { display:none; }
-.goal-dock-action { min-height:24px; display:inline-flex; align-items:center; gap:4px; padding:0 8px; border:1px solid rgba(139,121,255,.26); border-radius:7px; background:rgba(4,9,15,.34); color:#c2ccd8; font-size:8px; cursor:pointer; }
+.goal-dock-foot { margin-top:6px; display:flex; align-items:center; gap:6px; }
+.goal-dock-phase { flex:none; padding:1px 5px; border-radius:99px; background:rgba(73,231,198,.14); color:#63ddc5; font-size:7px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; }
+.goal-dock-phase.paused { background:rgba(255,193,120,.16); color:#ffc178; }
+.goal-dock-meta { min-width:0; flex:1; overflow:hidden; color:#8d98aa; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.goal-dock-actions, .goal-dock-editor-actions { flex:none; display:flex; gap:4px; }
+.goal-dock-actions[hidden], .goal-dock-editor-actions[hidden] { display:none; }
+.goal-dock-action { width:22px; height:22px; flex:none; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0; border:1px solid rgba(139,121,255,.24); border-radius:7px; background:rgba(4,9,15,.32); color:#c2ccd8; font-size:8px; cursor:pointer; transition:.14s ease; }
 .goal-dock-action .ui-icon { width:12px; height:12px; }
 .goal-dock-action:hover:not(:disabled) { border-color:rgba(139,121,255,.5); background:rgba(139,121,255,.14); color:#e7e2ff; }
 .goal-dock-action.steer { border-color:rgba(73,231,198,.4); color:#63ddc5; }
-.goal-dock-action.danger[data-confirm="1"] { border-color:rgba(255,115,143,.6); background:rgba(255,115,143,.14); color:#ff91a7; }
 .goal-dock-action.danger:hover:not(:disabled) { border-color:rgba(255,115,143,.5); color:#ff91a7; }
+.goal-dock-action.danger[data-confirm="1"] { width:auto; padding:0 7px; border-color:rgba(255,115,143,.6); background:rgba(255,115,143,.14); color:#ff91a7; }
 .goal-dock-action:disabled { opacity:.4; cursor:default; }
+.goal-dock-confirm { font-weight:700; }
+.goal-dock-confirm[hidden] { display:none; }
 .goal-dock-editor[hidden] { display:none; }
 .goal-dock-editor textarea { width:100%; min-height:30px; max-height:132px; overflow-y:auto; border:1px solid rgba(139,121,255,.32); border-radius:7px; outline:0; padding:6px 8px; background:#0b111a; color:#e8edf5; font-size:9px; line-height:1.45; font-family:inherit; resize:none; }
-.goal-dock-editor-actions { margin-top:6px; display:flex; gap:5px; }
+.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 
 .todo-dock { min-width:0; flex:none; overflow:hidden; border:1px solid rgba(139,121,255,.2); border-radius:11px; background:linear-gradient(110deg,rgba(139,121,255,.065),rgba(73,231,198,.045)); }
 .todo-dock[hidden] { display:none; }
@@ -565,6 +582,8 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 
 .scroll-latest { position:absolute; z-index:24; right:7px; bottom:7px; height:27px; display:flex; align-items:center; gap:4px; padding:0 8px; border:1px solid rgba(73,231,198,.3); border-radius:14px; background:rgba(11,17,26,.94); box-shadow:0 5px 16px rgba(0,0,0,.38),0 0 13px rgba(73,231,198,.12); color:#8fead8; cursor:pointer; font-size:8px; font-weight:700; backdrop-filter:blur(10px); }
 .scroll-latest[hidden] { display:none; }
+/* The pill used to sit on top of the last marks on the rail and swallow their clicks. */
+.messages-wrap.has-marks .scroll-latest { right:18px; }
 .scroll-latest .ui-icon { width:13px; height:13px; }
 .scroll-latest.completion-pop { animation:scroll-latest-complete .68s cubic-bezier(.16,1,.3,1) both; }
 @keyframes scroll-latest-complete { 0%{opacity:.55;transform:translateY(7px) scale(.82);box-shadow:0 0 0 rgba(73,231,198,0)} 55%{opacity:1;transform:translateY(-2px) scale(1.08);box-shadow:0 0 24px rgba(166,238,103,.36)} 100%{transform:none} }

@@ -609,16 +609,17 @@ test("first entry waits for the native show acknowledgement and honors reduced m
   assert.match(css, /\.first-visible-entry\.mode-full \.widget-shell/);
 });
 
-test("the goal is a persistent dock above the chat with queue-style controls", () => {
+test("the goal is a hairline strip under the composer that opens into queue-style controls", () => {
   const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
   const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
-  // The goal lived only as a /goal card inline in the log, so it scrolled off. It is a
-  // live projection, so it gets its own dock above the message log - collapsed to a line,
-  // expanded to the objective with the same edit / delete / pause controls a queued
-  // message has. The dock sits before the message-wrap so it never scrolls away.
+  // The goal lived only as a /goal card inline in the log, so it scrolled off. It is a live
+  // projection, so it gets a strip of its own. That strip sits under the composer, not above
+  // the log: the activity card grows and vanishes up there and kept shoving the goal around.
   const goalIndex = html.indexOf('id="goalDock"');
+  const composerIndex = html.indexOf('id="chatForm"');
   const messagesIndex = html.indexOf('class="messages-wrap"');
-  assert.ok(goalIndex > 0 && goalIndex < messagesIndex, "the goal dock must sit above the log");
+  assert.ok(goalIndex > composerIndex, "the goal dock must sit below the composer");
+  assert.ok(goalIndex > messagesIndex, "the goal dock must sit below the log");
   assert.match(renderer, /function goalFor\(sessionId = state\.selectedSessionId\)/);
   assert.match(renderer, /session\?\.projections\?\.values\?\.goal/);
   assert.match(renderer, /function renderGoal\(\)/);
@@ -631,9 +632,15 @@ test("the goal is a persistent dock above the chat with queue-style controls", (
   // confirm rather than a modal over a widget this small.
   assert.match(renderer, /button\.dataset\.confirm !== "1"/);
   assert.match(renderer, /executeHarnessCommand\(line, sessionId\)/);
-  assert.match(css, /\.goal-dock > summary \{[^}]*min-height:32px/);
+  // Collapsed it is a 20px hairline carrying no objective text: the orb, the round rail and
+  // the counter. The objective is on the tooltip and behind the pencil.
+  assert.match(css, /\.goal-dock > summary \{[^}]*height:20px/);
+  assert.match(css, /\.goal-dock \{[^}]*flex-direction:column-reverse/);
+  assert.doesNotMatch(html, /id="goalPreview"/);
+  assert.match(renderer, /summary\.title = paused \?/);
+  assert.match(renderer, /\$\("#goalTrackFill"\)\.style\.width = `\$\{Math\.round\(progress \* 100\)\}%`/);
   assert.match(css, /\.goal-dock-phase\.paused/);
-  assert.match(visualSmoke, /goalDockVisible: true, goalDockOpen: false, goalPhase: "active", goalDockAboveMessages: true/);
+  assert.match(visualSmoke, /goalDockOpen: false, goalPhase: "active", goalDockBelowComposer: true, goalStripPinnedToBottom: true, goalStripHeight: 20, goalStripTextFree: true/);
   assert.match(visualSmoke, /goalActionCount: 3, goalPauseResumeLabel: "Pause"/);
   assert.match(visualSmoke, /goalPhase: "paused", goalPauseResumeLabel: "Resume"/);
 });
@@ -656,7 +663,27 @@ test("the caller's own messages are marked on the scroll rail and pull the scrol
   assert.match(visualSmoke, /messageMarksAllResolve: true/);
   assert.match(renderer, /function renderMessageMarks\(\)/);
   assert.match(css, /\.message-marks \{[^}]*right:5px/);
-  assert.match(css, /\.message-mark:hover, \.message-mark:focus-visible/);
+  assert.match(css, /\.message-mark:hover::after, \.message-mark:focus-visible::after/);
+  // A 3px tick is a 3px click target, so the button carries transparent hit area around it
+  // and the tick itself is drawn in ::after.
+  assert.match(css, /\.message-mark \{[^}]*height:11px/);
+  assert.match(css, /\.message-mark::after \{[^}]*height:3px/);
+  // The jump-to-latest pill used to sit on top of the last marks and swallow their presses.
+  assert.match(css, /\.messages-wrap\.has-marks \.scroll-latest \{ right:18px; \}/);
+  // The press that "did nothing": every repaint writes the scroll offset it captured before
+  // the rebuild, which both throws away the jump and cancels the smooth scroll mid-flight.
+  // A short-lived pin outranks that offset until the caller scrolls for themselves.
+  assert.match(renderer, /state\.messageScrollPin = \{ userIndex, expires: Date\.now\(\) \+ MESSAGE_PIN_MS \}/);
+  assert.match(renderer, /function applyMessageScrollPin\(\{ smooth = false \} = \{\}\)/);
+  // Every path that writes a captured offset back: the full rebuild, the live-stream
+  // repaint that runs on each poll, and the shared layout snapshot.
+  assert.equal((renderer.match(/if \(applyMessageScrollPin\(\)\) \{/g) || []).length, 3);
+  assert.match(renderer, /for \(const eventName of \["wheel", "pointerdown", "keydown"\]\)/);
+  assert.match(renderer, /if \(activeMessageScrollPin\(\)\) return;/);
+  // The pulse is re-applied by index, so a repaint landing mid-flash does not swallow it.
+  assert.match(renderer, /function paintMessageMarkFlash\(\)/);
+  assert.match(visualSmoke, /markJumpAligned: true, markJumpFlashed: 1/);
+  assert.match(visualSmoke, /messageMarkHitHeight: 11, scrollLatestVisible: true, messageMarksClearOfLatest: true/);
   // The magnet is a guarded JS pull on scroll-idle, not CSS scroll-snap: snap on the whole
   // log pulled the view off the top and hid the agent's opening reply. It never fires at
   // the top, never while following a running turn, and only within a small pull distance.

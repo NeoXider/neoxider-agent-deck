@@ -74,6 +74,11 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
 
+## Shipped in 0.6.16
+
+- Moved the goal to a hairline strip under the composer, clear of the activity card that used to shove it around, and cut the collapsed state down to the orb, the round rail and the counter, with the objective on the tooltip and in the pencil; covered by a contract regression and the three goal visual cases.
+- Made a message mark hold the scroll through the repaints that used to throw it away, widened the tick's hit area, and moved the jump-to-latest pill off the rail it was covering; covered by a contract regression and the new `mark-jump` visual case.
+
 ## Shipped in 0.6.15
 
 - Added a persistent goal dock above the chat, collapsible to a line and expanding to the objective with edit/pause-resume/delete controls driven by `/goal` subcommands; covered by a contract regression and three visual cases.

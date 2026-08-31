@@ -5,6 +5,22 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.16] - 2026-08-31
+
+### Changed
+
+- **The goal is a hairline strip under the composer.** Above the chat it was in the wrong place twice over. Collapsed, it still printed the objective — which is the expanded view of a one-line dock, not the collapsed one. And it sat directly under the activity block, which appears, grows and disappears on every turn, so the goal was shoved up and down the whole time you were reading.
+
+  It now lives below the input, where nothing above it can move it. Collapsed it is 20 pixels carrying no text at all: the orb, a rail of rounds against the goal's cap, and the counter — the objective itself is on the tooltip. Opening it lifts a panel with the objective, the round count and the controls, while the strip stays welded to the bottom edge, so the line you press never moves under your cursor. The full text is read and rewritten behind the pencil, where an editor has the room for it. Pausing turns the orb and the rail amber and swaps the glyph to a pause, so the state reads without a word on the strip.
+
+### Fixed
+
+- **Pressing a mark on the scroll rail often did nothing.** Every repaint of the log writes back the scroll offset it captured before rebuilding — and while the agent is answering, the live stream repaints on every poll. A press captured mid-jump was therefore restored to where the jump started, and writing `scrollTop` also cancels a smooth scroll in flight, so the further the target, the more reliably the press was thrown away. A press now pins the message it asked for: for a short window the repaints re-resolve that message and land on it instead of on a stale offset, and the pin lets go the moment you scroll for yourself. The pulse that says "this one" is re-applied by index too, so a repaint landing mid-flash no longer swallows it.
+
+- **The jump-to-latest pill covered the last marks on the rail.** It is drawn above the rail and overlapped its bottom ~34 pixels, so presses meant for the last few messages hit "Latest" and went to the end of the log instead. The pill now steps aside whenever the rail has marks.
+
+- **A 3-pixel tick was a 3-pixel target.** The mark is still drawn as a 3-pixel tick, but the button now carries 11 pixels of transparent hit area around it, so the press lands where the hover tooltip promised.
+
 ## [0.6.15] - 2026-08-31
 
 ### Added
