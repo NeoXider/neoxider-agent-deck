@@ -183,6 +183,14 @@ function attachScreenshotHarness({
               const text = strip.textContent.replace(/\s+/g, '');
               return objective.length > 0 && !text.includes(objective.slice(0, 12).replace(/\s+/g, ''));
             })(),
+            goalTrackHeight: Math.round(document.querySelector('.goal-track')?.getBoundingClientRect().height || 0),
+            // The glyph, not the frame, is what these controls spend their space on.
+            goalActionMinSize: (() => {
+              const sizes = [...document.querySelectorAll('#goalDock[open] .goal-dock-actions .goal-dock-action')]
+                .map((button) => Math.round(button.getBoundingClientRect().height));
+              return sizes.length ? Math.min(...sizes) : 0;
+            })(),
+            goalPauseWidth: Math.round(document.querySelector('#goalDock[open] #goalPauseResume')?.getBoundingClientRect().width || 0),
             goalTrackFill: document.querySelector('#goalTrackFill')?.style.width || '',
             goalRounds: document.querySelector('#goalRounds')?.textContent || '',
             messageMarkHitHeight: Math.round(document.querySelector('#messageMarks .message-mark')?.getBoundingClientRect().height || 0),

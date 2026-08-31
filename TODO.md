@@ -74,6 +74,11 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
 
+## Shipped in 0.6.17
+
+- Cut the goal strip down to an 18px frameless line with a 6px flowing rounds rail, and gave its controls the space the frame had been taking - a wide labelled Pause/Resume and 29px actions.
+- Compacted the queued-message rows and the tool call and tool group headers, which were spending most of their height on padding; the queue editor still grows to a ceiling and scrolls.
+
 ## Shipped in 0.6.16
 
 - Moved the goal to a hairline strip under the composer, clear of the activity card that used to shove it around, and cut the collapsed state down to the orb, the round rail and the counter, with the objective on the tooltip and in the pencil; covered by a contract regression and the three goal visual cases.

@@ -632,15 +632,29 @@ test("the goal is a hairline strip under the composer that opens into queue-styl
   // confirm rather than a modal over a widget this small.
   assert.match(renderer, /button\.dataset\.confirm !== "1"/);
   assert.match(renderer, /executeHarnessCommand\(line, sessionId\)/);
-  // Collapsed it is a 20px hairline carrying no objective text: the orb, the round rail and
-  // the counter. The objective is on the tooltip and behind the pencil.
-  assert.match(css, /\.goal-dock > summary \{[^}]*height:20px/);
+  // Collapsed it is an 18px hairline carrying no objective text: the orb, the rounds rail and
+  // the counter. The objective is on the tooltip and behind the pencil. The bar is what the
+  // space is spent on - there is no frame around the strip at all.
+  assert.match(css, /\.goal-dock > summary \{[^}]*height:18px/);
   assert.match(css, /\.goal-dock \{[^}]*flex-direction:column-reverse/);
+  assert.doesNotMatch(css, /\.goal-dock \{[^}]*border:/);
+  assert.match(css, /\.goal-track \{[^}]*height:6px/);
+  // The rail flows while the goal runs and goes still and amber once it is paused, so the
+  // state reads off the strip without a word on it.
+  assert.match(css, /\.goal-track-fill \{[^}]*animation:goal-flow/);
+  assert.match(css, /@keyframes goal-flow/);
+  assert.match(css, /\.goal-dock\[data-phase="paused"\] \.goal-track-fill \{[^}]*animation:none/);
+  assert.match(css, /\.goal-dock\.goal-unbounded \.goal-track \{[^}]*animation:goal-flow/);
+  // Pause and resume is the control pressed mid-run, so it is wide and says which it is.
+  assert.match(css, /\.goal-dock-action \{[^}]*height:29px/);
+  assert.match(css, /\.goal-dock-action\.primary \{ width:auto/);
+  assert.match(html, /id="goalPauseResume"[^>]*class="goal-dock-action primary"/);
+  assert.match(visualSmoke, /goalActionMinSize: 29, goalTrackHeight: 6/);
   assert.doesNotMatch(html, /id="goalPreview"/);
   assert.match(renderer, /summary\.title = paused \?/);
   assert.match(renderer, /\$\("#goalTrackFill"\)\.style\.width = `\$\{Math\.round\(progress \* 100\)\}%`/);
   assert.match(css, /\.goal-dock-phase\.paused/);
-  assert.match(visualSmoke, /goalDockOpen: false, goalPhase: "active", goalDockBelowComposer: true, goalStripPinnedToBottom: true, goalStripHeight: 20, goalStripTextFree: true/);
+  assert.match(visualSmoke, /goalDockOpen: false, goalPhase: "active", goalDockBelowComposer: true, goalStripPinnedToBottom: true, goalStripHeight: 18, goalStripTextFree: true/);
   assert.match(visualSmoke, /goalActionCount: 3, goalPauseResumeLabel: "Pause"/);
   assert.match(visualSmoke, /goalPhase: "paused", goalPauseResumeLabel: "Resume"/);
 });
@@ -714,6 +728,9 @@ test("a queued prompt can be read and edited in full without touching the conver
   assert.match(renderer, /createElement\("textarea"\);\s*$/m);
   assert.match(renderer, /if \(event\.key === "Enter" && !event\.shiftKey\)/);
   assert.match(renderer, /Math\.min\(input\.scrollHeight, QUEUE_EDIT_MAX_HEIGHT\)/);
+  // The resting row is a line of text and three controls; the padding used to be most of
+  // its height. Opening or editing is what earns the room.
+  assert.match(css, /\.queue-row \{[^}]*min-height:28px/);
   assert.match(css, /\.queue-edit-input \{[^}]*max-height:132px/);
   assert.match(css, /\.queue-edit-input \{[^}]*resize:none/);
   // The dock may take room from the log while open; it must never reach the composer.
@@ -820,6 +837,9 @@ test("consecutive tool activity collapses into one expandable group", () => {
   assert.match(renderer, /state\.currentMessages\[index\]\.role === "tool"/);
   assert.match(renderer, /tool-group-body/);
   assert.match(css, /\.tool-group\.partial-failure/);
+  // A tool header is one line of text: it gets a line of box, not two.
+  assert.match(css, /\.tool-group > summary \{[^}]*height:31px/);
+  assert.match(css, /\.tool-call > summary \{[^}]*height:29px/);
 });
 
 test("Harness TODO projections render as a compact collapsible current plan", () => {

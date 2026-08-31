@@ -5,6 +5,14 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.17] - 2026-08-31
+
+### Changed
+
+- **The goal strip spends its space on the bar, not on a frame.** It is 18 pixels now, with no border or box of its own, and the rounds rail is three times thicker — a real bar rather than a hairline. The fill flows while the goal runs, a slow gradient that says the loop is alive without moving anything on screen, and it stops dead and turns amber the moment the goal is paused. A goal with no round cap flows along the whole rail instead of leaving an empty one. The chevron is a control you can hit, and inside the panel the pencil and the trash are 29 pixels with the glyph filling them — while **Pause/Resume**, the one control pressed mid-run, is wide and says which it is.
+
+- **Queued rows and tool headers were mostly padding.** A queued message is one line of text and three buttons in a 34-pixel row; it is 28 now, and its actions 24. A tool header is one line too — the single call drops from 36 pixels to 29 and the group header from 39 to 31 — so a turn full of tool calls shows more of itself in the same log. Nothing about opening them changed: a queued row still prints its command whole, and its editor still grows with the text to a ceiling and then scrolls.
+
 ## [0.6.16] - 2026-08-31
 
 ### Changed

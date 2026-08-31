@@ -417,10 +417,10 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .goal-objective { color:#d5dbe5; font-size:9px; line-height:1.45; }
 .goal-meta { display:flex; flex-wrap:wrap; gap:5px; color:#8f9bad; font-size:8px; }
 .goal-meta span { padding:3px 6px; border-radius:6px; background:rgba(255,255,255,.045); }
-.tool-call { max-width:96%; margin:0 0 7px; border:1px solid rgba(73,231,198,.16); border-radius:11px; background:rgba(73,231,198,.045); color:#b8c4d2; }
+.tool-call { max-width:96%; margin:0 0 5px; border:1px solid rgba(73,231,198,.16); border-radius:11px; background:rgba(73,231,198,.045); color:#b8c4d2; }
 .tool-call.nested { margin-left:13px; border-color:rgba(139,121,255,.19); background:rgba(139,121,255,.045); }
 .tool-call.failed { border-color:rgba(255,115,143,.24); background:rgba(255,115,143,.055); }
-.tool-call > summary { min-width:0; height:36px; display:flex; align-items:center; gap:7px; padding:0 9px; list-style:none; cursor:pointer; }
+.tool-call > summary { min-width:0; height:29px; display:flex; align-items:center; gap:6px; padding:0 8px; list-style:none; cursor:pointer; }
 .tool-call > summary::-webkit-details-marker { display:none; }
 .tool-call > summary > .ui-icon:first-child { width:14px; height:14px; color:#75dfca; }
 .tool-call.failed > summary > .ui-icon:first-child { color:#ff8fa5; }
@@ -431,16 +431,16 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .tool-call time { flex:none; color:var(--dim); font-size:8px; }
 .tool-chevron { width:13px; height:13px; color:#6e7a8b; transition:transform .15s ease; }
 .tool-call[open] .tool-chevron { transform:rotate(180deg); }
-.tool-body { max-height:210px; overflow:auto; padding:0 9px 9px 30px; }
-.tool-body section + section { margin-top:8px; }
+.tool-body { max-height:210px; overflow:auto; padding:0 8px 7px 26px; }
+.tool-body section + section { margin-top:6px; }
 .tool-body section > b { display:block; margin-bottom:4px; color:#738397; font-size:8px; letter-spacing:.07em; text-transform:uppercase; }
-.tool-body pre { max-width:100%; margin:0; overflow:auto; padding:7px; border:1px solid rgba(255,255,255,.07); border-radius:8px; background:#090d14; color:#b9c6d4; font-family:"Cascadia Code",Consolas,monospace; font-size:9px; line-height:1.4; white-space:pre-wrap; overflow-wrap:anywhere; }
+.tool-body pre { max-width:100%; margin:0; overflow:auto; padding:6px; border:1px solid rgba(255,255,255,.07); border-radius:8px; background:#090d14; color:#b9c6d4; font-family:"Cascadia Code",Consolas,monospace; font-size:9px; line-height:1.4; white-space:pre-wrap; overflow-wrap:anywhere; }
 .tool-pending { display:block; padding:2px 0; color:#718095; font-size:9px; }
-.tool-group { max-width:98%; margin:0 0 8px; border:1px solid rgba(73,231,198,.2); border-radius:13px; background:linear-gradient(110deg,rgba(73,231,198,.065),rgba(139,121,255,.07)); color:#b8c4d2; }
+.tool-group { max-width:98%; margin:0 0 6px; border:1px solid rgba(73,231,198,.2); border-radius:13px; background:linear-gradient(110deg,rgba(73,231,198,.065),rgba(139,121,255,.07)); color:#b8c4d2; }
 .tool-group.failed { border-color:rgba(255,115,143,.25); background:linear-gradient(110deg,rgba(255,115,143,.06),rgba(139,121,255,.06)); }
 .tool-group.partial-failure { border-color:rgba(255,193,107,.24); background:linear-gradient(110deg,rgba(255,193,107,.05),rgba(139,121,255,.06)); }
 .tool-group.running { border-color:rgba(255,193,107,.25); }
-.tool-group > summary { min-width:0; height:39px; display:flex; align-items:center; gap:8px; padding:0 10px; list-style:none; cursor:pointer; user-select:none; }
+.tool-group > summary { min-width:0; height:31px; display:flex; align-items:center; gap:7px; padding:0 9px; list-style:none; cursor:pointer; user-select:none; }
 .tool-group > summary::-webkit-details-marker { display:none; }
 .tool-group > summary > .ui-icon:first-child { width:15px; height:15px; color:#75dfca; }
 .tool-group.failed > summary > .ui-icon:first-child { color:#ff8fa5; }
@@ -449,8 +449,8 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .tool-group-identity b { color:#dce8ed; font-family:"Cascadia Code",Consolas,monospace; font-size:9px; }
 .tool-group-identity small { min-width:0; overflow:hidden; color:#758397; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
 .tool-group[open] > summary .tool-chevron { transform:rotate(180deg); }
-.tool-group-body { padding:0 7px 1px; }
-.tool-group-body > .tool-call { max-width:100%; margin-bottom:6px; }
+.tool-group-body { padding:0 6px 1px; }
+.tool-group-body > .tool-call { max-width:100%; margin-bottom:4px; }
 .tool-group-body > .tool-call.nested { margin-left:10px; }
 .bubble p, .reasoning-text p { margin:0 0 7px; }
 .bubble p:last-child, .reasoning-text p:last-child { margin-bottom:0; }
@@ -487,48 +487,56 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .hljs-deletion { color:#ff7b92; background:rgba(255,91,120,.08); }
 .hljs-addition { background:rgba(77,223,181,.07); }
 
-/* The goal is a live projection, so it gets a permanent strip of its own - pinned under the
-   composer, away from the activity card whose appearing and disappearing used to shove it
-   around. Collapsed it is a hairline: the orb, the round rail and the counter, nothing else.
-   The objective opens on click and is read in full behind the pencil. column-reverse keeps
-   the strip welded to the bottom edge so it never moves when the panel opens. */
-.goal-dock { min-width:0; flex:none; display:flex; flex-direction:column-reverse; overflow:hidden; border:1px solid rgba(73,231,198,.18); border-radius:10px; background:linear-gradient(110deg,rgba(73,231,198,.06),rgba(139,121,255,.05)); }
+/* The goal is a live projection, so it gets a strip of its own - pinned under the composer,
+   away from the activity card whose appearing and disappearing used to shove it around.
+   Collapsed it is a 16px hairline with no chrome around it: the orb, the rounds rail and the
+   counter. The rail carries the state instead of a frame - it flows while the goal runs and
+   goes still and amber when it is paused. column-reverse keeps the strip welded to the
+   bottom edge, so the line you press never moves when the panel opens. */
+.goal-dock { min-width:0; flex:none; display:flex; flex-direction:column-reverse; overflow:hidden; border-radius:9px; }
 .goal-dock[hidden] { display:none; }
-.goal-dock > summary { min-width:0; height:20px; flex:none; display:flex; align-items:center; gap:7px; padding:0 7px; list-style:none; cursor:pointer; user-select:none; }
+.goal-dock[open] { background:linear-gradient(110deg,rgba(73,231,198,.06),rgba(139,121,255,.05)); }
+.goal-dock > summary { min-width:0; height:18px; flex:none; display:flex; align-items:center; gap:5px; padding:0 3px; list-style:none; cursor:pointer; user-select:none; }
 .goal-dock > summary::-webkit-details-marker { display:none; }
-.goal-dock > summary:hover { background:rgba(73,231,198,.05); }
-.goal-orb { flex:none; width:13px; height:13px; display:grid; place-items:center; color:#5eead4; }
+.goal-dock > summary:hover { background:rgba(73,231,198,.06); }
+.goal-dock > summary:hover .goal-chevron { color:#cfd8e4; }
+.goal-orb { flex:none; width:12px; height:12px; display:grid; place-items:center; color:#5eead4; }
 .goal-orb .ui-icon { width:12px; height:12px; }
 .goal-dock[data-phase="paused"] .goal-orb { color:#ffc178; }
-.goal-track { min-width:0; flex:1; height:2px; overflow:hidden; border-radius:99px; background:rgba(255,255,255,.07); }
-.goal-track-fill { display:block; width:0; height:100%; border-radius:99px; background:linear-gradient(90deg,#49e7c6,#8b79ff); transition:width .3s cubic-bezier(.22,1,.36,1); }
-.goal-dock[data-phase="paused"] .goal-track-fill { background:linear-gradient(90deg,#ffc178,#ff9f6a); }
-.goal-dock.goal-unbounded .goal-track { background:linear-gradient(90deg,rgba(73,231,198,.3),rgba(139,121,255,.16),transparent); }
+.goal-track { min-width:0; flex:1; height:6px; overflow:hidden; border-radius:99px; background:rgba(255,255,255,.07); }
+.goal-track-fill { display:block; width:0; height:100%; border-radius:99px; background:linear-gradient(90deg,#49e7c6,#8b79ff,#49e7c6); background-size:200% 100%; box-shadow:0 0 7px rgba(73,231,198,.34); animation:goal-flow 3.4s linear infinite; transition:width .3s cubic-bezier(.22,1,.36,1); }
+@keyframes goal-flow { from { background-position:0 0; } to { background-position:200% 0; } }
+/* An open-ended goal has no fraction to draw, so the whole rail carries the flow instead. */
+.goal-dock.goal-unbounded .goal-track { background:linear-gradient(90deg,rgba(73,231,198,.34),rgba(139,121,255,.18),rgba(73,231,198,.34)); background-size:200% 100%; animation:goal-flow 3.4s linear infinite; }
+.goal-dock[data-phase="paused"] .goal-track-fill { background:linear-gradient(90deg,#ffc178,#ff9f6a); box-shadow:none; animation:none; }
+.goal-dock.goal-unbounded[data-phase="paused"] .goal-track { background:rgba(255,193,120,.2); animation:none; }
 .goal-rounds { flex:none; color:#7f8b9c; font-size:7px; font-weight:700; letter-spacing:.4px; font-variant-numeric:tabular-nums; }
-.goal-chevron { flex:none; width:11px; height:11px; color:#66717f; transition:transform .15s ease; }
+.goal-chevron { flex:none; width:15px; height:15px; color:#8894a5; transition:transform .15s ease; }
 .goal-dock[open] .goal-chevron { transform:rotate(180deg); }
-.goal-dock-body { padding:7px 8px 6px; border-bottom:1px solid rgba(73,231,198,.13); animation:goal-open .16s cubic-bezier(.22,1,.36,1); }
+.goal-dock-body { padding:5px 6px 4px; border-bottom:1px solid rgba(73,231,198,.12); animation:goal-open .16s cubic-bezier(.22,1,.36,1); }
 @keyframes goal-open { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
-.goal-dock-objective { max-height:74px; overflow-y:auto; overscroll-behavior:contain; color:#d7dfea; font-size:9px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; }
+.goal-dock-objective { max-height:68px; overflow-y:auto; overscroll-behavior:contain; color:#d7dfea; font-size:9px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; }
 .goal-dock-objective[hidden] { display:none; }
-.goal-dock-foot { margin-top:6px; display:flex; align-items:center; gap:6px; }
+.goal-dock-foot { margin-top:5px; display:flex; align-items:center; gap:5px; }
 .goal-dock-phase { flex:none; padding:1px 5px; border-radius:99px; background:rgba(73,231,198,.14); color:#63ddc5; font-size:7px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; }
 .goal-dock-phase.paused { background:rgba(255,193,120,.16); color:#ffc178; }
 .goal-dock-meta { min-width:0; flex:1; overflow:hidden; color:#8d98aa; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
-.goal-dock-actions, .goal-dock-editor-actions { flex:none; display:flex; gap:4px; }
+.goal-dock-actions, .goal-dock-editor-actions { flex:none; display:flex; gap:5px; }
 .goal-dock-actions[hidden], .goal-dock-editor-actions[hidden] { display:none; }
-.goal-dock-action { width:22px; height:22px; flex:none; display:inline-flex; align-items:center; justify-content:center; gap:4px; padding:0; border:1px solid rgba(139,121,255,.24); border-radius:7px; background:rgba(4,9,15,.32); color:#c2ccd8; font-size:8px; cursor:pointer; transition:.14s ease; }
-.goal-dock-action .ui-icon { width:12px; height:12px; }
-.goal-dock-action:hover:not(:disabled) { border-color:rgba(139,121,255,.5); background:rgba(139,121,255,.14); color:#e7e2ff; }
+/* The glyph, not the frame, is what a control this small has to spend its space on. */
+.goal-dock-action { width:29px; height:29px; flex:none; display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:0; border:1px solid rgba(139,121,255,.2); border-radius:9px; background:rgba(4,9,15,.3); color:#c8d2de; font-size:9px; font-weight:700; cursor:pointer; transition:.14s ease; }
+.goal-dock-action .ui-icon { width:16px; height:16px; }
+.goal-dock-action:hover:not(:disabled) { border-color:rgba(139,121,255,.48); background:rgba(139,121,255,.14); color:#e7e2ff; }
+/* Pause and resume is the one control that is pressed mid-run, so it is wide and says so. */
+.goal-dock-action.primary { width:auto; padding:0 11px; border-color:rgba(73,231,198,.32); background:rgba(73,231,198,.1); color:#7ceada; }
+.goal-dock-action.primary:hover:not(:disabled) { border-color:rgba(73,231,198,.58); background:rgba(73,231,198,.18); color:#c7fff2; }
 .goal-dock-action.steer { border-color:rgba(73,231,198,.4); color:#63ddc5; }
 .goal-dock-action.danger:hover:not(:disabled) { border-color:rgba(255,115,143,.5); color:#ff91a7; }
-.goal-dock-action.danger[data-confirm="1"] { width:auto; padding:0 7px; border-color:rgba(255,115,143,.6); background:rgba(255,115,143,.14); color:#ff91a7; }
+.goal-dock-action.danger[data-confirm="1"] { width:auto; padding:0 11px; border-color:rgba(255,115,143,.6); background:rgba(255,115,143,.14); color:#ff91a7; }
 .goal-dock-action:disabled { opacity:.4; cursor:default; }
-.goal-dock-confirm { font-weight:700; }
 .goal-dock-confirm[hidden] { display:none; }
 .goal-dock-editor[hidden] { display:none; }
 .goal-dock-editor textarea { width:100%; min-height:30px; max-height:132px; overflow-y:auto; border:1px solid rgba(139,121,255,.32); border-radius:7px; outline:0; padding:6px 8px; background:#0b111a; color:#e8edf5; font-size:9px; line-height:1.45; font-family:inherit; resize:none; }
-.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 
 .todo-dock { min-width:0; flex:none; overflow:hidden; border:1px solid rgba(139,121,255,.2); border-radius:11px; background:linear-gradient(110deg,rgba(139,121,255,.065),rgba(73,231,198,.045)); }
 .todo-dock[hidden] { display:none; }
@@ -550,7 +558,7 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .todo-row.completed .todo-marker { color:#61d7c0; }
 @keyframes todo-active-pulse { 50%{filter:drop-shadow(0 0 5px rgba(255,193,107,.55));transform:scale(1.08)} }
 
-.queue-dock { display:none; min-width:0; flex:none; overflow:hidden; padding:4px; border:1px solid rgba(73,231,198,.23); border-radius:12px; background:linear-gradient(110deg,rgba(73,231,198,.075),rgba(139,121,255,.075)); }
+.queue-dock { display:none; min-width:0; flex:none; overflow:hidden; padding:3px; border:1px solid rgba(73,231,198,.23); border-radius:12px; background:linear-gradient(110deg,rgba(73,231,198,.075),rgba(139,121,255,.075)); }
 .queue-dock.has-items { display:block; animation:queue-in .2s cubic-bezier(.22,1,.36,1); }
 .queue-list { min-width:0; max-height:86px; overflow-y:auto; transition:max-height .18s ease; }
 /* An opened row needs room to show a whole shell command. The dock takes it from the
@@ -558,7 +566,7 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
    place that can grow without covering anything: it already sits between the log and the
    composer, and it scrolls once the text outruns even this. */
 .queue-dock.opened .queue-list { max-height:186px; }
-.queue-row { min-width:0; min-height:34px; display:flex; align-items:center; gap:4px; padding:3px 4px 3px 7px; border-radius:8px; background:rgba(4,9,15,.42); }
+.queue-row { min-width:0; min-height:28px; display:flex; align-items:center; gap:3px; padding:2px 3px 2px 6px; border-radius:8px; background:rgba(4,9,15,.42); }
 .queue-row + .queue-row { margin-top:3px; }
 .queue-position { width:14px; height:14px; flex:none; display:grid; place-items:center; border-radius:50%; background:rgba(73,231,198,.13); color:#78e4ce; font-size:7px; font-weight:800; }
 .queue-preview { min-width:0; flex:1; overflow:hidden; color:#c5cfda; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
@@ -570,9 +578,9 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .queue-row.expanded .queue-preview { overflow:visible; color:#d7dfea; font-size:9px; line-height:1.45; text-overflow:clip; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; cursor:text; }
 .queue-action.expand .ui-icon { transition:transform .15s ease; }
 .queue-row.expanded .queue-action.expand .ui-icon { transform:rotate(180deg); }
-.queue-edit-input { min-width:0; height:27px; max-height:132px; flex:1; overflow-y:auto; border:1px solid rgba(139,121,255,.32); border-radius:7px; outline:0; padding:5px 7px; background:#0b111a; color:#e8edf5; font-size:9px; line-height:1.45; font-family:inherit; resize:none; }
+.queue-edit-input { min-width:0; height:25px; max-height:132px; flex:1; overflow-y:auto; border:1px solid rgba(139,121,255,.32); border-radius:7px; outline:0; padding:5px 7px; background:#0b111a; color:#e8edf5; font-size:9px; line-height:1.45; font-family:inherit; resize:none; }
 .queue-actions { flex:none; display:flex; align-items:center; gap:2px; }
-.queue-action { width:27px; height:27px; display:grid; place-items:center; border:0; border-radius:7px; background:transparent; color:#7f8c9e; cursor:pointer; }
+.queue-action { width:24px; height:24px; display:grid; place-items:center; border:0; border-radius:7px; background:transparent; color:#7f8c9e; cursor:pointer; }
 .queue-action:hover { background:rgba(139,121,255,.13); color:#d8d2ff; }
 .queue-action.danger:hover { background:rgba(255,115,143,.1); color:#ff91a7; }
 .queue-action.steer { color:#63ddc5; }
@@ -957,7 +965,7 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
   .chat-crowded .todo-row + .todo-row { margin-top:1px; }
   .chat-crowded .queue-dock { padding:2px; }
   .chat-crowded .queue-list { max-height:30px; }
-  .chat-crowded .queue-row { min-height:30px; height:30px; padding:2px 3px 2px 5px; }
+  .chat-crowded .queue-row { min-height:26px; height:26px; padding:1px 2px 1px 5px; }
   .chat-crowded .queue-row + .queue-row { margin-top:1px; }
   .chat-crowded .attachment-bar { height:32px; padding:1px; }
   .chat-crowded .attachment-list { height:28px; padding:0; }

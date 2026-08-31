@@ -5472,7 +5472,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.15", latestVersion: "0.6.16", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.6.16", latestVersion: "0.6.17", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {
