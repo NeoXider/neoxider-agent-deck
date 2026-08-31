@@ -63,6 +63,7 @@ const completePreferences = {
   opacity: 0.73,
   glowIntensity: 0.41,
   showThinking: false,
+  motionEffects: true,
   compactAutoExpand: true,
   size: "large",
   windowLayer: "game",
@@ -235,6 +236,7 @@ const preferenceMutations = [
   ["opacity", (value) => ({ ...value, opacity: 0.88 })],
   ["glow intensity", (value) => ({ ...value, glowIntensity: 0.67 })],
   ["live Think visibility", (value) => ({ ...value, showThinking: true })],
+  ["motion effects", (value) => ({ ...value, motionEffects: false })],
   ["avatar auto expand", (value) => ({ ...value, compactAutoExpand: false })],
   ["size", (value) => ({ ...value, size: "compact" })],
   ["window layer", (value) => ({ ...value, windowLayer: "normal" })],
@@ -364,8 +366,9 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     opacity: 0.75,
     glowIntensity: 0.25,
     showThinking: true,
-    // Absent from an older file, so the collapsed default applies rather than the old
-    // always-expanding behaviour being silently carried forward.
+    // Absent from an older file, so the defaults apply rather than the old behaviour being
+    // silently carried forward: effects on, avatar collapsed.
+    motionEffects: true,
     compactAutoExpand: false,
     size: "compact",
     windowLayer: "normal",

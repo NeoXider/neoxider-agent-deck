@@ -4,17 +4,21 @@ const { readFileSync } = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
-const html = readFileSync(path.join(root, "src", "renderer", "index.html"), "utf8");
-const renderer = readFileSync(path.join(root, "src", "renderer", "app.js"), "utf8");
-const main = readFileSync(path.join(root, "src", "main.cjs"), "utf8");
-const externalLinks = readFileSync(path.join(root, "src", "external-links.cjs"), "utf8");
+// core.autocrlf hands these files back with CRLF on a fresh checkout, and several
+// assertions here match across a line break. Normalizing on read keeps the contracts
+// about the code rather than about how the tree happened to be checked out.
+const readSource = (...segments) => readFileSync(path.join(root, ...segments), "utf8").split(String.fromCharCode(13, 10)).join(String.fromCharCode(10));
+const html = readSource("src", "renderer", "index.html");
+const renderer = readSource("src", "renderer", "app.js");
+const main = readSource("src", "main.cjs");
+const externalLinks = readSource("src", "external-links.cjs");
 // The IPC handlers moved out of main.cjs behind one shared sender guard. Contracts about
 // a channel are asserted against the file that now owns it, not against main.cjs.
-const ipc = readFileSync(path.join(root, "src", "ipc-handlers.cjs"), "utf8");
-const platformCapabilities = readFileSync(path.join(root, "src", "platform-capabilities.cjs"), "utf8");
-const settingsStore = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
-const harnessApi = readFileSync(path.join(root, "src", "harness-api.cjs"), "utf8");
-const updateOrchestrator = readFileSync(path.join(root, "src", "update-orchestrator.cjs"), "utf8");
+const ipc = readSource("src", "ipc-handlers.cjs");
+const platformCapabilities = readSource("src", "platform-capabilities.cjs");
+const settingsStore = readSource("src", "settings-store.cjs");
+const harnessApi = readSource("src", "harness-api.cjs");
+const updateOrchestrator = readSource("src", "update-orchestrator.cjs");
 
 // Two negative assertions here were written as `doesNotMatch(source, /name[\s\S]{0,N}…/)`.
 // A character budget is a guess about how long a function is, and both functions had
@@ -71,7 +75,7 @@ test("compact layout uses custom pickers, expandable controls, and no useless co
 });
 
 test("composer stacks attachment and commands beside a smaller context ring and Send", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   const context = html.indexOf('id="contextMeter"');
   const attach = html.indexOf('id="attachButton"');
   const commands = html.indexOf('id="commandsButton"');
@@ -108,7 +112,7 @@ test("composer stacks attachment and commands beside a smaller context ring and 
 });
 
 test("main composer starts on one line, grows to one third of the viewport, scrolls, and collapses after submit", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /\.composer textarea \{[^}]+min-height:34px[^}]+height:34px[^}]+max-height:var\(--composer-input-max-height,33vh\)[^}]+overflow-y:hidden[^}]+transition:height/);
   assert.match(css, /\.composer textarea\.is-scrollable \{[^}]+overflow-y:auto/);
   const scrollableComposer = css.match(/\.composer textarea\.is-scrollable \{([^}]+)\}/)?.[1] || "";
@@ -161,8 +165,8 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(renderer, /MODEL_PICKER_ROW_HEIGHT = 36/);
   assert.match(renderer, /bottomBoundary = Math\.min\(shell\.bottom - PICKER_SURFACE_GAP, composer\.top - PICKER_SURFACE_GAP\)/);
   assert.match(renderer, /--picker-options-height/);
-  assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.model-menu \.picker-options:not\(:empty\)[^}]+scroll-snap-type:y mandatory/);
-  assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.model-picker\.compact-overlay \.model-menu \{[^}]+position:fixed[^}]+top:var\(--model-sheet-top\)[^}]+width:var\(--model-sheet-width\)/);
+  assert.match(readSource("src", "renderer", "styles.css"), /\.model-menu \.picker-options:not\(:empty\)[^}]+scroll-snap-type:y mandatory/);
+  assert.match(readSource("src", "renderer", "styles.css"), /\.model-picker\.compact-overlay \.model-menu \{[^}]+position:fixed[^}]+top:var\(--model-sheet-top\)[^}]+width:var\(--model-sheet-width\)/);
   assert.match(renderer, /function createModelSetupCard/);
   assert.match(renderer, /Choose model/);
   assert.match(renderer, /Retry models/);
@@ -196,7 +200,7 @@ test("one composer button toggles a chat-only focus view and can restore the ful
   assert.match(renderer, /function setFocusMode/);
   assert.match(renderer, /classList\.toggle\("focus-chat", next\)/);
   assert.match(renderer, /setFocusMode\(!state\.focusMode\)/);
-  assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.focus-chat \.titlebar[\s\S]+\.focus-chat #chatPanel/);
+  assert.match(readSource("src", "renderer", "styles.css"), /\.focus-chat \.titlebar[\s\S]+\.focus-chat #chatPanel/);
 });
 
 test("slash commands render as a vertical filtered palette immediately above the composer", () => {
@@ -210,7 +214,7 @@ test("slash commands render as a vertical filtered palette immediately above the
   assert.match(renderer, /command-description/);
   assert.match(renderer, /COMMAND_MENU_ROW_HEIGHT = 44/);
   assert.match(renderer, /--command-menu-max-height/);
-  assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.command-row \{[^}]+height:44px[^}]+scroll-snap-align:start/);
+  assert.match(readSource("src", "renderer", "styles.css"), /\.command-row \{[^}]+height:44px[^}]+scroll-snap-align:start/);
   assert.match(renderer, /\["ArrowDown", "ArrowUp"\]/);
   assert.match(renderer, /\["Enter", "Tab"\]/);
   assert.match(renderer, /\/\^\\\/\[\^\\s\]\*\$\//);
@@ -251,9 +255,9 @@ test("busy-session messages use the authoritative Harness queue with compact edi
 });
 
 test("Ctrl+V attachments reuse reviewed preparation while sent history stays compact", () => {
-  const html = readFileSync(path.join(root, "src", "renderer", "index.html"), "utf8");
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
-  const clipboard = readFileSync(path.join(root, "src", "renderer", "clipboard-attachments.js"), "utf8");
+  const html = readSource("src", "renderer", "index.html");
+  const css = readSource("src", "renderer", "styles.css");
+  const clipboard = readSource("src", "renderer", "clipboard-attachments.js");
   assert.match(html, /<script src="clipboard-attachments\.js"><\/script>/);
   assert.match(renderer, /messageInput"\)\.addEventListener\("paste"/);
   assert.match(renderer, /window\.widget\.pathForFile\(file\)/);
@@ -273,7 +277,7 @@ test("Ctrl+V attachments reuse reviewed preparation while sent history stays com
 });
 
 test("live assistant deltas grow a bubble instead of leaving a Writing reasoning card", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   const chunkHandler = renderer.slice(
     renderer.indexOf('if (event.type === "assistant/chunk")'),
     renderer.indexOf('if (["tool/call", "tool/code-dispatch-start"].includes(event.type))'),
@@ -295,7 +299,7 @@ test("live assistant deltas grow a bubble instead of leaving a Writing reasoning
 });
 
 test("live tool calls become named cards and split the streaming answer around tool work", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   const toolHandler = renderer.slice(
     renderer.indexOf('if (["tool/call", "tool/code-dispatch-start"].includes(event.type))'),
     renderer.indexOf('if (event.type === "turn/end")'),
@@ -333,14 +337,14 @@ test("manual chat scrolling is preserved and jump-to-latest stays visible away f
   assert.match(renderer, /scrollLatestAutoScrolling: false/);
   assert.match(renderer, /function finishScrollLatestAutoScroll\(\)/);
   assert.match(renderer, /if \(state\.scrollLatestAutoScrolling\) \{[\s\S]+?if \(nearBottom\) finishScrollLatestAutoScroll\(\);[\s\S]+?return;/);
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /\.scroll-latest\s*\{[^}]*position:absolute;[^}]*right:7px;[^}]*bottom:7px/);
   assert.match(css, /\.scroll-latest\.completion-pop/);
   assert.doesNotMatch(renderer, /root\.scrollTop = root\.scrollHeight;\s*\}/);
 });
 
 test("activity glow intensity is brighter by default, adjustable, and persisted", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /--chat-glow-intensity: \.82/);
   assert.match(css, /opacity:var\(--chat-glow-intensity\)/);
   assert.match(css, /box-shadow \.55s cubic-bezier\(\.22,1,\.36,1\)/);
@@ -351,8 +355,8 @@ test("activity glow intensity is brighter by default, adjustable, and persisted"
 });
 
 test("live Think is a persistent optional overlay that cannot move the conversation viewport", () => {
-  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const preload = readSource("src", "preload.cjs");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(html, /id="showThinkingToggle"[^>]+type="checkbox"[^>]+checked/);
   assert.match(settingsStore, /showThinking: true/);
   assert.match(settingsStore, /showThinking: source\.showThinking !== false/);
@@ -366,7 +370,9 @@ test("live Think is a persistent optional overlay that cannot move the conversat
   assert.match(renderer, /LIVE_ACTIVITY_KINDS = new Set\(\["thinking", "writing", "tool", "working"\]\)/);
   assert.match(renderer, /state\.showThinking \|\| !LIVE_ACTIVITY_KINDS\.has\(activity\?\.kind\)/);
   // Flipping the toggle must repaint the compact chrome too, which shows the same text.
-  const showThinking = renderer.slice(renderer.indexOf("function applyShowThinking"), renderer.indexOf("function applyCompactAutoExpand"));
+  // Sliced to the end of the function itself, not to whichever function happens to follow.
+  const showThinkingStart = renderer.indexOf("function applyShowThinking");
+  const showThinking = renderer.slice(showThinkingStart + 1).split(/^(?:function |\/\/)/m)[0];
   assert.ok(showThinking.length > 0 && showThinking.length < 600);
   assert.match(showThinking, /syncActivityCard\(\)/);
   assert.match(showThinking, /syncCompactStatus\(\)/);
@@ -409,7 +415,7 @@ test("collapsed pet exposes three exact recent sessions and inline quick reply w
   // belongs to whatever is behind it. Edge mode still excludes only its two controls.
   assert.match(renderer, /if \(state\.windowMode === "orb"\) return target\.closest\("#orbRestore"\)/);
   assert.match(renderer, /target\.closest\("#orbStatus, #orbHistoryButton"\) \? null : target/);
-  const compactWindow = readFileSync(path.join(root, "src", "compact-window.cjs"), "utf8");
+  const compactWindow = readSource("src", "compact-window.cjs");
   assert.match(compactWindow, /orb: \{ width: 172, height: 128 \}/);
   assert.match(compactWindow, /orbStatus: \{ width: 400, height: 128 \}/);
   assert.match(compactWindow, /orbPanel: \{ width: 460, height: 158 \}/);
@@ -507,8 +513,8 @@ test("compact modes preserve short clicks and start native drag only after the m
 });
 
 test("edge mode only captures the visible handle and passes transparent glow clicks through", () => {
-  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const preload = readSource("src", "preload.cjs");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(main, /setIgnoreMouseEvents\(true, \{ forward: true \}\)/);
   assert.match(ipc, /set-edge-pointer-active/);
   assert.match(preload, /setEdgePointerActive/);
@@ -534,7 +540,7 @@ test("edge mode only captures the visible handle and passes transparent glow cli
 });
 
 test("edge line keeps idle subtle and makes working, thinking, writing, tool, waiting, done, and error distinct", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /\.mode-edge\.state-working\s*\{[^}]*--edge-primary:#72efa0;[^}]*--edge-secondary:#ffd45f/);
   assert.match(css, /\.mode-edge\.activity-thinking\s*\{/);
   assert.match(css, /\.mode-edge\.activity-writing\s*\{[^}]*--edge-primary:#72efa0/);
@@ -551,7 +557,7 @@ test("edge line keeps idle subtle and makes working, thinking, writing, tool, wa
 });
 
 test("orb activity glow distinguishes generic work and eases between all activity palettes", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /@property --orb-ring-primary/);
   assert.match(css, /\.orb-glow[^}]+transition:--orb-ring-primary \.58s ease/);
   assert.match(css, /\.mode-orb\.state-working\s*\{[^}]*--orb-ring-primary:#72efa0;[^}]*--orb-ring-secondary:#ffd45f/);
@@ -566,7 +572,7 @@ test("orb activity glow distinguishes generic work and eases between all activit
 });
 
 test("the custom titlebar drag excludes header controls and avoids Chromium native drag", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(renderer, /beginFullDrag/);
   assert.match(renderer, /moveFullDrag/);
   assert.match(renderer, /endFullDrag/);
@@ -591,8 +597,8 @@ test("the custom titlebar drag excludes header controls and avoids Chromium nati
 });
 
 test("first entry waits for the native show acknowledgement and honors reduced motion", () => {
-  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const preload = readSource("src", "preload.cjs");
+  const css = readSource("src", "renderer", "styles.css");
   const readyToShow = main.slice(main.indexOf('windowRef.once("ready-to-show"'), main.indexOf('windowRef.on("close"'));
   // indexOf returns -1 for a missing needle, and -1 is less than everything: deleting the
   // show acknowledgement entirely — reintroducing the first-frame jump this exists to
@@ -609,9 +615,38 @@ test("first entry waits for the native show acknowledgement and honors reduced m
   assert.match(css, /\.first-visible-entry\.mode-full \.widget-shell/);
 });
 
+test("motion is a preference, not a hard-coded flourish", () => {
+  const css = readSource("src", "renderer", "styles.css");
+  const settingsStore = readSource("src", "settings-store.cjs");
+  const preload = readSource("src", "preload.cjs");
+  const visualSmokeSource = readSource("scripts", "ui-visual-smoke.cjs");
+  // The widget says what it is doing with movement - the goal rail flows, the pause glyph
+  // breathes, a running tool group pulses, controls answer a press. That is a taste, so it
+  // is a setting: one class on <body> takes the whole lot off, and it persists like the
+  // rest. Defaulting to on keeps the widget behaving as it did for anyone who never looks.
+  assert.match(settingsStore, /motionEffects: true,/);
+  assert.match(settingsStore, /motionEffects: source\.motionEffects !== false,/);
+  assert.match(ipc, /handle\("set-motion-effects"/);
+  assert.match(ipc, /motionEffects: preferences\.motionEffects !== false,/);
+  assert.match(preload, /setMotionEffects: \(value\) => ipcRenderer\.invoke\("set-motion-effects"/);
+  assert.match(renderer, /function applyMotionEffects\(value\)/);
+  assert.match(renderer, /classList\.toggle\("motion-off", !state\.motionEffects\)/);
+  assert.match(renderer, /applyMotionEffects\(preferences\.motionEffects\)/);
+  assert.match(renderer, /await window\.widget\.setMotionEffects\(requested\)/);
+  assert.match(html, /id="motionEffectsToggle"/);
+  assert.match(css, /body\.motion-off \*, body\.motion-off \*::before, body\.motion-off \*::after \{ animation:none !important; transition:none !important; \}/);
+  // The jump pulse is a signal rather than decoration, so it keeps a still form of itself.
+  assert.match(css, /body\.motion-off \.bubble\.mark-target \{[^}]*outline:/);
+  // The effects themselves live on surfaces that carry state, never under the text.
+  assert.match(css, /\.activity-card\.has-activity \{[^}]*animation:activity-drift/);
+  assert.match(css, /\.composer:focus-within \{[^}]*box-shadow:/);
+  assert.match(css, /\.tool-group\.running > summary > \.ui-icon:first-child \{[^}]*animation:tool-running/);
+  assert.match(visualSmokeSource, /motionEffectsChecked: true, motionOff: false/);
+});
+
 test("the goal is a hairline strip under the composer that opens into queue-style controls", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
-  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
+  const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
   // The goal lived only as a /goal card inline in the log, so it scrolled off. It is a live
   // projection, so it gets a strip of its own. That strip sits under the composer, not above
   // the log: the activity card grows and vanishes up there and kept shoving the goal around.
@@ -645,23 +680,30 @@ test("the goal is a hairline strip under the composer that opens into queue-styl
   assert.match(css, /@keyframes goal-flow/);
   assert.match(css, /\.goal-dock\[data-phase="paused"\] \.goal-track-fill \{[^}]*animation:none/);
   assert.match(css, /\.goal-dock\.goal-unbounded \.goal-track \{[^}]*animation:goal-flow/);
-  // Pause and resume is the control pressed mid-run, so it is wide and says which it is.
-  assert.match(css, /\.goal-dock-action \{[^}]*height:29px/);
-  assert.match(css, /\.goal-dock-action\.primary \{ width:auto/);
-  assert.match(html, /id="goalPauseResume"[^>]*class="goal-dock-action primary"/);
-  assert.match(visualSmoke, /goalActionMinSize: 29, goalTrackHeight: 6/);
+  // Pause and resume is the control pressed mid-run, so it sits on the strip itself and is
+  // the glyph alone - no ring, no plate, no label - and its press must not also toggle the
+  // panel. The panel's own controls carry no frame either.
+  assert.match(html, /<summary id="goalSummary">[\s\S]{0,220}id="goalPauseResume"/);
+  assert.match(css, /\.goal-strip-action \{[^}]*width:22px; height:18px/);
+  assert.match(css, /\.goal-strip-action \.ui-icon \{ width:16px; height:16px; \}/);
+  assert.doesNotMatch(css, /\.goal-dock-action \{[^}]*border:1px/);
+  assert.match(css, /\.goal-dock-action \{[^}]*height:28px/);
+  assert.match(renderer, /pauseIcon\.setAttribute\("href", paused \? "#icon-play" : "#icon-pause"\)/);
+  assert.match(renderer, /\$\("#goalPauseResume"\)\.addEventListener\("click", \(event\) => \{/);
+  assert.match(visualSmoke, /goalActionMinSize: 28, goalTrackHeight: 6/);
+  assert.match(visualSmoke, /goalStripPauseSize: 18, goalStripPauseGlyph: "#icon-pause"/);
   assert.doesNotMatch(html, /id="goalPreview"/);
   assert.match(renderer, /summary\.title = paused \?/);
   assert.match(renderer, /\$\("#goalTrackFill"\)\.style\.width = `\$\{Math\.round\(progress \* 100\)\}%`/);
   assert.match(css, /\.goal-dock-phase\.paused/);
   assert.match(visualSmoke, /goalDockOpen: false, goalPhase: "active", goalDockBelowComposer: true, goalStripPinnedToBottom: true, goalStripHeight: 18, goalStripTextFree: true/);
-  assert.match(visualSmoke, /goalActionCount: 3, goalPauseResumeLabel: "Pause"/);
-  assert.match(visualSmoke, /goalPhase: "paused", goalPauseResumeLabel: "Resume"/);
+  assert.match(visualSmoke, /goalActionCount: 2, goalPauseAction: "Pause the goal"/);
+  assert.match(visualSmoke, /goalPhase: "paused", goalPauseAction: "Resume the goal", goalStripPauseGlyph: "#icon-play"/);
 });
 
 test("the caller's own messages are marked on the scroll rail and pull the scroll to them", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
-  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
+  const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
   // Scrolling back to "the thing I asked" meant dragging through everything the agent
   // said in between. The marks are placed against scrollHeight so a mark means what the
   // scrollbar beside it means, and the rail sits in the gutter rather than over it, so
@@ -710,8 +752,8 @@ test("the caller's own messages are marked on the scroll rail and pull the scrol
 });
 
 test("a queued prompt can be read and edited in full without touching the conversation", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
-  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
+  const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
   // A queued background job is regularly a shell command many times longer than the row.
   // Opening it prints the text whole; the room comes from the dock, which already sits
   // between the log and the composer, so nothing is covered and nothing is shrunk.
@@ -730,7 +772,7 @@ test("a queued prompt can be read and edited in full without touching the conver
   assert.match(renderer, /Math\.min\(input\.scrollHeight, QUEUE_EDIT_MAX_HEIGHT\)/);
   // The resting row is a line of text and three controls; the padding used to be most of
   // its height. Opening or editing is what earns the room.
-  assert.match(css, /\.queue-row \{[^}]*min-height:28px/);
+  assert.match(css, /\.queue-row \{[^}]*min-height:26px/);
   assert.match(css, /\.queue-edit-input \{[^}]*max-height:132px/);
   assert.match(css, /\.queue-edit-input \{[^}]*resize:none/);
   // The dock may take room from the log while open; it must never reach the composer.
@@ -739,8 +781,8 @@ test("a queued prompt can be read and edited in full without touching the conver
 });
 
 test("a rejected send keeps its reason until the user acts on it", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
-  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
+  const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
   // The composer owns this, not the activity block: applyDashboard writes that block from
   // the 2.5s poll, so a running turn overwrote a failed send's reason within one tick and
   // the 3.2s transient timer would have erased it moments later anyway.
@@ -768,8 +810,8 @@ test("a rejected send keeps its reason until the user acts on it", () => {
 });
 
 test("chat reports elapsed turn time and running background tasks", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
-  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
+  const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
   // Both numbers were built for the Agents session cards, so the panel the user watches
   // during a turn showed neither. The card helpers are reused rather than reimplemented:
   // that keeps one definition of "running background task" and one clock tick for the app.
@@ -789,21 +831,23 @@ test("chat reports elapsed turn time and running background tasks", () => {
 });
 
 test("crowded compact chat has an explicit combined fixture and bounded surface budgets", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
-  const visualSmoke = readFileSync(path.join(root, "scripts", "ui-visual-smoke.cjs"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
+  const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
   assert.match(renderer, /function syncCrowdedChatState\(\)[\s\S]+window\.innerHeight <= 420/);
   assert.match(renderer, /screenshotFixture === "crowded-chat"/);
   assert.match(renderer, /const thinking = showCard && activity\?\.kind === "thinking";\n  syncCrowdedChatState\(\);/);
+  // The log keeps its floor at 360x360 with every strip open: the panel pays for the
+  // composer out of the gaps and the fixed strips instead.
   assert.match(css, /\.chat-crowded \.messages-wrap \{ min-height:62px; \}/);
-  assert.match(css, /\.chat-crowded \.todo-list \{ max-height:26px/);
-  assert.match(css, /\.chat-crowded \.queue-list \{ max-height:30px/);
-  assert.match(css, /\.chat-crowded \.attachment-bar \{ height:32px/);
+  assert.match(css, /\.chat-crowded \.todo-list \{ max-height:24px/);
+  assert.match(css, /\.chat-crowded \.queue-list \{ max-height:28px/);
+  assert.match(css, /\.chat-crowded \.attachment-bar \{ height:30px/);
   assert.match(visualSmoke, /crowded-chat-400/);
   assert.match(visualSmoke, /crowded-chat-360/);
 });
 
 test("the full-size avatar hit target uses a contained circular aura instead of a plate", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /\.avatar-shell \{[^}]+width:44px;[^}]+height:44px;[^}]+border-radius:50%;[^}]+background:transparent/);
   assert.match(css, /\.avatar-shell::before \{[^}]+inset:0;[^}]+border-radius:50%;[^}]+radial-gradient/);
   assert.match(css, /\.avatar-shell\.working::before \{[^}]+avatar-aura-working/);
@@ -815,7 +859,7 @@ test("the full-size avatar hit target uses a contained circular aura instead of 
 });
 
 test("full-window drag persists neither move nor resize drift", () => {
-  const main = readFileSync(path.join(root, "src", "main.cjs"), "utf8");
+  const main = readSource("src", "main.cjs");
   assert.match(main, /function moveWindowWithinNearestDisplay\(bounds, candidate, preserveSize = false\)[\s\S]+?if \(preserveSize\) setPlatformBounds\(windowRef, moved/);
   assert.match(ipc, /moveWithinNearestDisplay\(fullDragOrigin\.bounds, candidate, true\)/);
   assert.match(main, /windowRef\.on\("resize", \(\) => \{\s+if \(windowMode !== "full" \|\| fullDragOrigin\) return;/);
@@ -829,7 +873,7 @@ test("avatar click replaces the redundant collapse icon", () => {
 });
 
 test("consecutive tool activity collapses into one expandable group", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(renderer, /function appendActivityRun/);
   assert.match(renderer, /className = `tool-group/);
   assert.match(renderer, /partial-failure/);
@@ -838,12 +882,12 @@ test("consecutive tool activity collapses into one expandable group", () => {
   assert.match(renderer, /tool-group-body/);
   assert.match(css, /\.tool-group\.partial-failure/);
   // A tool header is one line of text: it gets a line of box, not two.
-  assert.match(css, /\.tool-group > summary \{[^}]*height:31px/);
-  assert.match(css, /\.tool-call > summary \{[^}]*height:29px/);
+  assert.match(css, /\.tool-group > summary \{[^}]*height:27px/);
+  assert.match(css, /\.tool-call > summary \{[^}]*height:25px/);
 });
 
 test("Harness TODO projections render as a compact collapsible current plan", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(html, /id="todoDock"[^>]+aria-label="Current plan"/);
   assert.match(html, /id="todoToggle"[^>]+aria-controls="todoList"/);
   assert.match(renderer, /function todosFor/);
@@ -867,7 +911,7 @@ test("successful Stop cleanup survives a failed follow-up refresh", () => {
 });
 
 test("command execution stays visible in full and compact modes until it settles", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(renderer, /function commandFeedbackFor/);
   assert.match(renderer, /label: `Running \$\{command\}`/);
   assert.match(renderer, /Waiting for Harness/);
@@ -877,7 +921,7 @@ test("command execution stays visible in full and compact modes until it settles
 });
 
 test("session picker uses the same idle, working, and error state as the Agents list", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(renderer, /function updatePickerSessionOption[\s\S]+const agentState = sessionAgentState\(session\)/);
   assert.match(renderer, /option\.classList\.add\(`state-\$\{agentState\}`\)/);
   assert.match(renderer, /agentState === "error"[\s\S]+\? "error"/);
@@ -943,8 +987,8 @@ test("Markdown and tool calls have dedicated safe, collapsed render paths", () =
   assert.match(renderer, /bubble\.innerHTML = message\.html/);
   assert.match(ipc, /renderMarkdown\(message\.text\)/);
   assert.match(html, /id="messages"/);
-  assert.match(readFileSync(path.join(root, "src", "markdown.cjs"), "utf8"), /highlight\.js\/lib\/common/);
-  assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /\.hljs-keyword/);
+  assert.match(readSource("src", "markdown.cjs"), /highlight\.js\/lib\/common/);
+  assert.match(readSource("src", "renderer", "styles.css"), /\.hljs-keyword/);
 });
 
 test("chat glow distinguishes thinking, writing and tool activity and clears on idle", () => {
@@ -958,13 +1002,13 @@ test("interactive controls, view transitions, compact modes, and send have reduc
   assert.match(renderer, /classList\.add\("sending"\)/);
   assert.match(renderer, /classList\.remove\("sending"\)/);
   assert.match(html, /id="sendButton"/);
-  assert.match(readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8"), /send-spring|compact-enter|panel-enter|prefers-reduced-motion/);
+  assert.match(readSource("src", "renderer", "styles.css"), /send-spring|compact-enter|panel-enter|prefers-reduced-motion/);
   assert.match(renderer, /matchMedia\?\.\("\(prefers-reduced-motion: reduce\)"\)\.matches/);
   assert.match(renderer, /behavior: reduceMotion \? "auto" : "smooth"/);
 });
 
 test("screen capture is a visible header action and only prepares reviewed chat attachments", () => {
-  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  const preload = readSource("src", "preload.cjs");
   assert.match(html, /id="captureButton"/);
   assert.match(html, /data-capture="region"/);
   assert.match(html, /data-capture="display"/);
@@ -981,8 +1025,8 @@ test("screen capture is a visible header action and only prepares reviewed chat 
 });
 
 test("all eight global shortcuts can be rebound, disabled, reset, and persisted", () => {
-  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
-  const store = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
+  const preload = readSource("src", "preload.cjs");
+  const store = readSource("src", "settings-store.cjs");
   for (const action of ["showRestore", "toggleFocusChat", "collapseAvatar", "collapseEdge", "newSession", "openHarness", "captureDisplay", "captureRegion"]) {
     assert.match(html, new RegExp(`data-hotkey-action="${action}"`));
     assert.match(html, new RegExp(`data-hotkey-enabled="${action}"`));
@@ -1002,7 +1046,7 @@ test("all eight global shortcuts can be rebound, disabled, reset, and persisted"
 });
 
 test("updates download in the background and expose install only after verification", () => {
-  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  const preload = readSource("src", "preload.cjs");
   for (const id of ["updateSettings", "updateStatus", "updateProgress", "checkUpdateButton", "installUpdateButton", "headerUpdateButton"]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
@@ -1030,7 +1074,7 @@ test("updates download in the background and expose install only after verificat
 });
 
 test("full, avatar, and edge transitions use a short renderer handoff without touching saved geometry", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(renderer, /MODE_EXIT_DURATION = 145/);
   assert.match(renderer, /await animateModeExit\(mode, requestSequence\)/);
   assert.match(renderer, /requestSequence !== modeRequestSequence/);
@@ -1056,7 +1100,7 @@ test("full, avatar, and edge transitions use a short renderer handoff without to
 });
 
 test("compact errors are acknowledged in full chat and completion feedback is finite and interruptible", () => {
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(renderer, /compactErrorUnread: false/);
   assert.match(renderer, /unacknowledgedErrorSessionIds: new Set\(\)/);
   assert.match(renderer, /function signalSessionError\(session/);
@@ -1143,7 +1187,7 @@ test("remote content can never replace the widget or open its own window", () =>
 });
 
 test("every dimmed label and focus ring keeps a readable contrast token", () => {
-  const styles = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const styles = readSource("src", "renderer", "styles.css");
   assert.match(styles, /--dim: #8b97a9;/);
   assert.match(styles, /--focus-ring: #7defd2;/);
   assert.match(styles, /:focus-visible \{ outline:2px solid var\(--focus-ring\); outline-offset:2px; \}/);
@@ -1213,7 +1257,7 @@ test("shutdown releases the tray and guards a destroyed window", () => {
 });
 
 test("the settings swap never deletes the destination first", () => {
-  const store = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
+  const store = readSource("src", "settings-store.cjs");
   const write = store.slice(store.indexOf("function write(normalized)"), store.indexOf("function retryable"));
   assert.match(write, /fileSystem\.renameSync\(temporaryPath, filePath\)/);
   assert.doesNotMatch(write, /rmSync\(filePath/);
@@ -1261,7 +1305,7 @@ test("releasing a compact drag arms the click guard before any await", () => {
 });
 
 test("every bridged IPC channel has a handler and no handler is orphaned", () => {
-  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  const preload = readSource("src", "preload.cjs");
   // `sendSync` comes before `send` because the alternation is tried left to right and
   // `send` would match the prefix of `sendSync` and then fail on the paren. Omitting it is
   // what made this check call `register-selected-file` orphaned while the preload was
@@ -1279,7 +1323,7 @@ test("every bridged IPC channel has a handler and no handler is orphaned", () =>
 });
 
 test("the live event socket detects a half-open connection", () => {
-  const muxClient = readFileSync(path.join(root, "src", "mux-client.cjs"), "utf8");
+  const muxClient = readSource("src", "mux-client.cjs");
   assert.match(muxClient, /MUX_SILENCE_TIMEOUT = 60000/);
   assert.match(muxClient, /current\.onopen = \(\) => \{/);
   assert.match(muxClient, /silenceTimer = setTimeoutImpl\(\(\) => \{\s*\n\s*if \(socket === current\) current\.close\(\);/);
@@ -1291,7 +1335,7 @@ test("the live event socket detects a half-open connection", () => {
 });
 
 test("attachment preparation is asynchronous and reports failures per file", () => {
-  const attachments = readFileSync(path.join(root, "src", "attachments.cjs"), "utf8");
+  const attachments = readSource("src", "attachments.cjs");
   assert.doesNotMatch(attachments, /readFileSync\(resolved\)|statSync\(resolved\)/);
   assert.match(attachments, /await fileSystem\.stat\(resolved\)/);
   // Encoding is injected now, so the read lives in the default encoder rather than
@@ -1317,7 +1361,7 @@ test("a renderer payload cannot retarget a call at another session", () => {
 });
 
 test("settings written by a newer build are preserved, not overwritten", () => {
-  const store = readFileSync(path.join(root, "src", "settings-store.cjs"), "utf8");
+  const store = readSource("src", "settings-store.cjs");
   assert.match(store, /const SCHEMA_VERSION = 2;/);
   assert.match(store, /version > SCHEMA_VERSION/);
   assert.match(store, /SETTINGS_TOO_NEW/);
@@ -1329,7 +1373,7 @@ test("the window is re-clamped when the display layout changes", () => {
 });
 
 test("harness launch survives a minimal PATH on macOS and Linux", () => {
-  const launcher = readFileSync(path.join(root, "src", "harness-launcher.cjs"), "utf8");
+  const launcher = readSource("src", "harness-launcher.cjs");
   assert.match(launcher, /const loginShell = typeof env\.SHELL === "string"/);
   assert.match(launcher, /args: \["-lc", \["npx", \.\.\.args\]\.map\(shellQuote\)\.join\(" "\)\]/);
   assert.match(launcher, /function shellQuote\(value\)/);
@@ -1376,7 +1420,7 @@ test("a single unhealthy poll cannot take the session and its transcript away", 
 test("skills appear in the slash menu and are sent as prompts, not host commands", () => {
   // Harness feeds its own "/" menu from two sources; the widget read only commands/list, so
   // a skill installed in the workspace showed up in Harness and was missing here.
-  const api = readFileSync(path.join(root, "src", "harness-api.cjs"), "utf8");
+  const api = readSource("src", "harness-api.cjs");
   assert.match(api, /async skills\(sessionId\) \{[\s\S]*?this\.rpc\("skill\.list", \{ sessionId \}/);
   assert.match(api, /async commandCatalog\(sessionId\)/);
   assert.match(api, /this\.skills\(sessionId\)\.catch\(\(\) => \[\]\)/, "a Harness without the skill plugin still lists its commands");
@@ -1387,7 +1431,7 @@ test("skills appear in the slash menu and are sent as prompts, not host commands
 });
 
 test("the session list shows how long each agent has been working", () => {
-  const sessionActivity = readFileSync(path.join(root, "src", "session-activity.cjs"), "utf8");
+  const sessionActivity = readSource("src", "session-activity.cjs");
   assert.match(sessionActivity, /function turnTimingFromHistory\(entries\)/);
   assert.match(sessionActivity, /return \{ runningSince: openedAt, lastRunMs \};/);
   // Taken from the turn's own events, so it survives a widget restart.
@@ -1406,10 +1450,10 @@ test("the orb window only takes the mouse where it draws something", () => {
   assert.match(renderer, /function publishCompactHitAreas\(\)/);
   assert.match(renderer, /for \(const selector of \["#orbRestore", "#orbHistoryButton", "#orbStatus"\]\)/);
   assert.match(renderer, /if \(!element \|\| element\.hidden \|\| !element\.offsetParent\) continue;/);
-  const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
+  const preload = readSource("src", "preload.cjs");
   assert.match(preload, /setCompactHitAreas: \(areas\) => ipcRenderer\.send\("set-compact-hit-areas", areas\)/);
   assert.match(ipc, /on\("set-compact-hit-areas"/);
-  const tracker = readFileSync(path.join(root, "src", "compact-hit-tracker.cjs"), "utf8");
+  const tracker = readSource("src", "compact-hit-tracker.cjs");
   // No measurement yet must mean "everything is live", never "nothing is clickable".
   assert.match(tracker, /if \(!areas\) \{\s*publish\(true\);/);
   assert.match(main, /const compact = windowMode === "edge" \|\| windowMode === "orb";/);
@@ -1449,7 +1493,7 @@ test("background tasks are a count of what is running, not a roster size", () =>
   assert.match(signature, /activeBackgroundTasks\(session\)/);
   // Written into the <b>, never onto the wrapper, which also holds the icon.
   assert.match(renderer, /const value = node\.querySelector\("b"\);/);
-  const css = readFileSync(path.join(root, "src", "renderer", "styles.css"), "utf8");
+  const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /\.session-background \{ display:none; \}/, "zero running tasks must take no width");
   assert.match(css, /\.session-background b \{[^}]*font-variant-numeric:tabular-nums/);
 });

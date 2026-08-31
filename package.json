@@ -2,7 +2,7 @@
   "name": "neoxider-agent-deck",
   "productName": "NeoXider Agent Deck",
   "desktopName": "dev.neoxider.agentdeck.desktop",
-  "version": "0.6.17",
+  "version": "0.6.18",
   "description": "A compact cross-platform desktop companion for DeepSeek Harness sessions, agents, and chat",
   "author": {
     "name": "NeoXider",

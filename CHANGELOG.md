@@ -5,6 +5,30 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.18] - 2026-08-31
+
+### Changed
+
+- **Pause and resume moved onto the goal strip, as the glyph alone.** It was a 26-pixel button behind a click, inside the opened panel, wearing more frame than glyph. It is now the first thing on the strip itself — always one press away, no ring, no plate, no label: two bars while the goal runs, a play arrow while it is paused, and the press does not also open the panel. The panel's own Edit and Delete lost their frames the same way, so the icon is what you see and the box is only what you press.
+
+- **The strip is smaller and the bar inside it is bigger.** The rail that carries the round count is the part worth seeing, so it is three times its old thickness, while the container around it — height, padding, gaps — is down to 16 pixels of strip.
+
+- **A queued row starts where its text starts, and a tool card is one line of box.** The queue position was a badge in a circle that ate the left edge of every row; it is a plain number now, and the row is tighter around it. Collapsed tool calls and tool groups each lost four pixels of header and some padding, which is several lines of conversation back over a long turn.
+
+### Added
+
+- **Motion, and a switch to turn it off.** The widget says what it is doing with movement: the goal rail flows while the loop runs and goes still and amber when it is paused, the pause glyph breathes, a running tool group pulses on its own icon, the composer answers focus, and controls answer a press. All of it sits on surfaces that carry state and never under the text, so nothing moves while you read. **Settings → Motion effects** takes the whole lot off in one click and persists like every other preference; the jump-to-message pulse keeps a still form of itself, because that one is a signal rather than decoration.
+
+### Fixed
+
+- **A third of the visual suite could only ever run on a 100%-scaled display.** A case asks for an exact window size and is compared against exact pixels, but on a scaled display the window came back wider than it asked for and the capture came back magnified, so every case below 423 pixels — and the cover renderer — aborted before it could assert anything. The device scale is pinned for captures now (the widget itself still follows the display), and with the suite actually running end to end it immediately paid for itself: it caught a real clipping bug and two expectations that had gone stale unnoticed.
+
+- **At 360x360 with everything open, the composer was pushed off the bottom edge.** With the activity card, the plan, the queue and attachments all showing, the stack stood six pixels taller than the panel. The gaps between those strips pay for it — each already carries its own border — so the log keeps its floor and no control shrinks.
+
+- **Two smoke expectations that had quietly gone stale** while their cases could not run: a queued row has carried four actions since the expand chevron landed in 0.6.13, not three, and the 360-wide update case was still asserting a version from 0.6.9.
+
+- **The contract tests no longer depend on how the tree was checked out.** `core.autocrlf` hands the sources back with CRLF on a fresh clone, and several assertions match across a line break, so they failed on a clean checkout and passed only after an edit rewrote the file. They normalize line endings on read now.
+
 ## [0.6.17] - 2026-08-31
 
 ### Changed

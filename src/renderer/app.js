@@ -34,6 +34,7 @@ const state = {
   avatarLabel: "ready",
   currentActivity: null,
   showThinking: true,
+  motionEffects: true,
   compactAutoExpand: false,
   activityCardSignature: "",
   currentMode: "agent",
@@ -2341,7 +2342,8 @@ function renderGoal() {
 ${rounds} · paused` : `${goal.objective}
 ${rounds}`;
   summary.setAttribute("aria-label", `Goal, ${paused ? "paused" : "active"}: ${compactText(goal.objective, 90)}`);
-  $("#goalOrbIcon").setAttribute("href", paused ? "#icon-pause" : "#icon-goal-dot");
+  const pauseIcon = $("#goalPauseIcon");
+  pauseIcon.setAttribute("href", paused ? "#icon-play" : "#icon-pause");
   $("#goalRounds").textContent = goal.maxRounds ? `${goal.rounds}/${goal.maxRounds}` : String(goal.rounds);
   // Only a capped goal has a real fraction to draw; an open-ended one keeps the rail as a
   // plain hint instead of a bar frozen at zero.
@@ -2351,9 +2353,6 @@ ${rounds}`;
   $("#goalPhase").classList.toggle("paused", paused);
   $("#goalObjective").textContent = goal.objective;
   $("#goalMeta").textContent = rounds;
-  const pauseIcon = $("#goalPauseResume").querySelector("use");
-  if (pauseIcon) pauseIcon.setAttribute("href", paused ? "#icon-play" : "#icon-pause");
-  $("#goalPauseResumeLabel").textContent = paused ? "Resume" : "Pause";
   $("#goalPauseResume").title = paused ? "Resume the goal" : "Pause the goal";
   $("#goalPauseResume").setAttribute("aria-label", paused ? "Resume the goal" : "Pause the goal");
   $("#goalEdit").disabled = busy;
@@ -4355,6 +4354,16 @@ function applyShowThinking(value) {
   return state.showThinking;
 }
 
+// Motion is how the widget says what it is doing - the goal rail flows, the pause glyph
+// breathes, a running tool group pulses, controls answer a press. One class on <body> takes
+// the whole lot off for anyone who would rather have it still.
+function applyMotionEffects(value) {
+  state.motionEffects = value !== false;
+  $("#motionEffectsToggle").checked = state.motionEffects;
+  document.body.classList.toggle("motion-off", !state.motionEffects);
+  return state.motionEffects;
+}
+
 function applyCompactAutoExpand(value) {
   state.compactAutoExpand = value === true;
   $("#compactAutoExpandToggle").checked = state.compactAutoExpand;
@@ -4578,6 +4587,7 @@ async function hydratePreferences() {
     $("#opacityValue").textContent = `${Math.round(preferences.opacity * 100)}%`;
     applyGlowIntensity(preferences.glowIntensity);
     applyShowThinking(preferences.showThinking);
+    applyMotionEffects(preferences.motionEffects);
     applyCompactAutoExpand(preferences.compactAutoExpand);
     syncPressed($$('#sizeSwitch button'), preferences.size, "size");
     applyPlatformCapabilities(preferences.platformCapabilities);
@@ -4890,7 +4900,11 @@ $("#goalEditInput").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); saveGoalEdit(); }
   if (event.key === "Escape") { state.goalEditing = false; state.goalSignature = ""; renderGoal(); }
 });
-$("#goalPauseResume").addEventListener("click", () => {
+// The control sits inside the strip's <summary>, so its press must not also toggle the
+// panel: pausing is one press, not one press and a surprise.
+$("#goalPauseResume").addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
   const goal = goalFor();
   if (!goal) return;
   runGoalCommand(goal.phase === "paused" ? "/goal resume" : "/goal pause");
@@ -4984,6 +4998,19 @@ $$('#windowLayerSwitch button').forEach((button) => button.addEventListener("cli
   syncPressed($$('#windowLayerSwitch button'), value, "layer");
 }));
 $("#autoStartToggle").addEventListener("change", updateAutoStartToggle);
+$("#motionEffectsToggle").addEventListener("change", async (event) => {
+  const toggle = event.currentTarget;
+  const previous = state.motionEffects;
+  const requested = applyMotionEffects(toggle.checked);
+  toggle.disabled = true;
+  try {
+    applyMotionEffects(await window.widget.setMotionEffects(requested));
+  } catch {
+    applyMotionEffects(previous);
+  } finally {
+    toggle.disabled = false;
+  }
+});
 $("#showThinkingToggle").addEventListener("change", async (event) => {
   const toggle = event.currentTarget;
   const previous = state.showThinking;
@@ -5472,7 +5499,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.16", latestVersion: "0.6.17", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.6.17", latestVersion: "0.6.18", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {

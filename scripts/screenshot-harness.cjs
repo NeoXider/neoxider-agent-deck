@@ -149,6 +149,8 @@ function attachScreenshotHarness({
             glowControl: document.querySelectorAll('#glowRange').length,
             glowIntensity: getComputedStyle(document.documentElement).getPropertyValue('--chat-glow-intensity').trim(),
             showThinkingChecked: Boolean(document.querySelector('#showThinkingToggle')?.checked),
+            motionEffectsChecked: Boolean(document.querySelector('#motionEffectsToggle')?.checked),
+            motionOff: document.body.classList.contains('motion-off'),
             activityCardVisible: Boolean(document.querySelector('#activityCard.has-activity:not([hidden])')),
             composerErrorVisible: Boolean(document.querySelector('#composerError:not([hidden])')),
             queueRowsExpanded: document.querySelectorAll('.queue-row.expanded').length,
@@ -156,7 +158,13 @@ function attachScreenshotHarness({
             goalDockVisible: Boolean(document.querySelector('#goalDock:not([hidden])')),
             goalDockOpen: Boolean(document.querySelector('#goalDock[open]')),
             goalPhase: document.querySelector('#goalPhase')?.textContent || '',
-            goalPauseResumeLabel: document.querySelector('#goalPauseResumeLabel')?.textContent || '',
+            goalPauseAction: document.querySelector('#goalPauseResume')?.getAttribute('aria-label') || '',
+            // Pause and resume lives on the strip itself, as the glyph alone.
+            goalStripPauseSize: (() => {
+              const rect = document.querySelector('#goalSummary #goalPauseResume')?.getBoundingClientRect();
+              return rect ? Math.round(Math.min(rect.width, rect.height)) : 0;
+            })(),
+            goalStripPauseGlyph: document.querySelector('#goalPauseIcon')?.getAttribute('href') || '',
             goalActionCount: document.querySelectorAll('#goalDock[open] .goal-dock-actions .goal-dock-action').length,
             // The activity card grows and vanishes above the log, so the goal sits under the
             // composer where nothing above it can shove it around.

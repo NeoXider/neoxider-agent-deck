@@ -7,6 +7,9 @@ const source = path.join(root, "docs", "cover-source.html");
 const output = path.join(root, "docs", "cover.png");
 
 app.disableHardwareAcceleration();
+// The cover is a fixed 1672x941 composition. Without this it renders at whatever scaling
+// the machine happens to use, and a 125% display captures a cropped, magnified corner of it.
+app.commandLine.appendSwitch("force-device-scale-factor", "1");
 
 app.whenReady().then(async () => {
   const window = new BrowserWindow({

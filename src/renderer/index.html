@@ -201,7 +201,7 @@
 
         <details id="goalDock" class="goal-dock no-drag" aria-label="Current goal" hidden>
           <summary id="goalSummary">
-            <span class="goal-orb"><svg class="ui-icon"><use id="goalOrbIcon" href="#icon-goal-dot"/></svg></span>
+            <button id="goalPauseResume" type="button" class="goal-strip-action" title="Pause the goal" aria-label="Pause the goal"><svg class="ui-icon"><use id="goalPauseIcon" href="#icon-pause"/></svg></button>
             <span class="goal-track"><span id="goalTrackFill" class="goal-track-fill"></span></span>
             <small id="goalRounds" class="goal-rounds"></small>
             <svg class="ui-icon goal-chevron"><use href="#icon-chevron"/></svg>
@@ -216,7 +216,6 @@
               <small id="goalMeta" class="goal-dock-meta"></small>
               <span class="goal-dock-actions">
                 <button id="goalEdit" type="button" class="goal-dock-action" title="Edit the goal" aria-label="Edit the goal"><svg class="ui-icon"><use href="#icon-edit"/></svg></button>
-                <button id="goalPauseResume" type="button" class="goal-dock-action primary" title="Pause the goal" aria-label="Pause the goal"><svg class="ui-icon"><use href="#icon-pause"/></svg><span id="goalPauseResumeLabel">Pause</span></button>
                 <button id="goalDelete" type="button" class="goal-dock-action danger" title="Delete the goal" aria-label="Delete the goal"><svg class="ui-icon"><use href="#icon-trash"/></svg><span id="goalDeleteLabel" class="goal-dock-confirm" hidden>Sure?</span></button>
               </span>
               <span class="goal-dock-editor-actions" hidden>
@@ -236,6 +235,7 @@
         <label id="opacitySetting" class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /><small id="opacityStatus" class="setting-hint" role="status" hidden></small></label>
         <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>
         <label class="toggle-setting"><span><span>Show live activity</span><small>Thinking, tool and working status above the chat</small></span><input id="showThinkingToggle" type="checkbox" checked /></label>
+        <label class="toggle-setting"><span><span>Motion effects</span><small>Flowing goal rail, breathing glyphs, hover and press feedback</small></span><input id="motionEffectsToggle" type="checkbox" checked /></label>
         <label class="toggle-setting"><span><span>Expand avatar on activity</span><small>Off: the orb stays a circle and counts on its button</small></span><input id="compactAutoExpandToggle" type="checkbox" /></label>
         <div class="setting-block"><span>Size</span><div id="sizeSwitch" class="size-switch" role="group" aria-label="Widget size"><button data-size="compact" type="button" aria-pressed="false">S</button><button data-size="standard" type="button" aria-pressed="true">M</button><button data-size="large" type="button" aria-pressed="false">L</button></div></div>
         <div id="updateSettings" class="update-settings setting-block">

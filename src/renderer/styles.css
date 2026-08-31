@@ -417,12 +417,13 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .goal-objective { color:#d5dbe5; font-size:9px; line-height:1.45; }
 .goal-meta { display:flex; flex-wrap:wrap; gap:5px; color:#8f9bad; font-size:8px; }
 .goal-meta span { padding:3px 6px; border-radius:6px; background:rgba(255,255,255,.045); }
-.tool-call { max-width:96%; margin:0 0 5px; border:1px solid rgba(73,231,198,.16); border-radius:11px; background:rgba(73,231,198,.045); color:#b8c4d2; }
+.tool-call { max-width:96%; margin:0 0 4px; border:1px solid rgba(73,231,198,.16); border-radius:11px; background:rgba(73,231,198,.045); color:#b8c4d2; }
 .tool-call.nested { margin-left:13px; border-color:rgba(139,121,255,.19); background:rgba(139,121,255,.045); }
 .tool-call.failed { border-color:rgba(255,115,143,.24); background:rgba(255,115,143,.055); }
-.tool-call > summary { min-width:0; height:29px; display:flex; align-items:center; gap:6px; padding:0 8px; list-style:none; cursor:pointer; }
+.tool-call > summary { min-width:0; height:25px; display:flex; align-items:center; gap:5px; padding:0 7px; transition:background .14s ease; list-style:none; cursor:pointer; }
 .tool-call > summary::-webkit-details-marker { display:none; }
-.tool-call > summary > .ui-icon:first-child { width:14px; height:14px; color:#75dfca; }
+.tool-call > summary:hover { background:rgba(73,231,198,.06); }
+.tool-call > summary > .ui-icon:first-child { width:13px; height:13px; color:#75dfca; }
 .tool-call.failed > summary > .ui-icon:first-child { color:#ff8fa5; }
 .tool-identity { min-width:0; flex:1; display:flex; align-items:baseline; gap:7px; }
 .tool-identity b { overflow:hidden; color:#d8e4eb; font-family:"Cascadia Code",Consolas,monospace; font-size:9px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
@@ -431,18 +432,22 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .tool-call time { flex:none; color:var(--dim); font-size:8px; }
 .tool-chevron { width:13px; height:13px; color:#6e7a8b; transition:transform .15s ease; }
 .tool-call[open] .tool-chevron { transform:rotate(180deg); }
-.tool-body { max-height:210px; overflow:auto; padding:0 8px 7px 26px; }
+.tool-body { max-height:210px; overflow:auto; padding:0 7px 6px 21px; }
 .tool-body section + section { margin-top:6px; }
 .tool-body section > b { display:block; margin-bottom:4px; color:#738397; font-size:8px; letter-spacing:.07em; text-transform:uppercase; }
 .tool-body pre { max-width:100%; margin:0; overflow:auto; padding:6px; border:1px solid rgba(255,255,255,.07); border-radius:8px; background:#090d14; color:#b9c6d4; font-family:"Cascadia Code",Consolas,monospace; font-size:9px; line-height:1.4; white-space:pre-wrap; overflow-wrap:anywhere; }
 .tool-pending { display:block; padding:2px 0; color:#718095; font-size:9px; }
-.tool-group { max-width:98%; margin:0 0 6px; border:1px solid rgba(73,231,198,.2); border-radius:13px; background:linear-gradient(110deg,rgba(73,231,198,.065),rgba(139,121,255,.07)); color:#b8c4d2; }
+.tool-group { max-width:98%; margin:0 0 5px; border:1px solid rgba(73,231,198,.2); border-radius:13px; background:linear-gradient(110deg,rgba(73,231,198,.065),rgba(139,121,255,.07)); color:#b8c4d2; }
 .tool-group.failed { border-color:rgba(255,115,143,.25); background:linear-gradient(110deg,rgba(255,115,143,.06),rgba(139,121,255,.06)); }
 .tool-group.partial-failure { border-color:rgba(255,193,107,.24); background:linear-gradient(110deg,rgba(255,193,107,.05),rgba(139,121,255,.06)); }
 .tool-group.running { border-color:rgba(255,193,107,.25); }
-.tool-group > summary { min-width:0; height:31px; display:flex; align-items:center; gap:7px; padding:0 9px; list-style:none; cursor:pointer; user-select:none; }
+.tool-group > summary { min-width:0; height:27px; display:flex; align-items:center; gap:6px; padding:0 8px; transition:background .14s ease; list-style:none; cursor:pointer; user-select:none; }
 .tool-group > summary::-webkit-details-marker { display:none; }
-.tool-group > summary > .ui-icon:first-child { width:15px; height:15px; color:#75dfca; }
+.tool-group > summary:hover { background:rgba(73,231,198,.05); }
+.tool-group > summary > .ui-icon:first-child { width:14px; height:14px; color:#75dfca; }
+/* A group still working says so on its own glyph rather than with another line of text. */
+.tool-group.running > summary > .ui-icon:first-child { animation:tool-running 1.7s ease-in-out infinite; }
+@keyframes tool-running { 0%,100% { opacity:.6; filter:none; } 50% { opacity:1; filter:drop-shadow(0 0 5px rgba(255,193,107,.55)); } }
 .tool-group.failed > summary > .ui-icon:first-child { color:#ff8fa5; }
 .tool-group.partial-failure > summary > .ui-icon:first-child { color:#ffc77a; }
 .tool-group-identity { min-width:0; flex:1; display:flex; align-items:baseline; gap:7px; }
@@ -500,9 +505,18 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .goal-dock > summary::-webkit-details-marker { display:none; }
 .goal-dock > summary:hover { background:rgba(73,231,198,.06); }
 .goal-dock > summary:hover .goal-chevron { color:#cfd8e4; }
-.goal-orb { flex:none; width:12px; height:12px; display:grid; place-items:center; color:#5eead4; }
-.goal-orb .ui-icon { width:12px; height:12px; }
-.goal-dock[data-phase="paused"] .goal-orb { color:#ffc178; }
+/* Pause and resume is the control pressed mid-run, so it lives on the strip itself, always
+   one press away - and it is the glyph alone: no ring, no plate, no label. */
+.goal-strip-action { width:22px; height:18px; flex:none; display:grid; place-items:center; padding:0; border:0; border-radius:6px; background:none; color:#5eead4; cursor:pointer; transition:color .14s ease, background .14s ease, transform .12s ease; }
+.goal-strip-action .ui-icon { width:16px; height:16px; }
+.goal-strip-action:hover { background:rgba(73,231,198,.14); color:#c7fff2; }
+.goal-strip-action:active { transform:scale(.88); }
+.goal-strip-action:disabled { opacity:.45; cursor:default; }
+.goal-dock[data-phase="paused"] .goal-strip-action { color:#ffc178; }
+.goal-dock[data-phase="paused"] .goal-strip-action:hover { background:rgba(255,193,120,.16); color:#ffdcaf; }
+/* While the loop runs the glyph breathes; paused it is simply still. */
+.goal-dock[data-phase="active"] .goal-strip-action .ui-icon { animation:goal-breathe 2.8s ease-in-out infinite; }
+@keyframes goal-breathe { 0%,100% { opacity:.74; filter:none; } 50% { opacity:1; filter:drop-shadow(0 0 4px rgba(73,231,198,.5)); } }
 .goal-track { min-width:0; flex:1; height:6px; overflow:hidden; border-radius:99px; background:rgba(255,255,255,.07); }
 .goal-track-fill { display:block; width:0; height:100%; border-radius:99px; background:linear-gradient(90deg,#49e7c6,#8b79ff,#49e7c6); background-size:200% 100%; box-shadow:0 0 7px rgba(73,231,198,.34); animation:goal-flow 3.4s linear infinite; transition:width .3s cubic-bezier(.22,1,.36,1); }
 @keyframes goal-flow { from { background-position:0 0; } to { background-position:200% 0; } }
@@ -523,16 +537,15 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .goal-dock-meta { min-width:0; flex:1; overflow:hidden; color:#8d98aa; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
 .goal-dock-actions, .goal-dock-editor-actions { flex:none; display:flex; gap:5px; }
 .goal-dock-actions[hidden], .goal-dock-editor-actions[hidden] { display:none; }
-/* The glyph, not the frame, is what a control this small has to spend its space on. */
-.goal-dock-action { width:29px; height:29px; flex:none; display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:0; border:1px solid rgba(139,121,255,.2); border-radius:9px; background:rgba(4,9,15,.3); color:#c8d2de; font-size:9px; font-weight:700; cursor:pointer; transition:.14s ease; }
-.goal-dock-action .ui-icon { width:16px; height:16px; }
-.goal-dock-action:hover:not(:disabled) { border-color:rgba(139,121,255,.48); background:rgba(139,121,255,.14); color:#e7e2ff; }
-/* Pause and resume is the one control that is pressed mid-run, so it is wide and says so. */
-.goal-dock-action.primary { width:auto; padding:0 11px; border-color:rgba(73,231,198,.32); background:rgba(73,231,198,.1); color:#7ceada; }
-.goal-dock-action.primary:hover:not(:disabled) { border-color:rgba(73,231,198,.58); background:rgba(73,231,198,.18); color:#c7fff2; }
-.goal-dock-action.steer { border-color:rgba(73,231,198,.4); color:#63ddc5; }
-.goal-dock-action.danger:hover:not(:disabled) { border-color:rgba(255,115,143,.5); color:#ff91a7; }
-.goal-dock-action.danger[data-confirm="1"] { width:auto; padding:0 11px; border-color:rgba(255,115,143,.6); background:rgba(255,115,143,.14); color:#ff91a7; }
+/* The glyph, not the frame: these carry no border and no plate, only the icon and the room
+   around it that makes them pressable. */
+.goal-dock-action { width:28px; height:28px; flex:none; display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:0; border:0; border-radius:8px; background:none; color:#98a5b6; font-size:9px; font-weight:700; cursor:pointer; transition:color .14s ease, background .14s ease, transform .12s ease; }
+.goal-dock-action .ui-icon { width:17px; height:17px; }
+.goal-dock-action:hover:not(:disabled) { background:rgba(139,121,255,.16); color:#e7e2ff; }
+.goal-dock-action:active:not(:disabled) { transform:scale(.9); }
+.goal-dock-action.steer { color:#63ddc5; }
+.goal-dock-action.danger:hover:not(:disabled) { background:rgba(255,115,143,.14); color:#ff91a7; }
+.goal-dock-action.danger[data-confirm="1"] { width:auto; padding:0 9px; background:rgba(255,115,143,.16); color:#ff91a7; }
 .goal-dock-action:disabled { opacity:.4; cursor:default; }
 .goal-dock-confirm[hidden] { display:none; }
 .goal-dock-editor[hidden] { display:none; }
@@ -566,9 +579,11 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
    place that can grow without covering anything: it already sits between the log and the
    composer, and it scrolls once the text outruns even this. */
 .queue-dock.opened .queue-list { max-height:186px; }
-.queue-row { min-width:0; min-height:28px; display:flex; align-items:center; gap:3px; padding:2px 3px 2px 6px; border-radius:8px; background:rgba(4,9,15,.42); }
+.queue-row { min-width:0; min-height:26px; display:flex; align-items:center; gap:4px; padding:2px 3px 2px 4px; border-radius:8px; background:rgba(4,9,15,.42); transition:background .14s ease; }
+.queue-row:hover { background:rgba(4,9,15,.62); }
 .queue-row + .queue-row { margin-top:3px; }
-.queue-position { width:14px; height:14px; flex:none; display:grid; place-items:center; border-radius:50%; background:rgba(73,231,198,.13); color:#78e4ce; font-size:7px; font-weight:800; }
+/* The position was a badge with a circle around it; the row starts where its text does. */
+.queue-position { min-width:6px; flex:none; text-align:center; color:#5f8c83; font-size:7px; font-weight:800; font-variant-numeric:tabular-nums; }
 .queue-preview { min-width:0; flex:1; overflow:hidden; color:#c5cfda; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
 .queue-row.expanded { align-items:flex-start; padding-top:5px; padding-bottom:5px; }
 .queue-row.expanded .queue-position, .queue-row.expanded .queue-actions { margin-top:1px; }
@@ -581,7 +596,9 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .queue-edit-input { min-width:0; height:25px; max-height:132px; flex:1; overflow-y:auto; border:1px solid rgba(139,121,255,.32); border-radius:7px; outline:0; padding:5px 7px; background:#0b111a; color:#e8edf5; font-size:9px; line-height:1.45; font-family:inherit; resize:none; }
 .queue-actions { flex:none; display:flex; align-items:center; gap:2px; }
 .queue-action { width:24px; height:24px; display:grid; place-items:center; border:0; border-radius:7px; background:transparent; color:#7f8c9e; cursor:pointer; }
+.queue-action { transition:color .14s ease, background .14s ease, transform .12s ease; }
 .queue-action:hover { background:rgba(139,121,255,.13); color:#d8d2ff; }
+.queue-action:active:not(:disabled) { transform:scale(.9); }
 .queue-action.danger:hover { background:rgba(255,115,143,.1); color:#ff91a7; }
 .queue-action.steer { color:#63ddc5; }
 .queue-action:disabled { opacity:.32; cursor:default; }
@@ -956,26 +973,53 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
   .command-row { min-height:34px; height:34px; padding:4px 7px; gap:2px 7px; }
   .command-description { font-size:7px; }
   .command-options { padding:3px; }
-  .chat-crowded .chat-panel.active { gap:3px; }
+  /* At 360x360 with the activity card, the plan, the queue and attachments all open, the
+     stack stood six pixels taller than the panel and pushed the composer off the bottom
+     edge. The gaps between the strips pay for it - each already carries its own border -
+     so the log keeps its floor and no control shrinks. */
+  .chat-crowded .chat-panel.active { gap:1px; }
   .chat-crowded .messages-wrap { min-height:62px; }
   .chat-crowded .activity-card.thinking-activity > summary { min-height:26px; padding:0 7px; }
   .chat-crowded .todo-toggle { height:24px; padding:0 6px; }
-  .chat-crowded .todo-list { max-height:26px; padding:0 3px 2px; }
+  .chat-crowded .todo-list { max-height:24px; padding:0 3px 2px; }
   .chat-crowded .todo-row { height:22px; padding:0 4px; }
   .chat-crowded .todo-row + .todo-row { margin-top:1px; }
+  .chat-crowded .goal-dock > summary { height:14px; padding:0 3px; }
+  .chat-crowded .goal-dock-body { padding:4px 5px 3px; }
   .chat-crowded .queue-dock { padding:2px; }
-  .chat-crowded .queue-list { max-height:30px; }
+  .chat-crowded .queue-list { max-height:28px; }
   .chat-crowded .queue-row { min-height:26px; height:26px; padding:1px 2px 1px 5px; }
   .chat-crowded .queue-row + .queue-row { margin-top:1px; }
-  .chat-crowded .attachment-bar { height:32px; padding:1px; }
-  .chat-crowded .attachment-list { height:28px; padding:0; }
-  .chat-crowded .attachment-chip { height:28px; flex-basis:138px; grid-template-columns:28px minmax(0,1fr) 20px; gap:3px; padding:1px; }
-  .chat-crowded .attachment-preview { width:28px; height:24px; }
+  .chat-crowded .attachment-bar { height:30px; padding:1px; }
+  .chat-crowded .attachment-list { height:26px; padding:0; }
+  .chat-crowded .attachment-chip { height:26px; flex-basis:138px; grid-template-columns:28px minmax(0,1fr) 20px; gap:3px; padding:1px; }
+  .chat-crowded .attachment-preview { width:26px; height:22px; }
   .chat-crowded .attachment-preview .ui-icon { width:13px; height:13px; }
   .chat-crowded .attachment-name { gap:0; }
   .chat-crowded .attachment-name small { display:none; }
-  .chat-crowded .attachment-remove { width:20px; height:24px; }
+  .chat-crowded .attachment-remove { width:20px; height:22px; }
 }
+
+/* Motion is how the widget says what it is doing. It stays on the surfaces that carry
+   state - the live activity, the composer you are typing into, the controls you press -
+   and never on the reading surfaces, so nothing moves under the text. */
+.activity-card.has-activity { background-size:200% 100%; animation:activity-drift 7.5s ease-in-out infinite; }
+@keyframes activity-drift { 0%,100% { background-position:0% 50%; } 50% { background-position:100% 50%; } }
+.composer { transition:border-color .16s ease, box-shadow .16s ease; }
+.composer:focus-within { border-color:rgba(73,231,198,.34); box-shadow:0 0 0 1px rgba(73,231,198,.1), 0 0 18px rgba(73,231,198,.07); }
+.composer #sendButton { transition:transform .12s ease, filter .14s ease, box-shadow .16s ease; }
+.composer #sendButton:hover { filter:brightness(1.08); box-shadow:0 0 16px rgba(73,231,198,.28); }
+.composer #sendButton:active { transform:scale(.93); }
+.composer-action, .icon-button, .composer-stop { transition:background .14s ease, color .14s ease, transform .12s ease; }
+.composer-action:active, .icon-button:active, .composer-stop:active { transform:scale(.9); }
+.message-mark::after { transition:background .15s ease, height .15s ease, box-shadow .15s ease; }
+.message-mark:hover::after { box-shadow:0 0 8px rgba(73,231,198,.55); }
+
+/* "Motion effects" off in settings: the same layout and the same colours, simply still. */
+body.motion-off *, body.motion-off *::before, body.motion-off *::after { animation:none !important; transition:none !important; }
+body.motion-off .live-assistant::after { opacity:.72; }
+/* The jump pulse is a signal, not decoration, so it keeps a still form of itself. */
+body.motion-off .bubble.mark-target { outline:1px solid rgba(73,231,198,.55); outline-offset:1px; }
 
 @media (prefers-reduced-motion:reduce) {
   .orb-session-list, .orb-reply-form, .compact-resizing .orb-session-list, .compact-resizing .orb-reply-form { transition:none; transform:none; opacity:1; }

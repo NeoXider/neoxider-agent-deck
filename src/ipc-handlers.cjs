@@ -303,6 +303,12 @@ function registerIpcHandlers({
     schedulePreferenceSave();
     return preferences.showThinking;
   });
+  handle("set-motion-effects", (_event, value) => {
+    const preferences = getPreferences();
+    preferences.motionEffects = Boolean(value);
+    schedulePreferenceSave();
+    return preferences.motionEffects;
+  });
   handle("set-compact-auto-expand", (_event, value) => {
     const preferences = getPreferences();
     preferences.compactAutoExpand = Boolean(value);
@@ -360,6 +366,7 @@ function registerIpcHandlers({
       opacity: preferences.opacity,
       glowIntensity: preferences.glowIntensity,
       showThinking: preferences.showThinking !== false,
+      motionEffects: preferences.motionEffects !== false,
       compactAutoExpand: preferences.compactAutoExpand === true,
       size: preferences.size,
       windowMode: getWindowMode(),

@@ -74,6 +74,12 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
 
+## Shipped in 0.6.18
+
+- Moved pause/resume onto the goal strip as a bare glyph, stripped the frames off the panel's controls, thickened the rounds rail and tightened the container, queue rows and tool headers; covered by contract regressions and the goal, queue and tool visual cases.
+- Added motion effects across the state-carrying surfaces with a persisted `Motion effects` setting that takes them all off; covered by a contract regression and the settings visual case.
+- Pinned the device scale for screenshot runs so the visual suite renders identically on any display, which unblocked every case below 423 pixels and the cover renderer; fixed the 360x360 crowded layout that pushed the composer off the panel, and corrected two expectations that had gone stale while their cases could not run.
+
 ## Shipped in 0.6.17
 
 - Cut the goal strip down to an 18px frameless line with a 6px flowing rounds rail, and gave its controls the space the frame had been taking - a wide labelled Pause/Resume and 29px actions.

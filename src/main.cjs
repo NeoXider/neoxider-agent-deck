@@ -45,7 +45,9 @@ const { captureModeBounds, fitFullBounds, resizeCompactAnchor } = require("./win
 const { COMPACT_SIZES, compactTargetBounds, compactWindowSize } = require("./compact-window.cjs");
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
-const SCREENSHOT_MODE = Boolean(process.env.WIDGET_SCREENSHOT_PATH);
+const { isScreenshotMode, pinScreenshotRenderScale, screenshotRequest } = require("./screenshot-mode.cjs");
+const SCREENSHOT_MODE = isScreenshotMode();
+pinScreenshotRenderScale(app.commandLine);
 const PACKAGED_SMOKE_PATH = process.env.WIDGET_PACKAGED_SMOKE_PATH || "";
 const ISOLATED_SMOKE_MODE = SCREENSHOT_MODE || Boolean(PACKAGED_SMOKE_PATH);
 const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
@@ -489,10 +491,8 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
 }
 
 function createWindow() {
-  const screenshotPath = process.env.WIDGET_SCREENSHOT_PATH;
+  const { path: screenshotPath, width: requestedWidth, height: requestedHeight, tab: screenshotTab, fixture: screenshotFixture, files: screenshotFiles, backdrop: screenshotBackdrop } = screenshotRequest();
   const [presetWidth, presetHeight] = SIZE_PRESETS[preferences.size] || SIZE_PRESETS.standard;
-  const requestedWidth = Number(process.env.WIDGET_SCREENSHOT_WIDTH);
-  const requestedHeight = Number(process.env.WIDGET_SCREENSHOT_HEIGHT);
   const width = Number.isFinite(requestedWidth) && requestedWidth >= 280 ? requestedWidth : presetWidth;
   const height = Number.isFinite(requestedHeight) && requestedHeight >= 280 ? requestedHeight : presetHeight;
   windowRef = new BrowserWindow({
@@ -528,10 +528,6 @@ function createWindow() {
   captureWindowBounds("full", fullBounds, preferences.compactSide, false);
   applyWindowLayer("full");
   applyPlatformOpacity(windowRef, preferences.opacity, PLATFORM_CAPABILITIES);
-  const screenshotTab = process.env.WIDGET_SCREENSHOT_TAB || "";
-  const screenshotFixture = process.env.WIDGET_SCREENSHOT_FIXTURE || "";
-  const screenshotFiles = process.env.WIDGET_SCREENSHOT_FILES || "";
-  const screenshotBackdrop = process.env.WIDGET_SCREENSHOT_BACKDROP || "";
   // The renderer only ever shows local files. Anything that tries to replace the
   // widget with remote content, or to spawn a second Electron window, is a bug or
   // an injection attempt: refuse it and hand safe links to the real browser.
@@ -563,7 +559,7 @@ function createWindow() {
       ...(screenshotFixture ? { screenshotFixture } : {}),
       ...(screenshotFiles ? { screenshotFiles } : {}),
       ...(screenshotBackdrop ? { screenshotBackdrop } : {}),
-      ...(process.env.WIDGET_SCREENSHOT_PATH ? { screenshotStatic: "1" } : {}),
+      ...(screenshotPath ? { screenshotStatic: "1" } : {}),
     },
   });
   windowRef.once("ready-to-show", () => {
