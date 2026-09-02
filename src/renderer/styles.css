@@ -143,11 +143,13 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .offline-banner button { min-width:58px; height:28px; padding:0 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(73,231,198,.2),rgba(139,121,255,.24)); color:#f5fffd; cursor:pointer; font-size:9px; font-weight:750; }
 .offline-banner button:hover, .offline-banner button:focus-visible { border-color:rgba(73,231,198,.45); box-shadow:0 0 14px rgba(73,231,198,.13); }
 .offline-banner button:disabled { opacity:.65; cursor:wait; }
-.tabs { width:72px; height:34px; flex:none; display:grid; grid-template-columns:repeat(2,1fr); gap:3px; padding:3px; border:1px solid rgba(255,255,255,.075); border-radius:11px; background:rgba(255,255,255,.035); }
-.tab { position:relative; min-width:0; display:grid; place-items:center; border:0; border-radius:8px; background:transparent; color:var(--dim); cursor:pointer; transition:.18s ease; }
+.tabs { position:relative; width:72px; height:34px; flex:none; display:grid; grid-template-columns:repeat(2,1fr); gap:3px; padding:3px; border:1px solid rgba(255,255,255,.075); border-radius:11px; background:rgba(255,255,255,.035); }
+/* The active plate is one element that slides between the tabs rather than two that swap. */
+.tabs::before { content:""; position:absolute; z-index:0; top:3px; bottom:3px; left:3px; width:calc((100% - 9px) / 2); border-radius:8px; background:linear-gradient(135deg,rgba(73,231,198,.18),rgba(139,121,255,.27)); box-shadow:0 0 12px rgba(116,130,255,.18),inset 0 0 9px rgba(255,255,255,.06); transform:translateX(calc(var(--tab-index,0) * (100% + 3px))); transition:transform .3s cubic-bezier(.22,1,.36,1); }
+.tab { position:relative; z-index:1; min-width:0; display:grid; place-items:center; border:0; border-radius:8px; background:transparent; color:var(--dim); cursor:pointer; transition:.18s ease; }
 .tab .ui-icon { width:16px; height:16px; }
 .tab:hover { color:#dfe6ef; }
-.tab.active { color:white; background:linear-gradient(135deg,rgba(73,231,198,.18),rgba(139,121,255,.27)); box-shadow:0 0 12px rgba(116,130,255,.18),inset 0 0 9px rgba(255,255,255,.06); }
+.tab.active { color:white; }
 .tab.active::after { content:""; position:absolute; bottom:2px; width:10px; height:1px; border-radius:2px; background:var(--mint); box-shadow:0 0 6px var(--mint); }
 
 .panel { display:none; width:100%; min-width:0; min-height:0; flex:1 1 auto; overflow:hidden; }
@@ -306,7 +308,7 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .context-meter.critical .context-arc { stroke:var(--danger); }
 .context-meter span { position:absolute; inset:0; display:grid; place-items:center; padding:0; color:#d6dde7; font-size:5.5px; font-weight:850; font-variant-numeric:tabular-nums; line-height:1; text-align:center; }
 .command-menu { display:none; min-height:0; max-height:var(--command-menu-max-height,178px); flex:none; overflow:hidden; border:1px solid rgba(139,121,255,.27); border-radius:13px; background:rgba(13,17,27,.985); box-shadow:0 15px 38px rgba(0,0,0,.42),inset 0 1px rgba(255,255,255,.035); }
-.command-menu.open { display:flex; flex-direction:column; animation:command-menu-in .18s cubic-bezier(.22,1,.36,1); }
+.command-menu.open { display:flex; flex-direction:column; }
 .command-menu-head { min-height:34px; flex:none; display:flex; align-items:center; gap:7px; padding:7px 10px; border-bottom:1px solid rgba(255,255,255,.07); color:#8f9caf; }
 .command-menu-head .ui-icon { width:14px; height:14px; color:#9f92ff; }
 .command-menu-head b { color:#dcd8ff; font-size:9px; letter-spacing:.04em; }
@@ -326,7 +328,6 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .command-hint-bar[hidden] { display:none; }
 .command-hint-bar b { flex:none; color:#bdb4ff; font-family:"Cascadia Code",Consolas,monospace; font-size:8px; }
 .command-hint-bar span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-@keyframes command-menu-in { from{opacity:0;transform:translateY(7px) scale(.985)} to{opacity:1;transform:none} }
 
 .activity-card { display:none; border:1px solid rgba(139,121,255,.2); border-radius:12px; background:linear-gradient(110deg,rgba(73,231,198,.055),rgba(139,121,255,.09)); }
 .activity-card.has-activity { display:block; }
@@ -351,10 +352,9 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 /* The live Think line is the same block every other activity uses, just a tighter row and
    a slightly warmer border. It floated over the conversation before, and even opaque it
    still hid the top message of a scrolled log. */
-.activity-card.thinking-activity { border-color:rgba(139,121,255,.34); animation:thinking-activity-in .24s cubic-bezier(.18,.92,.24,1.06); }
+.activity-card.thinking-activity { border-color:rgba(139,121,255,.34); }
 .activity-card.thinking-activity b { color:#d8d1ff; }
 .activity-card.thinking-activity small { color:#a9b4c6; }
-@keyframes thinking-activity-in { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
 
 /* The composer's own failure surface. Deliberately not the activity block: that one is
    written by the 2.5s dashboard poll, which overwrote a failed send with the running
@@ -373,7 +373,17 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .composer-error button .ui-icon { width:12px; height:12px; }
 
 .messages-wrap { position:relative; width:100%; min-width:0; min-height:0; flex:1 1 auto; }
-.messages { width:100%; height:100%; min-width:0; min-height:0; overflow:auto; padding:3px 13px 8px 1px; }
+.messages { width:100%; height:100%; min-width:0; min-height:0; overflow:hidden auto; padding:3px 13px 8px 1px; }
+/* A block that arrives while the log is already on screen slides in. Only newcomers: the
+   transcript is reconciled by key, so a poll landing mid-turn re-animates nothing. */
+#messages > .enter { animation:transcript-enter .36s cubic-bezier(.16,1,.3,1) both; }
+@keyframes transcript-enter { from { opacity:0; transform:translateY(10px) scale(.985); } }
+/* Three quiet placeholders while a session's history is on its way. */
+.transcript-skeleton { display:grid; gap:9px; padding:4px 0; }
+.skeleton-bubble { height:36px; border-radius:14px 14px 14px 4px; background:linear-gradient(100deg,rgba(255,255,255,.045) 25%,rgba(255,255,255,.11) 50%,rgba(255,255,255,.045) 75%); background-size:240% 100%; animation:skeleton-sweep 1.5s ease-in-out infinite; }
+.skeleton-bubble:nth-child(2) { justify-self:end; border-radius:14px 14px 4px 14px; background-image:linear-gradient(100deg,rgba(73,231,198,.09) 25%,rgba(139,121,255,.16) 50%,rgba(73,231,198,.09) 75%); }
+.skeleton-bubble:nth-child(3) { height:52px; }
+@keyframes skeleton-sweep { from { background-position:120% 0; } to { background-position:-120% 0; } }
 .bubble.mark-target { animation:mark-target-pulse 1.1s ease-out; }
 @keyframes mark-target-pulse {
   0%, 100% { box-shadow:0 0 0 0 rgba(73,231,198,0); }
@@ -392,7 +402,19 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .message-mark:hover::after, .message-mark:focus-visible::after { height:5px; background:var(--mint); }
 .message-mark:focus-visible { outline:0; }
 .chat-crowded .message-marks { top:2px; bottom:6px; }
-.bubble { width:fit-content; max-width:88%; margin:0 0 8px; padding:9px 11px; border-radius:14px 14px 14px 4px; background:rgba(255,255,255,.07); color:#dfe4ec; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
+.bubble { position:relative; width:fit-content; max-width:88%; margin:0 0 8px; padding:9px 11px; border-radius:14px 14px 14px 4px; background:rgba(255,255,255,.07); color:#dfe4ec; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
+/* Copy, and for your own messages reuse: a column of glyphs beside the bubble, in the free
+   space its width limit leaves, shown on hover or focus. The column starts flush with the
+   bubble's edge so the pointer can cross to it without the hover letting go. */
+.bubble-actions { position:absolute; z-index:2; top:0; right:-30px; width:30px; display:flex; flex-direction:column; align-items:flex-end; gap:2px; padding-left:8px; opacity:0; transform:translateX(-4px); pointer-events:none; transition:opacity .16s ease, transform .2s cubic-bezier(.22,1,.36,1); }
+.bubble.user .bubble-actions { right:auto; left:-30px; align-items:flex-start; padding-left:0; padding-right:8px; transform:translateX(4px); }
+.bubble:hover .bubble-actions, .bubble:focus-within .bubble-actions, .bubble.actions-visible .bubble-actions { opacity:1; transform:none; pointer-events:auto; }
+.bubble-action { width:22px; height:20px; display:grid; place-items:center; padding:0; border:1px solid rgba(255,255,255,.1); border-radius:7px; background:rgba(11,16,24,.94); color:#9aa7b8; cursor:pointer; box-shadow:0 3px 10px rgba(0,0,0,.3); }
+.bubble-action .ui-icon { width:12px; height:12px; }
+.bubble-action:hover, .bubble-action:focus-visible { border-color:rgba(73,231,198,.4); background:rgba(73,231,198,.14); color:#c7fff2; }
+.bubble-action.copied { border-color:rgba(73,231,198,.5); color:#7defd2; }
+.bubble-action.copied .ui-icon { animation:action-pop .42s cubic-bezier(.2,.9,.2,1); }
+@keyframes action-pop { 0% { transform:scale(.6); } 60% { transform:scale(1.25); } 100% { transform:none; } }
 .bubble.plain, .reasoning-text.plain { white-space:pre-wrap; }
 .bubble.user { margin-left:auto; border-radius:14px 14px 4px 14px; background:linear-gradient(135deg,rgba(73,231,198,.19),rgba(139,121,255,.20)); color:white; }
 .bubble.user.has-attachments { max-width:94%; display:grid; gap:6px; }
@@ -527,8 +549,7 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .goal-rounds { flex:none; color:#7f8b9c; font-size:7px; font-weight:700; letter-spacing:.4px; font-variant-numeric:tabular-nums; }
 .goal-chevron { flex:none; width:15px; height:15px; color:#8894a5; transition:transform .15s ease; }
 .goal-dock[open] .goal-chevron { transform:rotate(180deg); }
-.goal-dock-body { padding:5px 6px 4px; border-bottom:1px solid rgba(73,231,198,.12); animation:goal-open .16s cubic-bezier(.22,1,.36,1); }
-@keyframes goal-open { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+.goal-dock-body { padding:5px 6px 4px; border-bottom:1px solid rgba(73,231,198,.12); }
 .goal-dock-objective { max-height:68px; overflow-y:auto; overscroll-behavior:contain; color:#d7dfea; font-size:9px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; }
 .goal-dock-objective[hidden] { display:none; }
 .goal-dock-foot { margin-top:5px; display:flex; align-items:center; gap:5px; }
@@ -572,7 +593,7 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 @keyframes todo-active-pulse { 50%{filter:drop-shadow(0 0 5px rgba(255,193,107,.55));transform:scale(1.08)} }
 
 .queue-dock { display:none; min-width:0; flex:none; overflow:hidden; padding:3px; border:1px solid rgba(73,231,198,.23); border-radius:12px; background:linear-gradient(110deg,rgba(73,231,198,.075),rgba(139,121,255,.075)); }
-.queue-dock.has-items { display:block; animation:queue-in .2s cubic-bezier(.22,1,.36,1); }
+.queue-dock.has-items { display:block; }
 .queue-list { min-width:0; max-height:86px; overflow-y:auto; transition:max-height .18s ease; }
 /* An opened row needs room to show a whole shell command. The dock takes it from the
    conversation for as long as the row is open and hands it straight back, which is the one
@@ -603,7 +624,6 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .queue-action.steer { color:#63ddc5; }
 .queue-action:disabled { opacity:.32; cursor:default; }
 .queue-action .ui-icon { width:13px; height:13px; }
-@keyframes queue-in { from{opacity:0;transform:translateY(5px)} to{opacity:1;transform:none} }
 
 .scroll-latest { position:absolute; z-index:24; right:7px; bottom:7px; height:27px; display:flex; align-items:center; gap:4px; padding:0 8px; border:1px solid rgba(73,231,198,.3); border-radius:14px; background:rgba(11,17,26,.94); box-shadow:0 5px 16px rgba(0,0,0,.38),0 0 13px rgba(73,231,198,.12); color:#8fead8; cursor:pointer; font-size:8px; font-weight:700; backdrop-filter:blur(10px); }
 .scroll-latest[hidden] { display:none; }
@@ -612,10 +632,20 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .scroll-latest .ui-icon { width:13px; height:13px; }
 .scroll-latest.completion-pop { animation:scroll-latest-complete .68s cubic-bezier(.16,1,.3,1) both; }
 @keyframes scroll-latest-complete { 0%{opacity:.55;transform:translateY(7px) scale(.82);box-shadow:0 0 0 rgba(73,231,198,0)} 55%{opacity:1;transform:translateY(-2px) scale(1.08);box-shadow:0 0 24px rgba(166,238,103,.36)} 100%{transform:none} }
-.live-assistant { min-height:34px; animation:live-bubble-in .2s cubic-bezier(.2,.85,.25,1); border:1px solid rgba(73,231,198,.16); }
-.live-assistant::after { content:""; width:4px; height:1em; display:inline-block; margin-left:4px; border-radius:2px; background:var(--mint); opacity:.72; vertical-align:-2px; animation:live-caret 1s steps(2,end) infinite; }
-@keyframes live-bubble-in { from{opacity:0;transform:translateY(6px) scale(.98)} to{opacity:1;transform:none} }
+.live-assistant { min-height:34px; border:1px solid rgba(73,231,198,.16); }
+/* The caret is an element rather than ::after so it can sit inside the last paragraph of a
+   formatted answer instead of on a line of its own underneath it. */
+.live-caret { width:4px; height:1em; display:inline-block; margin-left:4px; border-radius:2px; background:var(--mint); opacity:.72; vertical-align:-2px; animation:live-caret 1s steps(2,end) infinite; }
 @keyframes live-caret { 50%{opacity:.24} }
+/* One line of feedback over the foot of the log: copied, sent now, goal paused. */
+.toast-stack { position:absolute; z-index:30; left:50%; bottom:9px; display:flex; flex-direction:column; align-items:center; gap:5px; transform:translateX(-50%); pointer-events:none; }
+.toast { display:flex; align-items:center; gap:6px; height:26px; padding:0 10px; border:1px solid rgba(73,231,198,.28); border-radius:13px; background:rgba(11,17,26,.96); box-shadow:0 6px 18px rgba(0,0,0,.4),0 0 12px rgba(73,231,198,.1); color:#c9fff3; font-size:8.5px; font-weight:700; white-space:nowrap; backdrop-filter:blur(10px); animation:toast-in .32s cubic-bezier(.18,.9,.24,1.1) both; }
+.toast .ui-icon { width:12px; height:12px; color:#7defd2; }
+.toast.error { border-color:rgba(255,115,143,.35); color:#ffc4cd; }
+.toast.error .ui-icon { color:#ff91a7; }
+.toast.leaving { animation:toast-out .22s ease-in both; }
+@keyframes toast-in { from { opacity:0; transform:translateY(8px) scale(.92); } }
+@keyframes toast-out { to { opacity:0; transform:translateY(6px) scale(.95); } }
 
 .attachment-bar { min-width:0; display:none; grid-template-columns:auto minmax(0,1fr); gap:6px; align-items:center; padding:2px; border:1px solid rgba(73,231,198,.22); border-radius:11px; background:rgba(73,231,198,.055); }
 .attachment-bar.has-items { display:grid; }
@@ -1014,20 +1044,78 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.93); transition-
 .composer-action:active, .icon-button:active, .composer-stop:active { transform:scale(.9); }
 .message-mark::after { transition:background .15s ease, height .15s ease, box-shadow .15s ease; }
 .message-mark:hover::after { box-shadow:0 0 8px rgba(73,231,198,.55); }
+.avatar-button:hover .avatar-shell::before { opacity:1; transform:scale(1.08); }
+/* The plane leaves when the message does: one short flight off the corner and back. */
+.composer #sendButton.launch .ui-icon { animation:send-launch .55s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes send-launch { 0% { transform:none; opacity:1; } 45% { transform:translate(14px,-14px) scale(.6); opacity:0; } 50% { transform:translate(-10px,10px) scale(.6); opacity:0; } 100% { transform:none; opacity:1; } }
+/* The context ring is drawn in the widget's two colours and beats when it is critical. */
+.context-arc { stroke:url(#context-ring-gradient); }
+.context-meter.critical .context-arc { animation:ring-alarm 1.3s ease-in-out infinite; }
+@keyframes ring-alarm { 50% { opacity:.45; } }
+/* A card lifts under the pointer; a working one carries a slow sweep of light. */
+.session-card { transition:transform .22s cubic-bezier(.22,1,.36,1), border-color .18s ease, background-color .18s ease, box-shadow .22s ease; }
+.session-card:hover { transform:translateY(-1px); box-shadow:0 8px 20px rgba(0,0,0,.26); }
+.session-card.state-working { position:relative; overflow:hidden; }
+.session-card.state-working::after { content:""; position:absolute; inset:0; pointer-events:none; background:linear-gradient(105deg,transparent 35%,rgba(73,231,198,.09) 50%,transparent 65%); background-size:250% 100%; animation:card-sweep 3.2s linear infinite; }
+@keyframes card-sweep { from { background-position:120% 0; } to { background-position:-120% 0; } }
+/* Settings rows arrive one after another, a few milliseconds apart. */
+.settings-panel.open > * { animation:settings-row .32s cubic-bezier(.16,1,.3,1) both; }
+.settings-panel.open > :nth-child(2) { animation-delay:.025s; }
+.settings-panel.open > :nth-child(3) { animation-delay:.05s; }
+.settings-panel.open > :nth-child(4) { animation-delay:.075s; }
+.settings-panel.open > :nth-child(5) { animation-delay:.1s; }
+.settings-panel.open > :nth-child(6) { animation-delay:.125s; }
+.settings-panel.open > :nth-child(7) { animation-delay:.15s; }
+.settings-panel.open > :nth-child(8) { animation-delay:.175s; }
+.settings-panel.open > :nth-child(n+9) { animation-delay:.2s; }
+@keyframes settings-row { from { opacity:0; transform:translateY(6px); } }
+
+/* ---- Aurora: a slow light behind everything ----
+   Two soft blobs in the widget's own colours drift under the surface - below the text and
+   far slower than anything you would read. It follows the glow slider and brightens a
+   little while the agent works. */
+.widget-shell::before { content:""; position:absolute; z-index:-1; inset:-30%; pointer-events:none; background:radial-gradient(closest-side at 32% 28%,rgba(73,231,198,.22),transparent 72%),radial-gradient(closest-side at 70% 68%,rgba(139,121,255,.26),transparent 72%); filter:blur(28px); opacity:calc(var(--chat-glow-intensity) * .5); transform:translate3d(0,0,0); animation:aurora-drift 28s ease-in-out infinite alternate; transition:opacity .8s ease; will-change:transform; }
+.activity-thinking .widget-shell::before, .activity-writing .widget-shell::before, .activity-tool .widget-shell::before, .state-working .widget-shell::before { opacity:calc(var(--chat-glow-intensity) * .8); }
+@keyframes aurora-drift { 0% { transform:translate3d(-4%,-3%,0) rotate(0deg) scale(1); } 50% { transform:translate3d(3%,4%,0) rotate(6deg) scale(1.06); } 100% { transform:translate3d(-2%,5%,0) rotate(-4deg) scale(1.02); } }
+
+/* ---- Nothing pops: the strips around the log ease open and shut ----
+   The activity card above the log and the plan, queue, attachments, command palette, error
+   and goal strips below it used to appear and vanish in one frame, and the log jumped by
+   their height each time. Each one now transitions its height from auto, keeps its display
+   until the exit has finished, and starts from nothing on entry; the negative top margin
+   swallows the flex gap, so the space it took goes to zero with it. A log that was following
+   the conversation is re-anchored by a ResizeObserver on every frame of the move. */
+.widget-shell { --strip-gap:8px; }
+.focus-chat .widget-shell { --strip-gap:0px; }
+.chat-panel.active { --strip-gap:7px; }
+.chat-crowded .chat-panel.active { --strip-gap:1px; }
+.activity-card, .todo-dock, .queue-dock, .attachment-bar, .command-menu, .command-hint-bar, .composer-error, .goal-dock, .offline-banner { interpolate-size:allow-keywords; transition:height .24s cubic-bezier(.22,1,.36,1), opacity .18s ease, margin-top .24s cubic-bezier(.22,1,.36,1), padding .24s ease, border-width .24s ease, display .24s allow-discrete; }
+.activity-card, .attachment-bar, .composer-error, .offline-banner { overflow:hidden; }
+.activity-card:not(.has-activity), .activity-card[hidden], .todo-dock[hidden], .queue-dock:not(.has-items), .attachment-bar:not(.has-items), .command-menu:not(.open), .command-hint-bar[hidden], .composer-error[hidden], .goal-dock[hidden], .offline-banner:not(.show) { display:none; height:0; min-height:0; margin-top:calc(-1 * var(--strip-gap,0px)); padding-top:0; padding-bottom:0; border-top-width:0; border-bottom-width:0; opacity:0; overflow:hidden; pointer-events:none; }
+@starting-style {
+  .activity-card.has-activity:not([hidden]), .todo-dock:not([hidden]), .queue-dock.has-items, .attachment-bar.has-items, .command-menu.open, .command-hint-bar:not([hidden]), .composer-error:not([hidden]), .goal-dock:not([hidden]), .offline-banner.show { height:0; margin-top:calc(-1 * var(--strip-gap,0px)); padding-top:0; padding-bottom:0; border-top-width:0; border-bottom-width:0; opacity:0; }
+}
+/* A card opens like a drawer rather than snapping: tool calls, tool groups, the activity
+   card, the goal panel and the shortcut list ease their content in. Pickers are left alone,
+   because their menus must escape the clip. */
+.tool-call::details-content, .tool-group::details-content, .activity-card::details-content, .goal-dock::details-content, .hotkey-settings::details-content { interpolate-size:allow-keywords; height:0; overflow:clip; opacity:0; transition:height .22s cubic-bezier(.22,1,.36,1), opacity .16s ease, content-visibility .22s allow-discrete; }
+.tool-call[open]::details-content, .tool-group[open]::details-content, .activity-card[open]::details-content, .goal-dock[open]::details-content, .hotkey-settings[open]::details-content { height:auto; opacity:1; }
+/* Reopened after a rebuild, not opened: no reveal for a card that was already open. */
+details[data-restored]::details-content { transition:none; }
 
 /* "Motion effects" off in settings: the same layout and the same colours, simply still. */
 body.motion-off *, body.motion-off *::before, body.motion-off *::after { animation:none !important; transition:none !important; }
-body.motion-off .live-assistant::after { opacity:.72; }
+body.motion-off .live-caret { opacity:.72; }
 /* The jump pulse is a signal, not decoration, so it keeps a still form of itself. */
 body.motion-off .bubble.mark-target { outline:1px solid rgba(73,231,198,.55); outline-offset:1px; }
 
 @media (prefers-reduced-motion:reduce) {
   .orb-session-list, .orb-reply-form, .compact-resizing .orb-session-list, .compact-resizing .orb-reply-form { transition:none; transform:none; opacity:1; }
   *, *::before, *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
-  .live-assistant::after { animation:none !important; opacity:.72; }
+  .live-caret { animation:none !important; opacity:.72; }
 }
 .screenshot-static *, .screenshot-static *::before, .screenshot-static *::after { animation:none !important; transition:none !important; }
-.screenshot-static .live-assistant::after { opacity:.72; }
+.screenshot-static .live-caret { opacity:.72; }
 body.screenshot-backdrop-black { background:#05070a !important; }
 body.screenshot-backdrop-white { background:#f4f7fb !important; }
 body.screenshot-backdrop-checkerboard { background:conic-gradient(#eef2f7 25%,#242a35 0 50%,#eef2f7 0 75%,#242a35 0) 0 0 / 18px 18px !important; }

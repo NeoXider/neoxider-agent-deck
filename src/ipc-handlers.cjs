@@ -205,6 +205,9 @@ function registerIpcHandlers({
         : message),
     };
   });
+  // Live text is rendered on the way through, one request in flight at a time on the
+  // renderer side, so a streaming answer is formatted exactly as its history will be.
+  handle("render-markdown", (_event, text) => renderMarkdown(typeof text === "string" ? text : ""));
   handle("models", async (_event, sessionId) => api.models(sessionId || undefined));
   handle("commands", async (_event, sessionId) => api.commandCatalog(sessionId));
   handle("execute-command", async (_event, payload) => {

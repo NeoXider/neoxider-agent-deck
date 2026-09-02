@@ -7,7 +7,7 @@ const root = path.resolve(__dirname, "..");
 const output = path.join(root, "tmp", "ui-smoke");
 
 const cases = [
-  { name: "overview", fixture: "overview", expect: { agentWorking: 1, agentIdle: 1, agentError: 1 } },
+  { name: "overview", fixture: "overview", expect: { agentWorking: 1, agentIdle: 1, agentError: 1, tabPillIndex: "1" } },
   { name: "overview-360", fixture: "overview", width: 420, height: 360, expect: { agentWorking: 1, agentIdle: 1, agentError: 1, titlebarOverlap: false } },
   { name: "workspace-groups", tab: "agents", fixture: "workspace-groups", width: 360, height: 500, expect: { sessionGroups: 2, sessionPickerGroups: 2, agentCollapsedSessionGroups: 1, pickerCollapsedSessionGroups: 1, agentSessionGroupAddButtons: 2, pickerSessionGroupAddButtons: 2, sessionGroupHeadersSingleLine: true, uniqueSessionCards: true, uniquePickerSessions: true } },
   { name: "workspace-groups-chat", tab: "chat", fixture: "workspace-groups-chat", width: 360, height: 500, expect: { sessionGroups: 2, sessionPickerGroups: 2, agentCollapsedSessionGroups: 0, pickerCollapsedSessionGroups: 0, agentSessionGroupAddButtons: 2, pickerSessionGroupAddButtons: 2, sessionGroupHeadersSingleLine: true, uniqueSessionCards: true, uniquePickerSessions: true } },
@@ -15,7 +15,16 @@ const cases = [
   { name: "empty-chat", tab: "chat", fixture: "empty-chat", width: 380, height: 400, expect: { contextUnavailable: true, contextValue: "0%", contextVisible: true, conversationBubbles: 0, titlebarOverlap: false } },
   { name: "offline-agents", tab: "agents", fixture: "offline-agents", expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", offlineSessionText: "Start Harness to load sessions." }, min: { startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
   { name: "focus-offline", tab: "chat", fixture: "focus-offline", width: 360, height: 500, expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", focusMode: false }, min: { startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
-  { name: "chat", tab: "chat", fixture: "chat", expect: { composerRestingHeight: 44, historicalReasoning: 0, markdownLists: 1, footer: 0, titlebarTabs: 1, titlebarOverlap: false, setupInToolbar: true, brandUserSelect: "none", titlebarNativeDragDisabled: true, avatarHitWidth: 44, avatarHitHeight: 44, avatarPlateTransparent: true, avatarAuraCircular: true, avatarAuraContained: true, avatarAuraRadial: true, composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 15, sendWidth: 36, sendHeight: 36, sendUtilityCenterDelta: 0, contextCenterDelta: 0 } },
+  { name: "chat", tab: "chat", fixture: "chat", expect: { composerRestingHeight: 44, historicalReasoning: 0, markdownLists: 1, footer: 0, titlebarTabs: 1, titlebarOverlap: false, setupInToolbar: true, brandUserSelect: "none", titlebarNativeDragDisabled: true, avatarHitWidth: 44, avatarHitHeight: 44, avatarPlateTransparent: true, avatarAuraCircular: true, avatarAuraContained: true, avatarAuraRadial: true, composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 15, sendWidth: 36, sendHeight: 36, sendUtilityCenterDelta: 0, contextCenterDelta: 0, bubbleActionGroups: 2, bubbleCopyActions: 2, bubbleReuseActions: 1, tabPillIndex: "0", auroraLayer: true, cssHeightInterpolation: true, cssDetailsContent: true, cssStartingStyle: true } },
+  { name: "history-loading", tab: "chat", fixture: "history-loading", width: 380, height: 400, expect: { skeletonRows: 3, emptyStateText: "", conversationBubbles: 0 } },
+  { name: "toast", tab: "chat", fixture: "toast", width: 380, height: 400, expect: { toastVisible: true, toastText: "Copied to clipboard", conversationBubbles: 2 } },
+  { name: "bubble-actions", tab: "chat", fixture: "bubble-actions", width: 380, height: 400, expect: { bubbleActionGroups: 2, bubbleCopyActions: 2, bubbleReuseActions: 1, bubbleActionsBesideBubble: true, conversationBubbles: 2 } },
+  { name: "live-markdown", tab: "chat", fixture: "live-markdown", width: 380, height: 400, expect: { liveBubbles: 1, liveBubbleFormatted: true, liveBubbleHeadings: 1, liveBubbleListItems: 3, liveCaretInLastLine: true, liveCaretDisplay: "inline-block", activityCardVisible: false } },
+  { name: "composer-recall", tab: "chat", fixture: "composer-recall", width: 380, height: 400, expect: { composerValue: "Now re-render the cover.", conversationBubbles: 4 } },
+  // Motion left on: the plan strip eases open under a following log, and on every frame of
+  // the move the log is still showing its last line. Several observed heights prove the
+  // easing; a maximum gap of one pixel proves the anchor.
+  { name: "strip-easing", tab: "chat", fixture: "strip-easing", width: 380, height: 400, motion: true, expect: { todoRows: 3, todoExpanded: true, todoAboveComposer: true, stripTraceShrunk: true, messagesAtBottom: true }, min: { stripTraceSteps: 3 }, max: { stripTraceMaxGap: 1 } },
   { name: "focus-chat", tab: "chat", fixture: "focus-chat", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, historicalReasoning: 0, composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 15, sendWidth: 36, sendHeight: 36, sendUtilityCenterDelta: 0, contextCenterDelta: 0 } },
   { name: "commands", tab: "chat", fixture: "commands", expect: { commandRows: 6, commandAboveComposer: true, commandFitsWidth: true }, layout: { commandVisibleRows: 4 } },
   { name: "commands-360", tab: "chat", fixture: "commands", width: 360, height: 360, expect: { commandRows: 6, firstFourCommands: "/goal,/compact,/plan,/permission", commandAboveComposer: true, commandFitsWidth: true, titlebarOverlap: false }, layout: { commandVisibleRows: 4 } },
@@ -26,8 +35,8 @@ const cases = [
   { name: "live-stream", tab: "chat", fixture: "live-stream", width: 360, height: 500, expect: { liveBubbles: 1, historicalReasoning: 0 } },
   { name: "scroll-away", tab: "chat", fixture: "scroll-away", width: 360, height: 500, expect: { scrollLatestVisible: true } },
   { name: "glow-settings", tab: "chat", fixture: "glow-settings", expect: { motionEffectsChecked: true, motionOff: false, glowControl: 1, glowIntensity: "0.82", showThinkingChecked: true, windowLayerOptions: 3, autoStartHydrated: true } },
-  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.18 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
-  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.6.18 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
+  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.7.0 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
+  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.7.0 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
   { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.9 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
   { name: "hotkey-settings", tab: "chat", fixture: "hotkey-settings", width: 420, height: 640, expect: { settingsOpen: true, hotkeySettingsOpen: true, hotkeyRows: 8 } },
   { name: "capture-menu", tab: "chat", fixture: "capture-menu", expect: { captureMenuOpen: true, captureRows: 2 } },
@@ -133,6 +142,7 @@ function runElectron(testCase) {
         ...(testCase.mode ? { WIDGET_SCREENSHOT_MODE: testCase.mode } : {}),
         ...(testCase.side ? { WIDGET_SCREENSHOT_SIDE: testCase.side } : {}),
         ...(testCase.backdrop ? { WIDGET_SCREENSHOT_BACKDROP: testCase.backdrop } : {}),
+        ...(testCase.motion ? { WIDGET_SCREENSHOT_MOTION: "1" } : {}),
         ...(testCase.width ? { WIDGET_SCREENSHOT_WIDTH: String(testCase.width) } : {}),
         ...(testCase.height ? { WIDGET_SCREENSHOT_HEIGHT: String(testCase.height) } : {}),
       },

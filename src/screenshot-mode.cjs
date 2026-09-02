@@ -25,6 +25,10 @@ function screenshotRequest(env = process.env) {
     fixture: env.WIDGET_SCREENSHOT_FIXTURE || "",
     files: env.WIDGET_SCREENSHOT_FILES || "",
     backdrop: env.WIDGET_SCREENSHOT_BACKDROP || "",
+    // A capture freezes every animation and transition so pixels are deterministic. A case
+    // about motion itself - a strip easing open while the log stays anchored - asks for
+    // them left on and measures the frames instead of the pixels.
+    motion: Boolean(env.WIDGET_SCREENSHOT_MOTION),
   };
 }
 

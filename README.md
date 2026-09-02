@@ -10,14 +10,14 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.6.18-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.6.18-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.7.0-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.7.0-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
 Agent Deck keeps [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) close without keeping the full web interface open. It shows live sessions and subagents, provides a real mini-chat, tracks context pressure, switches models and reasoning effort, runs native Harness commands, changes workspaces, accepts file drops, renders safe Markdown, and keeps tool calls compact.
 
-The NeoXider avatar reacts to agent state: breathing while idle, typing while working, floating while waiting, shaking on errors and celebrating completion. A subtle inner chat glow independently distinguishes model thinking, answer generation, and tool execution; idle chat has no glow. Short spring transitions make buttons, Send, view changes, avatar collapse, and edge docking feel responsive without ignoring Windows reduced-motion preferences.
+The NeoXider avatar reacts to agent state: breathing while idle, typing while working, floating while waiting, shaking on errors and celebrating completion. A subtle inner chat glow independently distinguishes model thinking, answer generation, and tool execution; idle chat has no glow. Short spring transitions make buttons, Send, view changes, avatar collapse, and edge docking feel responsive without ignoring Windows reduced-motion preferences — and everything that moves, from the slow aurora behind the widget to the strips easing around the log, is one switch away from still.
 
 ## Preview
 
@@ -98,6 +98,22 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
     <td align="center"><strong>Compact tool groups, opened on demand</strong></td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/screenshots/bubble-actions.png" alt="Copy and reuse glyphs beside a question and an answer" /></td>
+    <td width="50%"><img src="docs/screenshots/live-markdown.png" alt="A streaming answer already formatted as Markdown, caret inside the last line" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Copy any message, reuse your own</strong></td>
+    <td align="center"><strong>Formatted while it streams</strong></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/history-loading.png" alt="Placeholder bubbles while a chosen session loads its history" /></td>
+    <td width="50%"><img src="docs/screenshots/toast.png" alt="A one-line toast confirming a copied message" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Loading, not empty</strong></td>
+    <td align="center"><strong>One line of feedback, then gone</strong></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/screenshots/focus-chat.png" alt="Chat-only focus mode" /></td>
     <td width="50%"><img src="docs/screenshots/notification-orb.png" alt="Animated compact reply notification" /></td>
   </tr>
@@ -160,7 +176,12 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Harness session groups** — Agents and Chat use exact Harness `Workspaces` membership plus `Ungrouped`, keep each folder collapsible in one line, and offer a compact action for starting a session inside that group or outside every workspace.
 - **Safe, colorful Markdown** — headings, emphasis, links, quotes, tables, inline code and fenced code use a restrained dark palette, with Highlight.js syntax colors for supported languages; executable HTML and unsafe link protocols are blocked.
 - **Collapsed tool runs** — consecutive native `tool/call`, `tool/result`, and nested Code Mode dispatches become one expandable group; each child still exposes input, result, timing, and error state.
-- **Live answer bubble** — streamed assistant text grows inside the real chat bubble as it arrives; the activity card remains reserved for reasoning and tool state instead of mislabeling an answer as thinking.
+- **Live answer bubble** — streamed assistant text grows inside the real chat bubble as it arrives, formatted as Markdown while it streams through the same sanitizer as history, so the finished message never reflows; the activity card remains reserved for reasoning and tool state instead of mislabeling an answer as thinking.
+- **A log that never rebuilds** — the transcript is reconciled by key: a poll, a tool result or a new message patches only what changed, the bubble that streamed an answer becomes the message it turns into, and a text selection survives the turn.
+- **Nothing pops** — the activity card, plan, queue, attachments, command palette, error and goal strips ease open and shut, tool cards open like drawers, and a log that was following the conversation keeps following it on every frame of the move, including through a window resize.
+- **Copy and reuse** — hover or focus any message for a **Copy** glyph beside it, and on your own messages a **Reuse** glyph that puts the text back in the composer; a one-line toast confirms it, as it does a goal paused or a queued message sent now.
+- **A composer that remembers** — unsent text follows its session through the picker, and from an empty composer the arrow keys walk back through what was sent, like a shell.
+- **Loading, not empty** — a freshly chosen session shows placeholder bubbles until its history arrives instead of claiming for a moment that it is empty.
 - **Optional live activity** — thinking, tool and working status share one compact overlay that floats above the conversation on its own opaque layer, never shifts the reading viewport, and can be hidden persistently with **Show live activity**. Outcomes — a finished or failed turn — are still announced.
 - **Authoritative Harness queue** — messages sent during a running turn appear as compact one-line queued items from Harness itself, with Edit, Delete and Send now actions. Attachments queue too: an image-only message reads as `1 attachment` and refuses in-place text editing, and a file is previewed by name while its full path is preserved for editing.
 - **Respectful scrolling** — reading older messages is never interrupted by forced auto-scroll; a compact jump-to-latest control remains available whenever the chat is away from the bottom, even before another message arrives.
@@ -169,6 +190,7 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Instant screenshots** — capture a selected region or the current display from the header or a global shortcut, inspect the PNG preview above the composer, then decide whether to send it.
 - **Rebindable global shortcuts** — show/collapse the deck, create a session, capture a region or display, focus chat, and open Harness; every binding can be disabled, changed, reset, and survives restart.
 - **Live chat aura** — brighter-by-default, distinct inner glows indicate thinking, writing, and tool execution. No activity means no glow, and glow intensity is adjustable in settings.
+- **Motion with a switch** — a slow aurora drifts behind the widget and brightens while the agent works, the active tab slides, the plane leaves the Send button with the message, the context ring beats when critical, a working session card carries a sweep of light, and new messages slide in. **Settings → Motion effects** takes all of it off at once.
 - **Focus Chat** — one compact composer button hides all chrome and setup surfaces, leaving only messages, optional attachment previews, the input, context and actions; tap it again to restore everything.
 - **Three window states** — full deck, notification avatar, or an iridescent edge handle.
 - **Draggable compact modes** — drag the avatar by its circle, or the edge handle by its line, with native cursor tracking; release magnetizes it to the nearest screen edge, decided by where the visible element was dropped rather than by the transparent window around it. Both can be parked flush against the top or bottom of the screen.
@@ -280,7 +302,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.6.18-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.7.0-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
@@ -300,7 +322,7 @@ Screen capture, configurable global hotkeys, and the three-session pet switcher 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.6.18,
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.7.0,
 mirrors Harness Workspaces and Ungrouped sessions across both main views, keeps folder creation
 compact, restores complete long-session history and the always-available jump to the latest
 message, adds the optional non-shifting Think overlay and clipboard attachment previews,

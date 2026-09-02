@@ -74,6 +74,14 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
 
+## Shipped in 0.7.0
+
+- Reconciled the transcript by key so a poll, a tool result or a new message patches only what changed, with the streaming bubble adopted by the message it becomes; covered by contract regressions and the chat, live-stream and writing visual cases.
+- Formatted the streaming answer through the shared Markdown sanitizer over a new `render-markdown` channel, with the caret inside the last line; covered by IPC, contract and the `live-markdown` visual case.
+- Eased every strip around the log open and shut while a ResizeObserver keeps a following log anchored, and opened tool cards, the activity card and the goal panel as drawers; covered by contract regressions and platform-feature probes in the visual suite.
+- Added copy and reuse actions on messages with toast feedback, per-session composer drafts, arrow-key recall of sent messages, and a loading skeleton for a freshly chosen session; covered by contract regressions and the `bubble-actions`, `toast`, `composer-recall` and `history-loading` visual cases.
+- Added the aurora, sliding tab plate, send launch, context-ring gradient and alarm, session-card sweep and settings stagger, all under the existing `Motion effects` switch; covered by a contract regression.
+
 ## Shipped in 0.6.18
 
 - Moved pause/resume onto the goal strip as a bare glyph, stripped the frames off the panel's controls, thickened the rounds rail and tightened the container, queue rows and tool headers; covered by contract regressions and the goal, queue and tool visual cases.

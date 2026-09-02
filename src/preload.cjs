@@ -3,6 +3,9 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld("widget", {
   dashboard: () => ipcRenderer.invoke("dashboard"),
   history: (sessionId) => ipcRenderer.invoke("history", sessionId),
+  // The streaming answer is formatted through the same sanitizer as history, so the bubble
+  // that grows during a turn is the bubble the finished message lands in.
+  renderMarkdown: (text) => ipcRenderer.invoke("render-markdown", String(text ?? "")),
   models: (sessionId) => ipcRenderer.invoke("models", sessionId),
   commands: (sessionId) => ipcRenderer.invoke("commands", sessionId),
   executeCommand: (payload) => ipcRenderer.invoke("execute-command", payload),

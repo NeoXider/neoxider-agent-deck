@@ -491,7 +491,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
 }
 
 function createWindow() {
-  const { path: screenshotPath, width: requestedWidth, height: requestedHeight, tab: screenshotTab, fixture: screenshotFixture, files: screenshotFiles, backdrop: screenshotBackdrop } = screenshotRequest();
+  const { path: screenshotPath, width: requestedWidth, height: requestedHeight, tab: screenshotTab, fixture: screenshotFixture, files: screenshotFiles, backdrop: screenshotBackdrop, motion: screenshotMotion } = screenshotRequest();
   const [presetWidth, presetHeight] = SIZE_PRESETS[preferences.size] || SIZE_PRESETS.standard;
   const width = Number.isFinite(requestedWidth) && requestedWidth >= 280 ? requestedWidth : presetWidth;
   const height = Number.isFinite(requestedHeight) && requestedHeight >= 280 ? requestedHeight : presetHeight;
@@ -559,7 +559,7 @@ function createWindow() {
       ...(screenshotFixture ? { screenshotFixture } : {}),
       ...(screenshotFiles ? { screenshotFiles } : {}),
       ...(screenshotBackdrop ? { screenshotBackdrop } : {}),
-      ...(screenshotPath ? { screenshotStatic: "1" } : {}),
+      ...(screenshotPath && !screenshotMotion ? { screenshotStatic: "1" } : {}),
     },
   });
   windowRef.once("ready-to-show", () => {

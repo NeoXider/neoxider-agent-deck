@@ -5,6 +5,26 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-09-02
+
+### Fixed
+
+- **The log is no longer rebuilt on every change.** Each poll while a tool ran, each result that landed, each message that arrived threw the whole transcript away and built it again. Every bubble was a new node: entry animations replayed on bubbles that had been there for minutes, images reloaded, an open tool card had to be re-found by key, and a text selection had to be captured and re-resolved by character offset. The transcript is keyed now — a block whose content did not change keeps the very node it had, and only what is new or different is built, patched into place around everything else. Nothing that did not change moves.
+
+- **The finished answer no longer reflows.** The bubble that streamed the answer was plain text, and the finished message came back from history as Markdown, so every turn ended with a minute's worth of reading being re-set into headings, lists and code — and for one frame drawn twice, as the stream and the message it had become. The answer is formatted *while it streams*, through the same sanitizer that renders history, one request in flight at a time and only the newest text allowed to land; the caret sits inside the last line rather than under it. When the message lands, the bubble that streamed it simply becomes it.
+
+- **The strips around the log no longer pop.** The activity card above the conversation and the plan, queue, attachments, command palette, error and goal strips below it appeared and vanished in one frame, and the log jumped by their height each time. Each one now eases its height open and shut, and a log that was following the conversation keeps following it on every frame of the move — re-anchored after layout and before paint, so there is no frame in which the last line is cut off. The same anchor holds through a window resize and the size presets.
+
+- **Choosing a session no longer claims it is empty.** Between the pick and the history arriving, the log said "Write a message to start this session" — a wrong claim for a moment, then a jump when the real messages landed. It shows three quiet placeholder bubbles now, and the empty state only once Harness has actually said so.
+
+### Added
+
+- **Copy and reuse on every message.** Hover or focus a bubble and a column of glyphs appears beside it, in the room its width limit leaves, never over the text: **Copy** on every message, and on your own also **Reuse**, which puts the message back in the composer to be sent again or changed. A one-line toast over the foot of the log confirms it — the same toast now answers a goal paused, resumed or cleared and a queued message sent now, edited or removed.
+
+- **The composer remembers.** Half-written text follows its session: switch away and back through the picker and it is where you left it. From an empty composer the **arrow keys** walk back through what was sent in that session, the way a shell recalls its history — only from an empty composer, so a message being written keeps its arrows, and only from the first or last line of a recalled message, so a multi-line recall can still be edited with the keyboard.
+
+- **More of the interface answers you, and the switch still takes all of it off.** A slow aurora in the widget's own colours drifts behind everything, follows the glow slider and brightens a little while the agent works; the active tab is one plate that slides rather than two that swap; the plane leaves the Send button with the message; the context ring is drawn in both accent colours and beats when it turns critical; a working session card carries a slow sweep of light and every card lifts under the pointer; a new message slides into the log; tool cards, the activity card and the goal panel open like drawers rather than snapping; settings rows arrive one after another. All of it is animation or transition, and **Settings → Motion effects** turns both off wholesale — the widget stays the same, simply still.
+
 ## [0.6.18] - 2026-08-31
 
 ### Changed

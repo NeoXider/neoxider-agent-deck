@@ -111,6 +111,19 @@ const state = {
   liveTodosBySession: new Map(),
   turnGenerationsBySession: new Map(),
   currentMessages: [],
+  // The transcript is keyed: a block whose content did not change keeps its node across
+  // renders, so a poll landing mid-turn moves nothing that is not actually new.
+  transcriptCache: new Map(),
+  transcriptCacheSessionId: undefined,
+  // Set when a session is chosen and cleared when its history first arrives, so the log can
+  // show a loading skeleton instead of claiming the session is empty.
+  historyPendingSessionId: null,
+  // Unsent text is kept per session, and everything sent can be recalled with the arrow
+  // keys from an empty composer, the way a shell recalls its history.
+  composerDraftsBySession: new Map(),
+  composerHistoryBySession: new Map(),
+  composerHistoryIndex: null,
+  composerHistoryDraft: "",
   messagesStickToBottom: true,
   unseenMessages: 0,
   scrollLatestSignature: "",
@@ -2045,6 +2058,9 @@ async function updateQueuedPrompt(item, action) {
       state.queueEditingId = null;
       state.queueEditingSessionId = null;
     }
+    if (sessionId === state.selectedSessionId) {
+      showToast(action.kind === "steer" ? "Sent now" : action.kind === "remove" ? "Queued message removed" : "Queued message updated", action.kind === "steer" ? "send" : action.kind === "remove" ? "trash" : "check");
+    }
     if (queueSnapshotRevision(sessionId) !== expectedSnapshotRevision || queueHandoffEpoch(sessionId) !== expectedHandoffEpoch) return;
     const items = queuedPromptsFor(sessionId);
     if (["remove", "steer"].includes(action.kind)) {
@@ -2386,6 +2402,7 @@ async function runGoalCommand(line) {
   try {
     await executeHarnessCommand(line, sessionId);
     state.goalEditing = false;
+    showToast(GOAL_TOASTS.find(([prefix]) => line.startsWith(prefix))?.[1] || "Goal updated", "goal");
     await refresh({ afterCurrent: true });
   } catch (error) {
     showComposerError(error, "Goal not updated");
@@ -2640,6 +2657,11 @@ async function selectSession(sessionId, openChat = false) {
   if (previousSessionId !== state.selectedSessionId) {
     invalidateSelectedHistoryVersion();
     clearComposerError();
+    // Half-written text follows its session, not the picker: whatever was in the composer
+    // is put away under the session it was meant for and comes back with it.
+    stashComposerDraft(previousSessionId);
+    restoreComposerDraft(state.selectedSessionId);
+    state.historyPendingSessionId = state.selectedSessionId;
   }
   const selectedGroup = groupedSessions(state.selectedSessionId).find((group) => group.sessions.some((session) => session.sessionId === state.selectedSessionId));
   if (selectedGroup && state.collapsedSessionGroupKeys.delete(selectedGroup.key)) {
@@ -2725,12 +2747,9 @@ function createToolCard(message) {
   return details;
 }
 
-function appendActivityRun(root, run) {
+function createActivityRun(run) {
   const toolCount = run.length;
-  if (toolCount === 1) {
-    root.append(createToolCard(run[0]));
-    return;
-  }
+  if (toolCount === 1) return createToolCard(run[0]);
   const failedCount = run.filter((message) => message.isError).length;
   const allFailed = failedCount === toolCount;
   const partialFailure = failedCount > 0 && !allFailed;
@@ -2760,7 +2779,7 @@ function appendActivityRun(root, run) {
   body.className = "tool-group-body";
   for (const message of run) body.append(createToolCard(message));
   group.append(summary, body);
-  root.append(group);
+  return group;
 }
 
 function messagesNearBottom(root = $("#messages")) {
@@ -2813,6 +2832,11 @@ function messageTextPoint(root, requestedOffset) {
 
 function restoreMessageSelection(root, snapshot) {
   if (!snapshot) return;
+  // Blocks that did not change keep their nodes, so a selection inside them is usually
+  // still intact; re-resolving it by character offset is only for the case where the
+  // selected text itself was rebuilt.
+  const live = window.getSelection();
+  if (live?.rangeCount && !live.isCollapsed && root.contains(live.anchorNode) && root.contains(live.focusNode)) return;
   const anchor = messageTextPoint(root, snapshot.anchor);
   const focus = messageTextPoint(root, snapshot.focus);
   if (!anchor || !focus) return;
@@ -2839,7 +2863,11 @@ function openToolKeys(root) {
 function restoreOpenToolKeys(root, keys) {
   if (!keys.size) return;
   root.querySelectorAll("details.tool-group, details.tool-call").forEach((details) => {
-    if (keys.has(details.dataset.toolKey)) details.open = true;
+    if (!keys.has(details.dataset.toolKey) || details.open) return;
+    // Reopened, not opened: a card rebuilt with its result must not replay the reveal.
+    details.dataset.restored = "1";
+    details.open = true;
+    requestAnimationFrame(() => { delete details.dataset.restored; });
   });
 }
 
@@ -3027,48 +3055,397 @@ function animateScrollLatestCompletion(sessionId) {
   return true;
 }
 
-function appendLiveAssistant(root) {
-  const stream = liveAssistantSnapshot();
-  if (!stream?.text) return;
-  const bubble = document.createElement("div");
-  bubble.className = "bubble assistant plain live-assistant";
-  bubble.dataset.liveSeq = String(stream.lastSeq || "");
-  bubble.textContent = stream.text;
-  root.append(bubble);
+// ---------------------------------------------------------------------------
+// The transcript is reconciled, not rebuilt.
+//
+// The log used to be thrown away and rebuilt on every change - each poll while a tool ran,
+// each result that landed. Every bubble was a new node, so entry animations replayed on
+// bubbles that had been there for minutes, images reloaded, an open card had to be re-found
+// by key, and a text selection had to be captured and re-resolved by character offset. Now
+// every block carries a key and a signature: a block whose signature did not change keeps
+// the very node it had, and only the blocks that are new or different are built. The
+// children are patched in place, so nothing that did not change moves.
+// ---------------------------------------------------------------------------
+function transcriptCache() {
+  if (state.transcriptCacheSessionId !== state.selectedSessionId) {
+    state.transcriptCache = new Map();
+    state.transcriptCacheSessionId = state.selectedSessionId;
+  }
+  return state.transcriptCache;
 }
 
-function appendSteeringPrompts(root) {
-  for (const item of steeringPromptsFor()) {
-    const bubble = document.createElement("div");
-    bubble.className = "bubble user steering-message";
-    bubble.dataset.steeringId = item.id || "";
-    const text = document.createElement("span");
-    text.textContent = item.preview || item.text || "Queued message";
-    const status = document.createElement("small");
-    status.textContent = "sending now";
-    bubble.append(text, status);
-    root.append(bubble);
+function messageSignature(message) {
+  return JSON.stringify([
+    message.role,
+    message.command || "",
+    message.seq || "",
+    message.callId || "",
+    message.status || "",
+    Boolean(message.isError),
+    message.text || "",
+    message.arguments || "",
+    message.result || "",
+    (message.attachments || []).map((attachment) => [attachment.kind, attachment.previewKind, attachment.mediaType, attachment.name, attachment.data?.length || 0]),
+  ]);
+}
+
+function messageBlockKey(message, index) {
+  return `${message.role}:${message.seq || message.callId || `i${index}`}`;
+}
+
+// Only what differs is touched: an unchanged node is left exactly where it is, a new one is
+// inserted before whatever currently holds its place, and leftovers at the end are dropped.
+function reconcileChildren(root, nodes) {
+  let index = 0;
+  for (const node of nodes) {
+    const current = root.childNodes[index];
+    if (current !== node) root.insertBefore(node, current || null);
+    index += 1;
   }
+  while (root.childNodes.length > nodes.length) root.lastChild.remove();
+}
+
+// A block that arrives while the log is already on screen slides in; the first load of a
+// session does not animate a hundred bubbles at once.
+function markTranscriptEntry(node) {
+  node.classList.add("enter");
+  const settle = (event) => {
+    if (event.target !== node) return;
+    node.classList.remove("enter");
+    node.removeEventListener("animationend", settle);
+  };
+  node.addEventListener("animationend", settle);
+}
+
+function transcriptEmptyState() {
+  const node = document.createElement("div");
+  node.className = "empty-state";
+  node.textContent = state.selectedSessionId ? "Write a message to start this session." : "Write a message — the widget will create a session.";
+  return node;
+}
+
+// Between choosing a session and its history arriving, the log used to say "Write a message
+// to start this session" - wrong for a moment, then a jump when the real messages landed.
+// Three quiet placeholder bubbles say "loading" without claiming anything else.
+function transcriptSkeleton() {
+  const node = document.createElement("div");
+  node.className = "transcript-skeleton";
+  node.setAttribute("aria-hidden", "true");
+  for (const width of [74, 52, 86]) {
+    const row = document.createElement("div");
+    row.className = "skeleton-bubble";
+    row.style.width = `${width}%`;
+    node.append(row);
+  }
+  return node;
+}
+
+function transcriptAwaitingHistory() {
+  return Boolean(state.selectedSessionId) && state.historyPendingSessionId === state.selectedSessionId;
+}
+
+function createMessageBubble(message, bubble = document.createElement("div")) {
+  bubble.className = `bubble ${message.role}`;
+  delete bubble.dataset.formatted;
+  delete bubble.dataset.liveSeq;
+  liveBubbleText.delete(bubble);
+  bubble.replaceChildren();
+  if (message.html) bubble.innerHTML = message.html;
+  else if (message.text) {
+    bubble.classList.add("plain");
+    bubble.textContent = message.text;
+  }
+  const attachmentStrip = message.role === "user" ? createMessageAttachmentStrip(message.attachments) : null;
+  if (attachmentStrip) {
+    bubble.classList.add("has-attachments");
+    if (!message.text) bubble.classList.add("attachment-only");
+    bubble.append(attachmentStrip);
+  }
+  if (["user", "assistant"].includes(message.role) && message.text) bubble.append(createBubbleActions(message));
+  return bubble;
+}
+
+function createSteeringBubble(item) {
+  const bubble = document.createElement("div");
+  bubble.className = "bubble user steering-message";
+  bubble.dataset.steeringId = item.id || "";
+  const text = document.createElement("span");
+  text.textContent = item.preview || item.text || "Queued message";
+  const status = document.createElement("small");
+  status.textContent = "sending now";
+  bubble.append(text, status);
+  return bubble;
+}
+
+// Every message can be copied, and your own can be put back in the composer to be sent
+// again or changed. The actions ride beside the bubble on hover or focus, outside its
+// text, so they never cover what they act on.
+function createBubbleActions(message) {
+  const actions = document.createElement("span");
+  actions.className = "bubble-actions";
+  actions.append(bubbleActionButton("copy", "Copy message", (button) => copyMessageText(message.text, button)));
+  if (message.role === "user") actions.append(bubbleActionButton("reuse", "Put this message back in the composer", () => reuseMessageText(message.text)));
+  return actions;
+}
+
+function bubbleActionButton(icon, title, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `bubble-action ${icon}`;
+  button.title = title;
+  button.setAttribute("aria-label", title);
+  button.append(createIcon(icon));
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onClick(button);
+  });
+  return button;
+}
+
+async function copyMessageText(text, button) {
+  try {
+    await navigator.clipboard.writeText(String(text || ""));
+  } catch {
+    showToast("Could not copy", "alert", { kind: "error" });
+    return false;
+  }
+  if (button) {
+    button.classList.remove("copied");
+    void button.offsetWidth;
+    button.classList.add("copied");
+    setTimeout(() => button.classList.remove("copied"), 1200);
+  }
+  showToast("Copied to clipboard", "check");
+  return true;
+}
+
+function reuseMessageText(text) {
+  const input = $("#messageInput");
+  const current = input.value.replace(/\s+$/, "");
+  input.value = current ? `${current}\n${text}` : String(text || "");
+  resetComposerRecall();
+  resizeMessageInput({ immediate: true });
+  renderCommandHint();
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+  showToast("Back in the composer", "edit");
+}
+
+// One line of feedback for an action that would otherwise finish silently - copied, sent
+// now, goal paused. It floats over the foot of the log for a moment and leaves.
+const TOAST_MS = 1700;
+function showToast(text, icon = "check", { kind = "", duration = TOAST_MS } = {}) {
+  const stack = $("#toastStack");
+  if (!stack) return null;
+  const toast = document.createElement("div");
+  toast.className = `toast${kind ? ` ${kind}` : ""}`;
+  toast.append(createIcon(icon), Object.assign(document.createElement("span"), { textContent: text }));
+  while (stack.childElementCount >= 2) stack.firstElementChild.remove();
+  stack.append(toast);
+  setTimeout(() => {
+    toast.classList.add("leaving");
+    // With motion off there is no animation to end, so the fallback timer does the removing.
+    toast.addEventListener("animationend", () => toast.remove(), { once: true });
+    setTimeout(() => toast.remove(), 320);
+  }, duration);
+  return toast;
+}
+const GOAL_TOASTS = [["/goal pause", "Goal paused"], ["/goal resume", "Goal resumed"], ["/goal clear", "Goal cleared"], ["/goal edit", "Goal updated"]];
+
+// The composer remembers. Unsent text follows its session through the picker, and from an
+// empty composer the arrow keys walk back through what was sent, the way a shell does.
+const COMPOSER_HISTORY_LIMIT = 50;
+function composerSessionKey(sessionId = state.selectedSessionId) {
+  return sessionId || "new";
+}
+
+function resetComposerRecall() {
+  state.composerHistoryIndex = null;
+  state.composerHistoryDraft = "";
+}
+
+function stashComposerDraft(sessionId) {
+  const input = $("#messageInput");
+  if (!input) return;
+  const key = composerSessionKey(sessionId);
+  if (input.value.trim()) state.composerDraftsBySession.set(key, input.value);
+  else state.composerDraftsBySession.delete(key);
+}
+
+function restoreComposerDraft(sessionId) {
+  const input = $("#messageInput");
+  if (!input) return;
+  input.value = state.composerDraftsBySession.get(composerSessionKey(sessionId)) || "";
+  resetComposerRecall();
+  resizeMessageInput({ immediate: true });
+  renderCommandHint();
+}
+
+function rememberSentMessage(sessionId, text) {
+  const key = composerSessionKey(sessionId);
+  const history = (state.composerHistoryBySession.get(key) || []).filter((entry) => entry !== text);
+  history.push(text);
+  state.composerHistoryBySession.set(key, history.slice(-COMPOSER_HISTORY_LIMIT));
+  state.composerDraftsBySession.delete(key);
+  resetComposerRecall();
+}
+
+function recallComposerHistory(step) {
+  const input = $("#messageInput");
+  const history = state.composerHistoryBySession.get(composerSessionKey()) || [];
+  if (!history.length) return false;
+  const recalling = state.composerHistoryIndex !== null;
+  // Only an empty composer answers the arrows; a message being written keeps them for the
+  // caret. Once a recalled message is showing, the arrows keep walking - but only from its
+  // first or last line, so a multi-line recall can still be edited with the keyboard.
+  if (!recalling && (input.value !== "" || step > 0)) return false;
+  if (recalling && step < 0 && input.value.slice(0, input.selectionStart).includes("\n")) return false;
+  if (recalling && step > 0 && input.value.slice(input.selectionEnd).includes("\n")) return false;
+  if (!recalling) {
+    state.composerHistoryDraft = input.value;
+    state.composerHistoryIndex = history.length;
+  }
+  const next = state.composerHistoryIndex + step;
+  if (next < 0) return true;
+  if (next >= history.length) {
+    input.value = state.composerHistoryDraft;
+    resetComposerRecall();
+  } else {
+    input.value = history[next];
+    state.composerHistoryIndex = next;
+  }
+  resizeMessageInput({ immediate: true });
+  input.setSelectionRange(input.value.length, input.value.length);
+  renderCommandHint();
+  return true;
+}
+
+// The live bubble. Its text is kept off the DOM so a compare never reads a formatted
+// tree back as a string.
+const liveBubbleText = new WeakMap();
+const LIVE_MARKDOWN_MAX_CHARS = 60000;
+let liveMarkdownInFlight = false;
+let liveMarkdownPending = null;
+
+function createLiveBubble() {
+  const bubble = document.createElement("div");
+  bubble.className = "bubble assistant plain live-assistant";
+  return bubble;
+}
+
+function liveCaret() {
+  const caret = document.createElement("span");
+  caret.className = "live-caret";
+  caret.setAttribute("aria-hidden", "true");
+  return caret;
+}
+
+// The caret belongs at the end of the text - inside the last paragraph or list item. After
+// a code block or a table it sits on its own line below.
+function liveCaretHost(bubble) {
+  let host = bubble;
+  for (;;) {
+    const last = host.lastElementChild;
+    if (!last || !["P", "LI", "UL", "OL", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6"].includes(last.tagName)) return host;
+    host = last;
+  }
+}
+
+// The answer is formatted while it streams. Plain text was fine to read, but the finished
+// message came back from history as Markdown, so every turn ended with the bubble it had
+// been growing for a minute being reflowed into headings, lists and code. The first chunk
+// is painted as text at once so nothing waits on IPC; from then on each change goes through
+// the same sanitizer that renders history, one request in flight at a time, and only the
+// newest text is allowed to land.
+function paintLiveText(bubble, text) {
+  if (liveBubbleText.get(bubble) === text) return false;
+  liveBubbleText.set(bubble, text);
+  if (!bubble.dataset.formatted) {
+    bubble.classList.add("plain");
+    bubble.textContent = text;
+    bubble.append(liveCaret());
+  }
+  scheduleLiveMarkdown(bubble, text);
+  return true;
+}
+
+function scheduleLiveMarkdown(bubble, text) {
+  if (typeof window.widget?.renderMarkdown !== "function" || text.length > LIVE_MARKDOWN_MAX_CHARS) return;
+  liveMarkdownPending = { bubble, text };
+  if (liveMarkdownInFlight) return;
+  liveMarkdownInFlight = true;
+  (async () => {
+    while (liveMarkdownPending) {
+      const job = liveMarkdownPending;
+      liveMarkdownPending = null;
+      let html = null;
+      try {
+        html = await window.widget.renderMarkdown(job.text);
+      } catch {
+        html = null;
+      }
+      if (typeof html === "string" && job.bubble.isConnected && liveBubbleText.get(job.bubble) === job.text) applyLiveMarkdown(job.bubble, html);
+    }
+    liveMarkdownInFlight = false;
+  })();
+}
+
+function applyLiveMarkdown(bubble, html) {
+  bubble.classList.remove("plain");
+  bubble.dataset.formatted = "1";
+  bubble.innerHTML = html;
+  liveCaretHost(bubble).append(liveCaret());
+}
+
+// The finished answer and the bubble that streamed it are the same text. The stream lives
+// on for a moment after the turn, and drawing it beside the message it became put the last
+// answer on screen twice.
+function liveDuplicatesFinalAnswer(text) {
+  const last = state.currentMessages[state.currentMessages.length - 1];
+  return Boolean(text) && last?.role === "assistant" && (last.text || "").trim() === text.trim();
+}
+
+function syncLiveBubbleContent(root) {
+  const cache = transcriptCache();
+  const stream = liveAssistantSnapshot();
+  const text = stream?.text && !liveDuplicatesFinalAnswer(stream.text) ? stream.text : "";
+  let bubble = root.querySelector(".live-assistant");
+  if (!text) {
+    if (!bubble) return false;
+    bubble.remove();
+    cache.delete("live");
+    if (!root.childElementCount) {
+      const placeholder = transcriptAwaitingHistory() ? transcriptSkeleton() : transcriptEmptyState();
+      const key = placeholder.classList.contains("empty-state") ? "empty" : "skeleton";
+      cache.set(key, { signature: key, node: placeholder });
+      root.append(placeholder);
+    }
+    return true;
+  }
+  let changed = false;
+  if (!bubble) {
+    const placeholder = root.querySelector(".empty-state, .transcript-skeleton");
+    if (placeholder) {
+      placeholder.remove();
+      cache.delete("empty");
+      cache.delete("skeleton");
+    }
+    bubble = createLiveBubble();
+    if (cache.size > 0) markTranscriptEntry(bubble);
+    root.append(bubble);
+    cache.set("live", { signature: "live", node: bubble });
+    changed = true;
+  }
+  bubble.dataset.liveSeq = String(stream.lastSeq || "");
+  return paintLiveText(bubble, text) || changed;
 }
 
 function paintLiveAssistant() {
   const root = $("#messages");
   const previousTop = root.scrollTop;
   const wasPinned = state.messagesStickToBottom;
-  const liveAssistant = liveAssistantSnapshot();
-  const liveBubble = root.querySelector(".live-assistant");
-  const liveText = liveAssistant?.text || "";
-  const liveChanged = Boolean(liveBubble) !== Boolean(liveText) || (liveBubble?.textContent || "") !== liveText;
-  if (liveText && liveBubble) {
-    liveBubble.dataset.liveSeq = String(liveAssistant.lastSeq || "");
-    if (liveBubble.textContent !== liveText) liveBubble.textContent = liveText;
-  } else if (liveText) {
-    root.querySelector(".empty-state")?.remove();
-    appendLiveAssistant(root);
-  } else if (liveBubble) {
-    liveBubble.remove();
-    if (!state.currentMessages.length && !steeringPromptsFor().length) root.innerHTML = `<div class="empty-state">${state.selectedSessionId ? "Write a message to start this session." : "Write a message — the widget will create a session."}</div>`;
-  }
+  const liveChanged = syncLiveBubbleContent(root);
   // A mark the caller just clicked outranks the offset captured before this repaint. The
   // live stream repaints on every poll, and writing scrollTop back also cancels a smooth
   // scroll mid-flight - which is precisely the mark press that "did nothing" while the
@@ -3304,18 +3681,8 @@ function renderMessages(messages) {
   state.currentMessages = boundedMessagePreviews(messages);
   const liveAssistant = liveAssistantSnapshot();
   const steering = steeringPromptsFor();
-  const signature = `${state.selectedSessionId || "new"}::${state.currentMessages.map((message) => JSON.stringify([
-    message.role,
-    message.command || "",
-    message.seq || "",
-    message.callId || "",
-    message.status || "",
-    Boolean(message.isError),
-    message.text || "",
-    message.arguments || "",
-    message.result || "",
-    (message.attachments || []).map((attachment) => [attachment.kind, attachment.previewKind, attachment.mediaType, attachment.name, attachment.data?.length || 0]),
-  ])).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}`;
+  const awaitingHistory = transcriptAwaitingHistory();
+  const signature = `${state.selectedSessionId || "new"}::${awaitingHistory ? "loading" : "loaded"}::${state.currentMessages.map(messageSignature).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}`;
   const previousSignature = state.historySignature;
   const changed = Boolean(previousSignature && signature !== previousSignature);
   const unchanged = root.dataset.rendered === "true" && signature === previousSignature;
@@ -3323,55 +3690,80 @@ function renderMessages(messages) {
   if (unchanged) return paintLiveAssistant();
   const expandedTools = openToolKeys(root);
   const selection = captureMessageSelection(root);
-  root.replaceChildren();
+  const cache = transcriptCache();
+  const settled = cache.size > 0;
+  const liveBubble = root.querySelector(".live-assistant");
+  const liveText = liveBubble ? (liveBubbleText.get(liveBubble) || "").trim() : "";
   root.dataset.rendered = "true";
+  const blocks = [];
   if (!state.currentMessages.length && !liveAssistant?.text && !steering.length) {
-    root.innerHTML = `<div class="empty-state">${state.selectedSessionId ? "Write a message to start this session." : "Write a message — the widget will create a session."}</div>`;
-    syncActivityCard();
-    updateScrollLatestButton();
-    return true;
+    blocks.push(awaitingHistory
+      ? { key: "skeleton", signature: "skeleton", build: transcriptSkeleton }
+      : { key: "empty", signature: `empty:${Boolean(state.selectedSessionId)}`, build: transcriptEmptyState });
+  } else {
+    let modelSetupShown = false;
+    for (let index = 0; index < state.currentMessages.length;) {
+      const message = state.currentMessages[index];
+      if (message.role === "reasoning") {
+        index += 1;
+        continue;
+      }
+      if (message.role === "tool") {
+        const run = [];
+        const start = index;
+        while (index < state.currentMessages.length && state.currentMessages[index].role === "tool") run.push(state.currentMessages[index++]);
+        blocks.push({
+          key: `tools:${run.map((entry) => entry.callId || entry.seq || entry.name || "tool").join("|") || start}`,
+          signature: run.map(messageSignature).join("|"),
+          build: () => createActivityRun(run),
+        });
+        continue;
+      }
+      if (["assistant", "error"].includes(message.role) && isMissingModelError(message.text)) {
+        if (!modelSetupShown) blocks.push({ key: "model-setup", signature: "model-setup", build: createModelSetupCard });
+        modelSetupShown = true;
+        index += 1;
+        continue;
+      }
+      const commandName = message.role === "command" ? commandResultName(state.currentMessages, index) : "";
+      const structuredCommand = commandName === "goal" ? createGoalResultCard(message.text) : null;
+      if (structuredCommand) {
+        blocks.push({ key: `goal:${message.seq || index}`, signature: messageSignature(message), build: () => structuredCommand });
+        index += 1;
+        continue;
+      }
+      blocks.push({ key: messageBlockKey(message, index), signature: messageSignature(message), message, build: () => createMessageBubble(message) });
+      index += 1;
+    }
+    for (const item of steering) {
+      blocks.push({ key: `steer:${item.id || item.preview || ""}`, signature: JSON.stringify([item.id, item.preview, item.text]), build: () => createSteeringBubble(item) });
+    }
+    if (liveAssistant?.text && !liveDuplicatesFinalAnswer(liveAssistant.text)) blocks.push({ key: "live", signature: "live", build: createLiveBubble });
   }
-  let modelSetupShown = false;
-  for (let index = 0; index < state.currentMessages.length;) {
-    const message = state.currentMessages[index];
-    if (message.role === "reasoning") {
-      index += 1;
-      continue;
+  const nodes = [];
+  const next = new Map();
+  for (const block of blocks) {
+    let key = block.key;
+    while (next.has(key)) key += "+";
+    const cached = cache.get(key);
+    let node;
+    if (cached && cached.signature === block.signature) {
+      node = cached.node;
+    } else if (!cached && liveBubble && liveText && block.message?.role === "assistant" && (block.message.text || "").trim() === liveText) {
+      // The bubble that streamed this answer becomes the answer: the same node, so text
+      // that has been on screen for a minute does not vanish and slide back in.
+      node = createMessageBubble(block.message, liveBubble);
+      cache.delete("live");
+    } else {
+      node = block.build();
+      if (settled && !cached) markTranscriptEntry(node);
     }
-    if (message.role === "tool") {
-      const run = [];
-      while (index < state.currentMessages.length && state.currentMessages[index].role === "tool") run.push(state.currentMessages[index++]);
-      appendActivityRun(root, run);
-      continue;
-    }
-    if (["assistant", "error"].includes(message.role) && isMissingModelError(message.text)) {
-      if (!modelSetupShown) root.append(createModelSetupCard());
-      modelSetupShown = true;
-      index += 1;
-      continue;
-    }
-    const commandName = message.role === "command" ? commandResultName(state.currentMessages, index) : "";
-    const structuredCommand = commandName === "goal" ? createGoalResultCard(message.text) : null;
-    if (structuredCommand) {
-      root.append(structuredCommand);
-      index += 1;
-      continue;
-    }
-    const bubble = document.createElement("div");
-    bubble.className = `bubble ${message.role}`;
-    if (message.html) bubble.innerHTML = message.html;
-    else if (message.text) { bubble.classList.add("plain"); bubble.textContent = message.text; }
-    const attachmentStrip = message.role === "user" ? createMessageAttachmentStrip(message.attachments) : null;
-    if (attachmentStrip) {
-      bubble.classList.add("has-attachments");
-      if (!message.text) bubble.classList.add("attachment-only");
-      bubble.append(attachmentStrip);
-    }
-    root.append(bubble);
-    index += 1;
+    next.set(key, { signature: block.signature, node });
+    nodes.push(node);
   }
-  appendSteeringPrompts(root);
-  appendLiveAssistant(root);
+  state.transcriptCache = next;
+  reconcileChildren(root, nodes);
+  syncLiveBubbleContent(root);
   restoreOpenToolKeys(root, expandedTools);
   if (applyMessageScrollPin()) {
     if (changed) state.unseenMessages = 1;
@@ -3485,6 +3877,7 @@ async function refreshHistory({ priority = false } = {}) {
   const sessionId = state.selectedSessionId;
   if (!sessionId) {
     state.historyBusy = false;
+    state.historyPendingSessionId = null;
     invalidateSelectedHistoryVersion();
     renderMessages([]);
     return "cleared";
@@ -3502,6 +3895,7 @@ async function refreshHistory({ priority = false } = {}) {
     state.historyLoadedSessionId = sessionId;
     state.historyLoadedUpdatedAt = selectedSessionUpdatedAt(sessionId);
     if (view.revision !== null && view.revision !== undefined) state.historyLoadedRevision = view.revision;
+    if (state.historyPendingSessionId === sessionId) state.historyPendingSessionId = null;
     if (skipReconciliation) return "unchanged";
     const messages = view.messages || [];
     setActivity(commandFeedbackFor(sessionId)?.activity || view.activity || null);
@@ -3518,6 +3912,11 @@ async function refreshHistory({ priority = false } = {}) {
     return "applied";
   } catch (error) {
     if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return "superseded";
+    // A failed load is not a loading one: the skeleton must not sit there forever.
+    if (state.historyPendingSessionId === sessionId) {
+      state.historyPendingSessionId = null;
+      renderMessages(state.currentMessages);
+    }
     showError(error);
     if (state.windowMode === "full") setAvatar("error", "history error");
     return "failed";
@@ -3731,6 +4130,8 @@ async function handleLiveEvent(payload) {
 
 function setTab(tab) {
   state.tab = tab;
+  // The active plate is one element that slides between the tabs rather than two that swap.
+  $(".tabs")?.style.setProperty("--tab-index", tab === "agents" ? "1" : "0");
   document.querySelectorAll(".tab").forEach((button) => {
     const selected = button.dataset.tab === tab;
     button.classList.toggle("active", selected);
@@ -4692,12 +5093,23 @@ $("#addWorkspaceButton").addEventListener("click", async () => {
 });
 $$('.mode-option').forEach((button) => button.addEventListener("click", () => setAgentMode(button.dataset.mode)));
 $("#attachButton").addEventListener("click", pickAttachments);
+// The plane leaves when the message does: one short flight off the corner and back.
+function launchSendButton() {
+  const button = $("#sendButton");
+  button.classList.remove("launch");
+  void button.offsetWidth;
+  button.classList.add("launch");
+  button.addEventListener("animationend", (event) => {
+    if (event.animationName === "send-launch") button.classList.remove("launch");
+  }, { once: true });
+}
 $("#chatForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (composerSubmitInFlight) return;
   composerSubmitInFlight = true;
   $("#sendButton").disabled = true;
   $("#sendButton").classList.add("sending");
+  launchSendButton();
   const targetSessionId = state.selectedSessionId;
   await composerPastePreparation;
   if (composerPasteFailurePending) {
@@ -4745,6 +5157,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
     if (commandEntry && commandEntry.kind !== "skill") {
       submittedCommand = true;
       await executeHarnessCommand(text, targetSessionId, submittedAttachments, commandEntry);
+      rememberSentMessage(targetSessionId, text);
     } else {
       setAvatar("working", "sending");
       const result = await window.widget.send({
@@ -4759,6 +5172,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
         state.selectedSessionId = result.sessionId;
         if (!targetSessionId) setSessionAgentMode(result.sessionId, "agent");
       }
+      rememberSentMessage(result.sessionId, text);
       clearComposerError();
       if (queueingBehindTurn) trackQueuedPrompt(result.sessionId, { text, attachmentCount }, queueRevisionAtSubmit);
       const submittedPaths = new Set(submittedAttachments.map((attachment) => attachment.path));
@@ -4809,6 +5223,12 @@ $("#messageInput").addEventListener("keydown", (event) => {
       }
     }
   }
+  // From an empty composer the arrows walk back through what was sent, like a shell.
+  if (["ArrowUp", "ArrowDown"].includes(event.key) && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
+    && !$("#commandMenu").classList.contains("open") && recallComposerHistory(event.key === "ArrowUp" ? -1 : 1)) {
+    event.preventDefault();
+    return;
+  }
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     $("#chatForm").requestSubmit();
@@ -4816,6 +5236,7 @@ $("#messageInput").addEventListener("keydown", (event) => {
 });
 $("#messageInput").addEventListener("paste", (event) => { handleComposerPaste(event); });
 $("#messageInput").addEventListener("input", async (event) => {
+  resetComposerRecall();
   resizeMessageInput();
   const slashMode = /^\/[^\s]*$/.test(event.target.value);
   if (!slashMode) {
@@ -4851,6 +5272,17 @@ $("#messages").addEventListener("scroll", () => {
 // from landing on top of a jump that is still in flight.
 for (const eventName of ["wheel", "pointerdown", "keydown"]) {
   $("#messages").addEventListener(eventName, releaseMessageScrollPin, { passive: true });
+}
+// The strips around the log ease open and shut, and the window itself is resized by hand
+// and by the size presets. Whatever moves the log's edges, a log that was following the end
+// of the conversation keeps following it - re-anchored after layout and before paint, so
+// there is no frame in which the last line is cut off.
+if (typeof ResizeObserver === "function") {
+  new ResizeObserver(() => {
+    if (!state.messagesStickToBottom || state.scrollLatestAutoScrolling || activeMessageScrollPin()) return;
+    const root = $("#messages");
+    root.scrollTop = root.scrollHeight;
+  }).observe($("#messages"));
 }
 $("#scrollLatestButton").addEventListener("click", () => {
   releaseMessageScrollPin();
@@ -5482,6 +5914,82 @@ if (screenshotFixture) {
       state.liveStreamsBySession.set("demo-live", { text: "The response grows inside this assistant bubble while Harness is still generating it…", reasoning: "", lastSeq: 4 });
       setActivity({ active: true, kind: "writing", label: "Writing", text: "The response grows inside this assistant bubble while Harness is still generating it…" });
       renderMessages(state.currentMessages);
+    } else if (screenshotFixture === "history-loading") {
+      // A session just chosen, its history still on its way: a skeleton, not a wrong claim.
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-loading", title: "Loading session", running: false, projections: { values: {} }, subagents: [] }] };
+      state.selectedSessionId = "demo-loading";
+      state.historyPendingSessionId = "demo-loading";
+      renderSessionSelect();
+      renderMessages([]);
+    } else if (screenshotFixture === "toast") {
+      setTab("chat");
+      state.selectedSessionId = "demo-toast";
+      renderMessages([
+        { role: "user", text: "Copy the summary for the release notes." },
+        { role: "assistant", text: "Done — the summary is ready to paste.", html: "<p>Done — the summary is ready to paste.</p>" },
+      ]);
+      showToast("Copied to clipboard", "check", { duration: 60000 });
+    } else if (screenshotFixture === "bubble-actions") {
+      // Hover cannot be staged in a capture, so the actions are pinned open on one bubble
+      // of each kind: copy on the answer, copy and reuse on the question.
+      setTab("chat");
+      state.selectedSessionId = "demo-actions";
+      renderMessages([
+        { role: "user", text: "Which suites ran in the last verification pass?" },
+        { role: "assistant", text: "Unit, visual and packaged-launch.", html: "<p><strong>Unit</strong>, <strong>visual</strong> and <strong>packaged-launch</strong> — all three passed.</p>" },
+      ]);
+      $$("#messages .bubble").forEach((bubble) => bubble.classList.add("actions-visible"));
+    } else if (screenshotFixture === "live-markdown") {
+      // The answer is formatted while it streams: a heading, emphasis and a list arrive as
+      // Markdown and are drawn as such, with the caret inside the last line.
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-live-md", title: "Streaming Markdown", running: true, state: "working", projections: { values: {} }, subagents: [] }] };
+      state.selectedSessionId = "demo-live-md";
+      state.currentMessages = [{ role: "user", text: "Summarize the verification run." }];
+      state.liveStreamsBySession.set("demo-live-md", { text: "### Verification\n\nAll **three** suites passed:\n\n- unit tests\n- visual smoke\n- packaged launch", reasoning: "", lastSeq: 9 });
+      setActivity({ active: true, kind: "writing", label: "Writing", text: "All three suites passed" });
+      renderMessages(state.currentMessages);
+    } else if (screenshotFixture === "composer-recall") {
+      // Two messages sent, an empty composer, one press of the up arrow.
+      setTab("chat");
+      state.selectedSessionId = "demo-recall";
+      renderMessages([
+        { role: "user", text: "Run the visual suite." },
+        { role: "assistant", text: "85 cases passed." },
+        { role: "user", text: "Now re-render the cover." },
+        { role: "assistant", text: "Cover rendered at 1672 by 941." },
+      ]);
+      rememberSentMessage("demo-recall", "Run the visual suite.");
+      rememberSentMessage("demo-recall", "Now re-render the cover.");
+      const input = $("#messageInput");
+      input.focus();
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+    } else if (screenshotFixture === "strip-easing") {
+      // Motion left on. A log long enough to scroll follows its end; half a second later the
+      // plan strip opens under it. The trace records the log's height and its distance from
+      // the bottom every time its size changes - the app's own observer runs first, so what
+      // is recorded is what the anchor left behind on that frame.
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-easing", title: "Easing", running: false, projections: { values: {} }, subagents: [] }] };
+      state.selectedSessionId = "demo-easing";
+      renderSessionSelect();
+      renderMessages(Array.from({ length: 16 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", text: `Message ${index + 1}: the log is long enough to scroll and is following its end.` })));
+      const trace = [];
+      window.__stripTrace = trace;
+      new ResizeObserver(() => {
+        const root = $("#messages");
+        trace.push({ height: Math.round(root.clientHeight), gap: Math.round(root.scrollHeight - root.scrollTop - root.clientHeight) });
+      }).observe($("#messages"));
+      setTimeout(() => {
+        state.dashboard.sessions[0].projections = { values: { todos: [
+          { content: "Inspect the current session", status: "completed" },
+          { content: "Verify live streaming and tools", status: "in_progress" },
+          { content: "Build the Windows release", status: "pending" },
+        ] } };
+        state.todoExpandedSessionIds.add("demo-easing");
+        renderTodos();
+      }, 500);
     } else if (screenshotFixture === "scroll-away") {
       setTab("chat");
       state.selectedSessionId = "demo-scroll";
@@ -5499,7 +6007,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.17", latestVersion: "0.6.18", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.6.18", latestVersion: "0.7.0", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {

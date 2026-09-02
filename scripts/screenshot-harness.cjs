@@ -523,7 +523,50 @@ function attachScreenshotHarness({
             autoStartHydrated: !document.querySelector('#autoStartToggle').disabled,
             autoStartStatus: document.querySelector('#autoStartStatus').textContent,
             offlineSessionText: document.querySelector('#sessions .empty-state')?.textContent || '',
-            liveCaretDisplay: getComputedStyle(document.querySelector('.live-assistant') || document.body, '::after').display,
+            liveCaretDisplay: getComputedStyle(document.querySelector('.live-assistant .live-caret') || document.body).display,
+            // The streaming answer is formatted as it arrives, with the caret inside its last line.
+            liveBubbleFormatted: Boolean(document.querySelector('.live-assistant[data-formatted]')),
+            liveBubbleHeadings: document.querySelectorAll('.live-assistant h3').length,
+            liveBubbleListItems: document.querySelectorAll('.live-assistant li').length,
+            liveCaretInLastLine: Boolean(document.querySelector('.live-assistant li:last-child > .live-caret, .live-assistant p:last-child > .live-caret')),
+            // A session whose history is still on its way shows placeholders, not a wrong claim.
+            skeletonRows: document.querySelectorAll('.transcript-skeleton .skeleton-bubble').length,
+            emptyStateText: document.querySelector('#messages .empty-state')?.textContent || '',
+            toastVisible: Boolean(document.querySelector('#toastStack .toast:not(.leaving)')),
+            toastText: document.querySelector('#toastStack .toast span')?.textContent || '',
+            bubbleActionGroups: document.querySelectorAll('#messages .bubble-actions').length,
+            bubbleCopyActions: document.querySelectorAll('#messages .bubble-action.copy').length,
+            bubbleReuseActions: document.querySelectorAll('#messages .bubble-action.reuse').length,
+            // Pinned open, every action sits beside its bubble and inside the log - never over the text.
+            bubbleActionsBesideBubble: (() => {
+              const pinned = [...document.querySelectorAll('#messages .bubble.actions-visible')];
+              if (!pinned.length) return false;
+              const log = document.querySelector('#messages').getBoundingClientRect();
+              return pinned.every((bubble) => {
+                const box = bubble.getBoundingClientRect();
+                const buttons = [...bubble.querySelectorAll('.bubble-action')].map((button) => button.getBoundingClientRect());
+                return buttons.length > 0 && buttons.every((rect) => (rect.left >= box.right - 1 || rect.right <= box.left + 1) && rect.left >= log.left - 1 && rect.right <= log.right + 1);
+              });
+            })(),
+            composerValue: document.querySelector('#messageInput')?.value || '',
+            // The strip-easing fixture records the log on every frame a strip moves it.
+            stripTraceSteps: (window.__stripTrace || []).length,
+            stripTraceMaxGap: Math.max(0, ...(window.__stripTrace || []).map((step) => step.gap)),
+            stripTraceShrunk: (() => {
+              const trace = window.__stripTrace || [];
+              return trace.length > 1 && trace[0].height > trace[trace.length - 1].height;
+            })(),
+            messagesAtBottom: (() => {
+              const log = document.querySelector('#messages');
+              return Boolean(log) && log.scrollHeight - log.scrollTop - log.clientHeight <= 1;
+            })(),
+            tabPillIndex: getComputedStyle(document.querySelector('.tabs')).getPropertyValue('--tab-index').trim() || '0',
+            auroraLayer: getComputedStyle(document.querySelector('.widget-shell'), '::before').content !== 'none',
+            // The easing strips and drawer reveals lean on three platform features; a runtime
+            // without them would pop instead of ease, silently.
+            cssHeightInterpolation: CSS.supports('interpolate-size', 'allow-keywords'),
+            cssDetailsContent: CSS.supports('selector(::details-content)'),
+            cssStartingStyle: typeof CSSStartingStyleRule !== 'undefined',
             contextCenterDelta: (() => {
               const meter = document.querySelector('#contextMeter').getBoundingClientRect();
               const value = document.querySelector('#contextValue').getBoundingClientRect();

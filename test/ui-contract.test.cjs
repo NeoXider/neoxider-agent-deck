@@ -172,7 +172,7 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(renderer, /Retry models/);
   assert.match(renderer, /Load a model in LM Studio or another Harness provider/);
   assert.match(renderer, /\["assistant", "error"\]\.includes\(message\.role\) && isMissingModelError\(message\.text\)/);
-  assert.match(renderer, /if \(!modelSetupShown\) root\.append\(createModelSetupCard\(\)\)/);
+  assert.match(renderer, /if \(!modelSetupShown\) blocks\.push\(\{ key: "model-setup", signature: "model-setup", build: createModelSetupCard \}\)/);
   assert.match(html, /id="controlsPrimary">Auto<\/b>/);
   assert.match(renderer, /\$\("#controlsPrimary"\)\.textContent = shortModel/);
   assert.match(renderer, /shortModel = "No model"/);
@@ -294,8 +294,12 @@ test("live assistant deltas grow a bubble instead of leaving a Writing reasoning
   assert.doesNotMatch(chunkHandler, /setActivity\(/);
   assert.match(renderer, /activity\?\.active && activity\.kind === "writing" && activity\.text/);
   assert.match(renderer, /hasWritingBubble/);
-  assert.match(css, /\.live-assistant::after \{[^}]+width:4px[^}]+animation:live-caret/);
-  assert.match(css, /prefers-reduced-motion[\s\S]+\.live-assistant::after \{ animation:none !important/);
+  // The caret is an element, not ::after, so it can sit inside the last paragraph of a
+  // formatted answer rather than on a line of its own underneath it.
+  assert.match(css, /\.live-caret \{[^}]+width:4px[^}]+animation:live-caret/);
+  assert.match(css, /prefers-reduced-motion[\s\S]+\.live-caret \{ animation:none !important/);
+  assert.match(renderer, /function liveCaret\(\)/);
+  assert.match(renderer, /caret\.className = "live-caret"/);
 });
 
 test("live tool calls become named cards and split the streaming answer around tool work", () => {
@@ -340,7 +344,10 @@ test("manual chat scrolling is preserved and jump-to-latest stays visible away f
   const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /\.scroll-latest\s*\{[^}]*position:absolute;[^}]*right:7px;[^}]*bottom:7px/);
   assert.match(css, /\.scroll-latest\.completion-pop/);
-  assert.doesNotMatch(renderer, /root\.scrollTop = root\.scrollHeight;\s*\}/);
+  // The jump itself is a smooth scrollTo, never a bare offset write.
+  const latestClick = renderer.slice(renderer.indexOf('$("#scrollLatestButton").addEventListener("click"'), renderer.indexOf('$("#todoToggle").addEventListener'));
+  assert.match(latestClick, /\$\("#messages"\)\.scrollTo\(\{ top: \$\("#messages"\)\.scrollHeight, behavior:/);
+  assert.doesNotMatch(latestClick, /root\.scrollTop = root\.scrollHeight;\s*\}/);
 });
 
 test("activity glow intensity is brighter by default, adjustable, and persisted", () => {
@@ -874,7 +881,7 @@ test("avatar click replaces the redundant collapse icon", () => {
 
 test("consecutive tool activity collapses into one expandable group", () => {
   const css = readSource("src", "renderer", "styles.css");
-  assert.match(renderer, /function appendActivityRun/);
+  assert.match(renderer, /function createActivityRun\(run\)/);
   assert.match(renderer, /className = `tool-group/);
   assert.match(renderer, /partial-failure/);
   assert.match(renderer, /completed ·.*failed/);
@@ -1496,4 +1503,169 @@ test("background tasks are a count of what is running, not a roster size", () =>
   const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /\.session-background \{ display:none; \}/, "zero running tasks must take no width");
   assert.match(css, /\.session-background b \{[^}]*font-variant-numeric:tabular-nums/);
+});
+
+test("the transcript is reconciled by key instead of rebuilt on every change", () => {
+  // The log used to be thrown away on every change - each poll while a tool ran, each
+  // result that landed - so entry animations replayed, images reloaded and a selection had
+  // to be re-resolved by offset. A block whose signature did not change keeps its node.
+  const body = functionBody(renderer, "function renderMessages(messages)");
+  assert.doesNotMatch(body, /root\.replaceChildren\(\)/, "the whole log is never cleared");
+  assert.doesNotMatch(body, /root\.innerHTML/, "the empty state is a keyed block like any other");
+  assert.match(body, /const cache = transcriptCache\(\);/);
+  assert.match(body, /if \(cached && cached\.signature === block\.signature\) \{\s*node = cached\.node;/);
+  assert.match(body, /reconcileChildren\(root, nodes\);/);
+  const reconcile = functionBody(renderer, "function reconcileChildren(root, nodes)");
+  assert.match(reconcile, /if \(current !== node\) root\.insertBefore\(node, current \|\| null\);/);
+  // The cache is per session: sequence numbers repeat across sessions.
+  assert.match(renderer, /if \(state\.transcriptCacheSessionId !== state\.selectedSessionId\) \{\s*state\.transcriptCache = new Map\(\);/);
+  // Only newcomers slide in, and only once the log is already on screen for this session.
+  assert.match(body, /if \(settled && !cached\) markTranscriptEntry\(node\);/);
+  const css = readSource("src", "renderer", "styles.css");
+  assert.match(css, /#messages > \.enter \{ animation:transcript-enter/);
+  // The bubble that streamed the answer becomes the answer, rather than vanishing and
+  // sliding back in as a new node with the same text.
+  assert.match(body, /node = createMessageBubble\(block\.message, liveBubble\);/);
+  assert.match(renderer, /function liveDuplicatesFinalAnswer\(text\)/);
+  // A selection that survived in a reused node is left alone.
+  const restore = functionBody(renderer, "function restoreMessageSelection(root, snapshot)");
+  assert.match(restore, /root\.contains\(live\.anchorNode\) && root\.contains\(live\.focusNode\)\) return;/);
+  // A card reopened after a rebuild does not replay its reveal.
+  assert.match(renderer, /details\.dataset\.restored = "1";/);
+  assert.match(css, /details\[data-restored\]::details-content \{ transition:none; \}/);
+});
+
+test("the strips around the log ease open and shut while the log stays anchored", () => {
+  const css = readSource("src", "renderer", "styles.css");
+  assert.match(css, /\.activity-card, \.todo-dock, \.queue-dock, \.attachment-bar, \.command-menu, \.command-hint-bar, \.composer-error, \.goal-dock, \.offline-banner \{ interpolate-size:allow-keywords; transition:height [^}]*display \.24s allow-discrete; \}/);
+  // Hidden is a state the strip animates to: zero height, the flex gap swallowed by a
+  // negative margin, and display kept until the exit is over.
+  assert.match(css, /\.activity-card:not\(\.has-activity\), \.activity-card\[hidden\], \.todo-dock\[hidden\], \.queue-dock:not\(\.has-items\)[^{]*\{ display:none; height:0;[^}]*margin-top:calc\(-1 \* var\(--strip-gap,0px\)\)/);
+  assert.match(css, /@starting-style \{\s*\.activity-card\.has-activity:not\(\[hidden\]\), \.todo-dock:not\(\[hidden\]\)[^{]*\{ height:0;/);
+  // The gap the margin swallows is the gap the panel actually uses, crowded or not.
+  assert.match(css, /\.chat-panel\.active \{ --strip-gap:7px; \}/);
+  assert.match(css, /\.chat-crowded \.chat-panel\.active \{ --strip-gap:1px; \}/);
+  // Drawers: tool cards, the activity card and the goal panel reveal their content.
+  assert.match(css, /\.tool-call::details-content, \.tool-group::details-content, \.activity-card::details-content, \.goal-dock::details-content, \.hotkey-settings::details-content \{ interpolate-size:allow-keywords; height:0; overflow:clip;/);
+  assert.doesNotMatch(css, /\.agent-controls::details-content/, "the controls hold pickers whose menus must escape the clip");
+  // The old one-frame entrances are gone; the strip's own height is the entrance now.
+  for (const name of ["queue-in", "command-menu-in", "thinking-activity-in", "goal-open", "live-bubble-in"]) {
+    assert.doesNotMatch(css, new RegExp(`@keyframes ${name} `), `${name} is replaced by the eased strip`);
+  }
+  // Whatever moves the log's edges, a log following the conversation keeps following it.
+  assert.match(renderer, /new ResizeObserver\(\(\) => \{\s*if \(!state\.messagesStickToBottom \|\| state\.scrollLatestAutoScrolling \|\| activeMessageScrollPin\(\)\) return;\s*const root = \$\("#messages"\);\s*root\.scrollTop = root\.scrollHeight;\s*\}\)\.observe\(\$\("#messages"\)\);/);
+  // The smoke suite checks the platform actually has the three features this leans on, and
+  // one case leaves motion on to watch the strip ease under a following log: several
+  // observed heights prove the easing, a one-pixel ceiling on the gap proves the anchor.
+  const visualSmokeSource = readSource("scripts", "ui-visual-smoke.cjs");
+  assert.match(visualSmokeSource, /cssHeightInterpolation: true, cssDetailsContent: true, cssStartingStyle: true/);
+  assert.match(visualSmokeSource, /name: "strip-easing"[^}]*motion: true[^}]*stripTraceShrunk: true, messagesAtBottom: true \}, min: \{ stripTraceSteps: 3 \}, max: \{ stripTraceMaxGap: 1 \}/);
+  assert.match(visualSmokeSource, /WIDGET_SCREENSHOT_MOTION: "1"/);
+  assert.match(main, /\.\.\.\(screenshotPath && !screenshotMotion \? \{ screenshotStatic: "1" \} : \{\}\)/);
+});
+
+test("the streaming answer is formatted as it arrives, through the same sanitizer as history", () => {
+  const preload = readSource("src", "preload.cjs");
+  assert.match(preload, /renderMarkdown: \(text\) => ipcRenderer\.invoke\("render-markdown", String\(text \?\? ""\)\)/);
+  assert.match(ipc, /handle\("render-markdown", \(_event, text\) => renderMarkdown\(typeof text === "string" \? text : ""\)\)/);
+  // The first chunk is painted as text at once; nothing waits on IPC.
+  const paint = functionBody(renderer, "function paintLiveText(bubble, text)");
+  assert.match(paint, /if \(!bubble\.dataset\.formatted\) \{\s*bubble\.classList\.add\("plain"\);\s*bubble\.textContent = text;/);
+  assert.match(paint, /scheduleLiveMarkdown\(bubble, text\);/);
+  // One request in flight, and only the newest text may land - on a bubble that is still
+  // the live one.
+  const schedule = functionBody(renderer, "function scheduleLiveMarkdown(bubble, text)");
+  assert.match(schedule, /if \(liveMarkdownInFlight\) return;/);
+  assert.match(schedule, /job\.bubble\.isConnected && liveBubbleText\.get\(job\.bubble\) === job\.text\) applyLiveMarkdown\(job\.bubble, html\);/);
+  assert.match(renderer, /const LIVE_MARKDOWN_MAX_CHARS = 60000;/);
+  // The caret goes inside the last paragraph or list item, not on a line of its own.
+  assert.match(renderer, /liveCaretHost\(bubble\)\.append\(liveCaret\(\)\);/);
+  const visualSmokeSource = readSource("scripts", "ui-visual-smoke.cjs");
+  assert.match(visualSmokeSource, /liveBubbleFormatted: true, liveBubbleHeadings: 1, liveBubbleListItems: 3, liveCaretInLastLine: true/);
+});
+
+test("a chosen session shows a loading skeleton, never a wrong empty state", () => {
+  const select = functionBody(renderer, "async function selectSession(sessionId, openChat = false)");
+  assert.match(select, /state\.historyPendingSessionId = state\.selectedSessionId;/);
+  const history = renderer.slice(renderer.indexOf("async function refreshHistory("), renderer.indexOf("function refreshHistoryAfterLiveMessage"));
+  assert.match(history, /if \(state\.historyPendingSessionId === sessionId\) state\.historyPendingSessionId = null;/);
+  // A failed load clears the skeleton too, or it would sit there forever.
+  assert.match(history, /if \(state\.historyPendingSessionId === sessionId\) \{\s*state\.historyPendingSessionId = null;\s*renderMessages\(state\.currentMessages\);/);
+  const render = functionBody(renderer, "function renderMessages(messages)");
+  assert.match(render, /awaitingHistory\s*\? \{ key: "skeleton", signature: "skeleton", build: transcriptSkeleton \}/);
+  const css = readSource("src", "renderer", "styles.css");
+  assert.match(css, /\.skeleton-bubble \{[^}]*animation:skeleton-sweep/);
+  const skeleton = functionBody(renderer, "function transcriptSkeleton()");
+  assert.match(skeleton, /node\.setAttribute\("aria-hidden", "true"\);/);
+});
+
+test("messages carry copy and reuse actions with a toast for feedback", () => {
+  assert.match(html, /<symbol id="icon-copy"/);
+  assert.match(html, /<symbol id="icon-reuse"/);
+  assert.match(html, /<div id="toastStack" class="toast-stack" role="status" aria-live="polite"><\/div>/);
+  const actions = functionBody(renderer, "function createBubbleActions(message)");
+  assert.match(actions, /bubbleActionButton\("copy", "Copy message"/);
+  assert.match(actions, /if \(message\.role === "user"\) actions\.append\(bubbleActionButton\("reuse"/);
+  assert.match(renderer, /await navigator\.clipboard\.writeText\(String\(text \|\| ""\)\);/);
+  // The action's press never reaches the log's own click handling.
+  const button = functionBody(renderer, "function bubbleActionButton(icon, title, onClick)");
+  assert.match(button, /event\.stopPropagation\(\);/);
+  // Reuse appends to a composer that already has text rather than throwing it away.
+  const reuse = functionBody(renderer, "function reuseMessageText(text)");
+  assert.match(reuse, /input\.value = current \? `\$\{current\}\\n\$\{text\}` : String\(text \|\| ""\);/);
+  const toast = renderer.slice(renderer.indexOf("function showToast("), renderer.indexOf("const GOAL_TOASTS"));
+  assert.match(toast, /while \(stack\.childElementCount >= 2\) stack\.firstElementChild\.remove\(\);/);
+  // With motion off there is no animation to end, so a timer removes the toast.
+  assert.match(toast, /setTimeout\(\(\) => toast\.remove\(\), 320\);/);
+  const css = readSource("src", "renderer", "styles.css");
+  assert.match(css, /\.bubble:hover \.bubble-actions, \.bubble:focus-within \.bubble-actions, \.bubble\.actions-visible \.bubble-actions \{ opacity:1; transform:none; pointer-events:auto; \}/);
+  // The column sits beside the bubble in the room its width limit leaves, and the log clips
+  // sideways so it can never grow a horizontal scrollbar.
+  assert.match(css, /\.bubble-actions \{ position:absolute;[^}]*right:-30px; width:30px;/);
+  assert.match(css, /\.messages \{[^}]*overflow:hidden auto;/);
+  // Goal and queue actions say what they did the same way.
+  assert.match(renderer, /showToast\(GOAL_TOASTS\.find/);
+  assert.match(renderer, /showToast\(action\.kind === "steer" \? "Sent now"/);
+});
+
+test("the composer keeps a draft per session and recalls sent messages with the arrows", () => {
+  const select = functionBody(renderer, "async function selectSession(sessionId, openChat = false)");
+  assert.match(select, /stashComposerDraft\(previousSessionId\);\s*restoreComposerDraft\(state\.selectedSessionId\);/);
+  // Both the send path and the command path remember what went out, under the session it
+  // actually went to - a first message creates the session it is then filed under.
+  assert.match(renderer, /rememberSentMessage\(result\.sessionId, text\);/);
+  assert.match(renderer, /rememberSentMessage\(targetSessionId, text\);/);
+  assert.match(renderer, /const COMPOSER_HISTORY_LIMIT = 50;/);
+  const recall = functionBody(renderer, "function recallComposerHistory(step)");
+  // Only an empty composer answers the arrows; a message being written keeps them.
+  assert.match(recall, /if \(!recalling && \(input\.value !== "" \|\| step > 0\)\) return false;/);
+  // A recalled multi-line message can still be edited with the keyboard.
+  assert.match(recall, /if \(recalling && step < 0 && input\.value\.slice\(0, input\.selectionStart\)\.includes\("\\n"\)\) return false;/);
+  assert.match(renderer, /recallComposerHistory\(event\.key === "ArrowUp" \? -1 : 1\)/);
+  // Typing ends the walk.
+  assert.match(renderer, /addEventListener\("input", async \(event\) => \{\s*resetComposerRecall\(\);/);
+  const visualSmokeSource = readSource("scripts", "ui-visual-smoke.cjs");
+  assert.match(visualSmokeSource, /composerValue: "Now re-render the cover\."/);
+});
+
+test("the wow is on the surfaces that carry state, and every bit of it obeys the motion switch", () => {
+  const css = readSource("src", "renderer", "styles.css");
+  // The aurora drifts behind everything, follows the glow slider, and brightens with work.
+  assert.match(css, /\.widget-shell::before \{[^}]*z-index:-1;[^}]*opacity:calc\(var\(--chat-glow-intensity\) \* \.5\);[^}]*animation:aurora-drift 28s/);
+  assert.match(css, /\.activity-thinking \.widget-shell::before, \.activity-writing \.widget-shell::before, \.activity-tool \.widget-shell::before, \.state-working \.widget-shell::before \{ opacity:calc\(var\(--chat-glow-intensity\) \* \.8\); \}/);
+  // One plate slides between the tabs.
+  assert.match(css, /\.tabs::before \{[^}]*transform:translateX\(calc\(var\(--tab-index,0\) \* \(100% \+ 3px\)\)\); transition:transform \.3s/);
+  assert.match(renderer, /style\.setProperty\("--tab-index", tab === "agents" \? "1" : "0"\)/);
+  // The plane leaves with the message; the ring beats when the context is critical; a
+  // working card carries a sweep of light; settings rows arrive one after another.
+  assert.match(css, /\.composer #sendButton\.launch \.ui-icon \{ animation:send-launch/);
+  assert.match(renderer, /function launchSendButton\(\)/);
+  assert.match(css, /\.context-arc \{ stroke:url\(#context-ring-gradient\); \}/);
+  assert.match(html, /<linearGradient id="context-ring-gradient"/);
+  assert.match(css, /\.context-meter\.critical \.context-arc \{ animation:ring-alarm/);
+  assert.match(css, /\.session-card\.state-working::after \{[^}]*animation:card-sweep/);
+  assert.match(css, /\.settings-panel\.open > \* \{ animation:settings-row/);
+  // All of it is animation or transition, and the switch turns both off wholesale.
+  assert.match(css, /body\.motion-off \*, body\.motion-off \*::before, body\.motion-off \*::after \{ animation:none !important; transition:none !important; \}/);
+  assert.match(html, /Aurora, easing strips, message entrances, hover and press feedback/);
 });

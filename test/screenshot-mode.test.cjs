@@ -40,6 +40,7 @@ test("the request reads every screenshot input and defaults the absent ones", ()
     fixture: "",
     files: "",
     backdrop: "",
+    motion: false,
   });
 
   const request = screenshotRequest({
@@ -50,6 +51,7 @@ test("the request reads every screenshot input and defaults the absent ones", ()
     WIDGET_SCREENSHOT_FIXTURE: "goal-collapsed",
     WIDGET_SCREENSHOT_FILES: "a.png,b.png",
     WIDGET_SCREENSHOT_BACKDROP: "black",
+    WIDGET_SCREENSHOT_MOTION: "1",
   });
   assert.deepEqual(request, {
     path: "tmp/goal.png",
@@ -59,5 +61,7 @@ test("the request reads every screenshot input and defaults the absent ones", ()
     fixture: "goal-collapsed",
     files: "a.png,b.png",
     backdrop: "black",
+    // Motion is left on only when a case asks for it; a capture is otherwise frozen.
+    motion: true,
   });
 });
