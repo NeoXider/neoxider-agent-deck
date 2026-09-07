@@ -39,8 +39,11 @@ function functionBody(source, declaration) {
   throw new Error(`${declaration} is unbalanced`);
 }
 
-test("visible widget copy is English and required controls are present", () => {
-  assert.doesNotMatch(`${html}\n${renderer}`, /[\u0400-\u04ff]/);
+test("visible widget copy stays English apart from the requested layer label", () => {
+  const copy = `${html}\n${renderer}`
+    .replaceAll("Поверх окон+", "")
+    .replaceAll("Поверх окон — усиленный режим. Не гарантирует отображение поверх эксклюзивного полноэкранного режима.", "");
+  assert.doesNotMatch(copy, /[\u0400-\u04ff]/);
   for (const id of [
     "contextMeter",
     "modelButton",
@@ -374,7 +377,7 @@ test("live Think is a persistent optional overlay that cannot move the conversat
   // kind was the bug: every tool result clears the activity, the fallback substitutes kind
   // "working", and the card the user had just switched off came straight back as "Working".
   // This assertion used to pin that narrow predicate verbatim, so the fix had to change it.
-  assert.match(renderer, /LIVE_ACTIVITY_KINDS = new Set\(\["thinking", "writing", "tool", "working"\]\)/);
+  assert.match(renderer, /LIVE_ACTIVITY_KINDS = new Set\(\["thinking", "writing", "tool", "working", "waiting"\]\)/);
   assert.match(renderer, /state\.showThinking \|\| !LIVE_ACTIVITY_KINDS\.has\(activity\?\.kind\)/);
   // Flipping the toggle must repaint the compact chrome too, which shows the same text.
   // Sliced to the end of the function itself, not to whichever function happens to follow.
@@ -430,12 +433,13 @@ test("collapsed pet exposes three exact recent sessions and inline quick reply w
   assert.match(ipc, /preserveCompactPosition: true/);
 });
 
-test("window layer has normal, above-by-default, and fullscreen-game modes", () => {
+test("window layers distinguish desktop, above, and enhanced above without a fullscreen guarantee", () => {
   assert.match(html, /data-layer="normal"/);
   assert.match(html, /data-layer="normal"[^>]+>Desktop<\/button>/);
   assert.match(html, /every normal app window covers the widget/);
   assert.match(html, /data-layer="above"/);
-  assert.match(html, /data-layer="game"/);
+  assert.match(html, /data-layer="game"[^>]+>Поверх окон\+<\/button>/);
+  assert.match(html, /Не гарантирует отображение поверх эксклюзивного полноэкранного режима/);
   assert.match(settingsStore, /windowLayer: "above"/);
   assert.match(main, /applyPlatformWindowLayer/);
   assert.match(main, /preferences\.windowLayer = normalizeWindowLayer\(preferences\.windowLayer, PLATFORM_CAPABILITIES\)/);
@@ -529,8 +533,8 @@ test("edge mode only captures the visible handle and passes transparent glow cli
   assert.match(renderer, /getBoundingClientRect\(\)/);
   assert.match(renderer, /rect\.left - EDGE_HIT_PADDING/);
   assert.match(renderer, /document\.addEventListener\("mousemove", updateEdgePointerHit, true\)/);
-  assert.match(css, /--edge-primary:#49e7c6/);
-  assert.match(css, /--edge-secondary:#48bfff/);
+  assert.match(css, /--edge-primary:rgb\(var\(--status-idle-primary\)\)/);
+  assert.match(css, /--edge-secondary:rgb\(var\(--status-idle-secondary\)\)/);
   assert.match(css, /--edge-halo-opacity:\.22/);
   assert.match(css, /\.mode-edge\.state-idle \.edge-line\s*\{[^}]*animation:edge-flow 5\.4s/);
   assert.match(css, /\.edge-hit-active \.edge-line::after, \.edge-mode:focus-visible \.edge-line::after/);
@@ -548,9 +552,9 @@ test("edge mode only captures the visible handle and passes transparent glow cli
 
 test("edge line keeps idle subtle and makes working, thinking, writing, tool, waiting, done, and error distinct", () => {
   const css = readSource("src", "renderer", "styles.css");
-  assert.match(css, /\.mode-edge\.state-working\s*\{[^}]*--edge-primary:#72efa0;[^}]*--edge-secondary:#ffd45f/);
+  assert.match(css, /\.mode-edge\.state-working\s*\{[^}]*--edge-primary:rgb\(var\(--status-writing-primary\)\);[^}]*--edge-secondary:rgb\(var\(--status-writing-secondary\)\)/);
   assert.match(css, /\.mode-edge\.activity-thinking\s*\{/);
-  assert.match(css, /\.mode-edge\.activity-writing\s*\{[^}]*--edge-primary:#72efa0/);
+  assert.match(css, /\.mode-edge\.activity-writing\s*\{[^}]*--edge-primary:rgb\(var\(--status-writing-primary\)\)/);
   assert.match(css, /\.mode-edge\.activity-tool\s*\{/);
   assert.match(css, /\.mode-edge\.state-waiting\s*\{/);
   assert.match(css, /\.mode-edge\.state-done\s*\{/);
@@ -567,7 +571,7 @@ test("orb activity glow distinguishes generic work and eases between all activit
   const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /@property --orb-ring-primary/);
   assert.match(css, /\.orb-glow[^}]+transition:--orb-ring-primary \.58s ease/);
-  assert.match(css, /\.mode-orb\.state-working\s*\{[^}]*--orb-ring-primary:#72efa0;[^}]*--orb-ring-secondary:#ffd45f/);
+  assert.match(css, /\.mode-orb\.state-working\s*\{[^}]*--orb-ring-primary:rgb\(var\(--status-writing-primary\)\);[^}]*--orb-ring-secondary:rgb\(var\(--status-writing-secondary\)\)/);
   assert.match(css, /\.mode-orb\.activity-thinking\s*\{/);
   assert.match(css, /\.mode-orb\.activity-writing\s*\{/);
   assert.match(css, /\.mode-orb\.activity-tool\s*\{/);
@@ -575,7 +579,8 @@ test("orb activity glow distinguishes generic work and eases between all activit
   assert.match(css, /\.mode-orb\.state-error\s*\{/);
   assert.match(css, /\.mode-orb\.state-done\s*\{/);
   assert.match(css, /\.orb-has-notification \.orb-status \{[^}]+box-shadow:none/);
-  assert.match(css, /\.orb-history-button:hover, \.orb-history-button\.active \{[^}]+box-shadow:none/);
+  assert.match(css, /\.orb-history-button:hover::before, \.orb-history-button\.active::before \{[^}]+border-color:/);
+  assert.match(css, /\.orb-history-button::after \{[^}]*mask-composite:exclude/);
 });
 
 test("the custom titlebar drag excludes header controls and avoids Chromium native drag", () => {
@@ -808,7 +813,9 @@ test("a rejected send keeps its reason until the user acts on it", () => {
   const beforeQueue = renderer.indexOf("trackQueuedPrompt(result.sessionId,");
   assert.ok(beforeQueue > 0 && renderer.slice(beforeQueue - 80, beforeQueue).includes("clearComposerError();"));
   const switchStart = renderer.indexOf("async function selectSession");
-  assert.ok(switchStart > 0 && renderer.slice(switchStart, switchStart + 600).includes("clearComposerError();"));
+  const nextFunction = renderer.slice(switchStart).search(/\n(?:async )?function /);
+  const switchEnd = switchStart + nextFunction;
+  assert.ok(switchStart > 0 && switchEnd > switchStart && renderer.slice(switchStart, switchEnd).includes("clearComposerError();"));
   // A reason cut off mid-sentence is no reason, but it must not push the composer away.
   assert.match(css, /\.composer-error small \{[^}]*-webkit-line-clamp:2/);
   assert.doesNotMatch(css, /\.composer-error small \{[^}]*white-space:nowrap/);
@@ -1159,7 +1166,7 @@ test("offline status is shown once with an explicit guarded Start action", () =>
   assert.match(renderer, /async function startHarnessFromBanner/);
   assert.match(renderer, /state\.harnessStarting/);
   assert.match(renderer, /await window\.widget\.startHarness\(\)/);
-  assert.match(renderer, /setAvatar\("error", ""\)/);
+  assert.match(renderer, /setAvatar\("offline"\)/);
   assert.doesNotMatch(renderer, /setAvatar\("error", "Harness offline"\)/);
   assert.match(renderer, /offline \? "Harness offline"/);
   assert.match(renderer, /offline \? "Start Harness to reconnect\."/);
@@ -1443,7 +1450,8 @@ test("the session list shows how long each agent has been working", () => {
   assert.match(sessionActivity, /return \{ runningSince: openedAt, lastRunMs \};/);
   // Taken from the turn's own events, so it survives a widget restart.
   assert.match(renderer, /function formatWorkDuration\(ms\)/);
-  assert.match(renderer, /node\.dataset\.runningSince = live \? String\(runningSince\) : "";/);
+  assert.match(renderer, /const since = live \? String\(runningSince\) : "";/);
+  assert.match(renderer, /if \(node\.dataset\.runningSince !== since\) node\.dataset\.runningSince = since;/);
   // The ticking value must stay out of the render signature, or the list rebuilds every
   // second; and the interval must stop when nothing is running.
   const signature = renderer.slice(renderer.indexOf("function renderSessions"), renderer.indexOf("function renderSessionSelect"));
@@ -1651,8 +1659,11 @@ test("the composer keeps a draft per session and recalls sent messages with the 
 test("the wow is on the surfaces that carry state, and every bit of it obeys the motion switch", () => {
   const css = readSource("src", "renderer", "styles.css");
   // The aurora drifts behind everything, follows the glow slider, and brightens with work.
-  assert.match(css, /\.widget-shell::before \{[^}]*z-index:-1;[^}]*opacity:calc\(var\(--chat-glow-intensity\) \* \.5\);[^}]*animation:aurora-drift 28s/);
-  assert.match(css, /\.activity-thinking \.widget-shell::before, \.activity-writing \.widget-shell::before, \.activity-tool \.widget-shell::before, \.state-working \.widget-shell::before \{ opacity:calc\(var\(--chat-glow-intensity\) \* \.8\); \}/);
+  assert.match(css, /\.widget-shell::before \{[^}]*z-index:-1;[^}]*opacity:calc\(var\(--chat-glow-intensity\) \* var\(--panel-background-opacity\)/);
+  for (const phase of ["waiting", "thinking", "writing", "tool", "done", "error"]) {
+    assert.ok(css.includes(`body[data-chat-state="${phase}"] { --chat-light-primary:`));
+  }
+  assert.match(css, /animation:aurora-drift 28s/);
   // One plate slides between the tabs.
   assert.match(css, /\.tabs::before \{[^}]*transform:translateX\(calc\(var\(--tab-index,0\) \* \(100% \+ 3px\)\)\); transition:transform \.3s/);
   assert.match(renderer, /style\.setProperty\("--tab-index", tab === "agents" \? "1" : "0"\)/);

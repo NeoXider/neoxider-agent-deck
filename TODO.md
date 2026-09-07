@@ -2,6 +2,14 @@
 
 This backlog records planned work only. Items are not part of the current release until their acceptance checks pass.
 
+## 0.7.1 release preparation
+
+- Implemented selected-session API-wait, thinking, writing, tool and outcome lighting, with separate aggregate compact notifications.
+- Implemented independent persisted background opacity, animated colour fields, unified mode colours, and reduced-motion behaviour.
+- Implemented an explicit Harness-offline presentation that preserves the visible conversation and keeps Start available.
+- Fixed repeated timer/count DOM writes and the session-switch race during attachment preparation; focused behavioural checks accompany both.
+- Final visual captures, packaged build verification, publication and installed-update acceptance remain release gates; historical model receipts below do not certify those steps.
+
 ## Shipped in 0.5.0
 
 - Region and full-display capture with reviewable PNG attachments, cancellation, cleanup, and configurable hotkeys.

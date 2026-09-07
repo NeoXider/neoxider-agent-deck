@@ -234,10 +234,11 @@
 
       <section id="settingsPanel" class="settings-panel no-drag" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" aria-hidden="true" inert>
         <div class="settings-head"><b id="settingsTitle">Settings</b><button id="closeSettings" class="icon-button" type="button" title="Close settings" aria-label="Close settings"><svg class="ui-icon"><use href="#icon-close"/></svg></button></div>
-        <div class="setting-block layer-setting"><span>Window layer</span><div id="windowLayerSwitch" class="layer-switch" role="group" aria-label="Window layer"><button data-layer="normal" type="button" title="Desktop layer — every normal app window covers the widget" aria-pressed="false">Desktop</button><button data-layer="above" type="button" title="Stay above ordinary windows" aria-pressed="true">Above</button><button data-layer="game" type="button" title="Maximum safe layer for borderless fullscreen apps" aria-pressed="false">Game</button></div><small id="platformStatus" class="setting-hint" role="status" aria-live="polite" hidden></small></div>
+        <div class="setting-block layer-setting"><span>Window layer</span><div id="windowLayerSwitch" class="layer-switch" role="group" aria-label="Window layer"><button data-layer="normal" type="button" title="Desktop layer — every normal app window covers the widget" aria-pressed="false">Desktop</button><button data-layer="above" type="button" title="Stay above ordinary windows" aria-pressed="true">Above</button><button data-layer="game" type="button" title="Поверх окон — усиленный режим. Не гарантирует отображение поверх эксклюзивного полноэкранного режима." aria-pressed="false">Поверх окон+</button></div><small id="platformStatus" class="setting-hint" role="status" aria-live="polite" hidden></small></div>
         <label class="autostart-setting"><span><span id="autoStartLabel">Start at login</span><small id="autoStartStatus" role="status" aria-live="polite">Checking…</small></span><input id="autoStartToggle" type="checkbox" disabled /></label>
         <label id="opacitySetting" class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /><small id="opacityStatus" class="setting-hint" role="status" hidden></small></label>
         <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>
+        <label class="range-label"><span>Background opacity <b id="backgroundOpacityValue">90%</b></span><input id="backgroundOpacityRange" type="range" min="0" max="100" step="1" /><small class="setting-hint">Panel background only; text and controls stay clear</small></label>
         <label class="toggle-setting"><span><span>Show live activity</span><small>Thinking, tool and working status above the chat</small></span><input id="showThinkingToggle" type="checkbox" checked /></label>
         <label class="toggle-setting"><span><span>Motion effects</span><small>Aurora, easing strips, message entrances, hover and press feedback</small></span><input id="motionEffectsToggle" type="checkbox" checked /></label>
         <label class="toggle-setting"><span><span>Expand avatar on activity</span><small>Off: the orb stays a circle and counts on its button</small></span><input id="compactAutoExpandToggle" type="checkbox" /></label>
@@ -297,6 +298,7 @@
     <script src="session-groups.js"></script>
     <script src="clipboard-attachments.js"></script>
     <script src="platform-presentation.js"></script>
+    <script src="chat-visual-state.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

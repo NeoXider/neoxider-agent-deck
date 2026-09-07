@@ -32,6 +32,47 @@ function attachScreenshotHarness({
     }
     setTimeout(async () => {
       const auditPath = process.env.WIDGET_UI_AUDIT_PATH;
+      if (process.env.WIDGET_SCREENSHOT_CHAT_PHASE) {
+        const phase = process.env.WIDGET_SCREENSHOT_CHAT_PHASE;
+        if (!["idle", "waiting", "thinking", "writing", "tool", "offline"].includes(phase)) throw new Error("Invalid visual phase");
+        await window.webContents.executeJavaScript(`(() => {
+          const id = state.selectedSessionId;
+          chatVisual.select(id);
+          chatVisual.noteStop(id);
+          if (${JSON.stringify(phase)} !== 'idle') chatVisual.noteSendStart(id);
+          if (['thinking', 'writing', 'tool'].includes(${JSON.stringify(phase)})) chatVisual.noteStream(id, ${JSON.stringify(phase)});
+          if (${JSON.stringify(phase)} === 'offline') { state.harnessOffline = true; setAvatar('offline', 'Offline'); }
+          syncChatVisualState();
+          applyBackgroundOpacity(${JSON.stringify(Number(process.env.WIDGET_SCREENSHOT_BACKGROUND_OPACITY ?? .9))});
+        })()`);
+        await new Promise(resolve => setTimeout(resolve, 1100));
+      }
+      if (process.env.WIDGET_SCREENSHOT_FIXTURE === "strip-easing") {
+        await window.webContents.executeJavaScript(`(async () => {
+          const dock = document.querySelector('#todoDock');
+          const log = document.querySelector('#messages');
+          const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          dock.hidden = true;
+          await frame();
+          dock.getAnimations().forEach(animation => animation.finish());
+          await frame();
+          dock.hidden = false;
+          getComputedStyle(dock).height;
+          const animations = dock.getAnimations().filter(animation => animation.transitionProperty === 'height');
+          if (!animations.length) throw new Error('TODO reveal has no height transition');
+          const animation = animations[0];
+          animation.pause();
+          const duration = animation.effect.getComputedTiming().duration;
+          const trace = [];
+          for (const fraction of [0, .2, .4, .6, .8, 1]) {
+            animation.currentTime = duration * fraction;
+            await frame();
+            trace.push({ height: log.clientHeight, gap: Math.round(log.scrollHeight - log.scrollTop - log.clientHeight) });
+          }
+          animation.finish();
+          window.__stripTrace = trace;
+        })()`);
+      }
       let audit = null;
       if (auditPath) {
         audit = await window.webContents.executeJavaScript(`(() => {
@@ -550,7 +591,7 @@ function attachScreenshotHarness({
             })(),
             composerValue: document.querySelector('#messageInput')?.value || '',
             // The strip-easing fixture records the log on every frame a strip moves it.
-            stripTraceSteps: (window.__stripTrace || []).length,
+            stripTraceSteps: new Set((window.__stripTrace || []).map(step => step.height)).size,
             stripTraceMaxGap: Math.max(0, ...(window.__stripTrace || []).map((step) => step.gap)),
             stripTraceShrunk: (() => {
               const trace = window.__stripTrace || [];
@@ -562,6 +603,15 @@ function attachScreenshotHarness({
             })(),
             tabPillIndex: getComputedStyle(document.querySelector('.tabs')).getPropertyValue('--tab-index').trim() || '0',
             auroraLayer: getComputedStyle(document.querySelector('.widget-shell'), '::before').content !== 'none',
+            chatVisualPhase: document.body.dataset.chatState || 'idle',
+            panelBackgroundOpacity: Number(getComputedStyle(document.documentElement).getPropertyValue('--panel-background-opacity')),
+            chatLightEnergy: Number(getComputedStyle(document.body).getPropertyValue('--chat-light-energy')),
+            chatBloomAnimation: getComputedStyle(document.querySelector('.widget-shell'), '::after').animationName,
+            auroraAnimation: getComputedStyle(document.querySelector('.widget-shell'), '::before').animationName,
+            auroraOpacity: Number(getComputedStyle(document.querySelector('.widget-shell'), '::before').opacity),
+            reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+            offlineAvatar: document.querySelector('#avatarShell')?.classList.contains('offline') || false,
+            offlineBody: document.body.classList.contains('state-offline'),
             // The easing strips and drawer reveals lean on three platform features; a runtime
             // without them would pop instead of ease, silently.
             cssHeightInterpolation: CSS.supports('interpolate-size', 'allow-keywords'),

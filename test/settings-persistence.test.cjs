@@ -61,6 +61,7 @@ function fileSystemFailingRenames(failureState) {
 
 const completePreferences = {
   opacity: 0.73,
+  backgroundOpacity: 0.54,
   glowIntensity: 0.41,
   showThinking: false,
   motionEffects: true,
@@ -83,6 +84,16 @@ test("all preferences and all mode bounds survive a disk round-trip", () => {
     assert.deepEqual(store.save(completePreferences), completePreferences);
     const afterRestart = createSettingsStore({ filePath });
     assert.deepEqual(afterRestart.load(), completePreferences);
+  });
+});
+
+test("background opacity defaults, clamps and preserves transparent zero through restart", () => {
+  withTemporaryStore(({ filePath, store }) => {
+    for (const [value, expected] of [[undefined, 0.90], ["invalid", 0.90], [Infinity, 0.90], [-1, 0], [2, 1], [0, 0]]) {
+      const saved = store.save({ ...completePreferences, backgroundOpacity: value });
+      assert.equal(saved.backgroundOpacity, expected);
+      assert.deepEqual(createSettingsStore({ filePath }).load(), { ...completePreferences, backgroundOpacity: expected });
+    }
   });
 });
 
@@ -234,6 +245,7 @@ test("saving one setting does not erase other settings or mode bounds", () => {
 
 const preferenceMutations = [
   ["opacity", (value) => ({ ...value, opacity: 0.88 })],
+  ["background opacity", (value) => ({ ...value, backgroundOpacity: 0 })],
   ["glow intensity", (value) => ({ ...value, glowIntensity: 0.67 })],
   ["live Think visibility", (value) => ({ ...value, showThinking: true })],
   ["motion effects", (value) => ({ ...value, motionEffects: false })],
@@ -364,6 +376,7 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
 
   assert.deepEqual(migrated, {
     opacity: 0.75,
+    backgroundOpacity: 0.90,
     glowIntensity: 0.25,
     showThinking: true,
     // Absent from an older file, so the defaults apply rather than the old behaviour being

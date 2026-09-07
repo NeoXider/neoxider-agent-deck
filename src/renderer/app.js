@@ -159,6 +159,7 @@ function syncPressed(buttons, selectedValue, dataKey) {
   });
 }
 const AVATARS = {
+  offline: "assets/neoxider-github.png",
   idle: "assets/neoxider-github.png",
   working: "assets/avatar-working.png",
   waiting: "assets/avatar-waiting.png",
@@ -166,6 +167,7 @@ const AVATARS = {
   done: "assets/avatar-done.png",
 };
 const AVATAR_LABELS = {
+  offline: "Offline",
   idle: "ready",
   working: "working",
   waiting: "waiting",
@@ -177,7 +179,7 @@ const AVATAR_LABELS = {
 // the card the user had just switched off reappeared as "Working" a second later.
 // Outcomes — done, error — and the user's own file and capture notices are not live agent
 // internals, so they stay.
-const LIVE_ACTIVITY_KINDS = new Set(["thinking", "writing", "tool", "working"]);
+const LIVE_ACTIVITY_KINDS = new Set(["thinking", "writing", "tool", "working", "waiting"]);
 
 function createIcon(name, className = "ui-icon") {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -216,6 +218,7 @@ const PICKER_SURFACE_GAP = 7;
 let messageInputResizeFrame = null;
 let composerPastePreparation = Promise.resolve();
 let composerPasteFailurePending = false;
+let composerSelectionGeneration = 0;
 let composerSubmitInFlight = false;
 
 function captureMessageLayoutSnapshot() {
@@ -522,7 +525,7 @@ function syncCompactStatus() {
   const active = Boolean(expanded || state.compactStatusClosing || (state.compactAutoExpand && autoActive));
   const label = offline ? "Harness offline" : preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
   const text = compactText(offline ? "Start Harness to reconnect." : preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
-  const statusKind = offline ? "error" : preview?.kind || "";
+  const statusKind = offline ? "offline" : preview?.kind || "";
   const compactButton = $("#orbHistoryButton");
   const replySession = state.dashboard?.sessions?.find((session) => session.sessionId === state.compactReplySessionId);
   // What someone glancing at a collapsed circle wants to know: how many agents are working
@@ -707,7 +710,7 @@ function setActivity(activity) {
   const previous = state.currentActivity;
   const unchanged = Boolean(previous) === Boolean(next)
     && (!next || ["active", "kind", "label", "text"].every((key) => previous?.[key] === next[key]));
-  if (unchanged) return false;
+  if (unchanged) { syncChatVisualState(); return false; }
   state.currentActivity = next;
   document.body.classList.remove("activity-thinking", "activity-writing", "activity-tool");
   if (activity?.active && ["thinking", "writing", "tool"].includes(activity.kind)) {
@@ -715,10 +718,20 @@ function setActivity(activity) {
   }
   syncActivityCard();
   syncCompactStatus();
+  syncChatVisualState();
   return true;
 }
 
+const chatVisual = window.chatVisualState ? window.chatVisualState.createChatVisualState() : null;
+function syncChatVisualState() {
+  if (!chatVisual) return false;
+  chatVisual.setOffline(state.harnessOffline);
+  chatVisual.select(state.selectedSessionId);
+  return chatVisual.sync(document.body);
+}
+
 function setAvatar(mode, label) {
+  if (state.harnessOffline) { mode = "offline"; label = ""; }
   if (mode !== "done") clearCompletionSignal();
   const text = label === "" ? "" : (label || AVATAR_LABELS[mode] || "ready");
   // The poll re-asserts the same state every 2.5s. Rewriting className, the image src and
@@ -729,15 +742,21 @@ function setAvatar(mode, label) {
     state.avatarLabel = text;
     const shell = $("#avatarShell");
     shell.className = `avatar-shell ${mode}`;
+    shell.title = mode === "offline" ? "Harness offline" : "";
     document.querySelectorAll("[data-avatar]").forEach((image) => {
       const next = AVATARS[mode] || AVATARS.idle;
       if (!image.src.endsWith(next)) image.src = next;
     });
     $("#avatarState").textContent = text;
-    document.body.classList.remove("state-idle", "state-working", "state-waiting", "state-error", "state-done");
+    document.body.classList.remove("state-idle", "state-working", "state-waiting", "state-error", "state-done", "state-offline");
     document.body.classList.add(`state-${mode}`);
   }
   syncCompactStatus();
+  syncChatVisualState();
+}
+
+function avatarModeForActivity(activity) {
+  return ["thinking", "writing", "tool"].includes(activity?.kind) ? "working" : "waiting";
 }
 
 function renderNotifications() {
@@ -759,6 +778,8 @@ function syncUnacknowledgedErrors() {
 }
 
 function acknowledgeSessionError(sessionId) {
+  if (chatVisual) chatVisual.clearIf(sessionId, "error");
+  syncChatVisualState();
   if (sessionId) state.unacknowledgedErrorSessionIds.delete(sessionId);
   if (sessionId && state.compactNotification?.kind === "error" && state.compactNotification.sessionId === sessionId) {
     clearTimeout(state.compactNotificationTimer);
@@ -778,6 +799,10 @@ function clearAcknowledgedErrorPresentation() {
     syncActivityCard();
   }
   setAvatar("idle");
+  if (chatVisual) {
+    chatVisual.clearIf(state.selectedSessionId, "error");
+    syncChatVisualState();
+  }
   return true;
 }
 
@@ -804,6 +829,7 @@ function signalSessionError(session, label = "model error", text = "The current 
     };
   }
   syncUnacknowledgedErrors();
+  if (chatVisual && sessionId) chatVisual.noteCompletion(sessionId, "error");
   if (state.windowMode !== "full" || visibleInFull) {
     setAvatar("error", label);
     setActivity({ active: true, kind: "error", label: "Turn failed", text });
@@ -822,6 +848,8 @@ function notifyCompletion(session) {
     state.unacknowledgedErrorSessionIds.delete(sessionId);
   }
   const visuallyRelevant = state.windowMode !== "full" || !sessionId || sessionId === state.selectedSessionId;
+  if (chatVisual && sessionId) chatVisual.noteCompletion(sessionId, "done");
+  syncChatVisualState();
   if (!visuallyRelevant) return true;
   clearCompletionSignal();
   syncUnacknowledgedErrors();
@@ -859,6 +887,10 @@ function notifyCompletion(session) {
     if (!state.dashboard?.sessions?.some((session) => session.running)) {
       if (state.avatarMode === "done") setAvatar("idle");
       if (state.currentActivity?.kind === "done") setActivity(null);
+      if (chatVisual && sessionId) {
+        chatVisual.clearIf(sessionId, "done");
+        syncChatVisualState();
+      }
     }
   }, 2600);
   return true;
@@ -1218,10 +1250,12 @@ function applyBackgroundTaskCount(node, count) {
   // Written into the <b>, never onto the wrapper: textContent on the wrapper would delete
   // the icon beside it, and the icon is what makes a bare number mean anything.
   const value = node.querySelector("b");
-  if (value) value.textContent = count > 9 ? "9+" : String(count);
-  node.classList.toggle("visible", count > 0);
-  node.title = count ? `${count} background task${count === 1 ? "" : "s"} running` : "";
-  node.setAttribute("aria-label", node.title);
+  const text = count > 9 ? "9+" : String(count);
+  if (value && value.textContent !== text) value.textContent = text;
+  if (node.classList.contains("visible") !== (count > 0)) node.classList.toggle("visible", count > 0);
+  const title = count ? `${count} background task${count === 1 ? "" : "s"} running` : "";
+  if (node.title !== title) node.title = title;
+  if (node.getAttribute("aria-label") !== title) node.setAttribute("aria-label", title);
 }
 
 function contextPressure(session) {
@@ -1315,18 +1349,14 @@ function applySessionTime(node, session) {
   const runningSince = Number(session?.runningSince);
   const live = sessionAgentState(session) === "working" && Number.isFinite(runningSince) && runningSince > 0;
   const lastRun = Number(session?.lastRunMs);
-  node.dataset.runningSince = live ? String(runningSince) : "";
-  node.classList.toggle("running", live);
-  if (live) {
-    node.textContent = formatWorkDuration(Date.now() - runningSince);
-    node.title = "Time on the current turn";
-  } else if (Number.isFinite(lastRun) && lastRun > 0) {
-    node.textContent = formatWorkDuration(lastRun);
-    node.title = "Duration of the last turn";
-  } else {
-    node.textContent = "";
-    node.title = "";
-  }
+  const since = live ? String(runningSince) : "";
+  if (node.dataset.runningSince !== since) node.dataset.runningSince = since;
+  if (node.classList.contains("running") !== live) node.classList.toggle("running", live);
+  const completed = Number.isFinite(lastRun) && lastRun > 0;
+  const text = live ? formatWorkDuration(Date.now() - runningSince) : completed ? formatWorkDuration(lastRun) : "";
+  const title = live ? "Time on the current turn" : completed ? "Duration of the last turn" : "";
+  if (node.textContent !== text) node.textContent = text;
+  if (node.title !== title) node.title = title;
 }
 
 function refreshSessionTimers() {
@@ -1336,7 +1366,8 @@ function refreshSessionTimers() {
     const since = Number(node.dataset.runningSince);
     if (!Number.isFinite(since) || since <= 0) continue;
     live += 1;
-    node.textContent = formatWorkDuration(now - since);
+    const text = formatWorkDuration(now - since);
+    if (node.textContent !== text) node.textContent = text;
   }
   return live;
 }
@@ -2592,13 +2623,28 @@ function handleComposerPaste(event) {
   // clipboard data never reaches this branch and retains the browser's native paste.
   event.preventDefault();
   const clipboardData = event.clipboardData;
+  const originSessionId = state.selectedSessionId;
+  const originGeneration = composerSelectionGeneration;
+  const selectionChanged = () => originSessionId !== state.selectedSessionId || originGeneration !== composerSelectionGeneration;
   composerPastePreparation = composerPastePreparation.then(async () => {
+    if (selectionChanged()) {
+      showToast("Attachment preparation canceled after switching sessions", "paperclip");
+      return;
+    }
     const result = await clipboard.prepareClipboard(clipboardData, {
       pathForFile: (file) => window.widget.pathForFile(file),
       prepareFiles: (paths) => window.widget.prepareFiles(paths),
     });
+    if (selectionChanged()) {
+      showToast("Attachment preparation canceled after switching sessions", "paperclip");
+      return;
+    }
     addAttachments(result);
   }).catch((error) => {
+    if (selectionChanged()) {
+      showToast("Attachment preparation canceled after switching sessions", "paperclip");
+      return;
+    }
     composerPasteFailurePending = true;
     showTransientActivityError(error, "Paste failed");
   });
@@ -2655,8 +2701,15 @@ async function selectSession(sessionId, openChat = false) {
   // The error belongs to the message that failed, and that message stays behind with its
   // own session's composer content.
   if (previousSessionId !== state.selectedSessionId) {
-    invalidateSelectedHistoryVersion();
     clearComposerError();
+    composerSelectionGeneration += 1;
+    composerPasteFailurePending = false;
+    if (state.pendingAttachments.length) {
+      state.pendingAttachments = [];
+      renderAttachments();
+      showToast("Attachments cleared after switching sessions", "paperclip");
+    }
+    invalidateSelectedHistoryVersion();
     // Half-written text follows its session, not the picker: whatever was in the composer
     // is put away under the session it was meant for and comes back with it.
     stashComposerDraft(previousSessionId);
@@ -2682,8 +2735,19 @@ async function selectSession(sessionId, openChat = false) {
       : null);
     setActivity(activity);
     if (session?.state === "error") setAvatar("error", "model error");
-    else if (session?.running) setAvatar("working", activity?.label || "working");
+    else if (session?.running) setAvatar(avatarModeForActivity(activity), activity?.label || "working");
     else if (!state.harnessOffline) setAvatar("idle");
+    // The glow follows the newly selected session at once; the history load below
+    // reconciles it again when it lands.
+    if (chatVisual) {
+      chatVisual.select(state.selectedSessionId);
+      chatVisual.notePoll(state.selectedSessionId, {
+        running: Boolean(session?.running),
+        runningSince: session?.runningSince,
+        activityKind: commandFeedbackFor(state.selectedSessionId)?.activity?.kind || session?.activity?.kind || null,
+      });
+      syncChatVisualState();
+    }
   }
   syncSelectedAgentMode();
   state.pendingSelection = null;
@@ -3820,6 +3884,10 @@ function showTransientActivityError(error, label) {
     if (state.currentActivity !== activity) return;
     setActivity(null);
     if (state.avatarMode === "error" && !state.compactErrorUnread && !state.harnessOffline) setAvatar("idle");
+    if (chatVisual) {
+      chatVisual.clearIf(state.selectedSessionId, "error");
+      syncChatVisualState();
+    }
     state.transientActivityTimer = null;
   }, 3200);
 }
@@ -3834,10 +3902,12 @@ function setCommandFeedback(sessionId, feedback) {
   if (previous?.timer) clearTimeout(previous.timer);
   if (!feedback) {
     state.commandFeedbackBySession.delete(sessionId);
+    if (chatVisual) chatVisual.clearIf(sessionId, "tool");
     if (sessionId === state.selectedSessionId) setActivity(null);
     return;
   }
   state.commandFeedbackBySession.set(sessionId, feedback);
+  if (chatVisual) chatVisual.noteStream(sessionId, feedback.activity?.kind || null);
   if (sessionId === state.selectedSessionId) setActivity(feedback.activity);
 }
 
@@ -3873,7 +3943,36 @@ function selectedLiveStreamIsActive(sessionId = state.selectedSessionId) {
   return Boolean(sessionId && state.liveStreamsBySession.get(sessionId)?.active);
 }
 
+function invalidateDisconnectedStreams(revisionsAtRequest) {
+  for (const [sessionId, stream] of state.liveStreamsBySession) {
+    stream.reconnectPending = true;
+    if ((state.liveSessionRevisions.get(sessionId) || 0) !== (revisionsAtRequest.get(sessionId) || 0)) continue;
+    stream.active = false;
+    stream.activity = null;
+    stream.disconnected = true;
+    state.runningSessionIds.delete(sessionId);
+  }
+  state.historyRequestSequence += 1;
+  state.historyBusy = false;
+  invalidateSelectedHistoryVersion();
+  if (!selectedLiveStreamIsActive()) setActivity(null);
+}
+
+function reconcileReconnectedStream(session, revisionsAtRequest) {
+  const stream = state.liveStreamsBySession.get(session.sessionId);
+  if (!stream?.reconnectPending) return;
+  const newerLive = (state.liveSessionRevisions.get(session.sessionId) || 0) !== (revisionsAtRequest.get(session.sessionId) || 0);
+  stream.reconnectPending = false;
+  if (session.running || newerLive) return;
+  stream.active = false;
+  stream.activity = null;
+  stream.disconnected = true;
+  state.runningSessionIds.delete(session.sessionId);
+  if (session.sessionId === state.selectedSessionId) invalidateSelectedHistoryVersion();
+}
+
 async function refreshHistory({ priority = false } = {}) {
+  if (state.harnessOffline) return "offline";
   const sessionId = state.selectedSessionId;
   if (!sessionId) {
     state.historyBusy = false;
@@ -3884,10 +3983,14 @@ async function refreshHistory({ priority = false } = {}) {
   }
   if (!priority && state.historyPrioritySessionId === sessionId) return "deferred";
   const requestSequence = ++state.historyRequestSequence;
+  const streamAtRequest = state.liveStreamsBySession.get(sessionId);
   state.historyBusy = true;
   try {
     const view = await window.widget.history(sessionId);
     if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return "superseded";
+    if (streamAtRequest?.disconnected && !streamAtRequest.active && state.liveStreamsBySession.get(sessionId) === streamAtRequest) {
+      state.liveStreamsBySession.delete(sessionId);
+    }
     const rendererAlreadyHasRevision = state.historyLoadedSessionId === sessionId && state.historyLoadedRevision !== null;
     const sameRevision = view.revision !== null && view.revision !== undefined
       && Object.is(state.historyLoadedRevision, view.revision);
@@ -3898,6 +4001,17 @@ async function refreshHistory({ priority = false } = {}) {
     if (state.historyPendingSessionId === sessionId) state.historyPendingSessionId = null;
     if (skipReconciliation) return "unchanged";
     const messages = view.messages || [];
+    if (chatVisual) {
+      const historySession = state.dashboard?.sessions?.find((session) => session.sessionId === sessionId);
+      chatVisual.notePoll(sessionId, {
+        running: Boolean(historySession?.running) || selectedLiveStreamIsActive(sessionId),
+        runningSince: historySession?.runningSince,
+        activityKind: commandFeedbackFor(sessionId)?.activity?.kind
+          || (selectedLiveStreamIsActive(sessionId) ? state.liveStreamsBySession.get(sessionId)?.activity?.kind || "waiting" : null)
+          || view.activity?.kind
+          || null,
+      });
+    }
     setActivity(commandFeedbackFor(sessionId)?.activity || view.activity || null);
     const detectedMode = modeFromMessages(messages);
     if (detectedMode) setSessionAgentMode(sessionId, detectedMode);
@@ -3905,7 +4019,7 @@ async function refreshHistory({ priority = false } = {}) {
     const latest = messages[messages.length - 1];
     if (state.windowMode === "full") {
       if (latest?.role === "error") setAvatar("error", "model error");
-      else if (view.activity?.active) setAvatar("working", view.activity.label || "working");
+      else if (view.activity?.active) setAvatar(avatarModeForActivity(view.activity), view.activity.label || "working");
       else if (state.avatarMode === "error" && !state.harnessOffline) setAvatar("idle");
       else if (state.avatarMode !== "done" && !state.harnessOffline) setAvatar("idle");
     }
@@ -3942,6 +4056,8 @@ function refreshHistoryAfterLiveMessage(sessionId) {
 }
 
 function updateLiveSessionState(sessionId, running, activity = null, stateName = null, { render = true } = {}) {
+  if (chatVisual && running) chatVisual.noteStream(sessionId, activity?.kind || "waiting");
+  syncChatVisualState();
   const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
   if (session) {
     session.running = Boolean(running);
@@ -3989,7 +4105,7 @@ function paintLiveState() {
   setActivity(visibleActivity);
   if (visibleActivity.kind === "writing" || stream?.text) paintLiveAssistant();
   const avatarLabel = visibleActivity.kind === "tool" ? "using tool" : visibleActivity.kind === "thinking" ? "thinking" : visibleActivity.kind === "writing" ? "writing" : visibleActivity.label || "working";
-  setAvatar("working", avatarLabel);
+  setAvatar(avatarModeForActivity(visibleActivity), avatarLabel);
 }
 
 function scheduleLivePaint() {
@@ -4043,7 +4159,7 @@ async function handleLiveEvent(payload) {
     state.liveTodosBySession.set(sessionId, []);
     if (session) session.projections = projectionsWithTodos(session.projections, []);
     if (sessionId === state.selectedSessionId) renderTodos();
-    const activity = { active: true, kind: "thinking", label: "Thinking", text: "Preparing the next step…" };
+    const activity = { active: true, kind: "waiting", label: "Waiting", text: "Preparing the next step…" };
     stream = { text: "", reasoning: "", lastSeq: Number(event.seq) || 0, active: true, activity };
     state.liveStreamsBySession.set(sessionId, stream);
     updateLiveSessionState(sessionId, true, activity, "working", { render: false });
@@ -4225,6 +4341,17 @@ function closeCompactReply({ showHistory = true } = {}) {
   if (showHistory) requestAnimationFrame(() => $("#orbSessionList .orb-session-reply")?.focus());
 }
 
+function showAcceptedSendState(sessionId, queued = false) {
+  if (state.windowMode === "full" && state.selectedSessionId !== sessionId) return;
+  const stream = state.liveStreamsBySession.get(sessionId);
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+  const activity = stream?.active ? stream.activity : session?.running ? session.activity : null;
+  if (activity) {
+    setActivity(activity);
+    setAvatar(avatarModeForActivity(activity), activity.label || "working");
+  } else if (!queued) setAvatar("waiting", "waiting for reply");
+}
+
 async function sendCompactReply() {
   if (state.compactReplyBusy) return;
   const sessionId = state.compactReplySessionId;
@@ -4242,6 +4369,8 @@ async function sendCompactReply() {
   state.compactReplyBusy = true;
   state.compactReplyError = "";
   syncCompactStatus();
+  if (chatVisual && !queueingBehindTurn) chatVisual.noteSendStart(sessionId);
+  syncChatVisualState();
   try {
     await window.widget.send({
       sessionId,
@@ -4251,6 +4380,7 @@ async function sendCompactReply() {
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
     if (queueingBehindTurn) trackQueuedPrompt(sessionId, { text }, queueRevisionAtSubmit);
+    if (chatVisual && !queueingBehindTurn) chatVisual.noteSendAccepted(sessionId);
     input.value = "";
     state.compactReplyOpen = false;
     state.compactHistoryOpen = false;
@@ -4272,11 +4402,13 @@ async function sendCompactReply() {
         syncCompactStatus();
       }, 240);
     }, 2200);
-    setAvatar("waiting", queueingBehindTurn ? "queued" : "waiting for reply");
+    showAcceptedSendState(sessionId, queueingBehindTurn);
     syncCompactStatus();
     await refresh({ afterCurrent: true });
   } catch (error) {
     state.compactReplyBusy = false;
+    if (chatVisual && !queueingBehindTurn) chatVisual.noteCompletion(sessionId, "error");
+    syncChatVisualState();
     state.compactReplyError = compactText(error?.message || error || "Reply was not sent", 86);
     setAvatar("error", "not sent");
     syncCompactStatus();
@@ -4337,6 +4469,7 @@ async function performRefresh() {
     const dashboard = {
       ...dashboardResult,
       sessions: (dashboardResult.sessions || []).map((session) => {
+        if (dashboardResult.harness) reconcileReconnectedStream(session, liveRevisionsAtRequest);
         let mergedSession = session;
         if ((state.liveSessionRevisions.get(session.sessionId) || 0) !== (liveRevisionsAtRequest.get(session.sessionId) || 0)) {
           const live = state.dashboard?.sessions?.find((item) => item.sessionId === session.sessionId);
@@ -4359,6 +4492,7 @@ async function performRefresh() {
     };
     const wasOffline = state.harnessOffline;
     state.harnessOffline = !dashboard.harness;
+    if (state.harnessOffline) invalidateDisconnectedStreams(liveRevisionsAtRequest);
     document.body.classList.toggle("harness-offline", state.harnessOffline);
     state.dashboard = dashboard;
     if (Array.isArray(dashboard.workspaces)) {
@@ -4421,17 +4555,28 @@ async function performRefresh() {
     const selectedSession = dashboard.sessions?.find((session) => session.sessionId === state.selectedSessionId);
     const selectedRunning = Boolean(selectedSession?.running);
     const commandFeedback = commandFeedbackFor(state.selectedSessionId);
+    const selectedStream = state.liveStreamsBySession.get(state.selectedSessionId);
+    if (chatVisual && dashboard.harness) chatVisual.notePoll(state.selectedSessionId, {
+      running: selectedRunning || Boolean(selectedStream?.active),
+      runningSince: selectedSession?.runningSince,
+      activityKind: commandFeedback?.activity?.kind
+        || (selectedStream?.active ? selectedStream.activity?.kind || "waiting" : null)
+        || selectedSession?.activity?.kind || null,
+    });
+    syncChatVisualState();
     syncRunningControls(selectedRunning);
-    if (!dashboard.harness) setAvatar("error", "");
+    if (!dashboard.harness) setAvatar("offline");
     else if (commandFeedback) {
       setActivity(commandFeedback.activity);
       setAvatar(commandFeedback.avatarMode, commandFeedback.avatarLabel);
     }
     else if (dashboard.sessions?.some((session) => session.running) && (state.windowMode !== "full" || selectedRunning)) {
       const running = selectedSession?.running ? selectedSession : dashboard.sessions.find((session) => session.running);
-      if (running?.activity) setActivity(running.activity);
-      else setActivity({ active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" });
-      setAvatar("working", running?.activity?.label || "working");
+      const live = state.liveStreamsBySession.get(running?.sessionId);
+      const activity = (live?.active ? live.activity : running?.activity)
+        || { active: true, kind: "waiting", label: "Waiting", text: "Agent is processing the current turn…" };
+      setActivity(activity);
+      setAvatar(avatarModeForActivity(activity), activity.label || "waiting");
     }
     else if (dashboard.sessions?.some((session) => session.running) && state.windowMode === "full") {
       if (state.currentActivity?.active) setActivity(null);
@@ -4447,6 +4592,7 @@ async function performRefresh() {
     renderWorkspaces();
     renderTodos();
     renderQueuedPrompts();
+    if (!dashboard.harness) return;
     if (state.selectedSessionId && !state.queuedPromptsBySession.has(state.selectedSessionId)) await loadQueue(state.selectedSessionId);
     if (!state.modelCatalog) await loadModels();
     if (state.commandsLoadedSessionId !== state.selectedSessionId) await loadCommands();
@@ -4593,6 +4739,8 @@ async function stopCurrentTurn() {
   try {
     if ((state.turnGenerationsBySession.get(sessionId) || 0) !== turnGeneration) return true;
     state.cancelPendingSessionIds.add(sessionId);
+    if (chatVisual) chatVisual.noteStop(sessionId);
+    syncChatVisualState();
     bumpLiveSessionRevision(sessionId);
     state.liveStreamsBySession.delete(sessionId);
     clearLiveTodos(sessionId);
@@ -4742,6 +4890,17 @@ function applyGlowIntensity(value) {
   $("#glowRange").value = String(Math.round(intensity * 100));
   $("#glowValue").textContent = `${Math.round(intensity * 100)}%`;
   return intensity;
+}
+
+let confirmedBackgroundOpacity = 0.9;
+let backgroundOpacitySaveSequence = 0;
+function applyBackgroundOpacity(value) {
+  const numeric = Number(value);
+  const opacity = Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 0.9;
+  document.documentElement.style.setProperty("--panel-background-opacity", String(opacity));
+  if ($("#backgroundOpacityRange")) $("#backgroundOpacityRange").value = String(Math.round(opacity * 100));
+  if ($("#backgroundOpacityValue")) $("#backgroundOpacityValue").textContent = `${Math.round(opacity * 100)}%`;
+  return opacity;
 }
 
 function applyShowThinking(value) {
@@ -4941,8 +5100,8 @@ function applyPlatformCapabilities(capabilities) {
   gameButton.disabled = !presentation.gameLayerAvailable;
   gameButton.setAttribute("aria-disabled", String(!presentation.gameLayerAvailable));
   gameButton.title = presentation.gameLayerAvailable
-    ? "Maximum safe layer for borderless fullscreen apps"
-    : "Game layer is unavailable on this platform; Above is used instead";
+    ? "Поверх окон — усиленный режим. Не гарантирует отображение поверх эксклюзивного полноэкранного режима."
+    : "Enhanced above-windows mode is unavailable on this platform; Above is used instead";
 
   const dockButton = $("#dockButton");
   dockButton.disabled = !presentation.edgeAvailable;
@@ -4987,6 +5146,7 @@ async function hydratePreferences() {
     $("#opacityRange").value = Math.round(preferences.opacity * 100);
     $("#opacityValue").textContent = `${Math.round(preferences.opacity * 100)}%`;
     applyGlowIntensity(preferences.glowIntensity);
+    confirmedBackgroundOpacity = applyBackgroundOpacity(preferences.backgroundOpacity ?? 0.9);
     applyShowThinking(preferences.showThinking);
     applyMotionEffects(preferences.motionEffects);
     applyCompactAutoExpand(preferences.compactAutoExpand);
@@ -5111,7 +5271,16 @@ $("#chatForm").addEventListener("submit", async (event) => {
   $("#sendButton").classList.add("sending");
   launchSendButton();
   const targetSessionId = state.selectedSessionId;
+  const input = $("#messageInput");
+  const text = input.value.trim();
+  const submittedSelection = state.pendingSelection;
   await composerPastePreparation;
+  if (state.selectedSessionId !== targetSessionId) {
+    composerSubmitInFlight = false;
+    $("#sendButton").disabled = false;
+    $("#sendButton").classList.remove("sending");
+    return;
+  }
   if (composerPasteFailurePending) {
     composerPasteFailurePending = false;
     composerSubmitInFlight = false;
@@ -5119,15 +5288,12 @@ $("#chatForm").addEventListener("submit", async (event) => {
     $("#sendButton").classList.remove("sending");
     return;
   }
-  const input = $("#messageInput");
-  const text = input.value.trim();
   if (!text && !state.pendingAttachments.length) {
     composerSubmitInFlight = false;
     $("#sendButton").disabled = false;
     $("#sendButton").classList.remove("sending");
     return;
   }
-  const submittedSelection = state.pendingSelection;
   const submittedAttachments = [...state.pendingAttachments];
   const queueingBehindTurn = Boolean(targetSessionId && state.runningSessionIds.has(targetSessionId));
   const queueRevisionAtSubmit = queueSnapshotRevision(targetSessionId);
@@ -5159,7 +5325,9 @@ $("#chatForm").addEventListener("submit", async (event) => {
       await executeHarnessCommand(text, targetSessionId, submittedAttachments, commandEntry);
       rememberSentMessage(targetSessionId, text);
     } else {
-      setAvatar("working", "sending");
+      if (chatVisual && !queueingBehindTurn) chatVisual.noteSendStart(targetSessionId);
+      syncChatVisualState();
+      if (!queueingBehindTurn) setAvatar("waiting", "sending");
       const result = await window.widget.send({
         sessionId: targetSessionId,
         text,
@@ -5168,22 +5336,30 @@ $("#chatForm").addEventListener("submit", async (event) => {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
       const stillOwnsVisibleSession = state.selectedSessionId === targetSessionId;
+      if (chatVisual && targetSessionId && !queueingBehindTurn) chatVisual.noteSendAccepted(targetSessionId);
+      if (chatVisual && !targetSessionId) chatVisual.noteCreateSettled(result.sessionId, chatVisual.phaseFor(result.sessionId) === "idle" ? "waiting" : chatVisual.phaseFor(result.sessionId));
       if (stillOwnsVisibleSession) {
         state.selectedSessionId = result.sessionId;
         if (!targetSessionId) setSessionAgentMode(result.sessionId, "agent");
       }
       rememberSentMessage(result.sessionId, text);
+      syncChatVisualState();
       clearComposerError();
       if (queueingBehindTurn) trackQueuedPrompt(result.sessionId, { text, attachmentCount }, queueRevisionAtSubmit);
       const submittedPaths = new Set(submittedAttachments.map((attachment) => attachment.path));
       state.pendingAttachments = state.pendingAttachments.filter((attachment) => !submittedPaths.has(attachment.path));
       renderAttachments();
       if (stillOwnsVisibleSession) {
-        setAvatar("waiting", "waiting for reply");
+        showAcceptedSendState(result.sessionId, queueingBehindTurn);
         await refresh({ afterCurrent: true });
       }
     }
   } catch (error) {
+    if (chatVisual && !queueingBehindTurn && !submittedCommand) {
+      chatVisual.noteSendFailure(targetSessionId);
+      if (targetSessionId) chatVisual.noteCompletion(targetSessionId, "error");
+      syncChatVisualState();
+    }
     if (state.selectedSessionId === targetSessionId) {
       if (!input.value.trim()) input.value = text;
       resizeMessageInput();
@@ -5513,6 +5689,16 @@ $("#glowRange").addEventListener("input", async (event) => {
   const intensity = applyGlowIntensity(Number(event.target.value) / 100);
   await window.widget.setGlowIntensity(intensity);
 });
+$("#backgroundOpacityRange")?.addEventListener("input", async (event) => {
+  const sequence = ++backgroundOpacitySaveSequence;
+  const opacity = applyBackgroundOpacity(Number(event.target.value) / 100);
+  try {
+    await window.widget.setBackgroundOpacity(opacity);
+    if (sequence === backgroundOpacitySaveSequence) confirmedBackgroundOpacity = opacity;
+  } catch {
+    if (sequence === backgroundOpacitySaveSequence) applyBackgroundOpacity(confirmedBackgroundOpacity);
+  }
+});
 $$('#sizeSwitch button').forEach((button) => button.addEventListener("click", async () => {
   const value = await window.widget.setSize(button.dataset.size);
   syncPressed($$('#sizeSwitch button'), value, "size");
@@ -5641,7 +5827,7 @@ if (screenshotFixture) {
       state.selectedSessionId = null;
       if (state.focusMode) setFocusMode(false);
       $("#offlineBanner").classList.add("show");
-      setAvatar("error", "");
+      setAvatar("offline");
       syncCompactStatus();
       renderSessions();
       renderSessionSelect();
@@ -6007,7 +6193,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.6.18", latestVersion: "0.7.0", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.7.0", latestVersion: "0.7.1", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {

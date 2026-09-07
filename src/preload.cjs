@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld("widget", {
   startHarness: () => ipcRenderer.invoke("start-harness"),
   setWindowLayer: (value) => ipcRenderer.invoke("set-window-layer", value),
   setOpacity: (value) => ipcRenderer.invoke("set-opacity", value),
+  setBackgroundOpacity: (value) => ipcRenderer.invoke("set-background-opacity", value),
   setGlowIntensity: (value) => ipcRenderer.invoke("set-glow-intensity", value),
   setShowThinking: (value) => ipcRenderer.invoke("set-show-thinking", Boolean(value)),
   setMotionEffects: (value) => ipcRenderer.invoke("set-motion-effects", Boolean(value)),

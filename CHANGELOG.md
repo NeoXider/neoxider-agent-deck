@@ -5,6 +5,28 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-09-07
+
+### Added
+
+- The selected chat now has its own activity light, visible in Focus mode as well as the full window. Waiting for the API starts before the send returns; streamed reasoning, writing, tools and completion have distinct phases. Background agents keep their compact notifications without lighting an idle selected chat.
+- Animated background colour fields have a separate **Background opacity** setting, saved independently of window opacity and activity glow. Motion effects and reduced-motion preferences keep the same information in a still presentation.
+- **Harness offline** has its own muted presentation across the avatar, chat and compact modes. It keeps the conversation visible and the Start action available instead of presenting a disconnected backend as a model error.
+
+### Changed
+
+- Renamed the desktop layer previously labelled Game to **Поверх окон+** and added a tooltip explaining that exclusive fullscreen can cover it. Saved preferences and native layer behaviour are unchanged; the Xbox Game Bar companion remains a separate integration.
+- Unified state colours across the header avatar, chat, Orb and Edge, with more visible activity light and tighter compact alignment.
+- Updated the cover composition and visual checks for the new presentation and opacity controls.
+
+### Fixed
+
+- Unchanged polling no longer rewrites timer text, background-task counts or semantic state attributes; ongoing animations keep their progress.
+- Active stream state wins over stale dashboard activity. A genuinely newer turn can supersede a previous completion, while a late poll cannot erase it.
+- Reconnecting after a missed turn-end reloads the authoritative history instead of retaining a stuck writing state. A delayed send acknowledgment also preserves any stream phase that has already arrived.
+- Switching sessions while clipboard attachments are preparing cancels that submission without sending another session's draft or clearing it.
+- Clipboard preparation is bound to the originating session, including an A → B → A switch. Deliberately switching sessions clears reviewed composer attachment references with a notice; source files and text drafts remain intact.
+
 ## [0.7.0] - 2026-09-02
 
 ### Fixed

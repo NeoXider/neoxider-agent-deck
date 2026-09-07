@@ -36,7 +36,7 @@ test("package metadata stays coherent with the product source of truth", () => {
   assert.match(readme, new RegExp(`source-v${escapedVersion}`));
   assert.match(readme, new RegExp(`changelog-${escapedVersion}`));
   assert.match(readme, new RegExp(`NeoXider-Agent-Deck-${escapedVersion}-windows-x64-portable\\.exe`));
-  assert.match(readme, new RegExp(`current release, ${escapedVersion}`));
+  assert.match(readme, new RegExp(`Source version ${escapedVersion}`));
   assert.match(changelog, new RegExp(`^## \\[${escapedVersion}\\]`, "m"));
   assert.deepEqual(USER_DATA_SEGMENTS, ["NeoXider", "AgentDeck"]);
   const main = readFileSync(path.join(__dirname, "..", "src", "main.cjs"), "utf8");
@@ -173,9 +173,9 @@ test("release documentation uses the current window-layer label and previews eve
 test("the update-ready visual fixture shows the released upgrade path", () => {
   const renderer = readFileSync(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
   const visualSmoke = readFileSync(path.join(__dirname, "..", "scripts", "ui-visual-smoke.cjs"), "utf8");
-  assert.match(renderer, /status: "ready", currentVersion: "0.6.18", latestVersion: "0.7.0"/);
-  assert.match(visualSmoke, /updateStatus: "v0.7.0 is verified and ready"/);
-  assert.equal(packageJson.version, "0.7.0");
+  assert.match(renderer, /status: "ready", currentVersion: "0.7.0", latestVersion: "0.7.1"/);
+  assert.match(visualSmoke, /updateStatus: "v0.7.1 is verified and ready"/);
+  assert.equal(packageJson.version, "0.7.1");
 });
 
 test("the Windows installer follows the canonical repository, artifact, and product name", () => {

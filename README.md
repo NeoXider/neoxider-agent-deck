@@ -10,14 +10,14 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.7.0-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.7.0-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.7.1-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.7.1-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
 Agent Deck keeps [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) close without keeping the full web interface open. It shows live sessions and subagents, provides a real mini-chat, tracks context pressure, switches models and reasoning effort, runs native Harness commands, changes workspaces, accepts file drops, renders safe Markdown, and keeps tool calls compact.
 
-The NeoXider avatar reacts to agent state: breathing while idle, typing while working, floating while waiting, shaking on errors and celebrating completion. A subtle inner chat glow independently distinguishes model thinking, answer generation, and tool execution; idle chat has no glow. Short spring transitions make buttons, Send, view changes, avatar collapse, and edge docking feel responsive without ignoring Windows reduced-motion preferences — and everything that moves, from the slow aurora behind the widget to the strips easing around the log, is one switch away from still.
+The NeoXider avatar reacts to agent state: breathing while idle, typing while working, floating while waiting, shaking on errors and celebrating completion. The chat carries its own activity light, including while waiting for the API and when the header is hidden in Focus mode. Its colours match the avatar, Orb and Edge; an idle selected chat stays calm even while another session works. Animated colour fields sit behind the panel, with background opacity saved separately from window opacity and activity glow. Harness offline has a muted disconnected state and a Start action. Everything that moves, from the slow aurora to the strips around the log, respects reduced-motion preferences and **Settings → Motion effects**.
 
 ## Preview
 
@@ -131,11 +131,11 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/scroll-away.png" alt="Manual scroll position and jump to latest" /></td>
-    <td width="50%"><img src="docs/screenshots/settings.png" alt="Window layer, opacity, glow and size settings" /></td>
+    <td width="50%"><img src="docs/screenshots/settings.png" alt="Window layer, independent window and background opacity, glow and size settings" /></td>
   </tr>
   <tr>
     <td align="center"><strong>Reading position stays under user control</strong></td>
-    <td align="center"><strong>Three window layers + adjustable glow</strong></td>
+    <td align="center"><strong>Window layers, background opacity and glow</strong></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/update-ready.png" alt="Verified background update ready to install from the header" /></td>
@@ -189,7 +189,10 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Files, paste and drag-and-drop** — `Ctrl+V` adds copied files or clipboard images for review without auto-sending. PNG, JPEG, WebP and GIF files use official image content blocks; sent messages retain tiny image previews or compact file/video chips, while other files become explicit local `@path` references.
 - **Instant screenshots** — capture a selected region or the current display from the header or a global shortcut, inspect the PNG preview above the composer, then decide whether to send it.
 - **Rebindable global shortcuts** — show/collapse the deck, create a session, capture a region or display, focus chat, and open Harness; every binding can be disabled, changed, reset, and survives restart.
-- **Live chat aura** — brighter-by-default, distinct inner glows indicate thinking, writing, and tool execution. No activity means no glow, and glow intensity is adjustable in settings.
+- **Live chat aura** — selected-session light distinguishes API waiting, thinking, writing, tools, completion and errors, including in Focus mode. Queueing another message preserves the current phase; stopping clears it. Background agents cannot light an idle selected chat, and a late poll cannot restart the same animation.
+- **Your background** — drifting colour fields and panel transparency have an independent **Background opacity** slider. Its saved value does not change native window opacity or activity glow intensity; Motion effects can freeze the fields entirely.
+- **Session-bound attachments** — switching sessions clears the composer's reviewed attachment references and cancels any unfinished clipboard preparation, with a brief notice. Original files remain untouched and text drafts still follow their own sessions.
+- **Connection state** — a disconnected Harness gets a muted offline presentation across the chat and compact modes, keeps the conversation visible, and offers Start. It is separate from a failed model turn.
 - **Motion with a switch** — a slow aurora drifts behind the widget and brightens while the agent works, the active tab slides, the plane leaves the Send button with the message, the context ring beats when critical, a working session card carries a sweep of light, and new messages slide in. **Settings → Motion effects** takes all of it off at once.
 - **Focus Chat** — one compact composer button hides all chrome and setup surfaces, leaving only messages, optional attachment previews, the input, context and actions; tap it again to restore everything.
 - **Three window states** — full deck, notification avatar, or an iridescent edge handle.
@@ -204,10 +207,10 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Elapsed turn time** — every session card and the session picker show how long the agent has been on the current turn, ticking live, and how long the last completed turn took. The clock is read from the turn's own events, so it survives a widget restart.
 - **Exact-session pet reply** — collapsed pet mode keeps one useful reply button instead of create/command/attachment clutter; it opens the agent and session that produced the reply.
 - **Session-aware notifications** — a completed reply slides out for about 2.7 seconds with its session name and answer preview; clicking it restores that exact session. The edge handle still bounces when work finishes.
-- **Three window layers** — choose Desktop, where every ordinary window covers the widget; the default Above layer; or the strongest available Game layer. Game is best-effort: exclusive fullscreen and anti-cheat overlays can still win, and unsupported Linux desktops disable the choice instead of silently pretending it worked.
+- **Three window layers** — choose Desktop, where every ordinary window covers the widget; the default Above layer; or **Поверх окон+**, the enhanced above-windows mode (previously Game). It raises the desktop window more aggressively but does not guarantee visibility over exclusive fullscreen. Unsupported Linux desktops disable the choice.
 - **No close button** — window close gestures dock the widget to the screen edge. Quit remains available from the tray menu.
 - **Single-instance launch** — repeated shortcut clicks focus the existing widget instead of stacking translucent windows.
-- **Personal controls** — opacity, compact/standard/large size, chat glow intensity, window layer and Start at login where the platform supports them.
+- **Personal controls** — independent window/background opacity, compact/standard/large size, chat glow intensity, window layer and Start at login where the platform supports them.
 - **Locked-down renderer** — a strict Content Security Policy (`default-src 'none'`, no `unsafe-inline`, no `unsafe-eval`), denied window creation, blocked navigation and protocol-checked external links mean model output can render but never execute or navigate.
 - **Survives a renderer crash** — a frameless transparent window that loses its renderer is reloaded automatically instead of lingering as a dead shape that only the task manager can remove.
 - **Keyboard and screen reader support** — every reachable control draws a visible focus ring, dimmed labels hold WCAG AA contrast, and the conversation is exposed as an ARIA log region.
@@ -302,7 +305,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.7.0-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.7.1-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
@@ -322,21 +325,21 @@ Screen capture, configurable global hotkeys, and the three-session pet switcher 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). The current release, 0.7.0,
-mirrors Harness Workspaces and Ungrouped sessions across both main views, keeps folder creation
-compact, restores complete long-session history and the always-available jump to the latest
-message, adds the optional non-shifting Think overlay and clipboard attachment previews,
-tightens the 2×2 composer, and repairs compact drag plus Edge state feedback.
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). Source version 0.7.1 adds
+selected-chat activity light, unified colours across modes, independently saved background
+opacity, a distinct offline presentation, and stable timer/count updates. The release badge
+at the top links to the latest published build; source changes and fixture screenshots alone
+do not mean a new release has been published or installed.
 
 ## Platform support
 
 Windows 10 and 11 are the primary supported target. CI also packages Intel/Apple Silicon
 macOS builds and Linux AppImage/deb builds, but those remain **experimental**. Linux uses
-a freedesktop autostart entry; it disables native opacity and Game layer controls;
+a freedesktop autostart entry; it disables native opacity and enhanced above-windows controls;
 Wayland also disables window dragging and Edge mode, while X11 labels its wider interactive
 Edge area. When no installed Harness runtime is found, `Start Harness` relies on `npx` being
 present in the launcher environment, which is not guaranteed for an app started from Finder
-or a desktop launcher. The Electron Game layer works over ordinary and borderless windows;
+or a desktop launcher. **Поверх окон+** targets ordinary and borderless windows;
 true exclusive fullscreen can outrank desktop windows, so the repository keeps the native
 Xbox Game Bar companion path explicit rather than claiming a guarantee the OS does not give.
 

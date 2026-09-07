@@ -186,6 +186,28 @@ test("live Think visibility is returned and persisted through the preferences co
   assert.equal((await ipcMain.invoke("get-preferences", legitimate)).showThinking, false);
 });
 
+test("background opacity persists independently without changing native opacity", async () => {
+  const preferences = { opacity: 0.73, backgroundOpacity: 0.90, glowIntensity: 0.41, windowLayer: "above" };
+  let scheduledSaves = 0;
+  let nativeOpacityCalls = 0;
+  const { ipcMain, window } = register({
+    platformCapabilities: { nativeOpacity: true },
+    getPreferences: () => preferences,
+    getScreenshotService: () => ({ capabilities: () => ({}) }),
+    schedulePreferenceSave: () => { scheduledSaves += 1; },
+  });
+  window.setOpacity = () => { nativeOpacityCalls += 1; };
+  const legitimate = { sender: window.webContents, senderFrame: { parent: null } };
+  for (const [value, expected] of [[0, 0], [0.45, 0.45], [-1, 0], [2, 1], ["invalid", 0.90]]) {
+    assert.equal(await ipcMain.invoke("set-background-opacity", legitimate, value), expected);
+    assert.equal((await ipcMain.invoke("get-preferences", legitimate)).backgroundOpacity, expected);
+  }
+  assert.equal(scheduledSaves, 5);
+  assert.equal(nativeOpacityCalls, 0);
+  assert.equal(preferences.opacity, 0.73);
+  assert.equal(preferences.glowIntensity, 0.41);
+});
+
 test("manual update checks use the shared check-and-stage path", async () => {
   let calls = 0;
   const expected = { status: "ready", latestVersion: "1.1.0" };

@@ -7,6 +7,10 @@ const root = path.resolve(__dirname, "..");
 const output = path.join(root, "tmp", "ui-smoke");
 
 const cases = [
+  ...[undefined, "orb", "edge"].map(mode => ({ name: `offline-signal-${mode || 'chat'}`, fixture: "chat", phase: "offline", mode, motion: true, expect: { chatVisualPhase: "offline", offlineAvatar: true, offlineBody: true, auroraAnimation: "none", chatBloomAnimation: "none" } })),
+  ...["chat", "focus-chat"].flatMap(fixture => ["idle", "waiting"].map(phase => ({ name: `bloom-${fixture}-${phase}`, fixture, tab: "chat", phase, width: 360, height: 360, motion: true, expect: { chatVisualPhase: phase, panelBackgroundOpacity: .9, auroraAnimation: "aurora-drift", chatBloomAnimation: phase === "idle" ? "none" : "chat-glow-breathe" }, min: { chatLightEnergy: phase === "idle" ? .2 : .8 } }))),
+  ...[0, .5, 1].map(backgroundOpacity => ({ name: `background-${backgroundOpacity}`, fixture: "chat", tab: "chat", phase: "waiting", backgroundOpacity, expect: { chatVisualPhase: "waiting", panelBackgroundOpacity: backgroundOpacity, auroraAnimation: "none", chatBloomAnimation: "none" }, ...(backgroundOpacity === 0 ? { max: { auroraOpacity: 0 } } : { min: { auroraOpacity: .1 } }) })),
+  { name: "bloom-reduced-motion", fixture: "chat", phase: "waiting", motion: true, reducedMotion: true, expect: { chatVisualPhase: "waiting", reducedMotion: true, auroraAnimation: "none", chatBloomAnimation: "none" } },
   { name: "overview", fixture: "overview", expect: { agentWorking: 1, agentIdle: 1, agentError: 1, tabPillIndex: "1" } },
   { name: "overview-360", fixture: "overview", width: 420, height: 360, expect: { agentWorking: 1, agentIdle: 1, agentError: 1, titlebarOverlap: false } },
   { name: "workspace-groups", tab: "agents", fixture: "workspace-groups", width: 360, height: 500, expect: { sessionGroups: 2, sessionPickerGroups: 2, agentCollapsedSessionGroups: 1, pickerCollapsedSessionGroups: 1, agentSessionGroupAddButtons: 2, pickerSessionGroupAddButtons: 2, sessionGroupHeadersSingleLine: true, uniqueSessionCards: true, uniquePickerSessions: true } },
@@ -35,8 +39,8 @@ const cases = [
   { name: "live-stream", tab: "chat", fixture: "live-stream", width: 360, height: 500, expect: { liveBubbles: 1, historicalReasoning: 0 } },
   { name: "scroll-away", tab: "chat", fixture: "scroll-away", width: 360, height: 500, expect: { scrollLatestVisible: true } },
   { name: "glow-settings", tab: "chat", fixture: "glow-settings", expect: { motionEffectsChecked: true, motionOff: false, glowControl: 1, glowIntensity: "0.82", showThinkingChecked: true, windowLayerOptions: 3, autoStartHydrated: true } },
-  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.7.0 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
-  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.7.0 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
+  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.7.1 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
+  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.7.1 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
   { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.9 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
   { name: "hotkey-settings", tab: "chat", fixture: "hotkey-settings", width: 420, height: 640, expect: { settingsOpen: true, hotkeySettingsOpen: true, hotkeyRows: 8 } },
   { name: "capture-menu", tab: "chat", fixture: "capture-menu", expect: { captureMenuOpen: true, captureRows: 2 } },
@@ -116,7 +120,7 @@ const cases = [
   { name: "edge-working", fixture: "edge-working", mode: "edge", expect: { edgeLineWidth: 8, edgeState: "working", edgePrimary: "rgb(114, 239, 160)" } },
   { name: "edge-thinking", fixture: "thinking", mode: "edge", expect: { edgeState: "thinking", edgePrimary: "rgb(155, 140, 255)" } },
   { name: "edge-writing", fixture: "writing", mode: "edge", expect: { edgeState: "writing", edgePrimary: "rgb(114, 239, 160)" } },
-  { name: "edge-tool", fixture: "tool", mode: "edge", expect: { edgeState: "tool", edgePrimary: "rgb(168, 140, 255)" } },
+  { name: "edge-tool", fixture: "tool", mode: "edge", expect: { edgeState: "tool", edgePrimary: "rgb(255, 195, 107)" } },
   { name: "edge-done", fixture: "edge-done", mode: "edge", expect: { edgeState: "done", edgePrimary: "rgb(255, 227, 110)", completionCelebration: true } },
   { name: "edge-done-cleanup", fixture: "edge-done-cleanup", mode: "edge", delay: 4000, expect: { edgeState: "idle", edgePrimary: "rgb(73, 231, 198)", completionCelebration: false } },
   { name: "edge-error", fixture: "edge-error", mode: "edge", expect: { edgeState: "error", edgePrimary: "rgb(255, 115, 143)", compactErrorUnread: true, completionCelebration: false } },
@@ -130,13 +134,15 @@ function runElectron(testCase) {
     const audit = path.join(output, `${testCase.name}.json`);
     rmSync(screenshot, { force: true });
     rmSync(audit, { force: true });
-    const child = spawn(electron, [root], {
+    const child = spawn(electron, [root, ...(testCase.reducedMotion ? ["--force-prefers-reduced-motion"] : [])], {
       cwd: root,
       env: {
         ...process.env,
         WIDGET_SCREENSHOT_PATH: screenshot,
         WIDGET_UI_AUDIT_PATH: audit,
         WIDGET_SCREENSHOT_DELAY: String(testCase.delay || 1800),
+        ...(testCase.phase ? { WIDGET_SCREENSHOT_CHAT_PHASE: testCase.phase } : {}),
+        ...(testCase.backgroundOpacity !== undefined ? { WIDGET_SCREENSHOT_BACKGROUND_OPACITY: String(testCase.backgroundOpacity) } : {}),
         ...(testCase.tab ? { WIDGET_SCREENSHOT_TAB: testCase.tab } : {}),
         ...(testCase.fixture ? { WIDGET_SCREENSHOT_FIXTURE: testCase.fixture } : {}),
         ...(testCase.mode ? { WIDGET_SCREENSHOT_MODE: testCase.mode } : {}),

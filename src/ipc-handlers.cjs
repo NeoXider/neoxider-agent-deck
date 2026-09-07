@@ -300,6 +300,13 @@ function registerIpcHandlers({
     schedulePreferenceSave();
     return preferences.glowIntensity;
   });
+  handle("set-background-opacity", (_event, value) => {
+    const preferences = getPreferences();
+    const numeric = Number(value);
+    preferences.backgroundOpacity = Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 0.90;
+    schedulePreferenceSave();
+    return preferences.backgroundOpacity;
+  });
   handle("set-show-thinking", (_event, value) => {
     const preferences = getPreferences();
     preferences.showThinking = Boolean(value);
@@ -367,6 +374,7 @@ function registerIpcHandlers({
       autoStart: autoStart.enabled,
       autoStartAvailable: autoStart.available,
       opacity: preferences.opacity,
+      backgroundOpacity: preferences.backgroundOpacity,
       glowIntensity: preferences.glowIntensity,
       showThinking: preferences.showThinking !== false,
       motionEffects: preferences.motionEffects !== false,

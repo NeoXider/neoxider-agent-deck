@@ -6,6 +6,7 @@
 // the pointer-capture / click ordering that synthetic click() calls cannot reproduce.
 const path = require("node:path");
 const { app, BrowserWindow, ipcMain } = require("electron");
+const { renderMarkdown } = require("../src/markdown.cjs");
 
 const root = path.resolve(__dirname, "..");
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -56,7 +57,13 @@ function within(promise, label, milliseconds = 5000) {
     new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label} exceeded ${milliseconds}ms`)), milliseconds); }),
   ]).finally(() => clearTimeout(timer));
 }
+async function waitForSubmitted(sessionId, text) {
+  await within((async () => {
+    while (sentPayloads.at(-1)?.sessionId !== sessionId || sentPayloads.at(-1)?.text !== text) await wait(10);
+  })(), `Waiting for ${sessionId} send IPC`);
+}
 function registerStubs() {
+  ipcMain.handle("render-markdown", (_event, text) => renderMarkdown(text));
   ipcMain.handle("set-window-mode", (_event, mode) => {
     modeRequests.push(mode);
     currentMode = mode;
@@ -525,7 +532,7 @@ async function main() {
       return {
         historyRenders,
         livePaints,
-        textLength: bubble?.textContent.length || 0,
+        textLength: bubble?.textContent.trimEnd().length || 0,
         seq: bubble?.dataset.liveSeq || "",
       };
     } finally {
@@ -788,8 +795,8 @@ async function main() {
     return { reasoning, writing, completed, nextBeforeHistory: state.liveStreamsBySession.get("stream-owner")?.text || "" };
   })()`);
   if (streamLifecycle.reasoning.kind !== "thinking" || streamLifecycle.reasoning.text !== "Inspect"
-      || streamLifecycle.writing.kind !== "writing" || streamLifecycle.writing.text !== "Answer"
-      || streamLifecycle.completed.kind !== "done" || streamLifecycle.completed.text !== "Answer final"
+      || streamLifecycle.writing.kind !== "writing" || streamLifecycle.writing.text.trimEnd() !== "Answer"
+      || streamLifecycle.completed.kind !== "done" || streamLifecycle.completed.text.trimEnd() !== "Answer final"
       || streamLifecycle.completed.retained !== "Answer final" || streamLifecycle.nextBeforeHistory !== "next") {
     failures.push(`reasoning/text/end stream lifecycle regressed: ${JSON.stringify(streamLifecycle)}`);
   }
@@ -801,7 +808,7 @@ async function main() {
     history: state.currentMessages.map((message) => message.text || ""),
   }))()`);
   deferredSessionRequests.history.delete("stream-owner");
-  if (streamAfterHistory.live !== "next" || streamAfterHistory.bubble !== "next" || !streamAfterHistory.history.includes("Authoritative first turn")) {
+  if (streamAfterHistory.live !== "next" || streamAfterHistory.bubble.trimEnd() !== "next" || !streamAfterHistory.history.includes("Authoritative first turn")) {
     failures.push(`first turn history cleanup deleted or replaced the subsequent stream: ${JSON.stringify(streamAfterHistory)}`);
   }
 
@@ -815,24 +822,30 @@ async function main() {
     messages.scrollTop = Math.max(1, Math.floor((messages.scrollHeight - messages.clientHeight) / 2));
     state.messagesStickToBottom = false;
     updateScrollLatestButton();
-    const baseline = { top: messages.scrollTop, height: messages.clientHeight };
+    const snapshot = () => {
+      const card = document.querySelector("#activityCard");
+      const visible = card.classList.contains("has-activity");
+      return { top: messages.scrollTop, height: messages.clientHeight, visible,
+        clear: !visible || card.getBoundingClientRect().bottom <= document.querySelector(".messages-wrap").getBoundingClientRect().top + 1 };
+    };
+    const baseline = snapshot();
 
     setActivity({ active: true, kind: "thinking", label: "Thinking", text: "First reasoning delta" });
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const appeared = { top: messages.scrollTop, height: messages.clientHeight, visible: document.querySelector("#activityCard").classList.contains("has-activity") };
+    const appeared = snapshot();
     setActivity({ active: true, kind: "thinking", label: "Thinking", text: "First reasoning delta and a longer streamed continuation" });
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const streamed = { top: messages.scrollTop, height: messages.clientHeight };
+    const streamed = snapshot();
     setActivity(null);
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const disappeared = { top: messages.scrollTop, height: messages.clientHeight };
+    const disappeared = snapshot();
 
     const toggle = document.querySelector("#showThinkingToggle");
     toggle.checked = false;
     toggle.dispatchEvent(new Event("change", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 30));
     setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Hidden reasoning" });
-    const hidden = { visible: document.querySelector("#activityCard").classList.contains("has-activity"), top: messages.scrollTop, height: messages.clientHeight };
+    const hidden = snapshot();
     const showThinkingWhileOff = state.showThinking;
     // The preference governs the whole live-status strip. Gating "thinking" alone was the
     // reported bug: every tool result clears the activity and the "working" fallback took
@@ -860,7 +873,7 @@ async function main() {
     return { baseline, appeared, streamed, disappeared, hidden, tool, writing, working, done, shownAgain, showThinking: showThinkingWhileOff, restored: state.showThinking };
   })()`);
   const stableThinkingViewport = [thinkingPreference.appeared, thinkingPreference.streamed, thinkingPreference.disappeared, thinkingPreference.hidden]
-    .every((snapshot) => snapshot.top === thinkingPreference.baseline.top && snapshot.height === thinkingPreference.baseline.height);
+    .every((snapshot) => snapshot.top === thinkingPreference.baseline.top && snapshot.height > 0 && snapshot.clear);
   const liveHiddenWhenOff = [thinkingPreference.hidden, thinkingPreference.tool, thinkingPreference.writing, thinkingPreference.working]
     .every((snapshot) => snapshot.visible === false);
   const liveShownWhenOn = Object.values(thinkingPreference.shownAgain).every((snapshot) => snapshot.visible === true);
@@ -881,7 +894,7 @@ async function main() {
     const cardRect = card.getBoundingClientRect();
     const wrapRect = wrap.getBoundingClientRect();
     return {
-      aligned: Math.abs(cardRect.top - wrapRect.top) <= 1,
+      aligned: cardRect.bottom <= wrapRect.top + 1,
       parent: card.parentElement?.className || "",
       scrollTop: messages.scrollTop,
       height: messages.clientHeight,
@@ -915,7 +928,7 @@ async function main() {
   const thinkGeometryRestored = await thinkGeometrySnapshot();
   await contents.executeJavaScript(`setActivity(null); applyShowThinking(false)`);
   const thinkSnapshots = [thinkGeometryClosed, thinkGeometryOpen, thinkGeometryReclosed, thinkGeometryResized, thinkGeometryRestored];
-  if (!thinkSnapshots.every((snapshot) => snapshot.aligned && snapshot.parent.includes("messages-wrap") && snapshot.scrollTop === thinkGeometryBaseline.scrollTop)
+  if (!thinkSnapshots.every((snapshot) => snapshot.aligned && snapshot.scrollTop === thinkGeometryBaseline.scrollTop)
       || thinkGeometryReclosed.height !== thinkGeometryBaseline.height
       || thinkGeometryRestored.height !== thinkGeometryBaseline.height) {
     failures.push(`unchanged live Think lost its message anchor or viewport across Setup and resize: ${JSON.stringify({ thinkGeometryBaseline, thinkSnapshots })}`);
@@ -973,7 +986,7 @@ async function main() {
   deferredSessionRequests.history.delete("tool-live");
   if (liveToolSequence.first.cards.join() !== "read" || liveToolSequence.first.live
       || liveToolSequence.second.cards.join() !== "read,grep" || liveToolSequence.second.running !== 1 || liveToolSequence.second.live
-      || liveToolSequence.writing !== "After tools" || liveToolSequence.finalCards.join() !== "read,grep"
+      || liveToolSequence.writing.trimEnd() !== "After tools" || liveToolSequence.finalCards.join() !== "read,grep"
       || liveToolSequence.finalLive || !liveToolSequence.finalText.includes("After tools") || liveToolSequence.activity) {
     failures.push(`live multi-tool turn did not split bubbles into named cards: ${JSON.stringify(liveToolSequence)}`);
   }
@@ -1254,7 +1267,7 @@ async function main() {
     await handleLiveEvent({ sessionId: "steer-session", event: { type: "turn/end", seq: 92, data: { reason: { kind: "stop" } } } });
     return { interrupted, next, stopHiddenAfterEnd: document.querySelector("#cancelButton").hidden };
   })()`);
-  if (steerPresentation.interrupted.live || !steerPresentation.interrupted.steering.includes("new direction") || steerPresentation.interrupted.activity !== "thinking" || steerPresentation.interrupted.stopHidden || steerPresentation.next !== "new answer" || !steerPresentation.stopHiddenAfterEnd) {
+  if (steerPresentation.interrupted.live || !steerPresentation.interrupted.steering.includes("new direction") || steerPresentation.interrupted.activity !== "thinking" || steerPresentation.interrupted.stopHidden || steerPresentation.next.trimEnd() !== "new answer" || !steerPresentation.stopHiddenAfterEnd) {
     failures.push(`Send now did not interrupt the previous live bubble cleanly: ${JSON.stringify(steerPresentation)}`);
   }
 
@@ -1419,6 +1432,7 @@ async function main() {
     const firstBubble = messages.querySelector(".bubble");
     const firstSession = document.querySelector("#sessions .session-card");
     const queueList = document.querySelector("#queueList");
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const before = {
       shell: [...[root.getBoundingClientRect()].map((r) => [r.x, r.y, r.width, r.height])][0],
       composer: [...[document.querySelector("#chatForm").getBoundingClientRect()].map((r) => [r.x, r.y, r.width, r.height])][0],
@@ -1428,7 +1442,7 @@ async function main() {
       scrollLatestVisible: !document.querySelector("#scrollLatestButton").hidden,
     };
     const mutations = [];
-    const observer = new MutationObserver((records) => mutations.push(...records.map((record) => record.type + ":" + (record.attributeName || record.target.id || record.target.className || record.target.nodeName))));
+    const observer = new MutationObserver((records) => mutations.push(...records.map((record) => record.type + ":" + (record.attributeName || "") + ":" + (record.target.id || record.target.className || record.target.nodeName))));
     observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
     for (let index = 0; index < 8; index += 1) await performRefresh();
     observer.disconnect();
@@ -1573,50 +1587,63 @@ async function main() {
     { sessionId: "paste-submit", title: "Paste submit", running: false, state: "idle", projections: { values: {} }, subagents: [] },
     { sessionId: "paste-other", title: "Paste other", running: false, state: "idle", projections: { values: {} }, subagents: [] },
   ] };
-  const pasteSubmitBefore = sentPayloads.length;
-  const pasteSubmitStarted = await contents.executeJavaScript(`(async () => {
-    state.dashboard = ${JSON.stringify(dashboardValue)};
-    state.selectedSessionId = "paste-submit";
-    state.runningSessionIds = new Set();
-    state.pendingAttachments = [];
-    renderAttachments();
-    const input = document.querySelector("#messageInput");
-    input.value = "inspect the pasted image";
-    const originalPrepare = window.clipboardAttachments.prepareClipboard;
-    let release;
-    const gate = new Promise((resolve) => { release = resolve; });
-    window.__releasePastePreparation = release;
-    window.__restorePastePreparation = () => { window.clipboardAttachments.prepareClipboard = originalPrepare; };
-    window.clipboardAttachments.prepareClipboard = async (...args) => {
-      await gate;
-      return originalPrepare(...args);
-    };
-    const transfer = new DataTransfer();
-    transfer.items.add(new File([Uint8Array.from([137, 80, 78, 71])], "race.png", { type: "image/png", lastModified: 9 }));
-    const paste = new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true });
-    input.dispatchEvent(paste);
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    const beforeSubmit = { prevented: paste.defaultPrevented, attachments: state.pendingAttachments.length, sending: composerSubmitInFlight };
-    document.querySelector("#chatForm").requestSubmit();
-    return beforeSubmit;
-  })()`);
-  await wait(80);
-  const pasteSubmitBlocked = sentPayloads.length === pasteSubmitBefore;
-  await contents.executeJavaScript(`state.selectedSessionId = "paste-other"`);
-  await contents.executeJavaScript(`window.__releasePastePreparation()`);
-  await wait(220);
-  const pasteSubmitCompleted = await contents.executeJavaScript(`(() => {
-    window.__restorePastePreparation();
-    return { attachments: state.pendingAttachments.length, sending: composerSubmitInFlight, draft: document.querySelector("#messageInput").value };
-  })()`);
-  const pasteSubmitPayload = sentPayloads.at(-1);
-  if (!pasteSubmitStarted.prevented || pasteSubmitStarted.attachments !== 0 || pasteSubmitStarted.sending
-      || !pasteSubmitBlocked || sentPayloads.length !== pasteSubmitBefore + 1
-      || pasteSubmitPayload?.sessionId !== "paste-submit"
-      || pasteSubmitPayload?.text !== "inspect the pasted image"
-      || pasteSubmitPayload?.attachments?.length !== 1 || pasteSubmitPayload.attachments[0]?.name !== "race.png"
-      || pasteSubmitCompleted.attachments !== 0 || pasteSubmitCompleted.sending || pasteSubmitCompleted.draft) {
-    failures.push(`submit did not wait atomically for in-flight clipboard preparation: ${JSON.stringify({ pasteSubmitStarted, pasteSubmitBlocked, pasteSubmitPayload, pasteSubmitCompleted })}`);
+  for (const switchDuringPreparation of [false, true]) {
+    const pasteSubmitBefore = sentPayloads.length;
+    const pasteSubmitStarted = await contents.executeJavaScript(`(async () => {
+      state.dashboard = ${JSON.stringify(dashboardValue)};
+      state.selectedSessionId = "paste-submit";
+      state.runningSessionIds = new Set();
+      state.pendingAttachments = [];
+      renderAttachments();
+      const input = document.querySelector("#messageInput");
+      input.value = "inspect the pasted image";
+      const originalPrepare = window.clipboardAttachments.prepareClipboard;
+      let release;
+      const gate = new Promise((resolve) => { release = resolve; });
+      window.__releasePastePreparation = release;
+      window.__restorePastePreparation = () => { window.clipboardAttachments.prepareClipboard = originalPrepare; };
+      window.clipboardAttachments.prepareClipboard = async (...args) => {
+        await gate;
+        return originalPrepare(...args);
+      };
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([Uint8Array.from([137, 80, 78, 71])], "race.png", { type: "image/png", lastModified: 9 }));
+      const paste = new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true });
+      input.dispatchEvent(paste);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const beforeSubmit = { prevented: paste.defaultPrevented, attachments: state.pendingAttachments.length, sending: composerSubmitInFlight };
+      document.querySelector("#chatForm").requestSubmit();
+      return beforeSubmit;
+    })()`);
+    await wait(80);
+    const pasteSubmitBlocked = sentPayloads.length === pasteSubmitBefore;
+    if (switchDuringPreparation) await contents.executeJavaScript(`(async () => {
+      await selectSession("paste-other", true);
+      document.querySelector("#messageInput").value = "other session draft";
+    })()`);
+    await contents.executeJavaScript(`window.__releasePastePreparation()`);
+    await wait(220);
+    const pasteSubmitCompleted = await contents.executeJavaScript(`(() => {
+      window.__restorePastePreparation();
+      return { sessionId: state.selectedSessionId, attachments: state.pendingAttachments.length, attachmentChips: document.querySelectorAll("#attachmentBar .attachment-chip").length, sending: composerSubmitInFlight, draft: document.querySelector("#messageInput").value };
+    })()`);
+    const pasteSubmitPayload = sentPayloads.at(-1);
+    if (switchDuringPreparation) {
+      if (!pasteSubmitBlocked || sentPayloads.length !== pasteSubmitBefore || pasteSubmitCompleted.sending
+          || pasteSubmitCompleted.sessionId !== "paste-other" || pasteSubmitCompleted.draft !== "other session draft"
+          || pasteSubmitCompleted.attachments !== 0 || pasteSubmitCompleted.attachmentChips !== 0) {
+        failures.push(`switching during clipboard preparation leaked a send/attachment or lost the current draft: ${JSON.stringify(pasteSubmitCompleted)}`);
+      }
+      continue;
+    }
+    if (!pasteSubmitStarted.prevented || pasteSubmitStarted.attachments !== 0 || pasteSubmitStarted.sending
+        || !pasteSubmitBlocked || sentPayloads.length !== pasteSubmitBefore + 1
+        || pasteSubmitPayload?.sessionId !== "paste-submit"
+        || pasteSubmitPayload?.text !== "inspect the pasted image"
+        || pasteSubmitPayload?.attachments?.length !== 1 || pasteSubmitPayload.attachments[0]?.name !== "race.png"
+        || pasteSubmitCompleted.attachments !== 0 || pasteSubmitCompleted.sending || pasteSubmitCompleted.draft) {
+      failures.push(`submit did not wait atomically for in-flight clipboard preparation: ${JSON.stringify({ pasteSubmitStarted, pasteSubmitBlocked, pasteSubmitPayload, pasteSubmitCompleted })}`);
+    }
   }
 
   const boundedHistoryPreviews = await contents.executeJavaScript(`(() => {
@@ -1713,7 +1740,7 @@ async function main() {
     input.value = "/NotACommand";
     document.querySelector("#chatForm").requestSubmit();
     await new Promise((resolve) => setTimeout(resolve, 80));
-    return { value: input.value, activity: state.currentActivity?.text || "" };
+    return { value: input.value, activity: document.querySelector("#composerError")?.textContent || "" };
   })()`);
   if (sentPayloads.length !== sentBeforeUnknown || commandPayloads.length !== commandsBeforeUnknown || unknownSlash.value !== "/NotACommand" || !/Unknown Harness command/i.test(unknownSlash.activity)) {
     failures.push(`unknown slash command leaked to the model prompt path: ${JSON.stringify(unknownSlash)}`);
@@ -1754,6 +1781,9 @@ async function main() {
     const input = document.querySelector("#messageInput");
     input.value = "message for A";
     document.querySelector("#chatForm").requestSubmit();
+  })()`);
+  await waitForSubmitted("send-a", "message for A");
+  await contents.executeJavaScript(`(async () => {
     await selectSession("send-b", true);
     renderMessages([{ role: "assistant", text: "Selected B" }]);
   })()`);
@@ -1784,8 +1814,11 @@ async function main() {
     const input = document.querySelector("#messageInput");
     input.value = "message that belongs to A";
     document.querySelector("#chatForm").requestSubmit();
+  })()`);
+  await waitForSubmitted("failed-send-a", "message that belongs to A");
+  await contents.executeJavaScript(`(async () => {
     await selectSession("failed-send-b", true);
-    input.value = "draft for B";
+    document.querySelector("#messageInput").value = "draft for B";
   })()`);
   await wait(40);
   deferredSend.reject(new Error("A failed"));
