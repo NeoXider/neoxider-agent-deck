@@ -1,4 +1,4 @@
-# NeoXider Agent Deck 0.7.1 — visual state release
+# NeoXider Agent Deck 0.7.2 — visual state and startup follow-up
 
 Goal: visibly distinguish idle, API waiting, reasoning, writing and tool activity in Full and Focus Chat, then publish and install the verified release.
 Baseline: 2026-09-07, clean main at 8e99ea6 (v0.7.0); origin fetched and fast-forward pull reports current. Installed desktop app is 0.6.9.
@@ -10,4 +10,11 @@ Out of scope: unrelated history/security refactors, new model providers, game in
 Milestone 1 complete: inspected current checkout, pulled origin, found missing waiting/working chat bloom; neoxider-agents doctor and live opencode catalog succeeded.
 Milestone 2 complete: root and independent audit accepted shared palette, offline, background alpha, compact active outline, reconnect and clipboard race fixes; 573/573 unit tests and 16/16 focused state checks pass. Muse provided a second-family release-gate audit before rate limiting.
 Milestone 3 verified: 573/573 unit tests, 102/102 visual scenarios, native input suite, zero vulnerability audit and version contract passed. Screenshots/cover regenerated and inspected; renamed misleading Game label to Поверх окон+ (saved value unchanged), verified Settings at 360px. Final Windows package building from frozen source; root owns commit/push.
-Milestone 4 pending: publish v0.7.1, update existing installed channel, verify settings/startup and native window.
+Milestone 4 follow-up: v0.7.1 was tagged, but release run 34101759837 failed because Windows CI requested reduced motion while normal-motion fixtures expected animation. The fixture launcher now explicitly selects Chromium normal/reduced motion; five targeted scenarios passed.
+Startup finding: root reproduced Electron 44 reporting openAtLogin=true but executableWillLaunchAtLogin=false for an unquoted executable path containing spaces; the quoted query reports both true. The isolated startup worker owns the fix and regression tests.
+Milestone 5 pending: verify the v0.7.2 startup fix and version contract, regenerate cover/update screenshots, build, publish, and update the local widget. No publication or machine reboot is claimed by this plan; root owns final release/install verification.
+Version preparation: package/lock, README, changelog, update-ready fixture and cover source now agree on 0.7.2; version contract and product checks 10/10 passed.
+Startup milestone verified: root reviewed the final diff and independently ran 575/575 unit tests; startup tests 24/24 and the independent adversarial audit passed. Quoted read queries preserve raw write targets and merge/deduplicate legacy observations. Native Electron 44 toggled the actual installed startup entry off and on successfully; left enabled. Full Windows reboot not tested.
+Packaging verified: BridgeHost build and 22/22 native tests passed; Windows 0.7.2 package launch passed and installed ASAR matched reviewed source. Native Settings showed Enabled; disabling worked, and user's subsequent re-enable remained Enabled. Background opacity remained 80%. Windows reboot was not tested.
+Visual limitation: both local full-suite attempts stopped on capture timeouts (second reports UnknownVizError), so no new 102/102 claim. Focused normal/reduced-motion cases passed. New Settings and update-ready 360/420px captures passed; refreshed cover and screenshots inspected. Full CI remains a release gate.
+English follow-up: user explicitly chose Always on top+ and English tooltip. Renderer/HTML/docs and English-only contract updated; root verified 575/575 and version contract. Local NSIS rebuilding with the language correction; input suite running. Root owns final commit, tag, publication and installed recheck.

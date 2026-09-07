@@ -162,6 +162,7 @@ test("release documentation uses the current window-layer label and previews eve
     assert.doesNotMatch(document, /\bNormal window layer\b|window layers: Normal/);
   }
   assert.match(readme, /every ordinary window covers the widget/);
+  assert.match(readme, /\*\*Always on top\+\*\*/);
   for (const preview of ["Full", "Focus Mini", "Orb", "Edge", "Minimum 360 px"]) {
     assert.match(readme, new RegExp(`<strong>${preview}<\\/strong>`));
   }
@@ -173,9 +174,9 @@ test("release documentation uses the current window-layer label and previews eve
 test("the update-ready visual fixture shows the released upgrade path", () => {
   const renderer = readFileSync(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
   const visualSmoke = readFileSync(path.join(__dirname, "..", "scripts", "ui-visual-smoke.cjs"), "utf8");
-  assert.match(renderer, /status: "ready", currentVersion: "0.7.0", latestVersion: "0.7.1"/);
-  assert.match(visualSmoke, /updateStatus: "v0.7.1 is verified and ready"/);
-  assert.equal(packageJson.version, "0.7.1");
+  assert.match(renderer, /status: "ready", currentVersion: "0.7.1", latestVersion: "0.7.2"/);
+  assert.match(visualSmoke, /updateStatus: "v0.7.2 is verified and ready"/);
+  assert.equal(packageJson.version, "0.7.2");
 });
 
 test("the Windows installer follows the canonical repository, artifact, and product name", () => {

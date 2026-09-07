@@ -39,11 +39,8 @@ function functionBody(source, declaration) {
   throw new Error(`${declaration} is unbalanced`);
 }
 
-test("visible widget copy stays English apart from the requested layer label", () => {
-  const copy = `${html}\n${renderer}`
-    .replaceAll("Поверх окон+", "")
-    .replaceAll("Поверх окон — усиленный режим. Не гарантирует отображение поверх эксклюзивного полноэкранного режима.", "");
-  assert.doesNotMatch(copy, /[\u0400-\u04ff]/);
+test("visible widget copy stays English", () => {
+  assert.doesNotMatch(html + renderer, /[\u0400-\u04ff]/);
   for (const id of [
     "contextMeter",
     "modelButton",
@@ -438,8 +435,8 @@ test("window layers distinguish desktop, above, and enhanced above without a ful
   assert.match(html, /data-layer="normal"[^>]+>Desktop<\/button>/);
   assert.match(html, /every normal app window covers the widget/);
   assert.match(html, /data-layer="above"/);
-  assert.match(html, /data-layer="game"[^>]+>Поверх окон\+<\/button>/);
-  assert.match(html, /Не гарантирует отображение поверх эксклюзивного полноэкранного режима/);
+  assert.match(html, /data-layer="game"[^>]+>Always on top\+<\/button>/);
+  assert.match(html, /Enhanced always-on-top mode\. Does not guarantee visibility over exclusive fullscreen games\./);
   assert.match(settingsStore, /windowLayer: "above"/);
   assert.match(main, /applyPlatformWindowLayer/);
   assert.match(main, /preferences\.windowLayer = normalizeWindowLayer\(preferences\.windowLayer, PLATFORM_CAPABILITIES\)/);

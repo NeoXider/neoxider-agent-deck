@@ -149,8 +149,18 @@ function createAutoStartController({
     };
   }
 
-  const query = () => app.getLoginItemSettings({ path: target.path, args: target.args });
-  const launchItems = () => app.getLoginItemSettings()?.launchItems || [];
+  // Electron parses the read path as a command line, so spaces require quotes.
+  // Keep the target and writes raw; only the readback query is quoted.
+  const readPath = `"${target.path}"`;
+  const query = () => app.getLoginItemSettings({ path: readPath, args: target.args });
+  const launchItems = () => {
+    const items = new Map();
+    for (const item of [...(query()?.launchItems || []), ...(app.getLoginItemSettings()?.launchItems || [])]) {
+      const key = JSON.stringify([item.scope, item.name, path.win32.normalize(String(item.path || "")).toLowerCase(), item.args || []]);
+      if (!items.has(key)) items.set(key, item);
+    }
+    return [...items.values()];
+  };
   const samePath = (left, right) => (
     path.win32.normalize(String(left || "")).toLowerCase() === path.win32.normalize(String(right || "")).toLowerCase()
   );

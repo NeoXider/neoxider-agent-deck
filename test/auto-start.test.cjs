@@ -31,7 +31,11 @@ function createFakeApp({ isPackaged = true, appPath = "C:\\app", launchItems = [
         }
         return { openAtLogin: false, executableWillLaunchAtLogin: false, launchItems: items };
       }
-      const match = items.find((item) => item.path === options.path && sameArgs(item.args, options.args));
+      const queriedPath = typeof options.path === "string" && options.path.length > 1
+        && options.path.startsWith('"') && options.path.endsWith('"')
+        ? options.path.slice(1, -1)
+        : options.path;
+      const match = items.find((item) => item.path === queriedPath && sameArgs(item.args, options.args));
       return {
         openAtLogin: Boolean(match?.enabled),
         executableWillLaunchAtLogin: Boolean(match?.enabled),
@@ -78,7 +82,7 @@ test("enable, query, and disable use the identical target", () => {
   assert.equal(controller.setEnabled(true), true);
   assert.equal(createAutoStartController(options).getEnabled(), true);
   assert.equal(controller.setEnabled(false), false);
-  assert.ok(app.calls.get.filter((value) => value?.path).every((value) => value.path === portableLauncher && sameArgs(value.args, [])));
+  assert.ok(app.calls.get.filter((value) => value?.path).every((value) => value.path === `"${portableLauncher}"` && sameArgs(value.args, [])));
 });
 
 test("disabling autostart removes a raw legacy Run fallback so restart cannot re-enable it", () => {
@@ -443,6 +447,92 @@ test("Linux autostart writes a freedesktop entry instead of reporting itself una
 
   assert.equal(controller.setEnabled(false), false);
   assert.equal(files.size, 0);
+});
+
+test("spaced install path queries quoted, keeps false false, and writes raw", () => {
+  const spaced = "C:\\Users\\User\\AppData\\Local\\Programs\\NeoXider Agent Deck\\NeoXider Agent Deck.exe";
+  const store = new Map();
+  let startupApproved = true;
+  const calls = { get: [], set: [] };
+  const app = {
+    isPackaged: true,
+    getAppPath: () => "C:\\app",
+    getLoginItemSettings(options) {
+      calls.get.push(options);
+      const items = [...store.values()];
+      if (!options?.path) return { openAtLogin: false, executableWillLaunchAtLogin: false, launchItems: [] };
+      const raw = options.path;
+      const quoted = raw.length > 1 && raw.startsWith('"') && raw.endsWith('"');
+      if (!quoted) {
+        const match = items.find((item) => item.path === raw && sameArgs(item.args, options.args));
+        if (match?.enabled) return { openAtLogin: true, executableWillLaunchAtLogin: false, launchItems: [] };
+        return { openAtLogin: false, executableWillLaunchAtLogin: false, launchItems: [] };
+      }
+      const matchingExecutable = items.filter((item) => `"${item.path}"` === raw);
+      const match = matchingExecutable.find((item) => sameArgs(item.args, options.args));
+      return {
+        openAtLogin: Boolean(match?.enabled),
+        executableWillLaunchAtLogin: Boolean(match?.enabled && startupApproved),
+        launchItems: matchingExecutable,
+      };
+    },
+    setLoginItemSettings(value) {
+      calls.set.push({ ...value, args: [...(value.args || [])] });
+      store.set(value.name, {
+        name: value.name,
+        path: value.path,
+        args: [...(value.args || [])],
+        enabled: Boolean(value.openAtLogin && value.enabled !== false),
+      });
+    },
+  };
+  const controller = createAutoStartController({
+    app,
+    env: {},
+    execPath: spaced,
+    platform: "win32",
+    readRunItemPath: () => "",
+    deleteRunItem: (name) => ({ ok: true, deleted: true, name }),
+  });
+
+  assert.equal(controller.getEnabled(), false);
+  assert.equal(controller.setEnabled(true), true);
+  assert.equal(controller.getEnabled(), true);
+  assert.ok(calls.get.filter((value) => value?.path).every((value) => value.path === `"${spaced}"` && sameArgs(value.args, [])));
+  assert.ok(calls.set.length > 0);
+  assert.ok(calls.set.every((value) => value.path === spaced));
+  assert.deepEqual(controller.target, { path: spaced, args: [] });
+  startupApproved = false;
+  assert.equal(controller.getEnabled(), false, "StartupApproved rejection must outrank an existing Run entry");
+  startupApproved = true;
+  assert.equal(controller.setEnabled(false), false);
+  assert.equal(controller.getEnabled(), false);
+});
+
+test("disabled legacy records from the default query prevent raw Run fallback migration", () => {
+  const canonical = { name: LOGIN_ITEM_NAME, path: portableLauncher, args: [], enabled: false, scope: "user" };
+  const legacy = { name: legacyName, path: temporaryChild, args: [], enabled: false, scope: "user" };
+  const writes = [];
+  const deletes = [];
+  const app = {
+    isPackaged: true,
+    getAppPath: () => "C:\\app",
+    getLoginItemSettings: (options) => ({
+      openAtLogin: false,
+      executableWillLaunchAtLogin: false,
+      launchItems: options?.path ? [canonical].filter(item => `"${item.path}"` === options.path) : [canonical, legacy],
+    }),
+    setLoginItemSettings: (value) => writes.push(value),
+  };
+  const controller = createAutoStartController({
+    app, platform: "win32", env: {}, execPath: portableLauncher,
+    readRunItemPath: (name) => name === legacyName ? temporaryChild : "",
+    deleteRunItem: (name) => { deletes.push(name); return { ok: true }; },
+  });
+  assert.equal(controller.migrateLegacy(), false);
+  assert.equal(controller.getLastMigrationResult().status, "legacy-disabled");
+  assert.deepEqual(writes, []);
+  assert.deepEqual(deletes, []);
 });
 
 test("Linux autostart falls back to ~/.config when XDG_CONFIG_HOME is unset", () => {

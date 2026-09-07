@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.7.1-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.7.1-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.7.2-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.7.2-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -207,14 +207,14 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Elapsed turn time** — every session card and the session picker show how long the agent has been on the current turn, ticking live, and how long the last completed turn took. The clock is read from the turn's own events, so it survives a widget restart.
 - **Exact-session pet reply** — collapsed pet mode keeps one useful reply button instead of create/command/attachment clutter; it opens the agent and session that produced the reply.
 - **Session-aware notifications** — a completed reply slides out for about 2.7 seconds with its session name and answer preview; clicking it restores that exact session. The edge handle still bounces when work finishes.
-- **Three window layers** — choose Desktop, where every ordinary window covers the widget; the default Above layer; or **Поверх окон+**, the enhanced above-windows mode (previously Game). It raises the desktop window more aggressively but does not guarantee visibility over exclusive fullscreen. Unsupported Linux desktops disable the choice.
+- **Three window layers** — choose Desktop, where every ordinary window covers the widget; the default Above layer; or **Always on top+**, the enhanced above-windows mode (previously Game). It raises the desktop window more aggressively but does not guarantee visibility over exclusive fullscreen. Unsupported Linux desktops disable the choice.
 - **No close button** — window close gestures dock the widget to the screen edge. Quit remains available from the tray menu.
 - **Single-instance launch** — repeated shortcut clicks focus the existing widget instead of stacking translucent windows.
 - **Personal controls** — independent window/background opacity, compact/standard/large size, chat glow intensity, window layer and Start at login where the platform supports them.
 - **Locked-down renderer** — a strict Content Security Policy (`default-src 'none'`, no `unsafe-inline`, no `unsafe-eval`), denied window creation, blocked navigation and protocol-checked external links mean model output can render but never execute or navigate.
 - **Survives a renderer crash** — a frameless transparent window that loses its renderer is reloaded automatically instead of lingering as a dead shape that only the task manager can remove.
 - **Keyboard and screen reader support** — every reachable control draws a visible focus ring, dimmed labels hold WCAG AA contrast, and the conversation is exposed as an ARIA log region.
-- **Reliable portable autostart** — Start at login on Windows targets the stable portable launcher instead of Electron's temporary extracted child; existing stale startup entries are migrated automatically.
+- **Reliable portable autostart** — Start at login on Windows targets the stable portable launcher instead of Electron's temporary extracted child; existing stale startup entries are migrated automatically. Startup readback handles executable paths containing spaces, so a valid enabled entry remains shown as enabled.
 - **Quiet background updates** — supported builds check and download a stable release without interrupting the chat. Only after the file is fully verified does a compact **Update** action appear beside the version; installation and restart still require one click.
 - **Xbox Game Bar bridge** — the Windows package includes a bounded native sidecar for the separate Game Bar companion. The protocol authenticates the exact AppContainer package, exposes only snapshot, acknowledge, exact-session open and quick reply, and never injects into a game process.
 
@@ -305,7 +305,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.7.1-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.7.2-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
@@ -325,9 +325,10 @@ Screen capture, configurable global hotkeys, and the three-session pet switcher 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). Source version 0.7.1 adds
-selected-chat activity light, unified colours across modes, independently saved background
-opacity, a distinct offline presentation, and stable timer/count updates. The release badge
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). Source version 0.7.2 fixes
+Windows startup readback for paths containing spaces and makes visual CI motion preferences
+explicit. It includes the selected-chat activity light, unified colours, independent background
+opacity and offline presentation introduced in 0.7.1. The release badge
 at the top links to the latest published build; source changes and fixture screenshots alone
 do not mean a new release has been published or installed.
 
@@ -339,7 +340,7 @@ a freedesktop autostart entry; it disables native opacity and enhanced above-win
 Wayland also disables window dragging and Edge mode, while X11 labels its wider interactive
 Edge area. When no installed Harness runtime is found, `Start Harness` relies on `npx` being
 present in the launcher environment, which is not guaranteed for an app started from Finder
-or a desktop launcher. **Поверх окон+** targets ordinary and borderless windows;
+or a desktop launcher. **Always on top+** targets ordinary and borderless windows;
 true exclusive fullscreen can outrank desktop windows, so the repository keeps the native
 Xbox Game Bar companion path explicit rather than claiming a guarantee the OS does not give.
 

@@ -5100,7 +5100,7 @@ function applyPlatformCapabilities(capabilities) {
   gameButton.disabled = !presentation.gameLayerAvailable;
   gameButton.setAttribute("aria-disabled", String(!presentation.gameLayerAvailable));
   gameButton.title = presentation.gameLayerAvailable
-    ? "Поверх окон — усиленный режим. Не гарантирует отображение поверх эксклюзивного полноэкранного режима."
+    ? "Enhanced always-on-top mode. Does not guarantee visibility over exclusive fullscreen games."
     : "Enhanced above-windows mode is unavailable on this platform; Above is used instead";
 
   const dockButton = $("#dockButton");
@@ -6193,7 +6193,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.7.0", latestVersion: "0.7.1", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.7.1", latestVersion: "0.7.2", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {

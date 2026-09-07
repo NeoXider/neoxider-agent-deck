@@ -5,6 +5,14 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-09-07
+
+### Fixed
+
+- Windows Start at login correctly reads back an enabled startup entry when the executable path contains spaces. The readback query now uses the quoted path expected by Electron, preserving the existing startup target and saved settings.
+- Visual CI fixtures explicitly select normal or reduced motion instead of inheriting the runner's Windows accessibility setting. Production still respects the user's reduced-motion preference; animation and layout assertions remain enforced.
+- The enhanced window layer now uses the English label **Always on top+** and an English tooltip throughout Settings. The saved `game` value and native behavior are unchanged.
+
 ## [0.7.1] - 2026-09-07
 
 ### Added
@@ -15,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Renamed the desktop layer previously labelled Game to **Поверх окон+** and added a tooltip explaining that exclusive fullscreen can cover it. Saved preferences and native layer behaviour are unchanged; the Xbox Game Bar companion remains a separate integration.
+- Renamed the desktop layer previously labelled Game to **Always on top+** and added a tooltip explaining that exclusive fullscreen can cover it. Saved preferences and native layer behaviour are unchanged; the Xbox Game Bar companion remains a separate integration.
 - Unified state colours across the header avatar, chat, Orb and Edge, with more visible activity light and tighter compact alignment.
 - Updated the cover composition and visual checks for the new presentation and opacity controls.
 
