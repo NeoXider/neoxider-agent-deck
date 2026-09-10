@@ -5,6 +5,12 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-09-10
+
+### Fixed
+
+- **No more "Restore widget" tooltip over the game.** Resting the pointer on the Edge line or the Orb popped a native tooltip on top of whatever was running underneath — an explanation for a handle whose meaning is the handle itself. Both keep their label for assistive technology only.
+
 ## [0.7.2] - 2026-09-07
 
 ### Fixed

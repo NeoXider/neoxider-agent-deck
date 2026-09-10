@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.7.2-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.7.2-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.7.3-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.7.3-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -305,7 +305,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.7.2-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.7.3-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
@@ -325,10 +325,10 @@ Screen capture, configurable global hotkeys, and the three-session pet switcher 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). Source version 0.7.2 fixes
-Windows startup readback for paths containing spaces and makes visual CI motion preferences
-explicit. It includes the selected-chat activity light, unified colours, independent background
-opacity and offline presentation introduced in 0.7.1. The release badge
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). Source version 0.7.3 removes
+the native "Restore widget" tooltip that the Edge line and the Orb popped over a running game.
+It includes the 0.7.2 Windows startup readback fix and the selected-chat activity light, unified
+colours, independent background opacity and offline presentation introduced in 0.7.1. The release badge
 at the top links to the latest published build; source changes and fixture screenshots alone
 do not mean a new release has been published or installed.
 

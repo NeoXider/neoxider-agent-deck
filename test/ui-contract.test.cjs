@@ -1677,3 +1677,12 @@ test("the wow is on the surfaces that carry state, and every bit of it obeys the
   assert.match(css, /body\.motion-off \*, body\.motion-off \*::before, body\.motion-off \*::after \{ animation:none !important; transition:none !important; \}/);
   assert.match(html, /Aurora, easing strips, message entrances, hover and press feedback/);
 });
+
+test("the compact handles carry no native tooltip", () => {
+  // A native title tooltip popped "Restore widget" over the game whenever the pointer rested
+  // on the edge line or the orb. The handle's meaning is the handle itself; the label stays
+  // for assistive technology only.
+  assert.match(html, /<button id="edgeMode" class="edge-mode no-drag" type="button" aria-label="Restore widget">/);
+  assert.match(html, /<button id="orbRestore" class="orb-avatar" type="button" aria-label="Restore widget">/);
+  assert.doesNotMatch(html, /title="Restore widget"/);
+});
