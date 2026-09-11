@@ -5,6 +5,12 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4] - 2026-09-11
+
+### Fixed
+
+- **In-app updates can be published again.** The release validation job aborted at the `npm audit --audit-level=high` gate because of a high-severity advisory in the `js-yaml` build dependency, so every release attempt from 0.6.10 onward either failed or had to be re-cut by hand. The dependency is patched, and 0.7.4 is the first successful release after 0.7.2. This release also carries the 0.7.3 change: the native "Restore widget" tooltip no longer appears over a running game when the pointer rests on the Edge line or the Orb.
+
 ## [0.7.3] - 2026-09-10
 
 ### Fixed
