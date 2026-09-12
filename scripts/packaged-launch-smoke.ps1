@@ -24,7 +24,7 @@ $process = $null
 
 try {
   $env:WIDGET_PACKAGED_SMOKE_PATH = $marker
-  $process = Start-Process -FilePath $target -PassThru
+  $process = Start-Process -FilePath $target -PassThru -WindowStyle Hidden
   $deadline = [DateTime]::UtcNow.AddSeconds(20)
   while (-not (Test-Path -LiteralPath $marker) -and [DateTime]::UtcNow -lt $deadline) {
     if ($process.HasExited) { throw "Packaged application exited before its renderer became ready (exit code $($process.ExitCode))." }
@@ -34,6 +34,8 @@ try {
   if (-not (Test-Path -LiteralPath $marker)) { throw "Packaged application did not report a ready renderer within 20 seconds." }
   $receipt = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json
   if (-not $receipt.ready) { throw "Packaged application returned an invalid readiness receipt." }
+  if (-not $receipt.markdownWorker) { throw "Packaged Markdown worker did not pass its rendering check." }
+  if (-not $receipt.historyWorker) { throw "Packaged history worker did not pass its startup check." }
   if ([string]$receipt.version -ne [string]$package.version) {
     throw "Packaged version $($receipt.version) does not match package version $($package.version)."
   }

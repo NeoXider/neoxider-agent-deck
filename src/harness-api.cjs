@@ -1,5 +1,6 @@
 const { createHash, randomUUID } = require("node:crypto");
-// Session state derivation lives next door so that this module stays the transport.
+const { isMainThread } = require("node:worker_threads");
+const { createHistoryReader } = require("./history-reader.cjs");
 const {
   activityFromHistory,
   resultCallId,
@@ -322,10 +323,14 @@ class HarnessApi {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.fetch = fetchImpl;
     this.sessionStateCache = new Map();
+    this.now = typeof options.now === "function" ? options.now : Date.now;
+    this.subagentRefreshMs = positiveInteger(options.subagentRefreshMs, 10000);
     this.historyCache = new Map();
     this.historyCacheSessionLimit = positiveInteger(options.historyCacheSessionLimit, HISTORY_CACHE_SESSION_LIMIT);
     this.historyCacheEventLimit = positiveInteger(options.historyCacheEventLimit, HISTORY_CACHE_EVENT_LIMIT);
     this.historyCacheBytesLimit = positiveInteger(options.historyCacheBytesLimit, HISTORY_CACHE_BYTES_LIMIT);
+    this.historyReader = isMainThread && options.historyWorker !== false
+      ? createHistoryReader(this.baseUrl, { historyCacheSessionLimit: this.historyCacheSessionLimit, historyCacheEventLimit: this.historyCacheEventLimit, historyCacheBytesLimit: this.historyCacheBytesLimit }) : null;
     this.fullAccessSessions = new Set();
     this.workspaceSnapshot = { items: [], archivedSessionIds: [] };
   }
@@ -368,7 +373,7 @@ class HarnessApi {
     }
   }
 
-  async dashboard() {
+  async dashboard(selectedSessionId = null) {
     const [host, sessionsValue, workspaceResult] = await Promise.all([
       this.rpc("host.describe"),
       this.rpc("session.list"),
@@ -399,7 +404,7 @@ class HarnessApi {
     // made every session on screen disappear at once.
     const enriched = await Promise.all(sessions.map(async (session, index) => {
       try {
-        return await this.enrichSession(session, index, workspaceBySessionId);
+        return await this.enrichSession(session, index, workspaceBySessionId, selectedSessionId);
       } catch (error) {
         const cachedState = this.sessionStateCache.get(session.sessionId);
         return {
@@ -425,17 +430,20 @@ class HarnessApi {
     };
   }
 
-  async enrichSession(session, index, workspaceBySessionId) {
+  async enrichSession(session, index, workspaceBySessionId, selectedSessionId = null) {
     {
       const cachedState = this.sessionStateCache.get(session.sessionId);
-      const shouldEnrich = Boolean(session.running || index < 18);
+      const shouldEnrich = Boolean(session.running || index < 18 || session.sessionId === selectedSessionId);
       const shouldReadState = shouldEnrich && (!cachedState || cachedState.updatedAt !== session.updatedAt);
-      // The subagent roster only changes with the session itself, so it is reused from
-      // the cache exactly like history is. Refetching it for every session on every
-      // 2.5s poll was one request per session per tick with nothing to show for it.
+      // Children can change activity without changing the parent's updatedAt.
+      // Refresh their roster on a bounded cadence independent of history polling.
+      const now = this.now();
+      const shouldReadSubagents = shouldEnrich && (shouldReadState
+        || !Number.isFinite(cachedState?.subagentsReadAt)
+        || now - cachedState.subagentsReadAt >= this.subagentRefreshMs);
       let degraded = false;
       const [catalog, historyValue] = await Promise.all([
-        shouldReadState
+        shouldReadSubagents
           ? this.rpc("subagent.list", { parentSessionId: session.sessionId }, 4000).catch(() => {
               degraded = true;
               return null;
@@ -473,6 +481,7 @@ class HarnessApi {
         state: agentState,
         preview,
         subagents,
+        subagentsReadAt: shouldReadSubagents ? now : cachedState?.subagentsReadAt,
         runningSince,
         lastRunMs,
       });
@@ -493,6 +502,7 @@ class HarnessApi {
   }
 
   async history(sessionId) {
+    if (this.historyReader && this.fetch === globalThis.fetch && this.rpc === HarnessApi.prototype.rpc) return this.historyReader.read(sessionId);
     const key = String(sessionId || "");
     const cachedHistory = this.cachedHistory(key);
     const cached = cachedHistory?.events || [];
@@ -513,12 +523,9 @@ class HarnessApi {
       pages.push(events);
       overlapsCache = events.some((entry) => cachedSequences.has(entry?.event?.seq));
     }
-    // When the newest page says there is nothing more, its contents REPLACE the cached tail.
-    // That is right for /compact, which legitimately shrinks a history — but an empty answer
-    // is not a shrink, it is a fault: a Harness restart or a log still being re-indexed
-    // returned nothing, the conversation on screen blanked, and the empty result was cached
-    // as complete. So the cache is a floor only against emptiness. The sequence map below
-    // still lets fresh events supersede cached ones.
+    // A complete newest page replaces the cache, including legitimate /compact shrinkage.
+    // Empty responses during restart/re-indexing keep the cached floor; fresh sequenced
+    // events always supersede their cached versions.
     const fresh = pages.flat();
     const blankedOut = fresh.length === 0 && cached.length > 0;
     const entries = tailHasMore || blankedOut ? [...cached, ...fresh] : fresh;
@@ -652,9 +659,7 @@ class HarnessApi {
     return this.executeCommand(sessionId, normalized, images);
   }
 
-  // The permission is a property of the session, not of a single turn. Running it
-  // before every prompt added a second 30s-timeout RPC to each send, doubling the
-  // latency the user feels, and Harness itself has to be told only once.
+    // Session permission needs one RPC, rather than adding a second 30s timeout per send.
   async ensureFullAccess(sessionId) {
     const key = String(sessionId || "");
     if (!key) throw new Error("A session id is required to enable Full access");
@@ -672,6 +677,7 @@ class HarnessApi {
     this.fullAccessSessions.delete(key);
     this.sessionStateCache.delete(key);
     this.historyCache.delete(key);
+    this.historyReader?.forget(key);
   }
 }
 

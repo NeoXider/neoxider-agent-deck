@@ -5,6 +5,29 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.5] - 2026-09-13
+
+### Added
+
+- Restore the last opened chat across app restarts, offline startup and Harness reconnection. A deleted chat falls back after two successful session-list responses; a new user choice wins over late responses.
+- Show the exact subagent total and running count in chat, including Focus mode. The counter opens the session in Harness; child activity refreshes independently of the parent session.
+
+### Fixed
+
+- Long conversations render in bounded pages of 80 messages. Older/Newer/Latest controls keep the full loaded history accessible without accumulating thousands of DOM nodes. Unchanged updates preserve existing bubbles and skip unnecessary layout work.
+- Parse, sanitize and highlight Markdown in a background worker with a bounded cache. Unchanged history skips repeat formatting and transfer; large code blocks retain their text while avoiding expensive highlighting.
+- Load and process Harness history in a separate worker so large event logs cannot freeze window input. On a 5,031-message live conversation, the measured main-loop delay dropped from 3,523 ms to 33 ms.
+- Coalesce bursts of tool events into one pending history refresh instead of building an unbounded queue of slow reads. Overlapping requests cannot mark an unseen revision as already displayed.
+- Streaming answers continue updating beyond 60,000 characters using a bounded live preview; the complete answer remains in the final history.
+- Bounded transcript pages use actual row heights so refreshes and message jumps preserve the reading position and keep the header in place.
+- Goal expand/collapse arrows follow the panel direction: up to expand and down to collapse.
+- Goal, Setup and tool panels animate smoothly in both directions, including quick reversals. Compact resizing ignores stale acknowledgments, and mode entry avoids overshooting its final size.
+- Windows uses the product icon and taskbar identity for the main window, capture overlay and relaunch entries, including development and portable launches.
+
+### Verification
+
+- Add regression coverage for 100,000-message history paging, real Electron rendering and typing with 10,000 messages, saved-chat recovery, subagent refreshes and disclosure motion. Packaged Windows startup also verifies both background workers.
+
 ## [0.7.4] - 2026-09-11
 
 ### Fixed

@@ -21,6 +21,16 @@ function withTemporaryStore(run) {
   }
 }
 
+test("last opened chat survives a new settings store and invalid ids are discarded", () => {
+  withTemporaryStore(({ filePath, store }) => {
+    store.save({ ...store.load(), lastSelectedSessionId: "session:last-opened" });
+    assert.equal(createSettingsStore({ filePath }).load().lastSelectedSessionId, "session:last-opened");
+  });
+  for (const invalid of [undefined, null, {}, 12, "", "  ", "x".repeat(513)]) {
+    assert.equal(normalizePreferences({ lastSelectedSessionId: invalid }).lastSelectedSessionId, null);
+  }
+});
+
 function retryHarness() {
   const scheduled = [];
   return {
@@ -69,6 +79,7 @@ const completePreferences = {
   size: "large",
   windowLayer: "game",
   compactSide: "left",
+  lastSelectedSessionId: "last-opened-chat",
   hotkeys: normalizeHotkeyBindings({ captureRegion: { enabled: true, accelerator: "Control+Shift+R" } }),
   windowState: {
     version: 2,
@@ -387,6 +398,7 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     windowLayer: "normal",
     compactSide: "left",
     hotkeys: normalizeHotkeyBindings(),
+    lastSelectedSessionId: null,
     windowState: { version: 2, mode: "full", full: null, orb: null, edge: null },
   });
 });

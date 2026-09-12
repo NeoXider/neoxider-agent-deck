@@ -1,4 +1,5 @@
 const SELECT_SCHEME = "neoxider-region";
+const { PRODUCT_WINDOW_OPTIONS } = require("./window-identity.cjs");
 
 function finiteBounds(value) {
   if (!value || typeof value !== "object") return null;
@@ -11,6 +12,7 @@ function overlayMarkup() {
 <html>
 <head>
   <meta charset="utf-8">
+  <title>${PRODUCT_WINDOW_OPTIONS.title}</title>
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
   <style>
     * { box-sizing: border-box; user-select: none; }
@@ -149,6 +151,7 @@ function createRegionSelector({ BrowserWindow, screen, platform = process.platfo
     return new Promise((resolve) => {
       let settled = false;
       const window = new BrowserWindow({
+        ...PRODUCT_WINDOW_OPTIONS,
         ...displayBounds,
         show: false,
         frame: false,

@@ -10,6 +10,7 @@ const state = {
   historyRequestSequence: 0,
   historyPrioritySessionId: null,
   historyPriorityPromise: null,
+  historyPriorityRequestedSessionId: null,
   historyLoadedSessionId: null,
   historyLoadedUpdatedAt: undefined,
   historyLoadedRevision: null,
@@ -69,6 +70,9 @@ const state = {
   // and the id is kept so recovery restores the user's choice instead of guessing.
   missingSelectionPolls: 0,
   lastSelectedSessionId: null,
+  persistedSessionId: null,
+  sessionSelectionGeneration: 0,
+  preferencesReadyPromise: null,
   sessionListSignature: "",
   sessionSelectSignature: "",
   collapsedSessionGroupKeys: new Set(),
@@ -595,12 +599,15 @@ function syncCompactStatus() {
     // setCompactStatus is an invoke, so the native resize can be awaited: the panel is
     // held back until the window is the size it is going to be, then animates in.
     const resizing = expanded !== previousExpanded;
+    const resizeSequence = resizing ? ++compactResizeSequence : compactResizeSequence;
     let settled = !resizing;
     const settle = () => {
-      if (settled) return;
+      if (settled || resizeSequence !== compactResizeSequence) return;
       settled = true;
       clearTimeout(state.compactResizeTimer);
-      requestAnimationFrame(() => document.body.classList.remove("compact-resizing"));
+      requestAnimationFrame(() => {
+        if (resizeSequence === compactResizeSequence) document.body.classList.remove("compact-resizing");
+      });
     };
     if (resizing) {
       document.body.classList.add("compact-resizing");
@@ -901,6 +908,7 @@ const MODE_ENTER_DURATION = 390;
 const FIRST_VISIBLE_ENTRY_DURATION = 460;
 // Upper bound on waiting for the native compact resize before showing the panel anyway.
 const COMPACT_RESIZE_SETTLE_TIMEOUT = 320;
+let compactResizeSequence = 0;
 // An opened queue editor grows with its content and then scrolls, so a pasted script
 // cannot push the composer off the panel.
 const QUEUE_EDIT_MAX_HEIGHT = 132;
@@ -1245,12 +1253,29 @@ function activeBackgroundTasks(session) {
   return (session?.subagents || []).filter((child) => child.kind === "child" && child.activity === "running").length;
 }
 
+function subagentCount(session) {
+  return (session?.subagents || []).filter((child) => child?.kind === "child").length;
+}
+
+function renderSubagentCount(session) {
+  const button = $("#subagentsButton");
+  if (!button) return;
+  const count = subagentCount(session);
+  if (button.hidden !== (count === 0)) button.hidden = count === 0;
+  const text = `${count} subagent${count === 1 ? "" : "s"} · ${activeBackgroundTasks(session)} running`;
+  const label = button.querySelector("span");
+  if (label.textContent !== text) label.textContent = text;
+  const title = `${text}. Open this session in DeepSeek Harness`;
+  if (button.title !== title) button.title = title;
+  if (button.getAttribute("aria-label") !== title) button.setAttribute("aria-label", title);
+}
+
 function applyBackgroundTaskCount(node, count) {
   if (!node) return;
   // Written into the <b>, never onto the wrapper: textContent on the wrapper would delete
   // the icon beside it, and the icon is what makes a bare number mean anything.
   const value = node.querySelector("b");
-  const text = count > 9 ? "9+" : String(count);
+  const text = String(count);
   if (value && value.textContent !== text) value.textContent = text;
   if (node.classList.contains("visible") !== (count > 0)) node.classList.toggle("visible", count > 0);
   const title = count ? `${count} background task${count === 1 ? "" : "s"} running` : "";
@@ -1275,6 +1300,7 @@ function formatTokens(value) {
 
 function renderContext() {
   const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
+  renderSubagentCount(session);
   const pressure = contextPressure(session);
   const signature = JSON.stringify([
     state.selectedSessionId,
@@ -2695,9 +2721,23 @@ async function applyModelSelection() {
   }
 }
 
+function rememberSelectedSession() {
+  const sessionId = state.selectedSessionId;
+  if (!sessionId || state.persistedSessionId === sessionId) return;
+  state.lastSelectedSessionId = sessionId;
+  state.persistedSessionId = sessionId;
+  Promise.resolve(window.widget.setLastSelectedSession(sessionId)).catch(() => {
+    // Retry on the next dashboard poll if this save failed.
+    if (state.persistedSessionId === sessionId) state.persistedSessionId = null;
+  });
+}
+
 async function selectSession(sessionId, openChat = false) {
+  state.sessionSelectionGeneration += 1;
+  state.missingSelectionPolls = 0;
   const previousSessionId = state.selectedSessionId;
   state.selectedSessionId = sessionId || null;
+  rememberSelectedSession();
   // The error belongs to the message that failed, and that message stays behind with its
   // own session's composer content.
   if (previousSessionId !== state.selectedSessionId) {
@@ -2976,6 +3016,16 @@ function applyMessageScrollPin({ smooth = false } = {}) {
   return true;
 }
 
+// scrollIntoView walks every scrollable ancestor, and overflow:hidden ancestors
+// (.widget-shell, .chat-panel) qualify - a jump would drag the whole widget up
+// behind it. Those containers never scroll by design, so pin them back to zero.
+function pinTranscriptAncestors() {
+  for (const selector of [".widget-shell", ".chat-panel", ".messages-wrap"]) {
+    const node = $(selector);
+    if (node) { node.scrollTop = 0; node.scrollLeft = 0; }
+  }
+}
+
 function scrollToUserMessage(userIndex) {
   const bubbles = $$("#messages .bubble.user");
   // Resolved live, never from a captured node. renderMessages rebuilds the whole log
@@ -2986,7 +3036,12 @@ function scrollToUserMessage(userIndex) {
   state.messagesStickToBottom = false;
   state.unseenMessages = 0;
   state.messageScrollPin = { userIndex, expires: Date.now() + MESSAGE_PIN_MS };
-  applyMessageScrollPin({ smooth: true });
+  // scrollIntoView rather than measured scrollTop math: rows that skipped layout
+  // report remembered sizes, so math computed up front lands off target with nothing
+  // left to correct it. The browser resolves the real geometry on the way there.
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  bubbles[userIndex].scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+  pinTranscriptAncestors();
   flashMessageMark(userIndex);
   updateScrollLatestButton();
 }
@@ -3081,6 +3136,7 @@ function scheduleMessageMagnet() {
     state.messageMagnetSnapping = true;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     best.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+    pinTranscriptAncestors();
     clearTimeout(state.messageMagnetReleaseTimer);
     state.messageMagnetReleaseTimer = setTimeout(() => { state.messageMagnetSnapping = false; }, reduceMotion ? 0 : 420);
   }, 160);
@@ -3425,9 +3481,12 @@ function liveCaretHost(bubble) {
 function paintLiveText(bubble, text) {
   if (liveBubbleText.get(bubble) === text) return false;
   liveBubbleText.set(bubble, text);
-  if (!bubble.dataset.formatted) {
+  if (!bubble.dataset.formatted || text.length > LIVE_MARKDOWN_MAX_CHARS) {
+    delete bubble.dataset.formatted;
     bubble.classList.add("plain");
-    bubble.textContent = text;
+    bubble.textContent = text.length > LIVE_MARKDOWN_MAX_CHARS
+      ? `Earlier output is available when this answer finishes.\n\n${text.slice(-LIVE_MARKDOWN_MAX_CHARS)}`
+      : text;
     bubble.append(liveCaret());
   }
   scheduleLiveMarkdown(bubble, text);
@@ -3473,7 +3532,7 @@ function liveDuplicatesFinalAnswer(text) {
 function syncLiveBubbleContent(root) {
   const cache = transcriptCache();
   const stream = liveAssistantSnapshot();
-  const text = stream?.text && !liveDuplicatesFinalAnswer(stream.text) ? stream.text : "";
+  const text = transcriptPage(state.currentMessages.length).latest && stream?.text && !liveDuplicatesFinalAnswer(stream.text) ? stream.text : "";
   let bubble = root.querySelector(".live-assistant");
   if (!text) {
     if (!bubble) return false;
@@ -3510,6 +3569,7 @@ function paintLiveAssistant() {
   const previousTop = root.scrollTop;
   const wasPinned = state.messagesStickToBottom;
   const liveChanged = syncLiveBubbleContent(root);
+  if (!liveChanged) return false;
   // A mark the caller just clicked outranks the offset captured before this repaint. The
   // live stream repaints on every poll, and writing scrollTop back also cancels a smooth
   // scroll mid-flight - which is precisely the mark press that "did nothing" while the
@@ -3699,6 +3759,64 @@ function boundedMessagePreviews(messages, maxPreviewBytes = HISTORY_PREVIEW_BYTE
   return bounded;
 }
 
+// A page replaces the previous page instead of accumulating thousands of hidden nodes.
+// Keep the complete history for copying/recall, but only inspect and build this window.
+const TRANSCRIPT_PAGE_SIZE = 80;
+let transcriptPageSessionId;
+let transcriptPageEnd = null;
+let transcriptPreviewCache = { source: [], messages: [] };
+
+function visibleMessagePreviews(messages, page) {
+  const source = messages.slice(page.start, page.end);
+  if (source.length === transcriptPreviewCache.source.length
+      && source.every((message, index) => message === transcriptPreviewCache.source[index])) return transcriptPreviewCache.messages;
+  const bounded = boundedMessagePreviews(source);
+  transcriptPreviewCache = { source, messages: bounded };
+  return bounded;
+}
+
+function transcriptPage(total) {
+  if (transcriptPageSessionId !== state.selectedSessionId) {
+    transcriptPageSessionId = state.selectedSessionId;
+    transcriptPageEnd = null;
+  }
+  const end = transcriptPageEnd === null ? total : Math.min(total, transcriptPageEnd);
+  return { start: Math.max(0, end - TRANSCRIPT_PAGE_SIZE), end, total, latest: end === total };
+}
+
+function showTranscriptPage(end = null) {
+  transcriptPageEnd = end;
+  releaseMessageScrollPin();
+  state.messageMarkFlashIndex = null;
+  state.messagesStickToBottom = end === null;
+  renderMessages(state.currentMessages);
+  if (end !== null) $("#messages").scrollTop = 0;
+  $("#messages .history-navigation button")?.focus({ preventScroll: true });
+}
+
+function createHistoryNavigation(page) {
+  const nav = document.createElement("nav");
+  nav.className = "history-navigation";
+  nav.setAttribute("aria-label", "Conversation history pages");
+  const label = document.createElement("span");
+  label.textContent = `Messages ${page.start + 1}–${page.end} of ${page.total}`;
+  nav.append(label);
+  const add = (label, end) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("click", () => showTranscriptPage(end));
+    nav.append(button);
+  };
+  if (page.start > 0) add("Older messages", page.start);
+  if (!page.latest) {
+    const nextEnd = Math.min(page.total, page.end + TRANSCRIPT_PAGE_SIZE);
+    add("Newer messages", nextEnd === page.total ? null : nextEnd);
+    add("Latest messages", null);
+  }
+  return nav;
+}
+
 function createMessageAttachmentStrip(attachments) {
   const values = (Array.isArray(attachments) ? attachments : []).slice(0, 12);
   if (!values.length) return null;
@@ -3742,11 +3860,13 @@ function renderMessages(messages) {
   const root = $("#messages");
   const previousTop = root.scrollTop;
   const wasPinned = state.messagesStickToBottom;
-  state.currentMessages = boundedMessagePreviews(messages);
-  const liveAssistant = liveAssistantSnapshot();
-  const steering = steeringPromptsFor();
+  state.currentMessages = Array.isArray(messages) ? messages : [];
+  const page = transcriptPage(state.currentMessages.length);
+  const visibleMessages = visibleMessagePreviews(state.currentMessages, page);
+  const liveAssistant = page.latest ? liveAssistantSnapshot() : null;
+  const steering = page.latest ? steeringPromptsFor() : [];
   const awaitingHistory = transcriptAwaitingHistory();
-  const signature = `${state.selectedSessionId || "new"}::${awaitingHistory ? "loading" : "loaded"}::${state.currentMessages.map(messageSignature).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}`;
+  const signature = `${state.selectedSessionId || "new"}::${awaitingHistory ? "loading" : "loaded"}::${page.start}:${page.end}:${page.total}::${visibleMessages.map(messageSignature).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}`;
   const previousSignature = state.historySignature;
   const changed = Boolean(previousSignature && signature !== previousSignature);
   const unchanged = root.dataset.rendered === "true" && signature === previousSignature;
@@ -3760,22 +3880,23 @@ function renderMessages(messages) {
   const liveText = liveBubble ? (liveBubbleText.get(liveBubble) || "").trim() : "";
   root.dataset.rendered = "true";
   const blocks = [];
+  if (page.start > 0 || !page.latest) blocks.push({ key: "history-navigation", signature: `${page.start}:${page.end}:${page.total}`, build: () => createHistoryNavigation(page) });
   if (!state.currentMessages.length && !liveAssistant?.text && !steering.length) {
     blocks.push(awaitingHistory
       ? { key: "skeleton", signature: "skeleton", build: transcriptSkeleton }
       : { key: "empty", signature: `empty:${Boolean(state.selectedSessionId)}`, build: transcriptEmptyState });
   } else {
     let modelSetupShown = false;
-    for (let index = 0; index < state.currentMessages.length;) {
-      const message = state.currentMessages[index];
+    for (let index = 0; index < visibleMessages.length;) {
+      const message = visibleMessages[index];
       if (message.role === "reasoning") {
         index += 1;
         continue;
       }
       if (message.role === "tool") {
         const run = [];
-        const start = index;
-        while (index < state.currentMessages.length && state.currentMessages[index].role === "tool") run.push(state.currentMessages[index++]);
+        const start = page.start + index;
+        while (index < visibleMessages.length && visibleMessages[index].role === "tool") run.push(visibleMessages[index++]);
         blocks.push({
           key: `tools:${run.map((entry) => entry.callId || entry.seq || entry.name || "tool").join("|") || start}`,
           signature: run.map(messageSignature).join("|"),
@@ -3789,14 +3910,14 @@ function renderMessages(messages) {
         index += 1;
         continue;
       }
-      const commandName = message.role === "command" ? commandResultName(state.currentMessages, index) : "";
+      const commandName = message.role === "command" ? commandResultName(state.currentMessages, page.start + index) : "";
       const structuredCommand = commandName === "goal" ? createGoalResultCard(message.text) : null;
       if (structuredCommand) {
-        blocks.push({ key: `goal:${message.seq || index}`, signature: messageSignature(message), build: () => structuredCommand });
+        blocks.push({ key: `goal:${message.seq || page.start + index}`, signature: messageSignature(message), build: () => structuredCommand });
         index += 1;
         continue;
       }
-      blocks.push({ key: messageBlockKey(message, index), signature: messageSignature(message), message, build: () => createMessageBubble(message) });
+      blocks.push({ key: messageBlockKey(message, page.start + index), signature: messageSignature(message), message, build: () => createMessageBubble(message) });
       index += 1;
     }
     for (const item of steering) {
@@ -3986,7 +4107,8 @@ async function refreshHistory({ priority = false } = {}) {
   const streamAtRequest = state.liveStreamsBySession.get(sessionId);
   state.historyBusy = true;
   try {
-    const view = await window.widget.history(sessionId);
+    const revision = state.historyLoadedSessionId === sessionId ? state.historyLoadedRevision : null;
+    const view = await window.widget.history(sessionId, revision === null ? undefined : { revision });
     if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return "superseded";
     if (streamAtRequest?.disconnected && !streamAtRequest.active && state.liveStreamsBySession.get(sessionId) === streamAtRequest) {
       state.liveStreamsBySession.delete(sessionId);
@@ -3994,13 +4116,14 @@ async function refreshHistory({ priority = false } = {}) {
     const rendererAlreadyHasRevision = state.historyLoadedSessionId === sessionId && state.historyLoadedRevision !== null;
     const sameRevision = view.revision !== null && view.revision !== undefined
       && Object.is(state.historyLoadedRevision, view.revision);
-    const skipReconciliation = rendererAlreadyHasRevision && (view.unchanged === true || sameRevision);
+    // Backend cache hits can follow a superseded request whose messages never
+    // reached this renderer. Only our own revision proves we have the transcript.
+    const skipReconciliation = rendererAlreadyHasRevision && sameRevision;
     state.historyLoadedSessionId = sessionId;
     state.historyLoadedUpdatedAt = selectedSessionUpdatedAt(sessionId);
     if (view.revision !== null && view.revision !== undefined) state.historyLoadedRevision = view.revision;
     if (state.historyPendingSessionId === sessionId) state.historyPendingSessionId = null;
-    if (skipReconciliation) return "unchanged";
-    const messages = view.messages || [];
+    const messages = skipReconciliation ? state.currentMessages : view.messages || [];
     if (chatVisual) {
       const historySession = state.dashboard?.sessions?.find((session) => session.sessionId === sessionId);
       chatVisual.notePoll(sessionId, {
@@ -4013,6 +4136,10 @@ async function refreshHistory({ priority = false } = {}) {
       });
     }
     setActivity(commandFeedbackFor(sessionId)?.activity || view.activity || null);
+    if (skipReconciliation) {
+      paintLiveAssistant();
+      return "unchanged";
+    }
     const detectedMode = modeFromMessages(messages);
     if (detectedMode) setSessionAgentMode(sessionId, detectedMode);
     renderMessages(messages);
@@ -4040,19 +4167,33 @@ async function refreshHistory({ priority = false } = {}) {
 }
 
 function refreshHistoryAfterLiveMessage(sessionId) {
-  const previous = state.historyPriorityPromise;
-  const pending = (async () => {
-    if (previous) await previous;
-    if (sessionId !== state.selectedSessionId) return "selection-changed";
-    state.historyPrioritySessionId = sessionId;
-    return refreshHistory({ priority: true });
-  })();
-  state.historyPriorityPromise = pending;
-  return pending.finally(() => {
-    if (state.historyPriorityPromise !== pending) return;
-    state.historyPriorityPromise = null;
-    state.historyPrioritySessionId = null;
+  if (sessionId !== state.selectedSessionId) return Promise.resolve("selection-changed");
+  // Each event only marks one trailing refresh. A burst during a slow history load
+  // must not become a chain of hundreds of obsolete full-history requests.
+  state.historyPriorityRequestedSessionId = sessionId;
+  state.historyPrioritySessionId = sessionId;
+  if (state.historyPriorityPromise) return state.historyPriorityPromise;
+  const pending = Promise.resolve().then(async () => {
+    let result = "selection-changed";
+    try {
+      while (state.historyPriorityRequestedSessionId) {
+        const requestedSessionId = state.historyPriorityRequestedSessionId;
+        state.historyPriorityRequestedSessionId = null;
+        if (requestedSessionId !== state.selectedSessionId) continue;
+        state.historyPrioritySessionId = requestedSessionId;
+        result = await refreshHistory({ priority: true });
+      }
+      return result;
+    } finally {
+      // Clear synchronously with the drain, so an event after it finishes starts a
+      // new worker instead of attaching to an already-resolved promise.
+      state.historyPriorityPromise = null;
+      state.historyPrioritySessionId = null;
+      state.historyPriorityRequestedSessionId = null;
+    }
   });
+  state.historyPriorityPromise = pending;
+  return pending;
 }
 
 function updateLiveSessionState(sessionId, running, activity = null, stateName = null, { render = true } = {}) {
@@ -4461,11 +4602,12 @@ function detectCompletedSessions(nextSessions) {
 }
 
 async function performRefresh() {
+  await state.preferencesReadyPromise;
   state.refreshing = true;
   try {
     const selectedAtRequest = state.selectedSessionId;
     const liveRevisionsAtRequest = new Map(state.liveSessionRevisions);
-    const dashboardResult = await window.widget.dashboard();
+    const dashboardResult = await window.widget.dashboard(selectedAtRequest);
     const dashboard = {
       ...dashboardResult,
       sessions: (dashboardResult.sessions || []).map((session) => {
@@ -4532,6 +4674,7 @@ async function performRefresh() {
     }
     if (state.selectedSessionId) state.lastSelectedSessionId = state.selectedSessionId;
     if (!selectionChangedWhileLoading && state.selectedSessionId !== selectedAtRequest) invalidateSelectedHistoryVersion();
+    rememberSelectedSession();
     syncGameBarSelection();
     if (dashboard.harness) {
       detectCompletedSessions(dashboard.sessions || []);
@@ -5130,11 +5273,17 @@ async function updateAutoStartToggle(event) {
 }
 
 async function hydratePreferences() {
+  const selectionGeneration = state.sessionSelectionGeneration;
   const autoStartToggle = $("#autoStartToggle");
   autoStartToggle.disabled = true;
   setAutoStartStatus("Checking…");
   try {
     const preferences = await window.widget.getPreferences();
+    if (state.sessionSelectionGeneration === selectionGeneration && !state.selectedSessionId && preferences.lastSelectedSessionId) {
+      state.selectedSessionId = preferences.lastSelectedSessionId;
+      state.lastSelectedSessionId = preferences.lastSelectedSessionId;
+      state.persistedSessionId = preferences.lastSelectedSessionId;
+    }
     syncPressed($$('#windowLayerSwitch button'), preferences.windowLayer || "above", "layer");
     confirmedAutoStart = Boolean(preferences.autoStart);
     autoStartToggle.checked = confirmedAutoStart;
@@ -5438,11 +5587,39 @@ $("#messages").addEventListener("scroll", () => {
     if (nearBottom) finishScrollLatestAutoScroll();
     return;
   }
-  state.messagesStickToBottom = nearBottom;
-  if (nearBottom) state.unseenMessages = 0;
+  // A mark jump owns the scroll until it settles: a smooth flight that passes near the
+  // bottom - or lands on it because skipped rows report remembered sizes - must not
+  // re-pin to the bottom halfway there. The hand still wins at once via wheel/pointer/keys.
+  if (!activeMessageScrollPin()) {
+    state.messagesStickToBottom = nearBottom;
+    if (nearBottom) state.unseenMessages = 0;
+  }
   updateScrollLatestButton();
   syncMessageMagnet();
   scheduleMessageMagnet();
+});
+// A smooth jump is measured before it flies, and rows that skipped layout can resolve
+// to different sizes while it is still in flight - landing it off target. When the
+// scroll settles, the pin that started the jump measures again and snaps exactly.
+// A hand on the wheel, pointer or keys releases the pin first, so this never fights
+// a deliberate scroll; the jump-to-latest glide is guarded the same way.
+$("#messages").addEventListener("scrollend", () => {
+  if (state.scrollLatestAutoScrolling) return;
+  const pin = activeMessageScrollPin();
+  if (!pin || state.messagesStickToBottom) return;
+  const root = $("#messages");
+  const bubble = root?.querySelectorAll(".bubble.user")[pin.userIndex];
+  if (!root || !bubble) return;
+  // Measure-then-scroll math is computed against remembered row sizes while skipped
+  // rows are still resolving theirs, so the smooth flight can land off target with
+  // nothing left to correct it. scrollIntoView resolves the real geometry on the way
+  // there instead of trusting the estimate. The tolerance guard keeps the correction
+  // itself from becoming a new scroll that would re-enter this handler forever.
+  const delta = bubble.getBoundingClientRect().top - root.getBoundingClientRect().top;
+  if (Math.abs(delta - MESSAGE_PIN_OFFSET) <= 1.5) return;
+  bubble.scrollIntoView({ block: "start", behavior: "auto" });
+  pinTranscriptAncestors();
+  root.scrollTop = Math.max(0, root.scrollTop - MESSAGE_PIN_OFFSET);
 });
 // Scrolling under your own hand releases the pin at once; it only exists to keep a rebuild
 // from landing on top of a jump that is still in flight.
@@ -5461,6 +5638,7 @@ if (typeof ResizeObserver === "function") {
   }).observe($("#messages"));
 }
 $("#scrollLatestButton").addEventListener("click", () => {
+  if (!transcriptPage(state.currentMessages.length).latest) showTranscriptPage();
   releaseMessageScrollPin();
   clearTimeout(state.scrollLatestAutoScrollTimer);
   state.scrollLatestAutoScrolling = true;
@@ -5541,6 +5719,24 @@ $("#focusChatButton").addEventListener("click", () => setFocusMode(!state.focusM
 $("#startHarnessButton").addEventListener("click", startHarnessFromBanner);
 $("#openHarnessButton").addEventListener("click", () => window.widget.openHarness());
 $("#openSessionButton").addEventListener("click", () => {
+  if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId);
+});
+// Clip Setup only while it changes height; its model/workspace menus must escape
+// the disclosure after opening. A new toggle cancels the previous cleanup timer.
+let controlsMotionTimer = null;
+$("#agentControls").addEventListener("toggle", (event) => {
+  const details = event.currentTarget;
+  clearTimeout(controlsMotionTimer);
+  if (prefersReducedMotion() || document.body.classList.contains("motion-off")) {
+    delete details.dataset.disclosureMoving;
+    return;
+  }
+  details.dataset.disclosureMoving = "1";
+  controlsMotionTimer = setTimeout(() => {
+    delete details.dataset.disclosureMoving;
+  }, 240);
+});
+$("#subagentsButton").addEventListener("click", () => {
   if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId);
 });
 $("#dockButton").addEventListener("click", () => setWindowMode("edge"));
@@ -5757,7 +5953,7 @@ window.widget.onEdgeBounce(() => {
   void edge.offsetWidth;
   edge.classList.add("bounce");
 });
-hydratePreferences();
+state.preferencesReadyPromise = hydratePreferences();
 window.widget.getAppInfo().then((info) => {
   state.appVersion = info.version;
   $("#versionLabel").textContent = `v${info.version}`;
@@ -6193,7 +6389,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.7.3", latestVersion: "0.7.4", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.7.4", latestVersion: "0.7.5", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {

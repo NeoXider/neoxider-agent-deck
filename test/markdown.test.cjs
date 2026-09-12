@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { renderMarkdown } = require("../src/markdown.cjs");
+const { renderMarkdown, createMarkdownCache } = require("../src/markdown.cjs");
 
 test("markdown renders the structures used in agent replies", () => {
   const html = renderMarkdown("## Result\n\n- one\n- **two**\n\n```js\nconst ok = true;\n```");
@@ -42,4 +42,27 @@ test("fence metadata cannot inject attributes or non-highlight classes", () => {
   assert.doesNotMatch(html, /onclick=|<script|class="[^"]*unsafe/i);
   assert.match(html, /<pre><code/);
   assert.match(html, /class="hljs-(?:keyword|literal)"/);
+});
+
+test("large code fences preserve all content without expensive highlighting", () => {
+  const code = 'const value = "<safe>";\n'.repeat(2000);
+  for (const language of ["js", "unknown-language"]) {
+    const html = renderMarkdown(`\`\`\`${language}\n${code}\`\`\``);
+    assert.doesNotMatch(html, /hljs-/);
+    assert.equal((html.match(/&lt;safe&gt;/g) || []).length, 2000);
+    assert.match(html, /<\/code><\/pre>/);
+  }
+});
+
+test("markdown cache is LRU and bounded by both entries and retained string bytes", () => {
+  const calls = [];
+  const render = (text) => { calls.push(text); return text; };
+  const cached = createMarkdownCache({ maxEntries: 2, maxBytes: 16, render });
+  cached("a"); cached("b"); cached("a"); cached("c"); cached("b");
+  assert.deepEqual(calls, ["a", "b", "c", "b"]);
+  cached("12345"); cached("12345"); // Too large for cache; does not evict b.
+  cached("b");
+  assert.deepEqual(calls, ["a", "b", "c", "b", "12345", "12345"]);
+  cached("1234"); cached("b"); // Fits alone, evicting both smaller entries.
+  assert.deepEqual(calls.slice(-2), ["1234", "b"]);
 });

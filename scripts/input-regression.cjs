@@ -40,6 +40,8 @@ let dashboardCalls = 0;
 let startHarnessCalls = 0;
 let installUpdateCalls = 0;
 let showThinkingPreference = true;
+let lastSelectedSessionPreference = null;
+const persistedSessionIds = [];
 let queueSnapshotValue = [];
 let updateState = { status: "idle", currentVersion: "0.0.0", installMode: "manual" };
 let nativeCompactStatus = { active: false, expanded: false };
@@ -99,7 +101,12 @@ function registerStubs() {
     }
     return payload;
   });
-  ipcMain.handle("get-preferences", () => ({ showThinking: showThinkingPreference }));
+  ipcMain.handle("get-preferences", () => ({ showThinking: showThinkingPreference, lastSelectedSessionId: lastSelectedSessionPreference }));
+  ipcMain.handle("set-last-selected-session", (_event, sessionId) => {
+    persistedSessionIds.push(sessionId);
+    lastSelectedSessionPreference = sessionId;
+    return sessionId;
+  });
   ipcMain.handle("set-show-thinking", (_event, value) => {
     showThinkingPreference = Boolean(value);
     return showThinkingPreference;
@@ -915,10 +922,11 @@ async function main() {
   })()`);
   const thinkGeometryClosed = await thinkGeometrySnapshot();
   await contents.executeJavaScript(`document.querySelector("#agentControls").open = true`);
-  await wait(80);
+  // Setup now has a 220ms disclosure transition; compare settled geometry.
+  await wait(280);
   const thinkGeometryOpen = await thinkGeometrySnapshot();
   await contents.executeJavaScript(`document.querySelector("#agentControls").open = false`);
-  await wait(80);
+  await wait(280);
   const thinkGeometryReclosed = await thinkGeometrySnapshot();
   win.setSize(400, 640);
   await wait(100);
@@ -1477,6 +1485,8 @@ async function main() {
       text: "Long history message " + (index + 1),
     })));
     const messages = document.querySelector("#messages");
+    const latestPageFirst = messages.querySelector(".bubble")?.textContent;
+    [...messages.querySelectorAll(".history-navigation button")].find((button) => button.textContent === "Older messages")?.click();
     messages.scrollTop = 0;
     state.messagesStickToBottom = messagesNearBottom(messages);
     const first = messages.querySelector(".bubble");
@@ -1484,12 +1494,13 @@ async function main() {
     const firstBounds = first?.getBoundingClientRect();
     return {
       firstText: first?.textContent || "",
+      latestPageFirst,
       firstVisible: Boolean(firstBounds && firstBounds.top >= viewport.top - 1 && firstBounds.bottom <= viewport.bottom + 1),
       scrollable: messages.scrollHeight > messages.clientHeight,
       scrollTop: messages.scrollTop,
     };
   })()`);
-  if (longHistoryScroll.firstText !== "Long history message 1" || !longHistoryScroll.firstVisible || !longHistoryScroll.scrollable || longHistoryScroll.scrollTop !== 0) {
+  if (longHistoryScroll.latestPageFirst !== "Long history message 81" || longHistoryScroll.firstText !== "Long history message 1" || !longHistoryScroll.firstVisible || !longHistoryScroll.scrollable || longHistoryScroll.scrollTop !== 0) {
     failures.push(`long history cannot scroll to its first message: ${JSON.stringify(longHistoryScroll)}`);
   }
 
@@ -1652,7 +1663,7 @@ async function main() {
       kind: "image", mediaType: "image/png", data, name: seq + ".png",
     }] })));
     const result = {
-      retained: state.currentMessages.map((message) => message.attachments[0].data?.length || 0),
+      retained: visibleMessagePreviews(state.currentMessages, transcriptPage(state.currentMessages.length)).map((message) => message.attachments[0].data?.length || 0),
       images: document.querySelectorAll("#messages .message-attachment-preview img").length,
       attachments: document.querySelectorAll("#messages .message-attachment").length,
     };
@@ -1937,6 +1948,60 @@ async function main() {
     || !crowdedLayout.surfacesWithinPanel || crowdedLayout.todoRows !== 3 || crowdedLayout.queueRows !== 2 || crowdedLayout.attachments !== 1) {
     failures.push(`combined 360x360 chat budget regressed: ${JSON.stringify(crowdedLayout)}`);
   }
+
+  // Real renderer boot and reload, with the preference held by the main process:
+  // choosing a chat must survive reload both with Harness running and starting later.
+  const failuresBeforeRestoration = failures.length;
+  deferredDashboard = null;
+  deferredSessionRequests.history.clear();
+  deferredSessionRequests.models.clear();
+  deferredSessionRequests.commands.clear();
+  queueSnapshotValue = [];
+  currentMode = "full";
+  lastSelectedSessionPreference = "restore-saved";
+  const restoreSessions = [
+    { sessionId: "restore-running", title: "Another running chat", updatedAt: 2, running: true },
+    { sessionId: "restore-saved", title: "Last opened chat", updatedAt: 1, running: false },
+  ];
+  deferredSessionRequests.history.set("restore-saved", { take: () => ({ messages: [{ role: "assistant", text: "Restored saved transcript" }], activity: null }) });
+  deferredSessionRequests.history.set("restore-running", { take: () => ({ messages: [{ role: "assistant", text: "Restored clicked transcript" }], activity: null }) });
+  dashboardValue = { harness: true, sessions: restoreSessions };
+  async function reloadForRestoration() {
+    await win.loadFile(path.join(root, "src", "renderer", "index.html"), { query: { screenshotStatic: "1" } });
+    await within(contents.executeJavaScript(`(async () => {
+      clearInterval(state.pollTimer);
+      await state.preferencesReadyPromise;
+      await state.refreshPromise;
+    })()`), "Restoration boot");
+  }
+  async function restoredSnapshot() {
+    return contents.executeJavaScript(`({ selected: state.selectedSessionId, offline: state.harnessOffline, text: document.querySelector("#messages").textContent })`);
+  }
+  await reloadForRestoration();
+  const onlineRestored = await restoredSnapshot();
+  if (onlineRestored.selected !== "restore-saved" || !onlineRestored.text.includes("Restored saved transcript")) {
+    failures.push(`online startup did not load the saved chat: ${JSON.stringify(onlineRestored)}`);
+  }
+  const savesBeforeClick = persistedSessionIds.length;
+  await contents.executeJavaScript(`document.querySelector('#sessionOptions [data-option-key="restore-running"]').click()`);
+  await within((async () => {
+    while (lastSelectedSessionPreference !== "restore-running" || !(await restoredSnapshot()).text.includes("Restored clicked transcript")) await wait(10);
+  })(), "Clicked chat persistence and history");
+  if (persistedSessionIds.length !== savesBeforeClick + 1) failures.push("selecting a chat did not persist exactly one preference update");
+  dashboardValue = { harness: false, sessions: [] };
+  await reloadForRestoration();
+  await contents.executeJavaScript("refresh()");
+  const offlineRestored = await restoredSnapshot();
+  if (offlineRestored.selected !== "restore-running" || !offlineRestored.offline) {
+    failures.push(`offline reload forgot the clicked chat: ${JSON.stringify(offlineRestored)}`);
+  }
+  dashboardValue = { harness: true, sessions: restoreSessions };
+  await contents.executeJavaScript("startHarnessFromBanner()");
+  const startedRestored = await restoredSnapshot();
+  if (startedRestored.selected !== "restore-running" || startedRestored.offline || !startedRestored.text.includes("Restored clicked transcript")) {
+    failures.push(`starting Harness did not restore the clicked chat transcript: ${JSON.stringify(startedRestored)}`);
+  }
+  if (failures.length === failuresBeforeRestoration) console.log("PASS saved chat loads online, picker selection persists once, and offline reload restores history after Start Harness");
 
   for (const failure of failures) console.error(`FAIL ${failure}`);
   if (failures.length === 0) console.log("PASS stable rendering, bounded live-stream paints, named live tool cards, last-intent modes, compact drag, exact-session open, and inline quick reply behave correctly");

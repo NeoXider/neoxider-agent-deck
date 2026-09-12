@@ -2,7 +2,7 @@
   "name": "neoxider-agent-deck",
   "productName": "NeoXider Agent Deck",
   "desktopName": "dev.neoxider.agentdeck.desktop",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "A compact cross-platform desktop companion for DeepSeek Harness sessions, agents, and chat",
   "author": {
     "name": "NeoXider",
@@ -34,6 +34,8 @@
     "build:mac": "npm run test && electron-builder --mac dmg zip --publish never",
     "build:linux": "npm run test && electron-builder --linux AppImage deb --publish never",
     "test:input": "electron scripts/input-regression.cjs",
+    "test:large-chat": "electron scripts/large-chat-smoke.cjs",
+    "test:motion": "electron scripts/disclosure-motion-smoke.cjs",
     "test:attachments-live": "electron scripts/attachment-preview-smoke.cjs",
     "test:platforms": "node scripts/platform-matrix.cjs",
     "bench:encoding": "node scripts/encoding-block-bench.cjs"

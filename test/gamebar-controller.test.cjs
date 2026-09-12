@@ -182,6 +182,27 @@ test("the shared dashboard reader coalesces concurrent UI and Game Bar polls and
   assert.equal(calls, 2);
 });
 
+test("changing the selected session refreshes shared enrichment after an in-flight read", async () => {
+  const selections = [];
+  let release;
+  const blocked = new Promise((resolve) => { release = resolve; });
+  const reader = createSharedDashboardReader({
+    api: { dashboard: async (selection) => {
+      selections.push(selection);
+      if (selections.length === 1) await blocked;
+      return { sessions: [{ sessionId: selection }] };
+    } },
+  });
+  const first = reader.read("older-a");
+  await settle();
+  const second = reader.read("older-b");
+  release();
+  await first;
+  assert.equal((await second).sessions[0].sessionId, "older-b");
+  assert.equal((await reader.read()).sessions[0].sessionId, "older-b");
+  assert.deepEqual(selections, ["older-a", "older-b"]);
+});
+
 test("the shared dashboard reader converts thrown and malformed results into the offline contract", async () => {
   const thrown = createSharedDashboardReader({ readDashboard: async () => { throw new Error("offline"); } });
   assert.deepEqual(await thrown.read(), { ok: false, harness: false, error: "offline", sessions: [] });
@@ -631,7 +652,7 @@ test("the sandbox bridge carries exact Game Bar selection in both directions", (
   const preload = readFileSync(path.join(root, "src", "preload.cjs"), "utf8");
   const renderer = readFileSync(path.join(root, "src", "renderer", "app.js"), "utf8");
   assert.match(ipc, /on\("gamebar-selected-session"/);
-  assert.match(ipc, /const dashboard = await readDashboard\(\)/);
+  assert.match(ipc, /const dashboard = await readDashboard\(typeof selectedSessionId === "string" \? selectedSessionId : null\)/);
   assert.match(main, /readDashboard: dashboardReader\.read/);
   assert.match(main, /sendToRenderer\("gamebar-select-session", sessionId\)/);
   assert.match(preload, /selectGameBarSession: \(sessionId\) => ipcRenderer\.send\("gamebar-selected-session", sessionId\)/);

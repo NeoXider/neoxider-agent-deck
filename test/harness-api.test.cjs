@@ -2,6 +2,61 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { HISTORY_PREVIEW_BYTES_BUDGET, HarnessApi, activityFromHistory, boundedHistoryEntries, messagesFromHistory, sessionStateFromHistory, titleFromSession, toolMessagesFromHistory } = require("../src/harness-api.cjs");
 
+test("subagent activity refreshes independently of an unchanged parent with bounded retries", async () => {
+  let now = 0;
+  let rosterCalls = 0;
+  let historyCalls = 0;
+  let failRoster = false;
+  const api = new HarnessApi(undefined, undefined, { now: () => now, subagentRefreshMs: 10000 });
+  api.rpc = async (method) => {
+    if (method === "session.history") { historyCalls += 1; return { events: [] }; }
+    if (method === "subagent.list") {
+      rosterCalls += 1;
+      if (failRoster) throw new Error("offline");
+      return { entries: [{ sessionId: "child", kind: "child", activity: rosterCalls === 1 ? "running" : "inactive" }] };
+    }
+    throw new Error(`Unexpected RPC: ${method}`);
+  };
+  const session = { sessionId: "parent", updatedAt: "same", running: false };
+  const read = () => api.enrichSession(session, 0, new Map());
+  assert.equal((await read()).subagents[0].activity, "running");
+  now = 9999;
+  await read();
+  assert.equal(rosterCalls, 1);
+  now = 10000;
+  assert.equal((await read()).subagents[0].activity, "inactive");
+  assert.equal(historyCalls, 1);
+  failRoster = true;
+  now = 20000;
+  const failed = await read();
+  assert.equal(failed.degraded, true);
+  assert.equal(failed.subagents[0].activity, "inactive");
+  now = 20001;
+  await read();
+  assert.equal(rosterCalls, 3);
+});
+
+test("dashboard enriches one selected older idle session beyond the bounded recent set", async () => {
+  const api = new HarnessApi();
+  const rosters = [];
+  const roots = Array.from({ length: 25 }, (_, index) => ({ sessionId: `root-${index}`, updatedAt: 1, running: false }));
+  api.rpc = async (method, payload) => {
+    if (method === "host.describe") return {};
+    if (method === "session.list") return { items: roots };
+    if (method === "workspace.list") return { items: [] };
+    if (method === "session.history") return { events: [] };
+    if (method === "subagent.list") {
+      rosters.push(payload.parentSessionId);
+      return { entries: [{ kind: "child", sessionId: `child-of-${payload.parentSessionId}`, activity: "inactive" }] };
+    }
+    throw new Error(`Unexpected RPC: ${method}`);
+  };
+  const result = await api.dashboard("root-24");
+  assert.equal(rosters.length, 19);
+  assert.equal(rosters.includes("root-23"), false);
+  assert.equal(result.sessions[24].subagents[0].sessionId, "child-of-root-24");
+});
+
 test("RPC carrier sends the official envelope and unwraps the value", async () => {
   let request;
   const api = new HarnessApi("http://127.0.0.1:3080", async (_url, init) => {

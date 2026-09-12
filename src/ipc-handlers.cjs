@@ -21,7 +21,7 @@
 // tests against fakes would still pass while the real app quietly broke. The screenshot
 // harness already paid for that lesson once (see scripts/screenshot-harness.cjs).
 const { harnessSessionUrl } = require("./harness-url.cjs");
-const { renderMarkdown } = require("./markdown.cjs");
+const { renderMarkdownBatch, renderMarkdownAsync } = require("./markdown-service.cjs");
 const { applyPlatformOpacity } = require("./platform-capabilities.cjs");
 
 const UNTRUSTED_SENDER_CODE = "untrusted-sender";
@@ -186,28 +186,36 @@ function registerIpcHandlers({
     return { x: Number(value?.x), y: Number(value?.y) };
   }
 
-  handle("dashboard", async () => {
+  handle("dashboard", async (_event, selectedSessionId) => {
     try {
       // Through the shared reader, not api.dashboard(): the Game Bar widget reads the same
       // snapshot, and two independent readers would poll Harness twice for one answer.
-      const dashboard = await readDashboard();
+      const dashboard = await readDashboard(typeof selectedSessionId === "string" ? selectedSessionId : null);
       return { ok: true, harness: true, ...dashboard };
     } catch (error) {
       return { ok: false, harness: false, error: error instanceof Error ? error.message : String(error), sessions: [] };
     }
   });
-  handle("history", async (_event, sessionId) => {
+  handle("history", async (_event, sessionId, options) => {
     const view = await api.history(sessionId);
+    if (typeof options?.revision === "string" && options.revision === view.revision) {
+      return { ...view, messages: null, unchanged: true };
+    }
+    // Tool cards use plain text and structured fields; their often enormous output
+    // never uses message.html. Do not parse it merely to discard the result.
+    const formattedMessages = view.messages.filter((message) => message.role !== "tool" && typeof message.text === "string");
+    const html = await renderMarkdownBatch(formattedMessages.map((message) => message.text));
+    const htmlByMessage = new Map(formattedMessages.map((message, index) => [message, html[index]]));
     return {
       ...view,
-      messages: view.messages.map((message) => typeof message.text === "string"
-        ? { ...message, html: renderMarkdown(message.text) }
+      messages: view.messages.map((message) => htmlByMessage.has(message)
+        ? { ...message, html: htmlByMessage.get(message) }
         : message),
     };
   });
   // Live text is rendered on the way through, one request in flight at a time on the
   // renderer side, so a streaming answer is formatted exactly as its history will be.
-  handle("render-markdown", (_event, text) => renderMarkdown(typeof text === "string" ? text : ""));
+  handle("render-markdown", (_event, text) => renderMarkdownAsync(typeof text === "string" ? text : ""));
   handle("models", async (_event, sessionId) => api.models(sessionId || undefined));
   handle("commands", async (_event, sessionId) => api.commandCatalog(sessionId));
   handle("execute-command", async (_event, payload) => {
@@ -313,6 +321,17 @@ function registerIpcHandlers({
     schedulePreferenceSave();
     return preferences.showThinking;
   });
+  handle("set-last-selected-session", (_event, sessionId) => {
+    if (sessionId !== null && (typeof sessionId !== "string" || !sessionId.trim() || sessionId.length > 512)) {
+      throw new TypeError("Invalid session id");
+    }
+    const preferences = getPreferences();
+    if (preferences.lastSelectedSessionId !== sessionId) {
+      preferences.lastSelectedSessionId = sessionId;
+      schedulePreferenceSave();
+    }
+    return preferences.lastSelectedSessionId;
+  });
   handle("set-motion-effects", (_event, value) => {
     const preferences = getPreferences();
     preferences.motionEffects = Boolean(value);
@@ -382,6 +401,7 @@ function registerIpcHandlers({
       size: preferences.size,
       windowMode: getWindowMode(),
       compactSide: preferences.compactSide,
+      lastSelectedSessionId: preferences.lastSelectedSessionId || null,
       hotkeys: preferences.hotkeys,
       hotkeyError: getHotkeyRegistrationError(),
       screenshotCapabilities: getScreenshotService()?.capabilities() || {},

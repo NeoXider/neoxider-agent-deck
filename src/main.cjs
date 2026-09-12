@@ -25,7 +25,7 @@ const {
   setPlatformSkipTaskbar,
 } = require("./platform-capabilities.cjs");
 const { APP_ID, PRODUCT_NAME, REPOSITORY_URL } = require("./product.cjs");
-const { renderMarkdown } = require("./markdown.cjs");
+const { PRODUCT_WINDOW_OPTIONS, applyWindowIdentity } = require("./window-identity.cjs");
 const { createAttachmentReader, MAX_IMAGE_BYTES } = require("./attachments.cjs");
 const { createAttachmentRegistry } = require("./attachment-registry.cjs");
 const { createFileSelectionBroker } = require("./file-selection-broker.cjs");
@@ -52,6 +52,7 @@ const PACKAGED_SMOKE_PATH = process.env.WIDGET_PACKAGED_SMOKE_PATH || "";
 const ISOLATED_SMOKE_MODE = SCREENSHOT_MODE || Boolean(PACKAGED_SMOKE_PATH);
 const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
 app.setName(PRODUCT_NAME);
+if (process.platform === "win32") app.setAppUserModelId(APP_ID);
 configureProductUserData({ app });
 const api = new HarnessApi(HARNESS_URL);
 const dashboardReader = createSharedDashboardReader({ api });
@@ -496,6 +497,7 @@ function createWindow() {
   const width = Number.isFinite(requestedWidth) && requestedWidth >= 280 ? requestedWidth : presetWidth;
   const height = Number.isFinite(requestedHeight) && requestedHeight >= 280 ? requestedHeight : presetHeight;
   windowRef = new BrowserWindow({
+    ...PRODUCT_WINDOW_OPTIONS,
     width,
     height,
     minWidth: screenshotPath ? 1 : FULL_MIN_WIDTH,
@@ -516,6 +518,7 @@ function createWindow() {
     },
   });
   const initialFallback = windowRef.getBounds();
+  applyWindowIdentity(windowRef, { app });
   // Visual smoke requests must be deterministic even when the real app has a
   // different full-window size saved in user preferences.
   const initialTarget = screenshotPath ? initialFallback : (preferences.windowState.full || initialFallback);
@@ -567,10 +570,10 @@ function createWindow() {
     if (screenshotPath) applyWindowMode("full", { captureCurrent: false, persist: false });
     else applyWindowMode(preferences.windowState.mode, { captureCurrent: false, persist: false });
     if (PACKAGED_SMOKE_PATH) {
-      const { mkdirSync, writeFileSync } = require("node:fs");
-      mkdirSync(path.dirname(PACKAGED_SMOKE_PATH), { recursive: true });
-      writeFileSync(PACKAGED_SMOKE_PATH, JSON.stringify({ ready: true, version: app.getVersion() }));
-      setTimeout(() => quitCoordinator.requestQuit("packaged-smoke"), 100);
+      require("./packaged-smoke.cjs").reportPackagedReadiness({
+        markerPath: PACKAGED_SMOKE_PATH, version: app.getVersion(),
+        requestQuit: (reason) => quitCoordinator.requestQuit(reason),
+      });
     }
   });
   windowRef.on("close", (event) => {
@@ -687,7 +690,6 @@ app.on("second-instance", () => {
 });
 
 app.whenReady().then(() => {
-  if (process.platform === "win32") app.setAppUserModelId(APP_ID);
   // The screen module is unavailable until the app is ready, so these are attached
   // here rather than at module scope.
   screen.on("display-metrics-changed", reclampToCurrentDisplays);

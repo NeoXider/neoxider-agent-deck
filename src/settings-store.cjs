@@ -17,6 +17,7 @@ const DEFAULT_PREFERENCES = Object.freeze({
   size: "standard",
   windowLayer: "above",
   compactSide: "right",
+  lastSelectedSessionId: null,
   hotkeys: DEFAULT_HOTKEYS,
   windowState: Object.freeze({ version: 2, mode: "full", full: null, orb: null, edge: null }),
 });
@@ -79,6 +80,8 @@ function normalizePreferences(raw = {}) {
     size: ["compact", "standard", "large"].includes(source.size) ? source.size : DEFAULT_PREFERENCES.size,
     windowLayer,
     compactSide,
+    lastSelectedSessionId: typeof source.lastSelectedSessionId === "string" && source.lastSelectedSessionId.trim() && source.lastSelectedSessionId.length <= 512
+      ? source.lastSelectedSessionId : null,
     hotkeys,
     windowState: {
       version: SCHEMA_VERSION,

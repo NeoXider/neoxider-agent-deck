@@ -24,9 +24,9 @@ const DEFAULT_MAX_QUEUED_BYTES = MAX_FRAME_BYTES * 32;
 const DEFAULT_RESTART_DELAYS = Object.freeze([250, 1_000, 2_500, 5_000, 10_000]);
 const STABLE_PROCESS_MS = 30_000;
 
-function readHarnessDashboard(api) {
+function readHarnessDashboard(api, selectedSessionId) {
   return Promise.resolve()
-    .then(() => api.dashboard())
+    .then(() => api.dashboard(selectedSessionId))
     .then((dashboard) => ({ ok: true, harness: true, ...dashboard }))
     .catch((error) => ({
       ok: false,
@@ -38,7 +38,7 @@ function readHarnessDashboard(api) {
 
 function createSharedDashboardReader({
   api,
-  readDashboard = () => readHarnessDashboard(api),
+  readDashboard = (selectedSessionId) => readHarnessDashboard(api, selectedSessionId),
   now = Date.now,
   cacheMs = DEFAULT_DASHBOARD_CACHE_MS,
 } = {}) {
@@ -49,6 +49,9 @@ function createSharedDashboardReader({
   let cached = null;
   let cachedAt = -Infinity;
   let inflight = null;
+  let selectedSessionId = null;
+  let cachedSelection = null;
+  let inflightSelection = null;
 
   function offline(error) {
     return {
@@ -59,20 +62,25 @@ function createSharedDashboardReader({
     };
   }
 
-  function read() {
+  function read(selection) {
+    // Game Bar polls omit selection and share the desktop's enrichment priority.
+    if (selection !== undefined) selectedSessionId = typeof selection === "string" ? selection : null;
     const timestamp = Number(now());
     if (!Number.isFinite(timestamp)) return Promise.resolve(offline(new Error("Dashboard clock is unavailable")));
     const cacheAge = timestamp - cachedAt;
-    if (cached && cacheAge >= 0 && cacheAge <= cacheMs) return Promise.resolve(cached);
-    if (inflight) return inflight;
+    if (cached && cachedSelection === selectedSessionId && cacheAge >= 0 && cacheAge <= cacheMs) return Promise.resolve(cached);
+    if (inflight) return inflightSelection === selectedSessionId ? inflight : inflight.then(() => read());
+    const requestedSelection = selectedSessionId;
+    inflightSelection = requestedSelection;
     inflight = Promise.resolve()
-      .then(readDashboard)
+      .then(() => readDashboard(requestedSelection))
       .catch(offline)
       .then((dashboard) => {
         cached = dashboard && typeof dashboard === "object" && !Array.isArray(dashboard) && Array.isArray(dashboard.sessions)
           ? dashboard
           : offline(new Error("Dashboard response is invalid"));
         cachedAt = Number(now());
+        cachedSelection = requestedSelection;
         if (!Number.isFinite(cachedAt)) cachedAt = timestamp;
         return cached;
       })

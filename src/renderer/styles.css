@@ -243,6 +243,9 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 
 .chat-panel.active { position:relative; display:flex; flex-direction:column; gap:7px; }
 .chat-panel > * { min-width:0; max-width:100%; }
+.subagents-button { flex:none; align-self:flex-start; display:inline-flex; align-items:center; gap:5px; max-width:100%; min-height:22px; padding:2px 7px; border:1px solid rgba(139,121,255,.2); border-radius:7px; background:rgba(139,121,255,.09); color:#cfc6ff; font:inherit; font-size:10px; cursor:pointer; }
+.subagents-button[hidden] { display:none; }
+.subagents-button .ui-icon { width:12px; height:12px; }
 .focus-chat .widget-shell { gap:0; padding:9px; }
 .focus-chat .titlebar, .focus-chat .offline-banner, .focus-chat #agentsPanel, .focus-chat .chat-heading, .focus-chat .activity-card, .focus-chat .settings-panel { display:none !important; }
 .focus-chat #chatPanel { display:flex !important; }
@@ -407,6 +410,9 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
    transcript is reconciled by key, so a poll landing mid-turn re-animates nothing. */
 #messages > .enter { animation:transcript-enter .36s cubic-bezier(.16,1,.3,1) both; }
 @keyframes transcript-enter { from { opacity:0; transform:translateY(10px) scale(.985); } }
+/* Pages contain at most 80 messages. Use their real heights: estimated off-screen
+   heights used to shrink after a poll and move the message being read. */
+#messages > * { content-visibility:visible; }
 /* Three quiet placeholders while a session's history is on its way. */
 .transcript-skeleton { display:grid; gap:9px; padding:4px 0; }
 .skeleton-bubble { height:36px; border-radius:14px 14px 14px 4px; background:linear-gradient(100deg,rgba(255,255,255,.045) 25%,rgba(255,255,255,.11) 50%,rgba(255,255,255,.045) 75%); background-size:240% 100%; animation:skeleton-sweep 1.5s ease-in-out infinite; }
@@ -576,8 +582,8 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .goal-dock[data-phase="paused"] .goal-track-fill { background:linear-gradient(90deg,#ffc178,#ff9f6a); box-shadow:none; animation:none; }
 .goal-dock.goal-unbounded[data-phase="paused"] .goal-track { background:rgba(255,193,120,.2); animation:none; }
 .goal-rounds { flex:none; color:#7f8b9c; font-size:7px; font-weight:700; letter-spacing:.4px; font-variant-numeric:tabular-nums; }
-.goal-chevron { flex:none; width:15px; height:15px; color:#8894a5; transition:transform .15s ease; }
-.goal-dock[open] .goal-chevron { transform:rotate(180deg); }
+.goal-chevron { flex:none; width:15px; height:15px; color:#8894a5; transform:rotate(180deg); transition:transform .15s ease; }
+.goal-dock[open] .goal-chevron { transform:rotate(0deg); }
 .goal-dock-body { padding:5px 6px 4px; border-bottom:1px solid rgba(73,231,198,.12); }
 .goal-dock-objective { max-height:68px; overflow-y:auto; overscroll-behavior:contain; color:#d7dfea; font-size:9px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; }
 .goal-dock-objective[hidden] { display:none; }
@@ -960,9 +966,9 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 @keyframes mode-exit-full { to{opacity:.04;transform:translate3d(var(--mode-exit-x,0),0,0) scale(.988)} }
 @keyframes mode-exit-orb { to{opacity:.04;transform:translate3d(var(--mode-exit-x,12px),0,0) scale(.9)} }
 @keyframes mode-exit-edge { to{opacity:.03;transform:translate3d(var(--mode-exit-x,12px),0,0) scaleY(.88)} }
-@keyframes mode-enter-full { 0%{opacity:.03;transform:translate3d(var(--mode-entry-x,0),3px,0) scale(.986)} 72%{opacity:1;transform:translate3d(0,0,0) scale(1.002)} 100%{opacity:1;transform:none} }
-@keyframes mode-enter-orb { 0%{opacity:.03;transform:translate3d(var(--mode-entry-x,0),0,0) scale(.84)} 72%{opacity:1;transform:translate3d(0,0,0) scale(1.018)} 100%{opacity:1;transform:none} }
-@keyframes mode-enter-edge { 0%{opacity:0;transform:translate3d(var(--mode-entry-x,14px),0,0) scaleY(.84)} 72%{opacity:1;transform:translate3d(0,0,0) scaleY(1.025)} 100%{opacity:1;transform:none} }
+@keyframes mode-enter-full { from{opacity:.03;transform:translate3d(var(--mode-entry-x,0),3px,0) scale(.986)} to{opacity:1;transform:none} }
+@keyframes mode-enter-orb { from{opacity:.03;transform:translate3d(var(--mode-entry-x,0),0,0) scale(.94)} to{opacity:1;transform:none} }
+@keyframes mode-enter-edge { from{opacity:0;transform:translate3d(var(--mode-entry-x,14px),0,0) scaleY(.94)} to{opacity:1;transform:none} }
 @keyframes mode-content-enter { from{opacity:0;transform:translate3d(0,7px,0)} to{opacity:1;transform:none} }
 @keyframes panel-enter { from{opacity:0;transform:translateY(4px) scale(.992)} to{opacity:1;transform:none} }
 @keyframes send-spring { from{transform:scale(.91) rotate(-3deg)} to{transform:scale(1.03) rotate(2deg)} }
@@ -1136,6 +1142,10 @@ body[data-chat-state="waiting"] .widget-shell::before, body[data-chat-state="thi
    because their menus must escape the clip. */
 .tool-call::details-content, .tool-group::details-content, .activity-card::details-content, .goal-dock::details-content, .hotkey-settings::details-content { interpolate-size:allow-keywords; height:0; overflow:clip; opacity:0; transition:height .22s cubic-bezier(.22,1,.36,1), opacity .16s ease, content-visibility .22s allow-discrete; }
 .tool-call[open]::details-content, .tool-group[open]::details-content, .activity-card[open]::details-content, .goal-dock[open]::details-content, .hotkey-settings[open]::details-content { height:auto; opacity:1; }
+.goal-dock::details-content { flex:none; min-height:0; }
+.agent-controls::details-content { interpolate-size:allow-keywords; height:0; overflow:clip; opacity:0; transition:height .22s cubic-bezier(.22,1,.36,1), opacity .16s ease, content-visibility .22s allow-discrete; }
+.agent-controls[open]::details-content { height:auto; opacity:1; }
+.agent-controls[open]:not([data-disclosure-moving])::details-content { overflow:visible; }
 /* Reopened after a rebuild, not opened: no reveal for a card that was already open. */
 details[data-restored]::details-content { transition:none; }
 
@@ -1155,4 +1165,7 @@ body.motion-off .bubble.mark-target { outline:1px solid rgba(73,231,198,.55); ou
 .screenshot-static .live-caret { opacity:.72; }
 body.screenshot-backdrop-black { background:#05070a !important; }
 body.screenshot-backdrop-white { background:#f4f7fb !important; }
+.history-navigation { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:10px; border:1px solid var(--line); border-radius:10px; font-size:11px; }
+.history-navigation span { flex-basis:100%; opacity:.7; }
+.history-navigation button { padding:6px 9px; border-radius:6px; font-size:11px; }
 body.screenshot-backdrop-checkerboard { background:conic-gradient(#eef2f7 25%,#242a35 0 50%,#eef2f7 0 75%,#242a35 0) 0 0 / 18px 18px !important; }

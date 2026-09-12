@@ -91,6 +91,37 @@ function register(overrides = {}) {
   return { ipcMain, window, registration, attachmentRegistry };
 }
 
+test("history skips unchanged message transfer only when the caller has the current revision", async () => {
+  const tool = { role: "tool", text: "very large tool output", callId: "call-1" };
+  const view = { revision: "v1", messages: [{ role: "assistant", text: "**hello**" }, tool], activity: null };
+  const { ipcMain, window } = register({ api: { history: async () => view } });
+  const event = { sender: window.webContents };
+  const first = await ipcMain.invoke("history", event, "s1");
+  assert.match(first.messages[0].html, /<strong>hello<\/strong>/);
+  assert.deepEqual(first.messages[1], tool);
+  assert.equal(Object.hasOwn(first.messages[1], "html"), false);
+  const repeated = await ipcMain.invoke("history", event, "s1", { revision: "v1" });
+  assert.equal(repeated.messages, null);
+  assert.equal(repeated.unchanged, true);
+  const stale = await ipcMain.invoke("history", event, "s1", { revision: "v0" });
+  assert.equal(stale.messages[0].text, "**hello**");
+});
+
+test("last opened session is saved once, returned in preferences, and validated", async () => {
+  const preferences = { windowState: {}, lastSelectedSessionId: null };
+  let saves = 0;
+  const { ipcMain, window } = register({ getPreferences: () => preferences, getScreenshotService: () => null, schedulePreferenceSave: () => { saves += 1; } });
+  const event = { sender: window.webContents };
+  await ipcMain.invoke("set-last-selected-session", event, "chat-42");
+  await ipcMain.invoke("set-last-selected-session", event, "chat-42");
+  assert.equal(saves, 1);
+  assert.equal((await ipcMain.invoke("get-preferences", event)).lastSelectedSessionId, "chat-42");
+  for (const invalid of [undefined, {}, " ", "x".repeat(513)]) {
+    await assert.rejects(async () => ipcMain.invoke("set-last-selected-session", event, invalid), /Invalid session id/);
+  }
+  assert.equal(preferences.lastSelectedSessionId, "chat-42");
+});
+
 test("every registered channel refuses a foreign sender before running", async () => {
   const { ipcMain, registration } = register();
   const foreign = { sender: { id: 99, send: () => {} }, senderFrame: null };

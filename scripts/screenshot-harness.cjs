@@ -97,6 +97,21 @@ function attachScreenshotHarness({
               const actions = document.querySelector('.titlebar > .window-actions')?.getBoundingClientRect();
               return Boolean(brand && tabs && actions && (brand.right > tabs.left + 1 || tabs.right > actions.left + 1));
             })(),
+            titlebarTop: Math.round(document.querySelector('.titlebar')?.getBoundingClientRect().top || 0),
+            // The horizontal overlap check cannot see a header whose top half is cut
+            // off: every header child must sit vertically inside the titlebar, and the
+            // titlebar itself must start inside the viewport.
+            headerTopClipped: (() => {
+              const bar = document.querySelector('.titlebar')?.getBoundingClientRect();
+              if (!bar || bar.top < -1) return true;
+              const parts = [...document.querySelectorAll('.titlebar > .brand, .titlebar > .tabs, .titlebar > .window-actions, #avatarButton, #projectLink, #headerUpdateButton')];
+              return parts.some((part) => {
+                if (part.hidden) return false;
+                const rect = part.getBoundingClientRect();
+                if (rect.width < 1 || rect.height < 1) return false;
+                return rect.top < bar.top - 1 || rect.bottom > bar.bottom + 1;
+              });
+            })(),
             setupInToolbar: document.querySelector('#agentControls')?.parentElement?.classList.contains('chat-heading') || false,
             focusMode: document.body.classList.contains('focus-chat'),
             focusChromeHidden: ['.titlebar','.chat-heading','.activity-card','.settings-panel'].every((selector) => getComputedStyle(document.querySelector(selector)).display === 'none'),
@@ -198,6 +213,7 @@ function attachScreenshotHarness({
             messageMarkCount: document.querySelectorAll('#messageMarks .message-mark').length,
             goalDockVisible: Boolean(document.querySelector('#goalDock:not([hidden])')),
             goalDockOpen: Boolean(document.querySelector('#goalDock[open]')),
+            goalChevronPointsUp: new DOMMatrix(getComputedStyle(document.querySelector('.goal-chevron')).transform).a < 0,
             goalPhase: document.querySelector('#goalPhase')?.textContent || '',
             goalPauseAction: document.querySelector('#goalPauseResume')?.getAttribute('aria-label') || '',
             // Pause and resume lives on the strip itself, as the glyph alone.

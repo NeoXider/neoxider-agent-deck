@@ -760,6 +760,34 @@ test("the caller's own messages are marked on the scroll rail and pull the scrol
   assert.match(visualSmoke, /messageMarkCount: 5, messageMarksMagnet: true, messageMarksClearOfBubbles: true, messageMarksOrdered: true/);
 });
 
+test("long transcripts skip off-screen layout work so typing stays cheap", () => {
+  const css = readSource("src", "renderer", "styles.css");
+  // Every keystroke in the composer or the queue editor reflows the page. In a very
+  // long conversation that reflow used to walk every bubble in the log and the whole
+  // widget stuttered while editing. Off-screen rows skip layout and paint now, with
+  // their remembered size keeping the scrollbar honest.
+  assert.match(css, /#messages > \* \{[^}]*content-visibility:visible/);
+  assert.match(renderer, /const TRANSCRIPT_PAGE_SIZE = 80;/);
+});
+
+test("a mark jump lands exactly even with skipped transcript rows", () => {
+  const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
+  // Skipped rows report remembered sizes, so scrollTop math computed up front lands
+  // off target with nothing left to correct it. The jump rides scrollIntoView, which
+  // resolves the real geometry on the way, and a scrollend settle snaps the remainder.
+  assert.match(renderer, /bubbles\[userIndex\]\.scrollIntoView\(\{ block: "start", behavior: reduceMotion \? "auto" : "smooth" \}\)/);
+  assert.match(renderer, /\$\("#messages"\)\.addEventListener\("scrollend", \(\) => \{/);
+  // scrollIntoView also scrolls overflow:hidden ancestors, which would drag the whole
+  // widget - titlebar included - up behind the jump. Those containers never scroll by
+  // design, so every programmatic jump pins them back to zero.
+  assert.match(renderer, /function pinTranscriptAncestors\(\) \{/);
+  assert.match(renderer, /for \(const selector of \["\.widget-shell", "\.chat-panel", "\.messages-wrap"\]\) \{/);
+  // While the pin owns the scroll, passing near the bottom must not re-pin to it:
+  // landing on an underestimated bottom used to stick the log there and hide the jump.
+  assert.match(renderer, /if \(!activeMessageScrollPin\(\)\) \{\s*\n\s*state\.messagesStickToBottom = nearBottom;/);
+  assert.match(visualSmoke, /markJumpAligned: true, markJumpFlashed: 1/);
+});
+
 test("a queued prompt can be read and edited in full without touching the conversation", () => {
   const css = readSource("src", "renderer", "styles.css");
   const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
@@ -889,7 +917,7 @@ test("consecutive tool activity collapses into one expandable group", () => {
   assert.match(renderer, /className = `tool-group/);
   assert.match(renderer, /partial-failure/);
   assert.match(renderer, /completed ·.*failed/);
-  assert.match(renderer, /state\.currentMessages\[index\]\.role === "tool"/);
+  assert.match(renderer, /visibleMessages\[index\]\.role === "tool"/);
   assert.match(renderer, /tool-group-body/);
   assert.match(css, /\.tool-group\.partial-failure/);
   // A tool header is one line of text: it gets a line of box, not two.
@@ -996,7 +1024,7 @@ test("Markdown and tool calls have dedicated safe, collapsed render paths", () =
   assert.match(renderer, /message\.role === "tool"/);
   assert.match(renderer, /details\.className = `tool-call/);
   assert.match(renderer, /bubble\.innerHTML = message\.html/);
-  assert.match(ipc, /renderMarkdown\(message\.text\)/);
+  assert.match(ipc, /await renderMarkdownBatch\(formattedMessages\.map/);
   assert.match(html, /id="messages"/);
   assert.match(readSource("src", "markdown.cjs"), /highlight\.js\/lib\/common/);
   assert.match(readSource("src", "renderer", "styles.css"), /\.hljs-keyword/);
@@ -1281,8 +1309,8 @@ test("visible polling skips stable or actively streamed history while priority e
   assert.match(history, /historyLoadedSessionId/);
   assert.match(history, /historyLoadedUpdatedAt/);
   assert.match(history, /historyLoadedRevision/);
-  assert.match(history, /view\.unchanged === true \|\| sameRevision/);
-  assert.match(history, /if \(skipReconciliation\) return "unchanged"/);
+  assert.match(history, /const skipReconciliation = rendererAlreadyHasRevision && sameRevision/);
+  assert.match(history, /if \(skipReconciliation\) \{\s*paintLiveAssistant\(\);\s*return "unchanged"/);
   assert.match(refresh, /!selectedLiveStreamIsActive\(\) && !selectedHistoryIsCurrent\(selectedSession\)/);
   assert.match(live, /event\.type === "user\/message"[\s\S]+refreshHistoryAfterLiveMessage\(sessionId\)/);
   assert.match(live, /event\.type === "turn\/end"[\s\S]+refreshHistory\(\{ priority: true \}\)/);
@@ -1552,7 +1580,8 @@ test("the strips around the log ease open and shut while the log stays anchored"
   assert.match(css, /\.chat-crowded \.chat-panel\.active \{ --strip-gap:1px; \}/);
   // Drawers: tool cards, the activity card and the goal panel reveal their content.
   assert.match(css, /\.tool-call::details-content, \.tool-group::details-content, \.activity-card::details-content, \.goal-dock::details-content, \.hotkey-settings::details-content \{ interpolate-size:allow-keywords; height:0; overflow:clip;/);
-  assert.doesNotMatch(css, /\.agent-controls::details-content/, "the controls hold pickers whose menus must escape the clip");
+  assert.match(css, /\.agent-controls::details-content \{[^}]*transition:height/);
+  assert.match(css, /\.agent-controls\[open\]:not\(\[data-disclosure-moving\]\)::details-content \{ overflow:visible; \}/, "menus escape after the height transition settles");
   // The old one-frame entrances are gone; the strip's own height is the entrance now.
   for (const name of ["queue-in", "command-menu-in", "thinking-activity-in", "goal-open", "live-bubble-in"]) {
     assert.doesNotMatch(css, new RegExp(`@keyframes ${name} `), `${name} is replaced by the eased strip`);
@@ -1572,10 +1601,12 @@ test("the strips around the log ease open and shut while the log stays anchored"
 test("the streaming answer is formatted as it arrives, through the same sanitizer as history", () => {
   const preload = readSource("src", "preload.cjs");
   assert.match(preload, /renderMarkdown: \(text\) => ipcRenderer\.invoke\("render-markdown", String\(text \?\? ""\)\)/);
-  assert.match(ipc, /handle\("render-markdown", \(_event, text\) => renderMarkdown\(typeof text === "string" \? text : ""\)\)/);
+  assert.match(ipc, /handle\("render-markdown", \(_event, text\) => renderMarkdownAsync\(typeof text === "string" \? text : ""\)\)/);
   // The first chunk is painted as text at once; nothing waits on IPC.
   const paint = functionBody(renderer, "function paintLiveText(bubble, text)");
-  assert.match(paint, /if \(!bubble\.dataset\.formatted\) \{\s*bubble\.classList\.add\("plain"\);\s*bubble\.textContent = text;/);
+  assert.match(paint, /if \(!bubble\.dataset\.formatted \|\| text\.length > LIVE_MARKDOWN_MAX_CHARS\)/);
+  assert.match(paint, /bubble\.textContent = text\.length > LIVE_MARKDOWN_MAX_CHARS/);
+  assert.match(paint, /text\.slice\(-LIVE_MARKDOWN_MAX_CHARS\)/);
   assert.match(paint, /scheduleLiveMarkdown\(bubble, text\);/);
   // One request in flight, and only the newest text may land - on a bubble that is still
   // the live one.
