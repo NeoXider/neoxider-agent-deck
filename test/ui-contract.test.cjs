@@ -1005,7 +1005,8 @@ test("the session toolbar has a DeepSeek button for the selected Harness session
   assert.match(toolbar, /id="openSessionButton"[\s\S]{0,300}assets\/deepseek\.svg/);
   assert.match(renderer, /openHarnessSession\(state\.selectedSessionId\)/);
   assert.match(ipc, /open-harness-session/);
-  assert.match(ipc, /harnessSessionUrl\(harnessUrl, sessionId\)/);
+  assert.match(ipc, /harnessSessionUrl\(harnessBrowserBase\(\), sessionId\)/);
+  assert.match(ipc, /harnessBrowserBase/);
 });
 
 test("widget-created and widget-prompted sessions enforce Full access", () => {

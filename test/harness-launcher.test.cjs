@@ -6,6 +6,8 @@ const {
   HARNESS_DIRECT_ARGS,
   HARNESS_NPX_ARGS,
   createHarnessLauncher,
+  defaultProbeReady,
+  extractLaunchBrowserUrl,
   isLocalHarnessUrl,
   resolveInstalledDshEntry,
   resolveHarnessLaunchSpec,
@@ -106,7 +108,7 @@ test("the installed runtime uses explicit external Node and never packaged Elect
     detached: true,
     env: { ExistingValue: "preserved", SystemDrive: "C:", DSH_WIDGET_NODE_EXECUTABLE: externalNode },
     shell: false,
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "ignore"],
     windowsHide: true,
   });
 });
@@ -337,4 +339,72 @@ test("Windows batch file is a bounded fallback when npx cannot launch", async ()
   const result = await launcher.start();
   assert.equal(result.fallback, "windows-batch");
   assert.equal(fallbackOpened, fallbackPath);
+});
+
+test("first installed dsh wins across roots (unary RPC only works on the older host)", () => {
+  const first = path.win32.join("C:\\first", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+  const second = path.win32.join("C:\\second", "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+  const fileSystem = { existsSync: (candidate) => candidate === first || candidate === second };
+  assert.equal(resolveInstalledDshEntry({
+    platform: "win32",
+    env: { SystemDrive: "C:", DSH_WIDGET_HARNESS_RUNTIME: "C:\\first", APPDATA: "C:\\second" },
+    workingDirectory: "C:\\other",
+    fileSystem,
+  }), first);
+});
+
+test("readiness probe accepts the gated browser index as up", async () => {
+  assert.equal(await defaultProbeReady("http://127.0.0.1:3080", async () => ({ ok: true, status: 200 })), true);
+  assert.equal(await defaultProbeReady("http://127.0.0.1:3080", async () => ({
+    ok: false,
+    status: 401,
+    text: async () => "dsh web authentication required; reopen the URL printed by dsh web.\n",
+  })), true);
+  assert.equal(await defaultProbeReady("http://127.0.0.1:3080", async () => ({
+    ok: false,
+    status: 401,
+    text: async () => "unauthorized",
+  })), false);
+  assert.equal(await defaultProbeReady("http://127.0.0.1:3080", async () => ({ ok: false, status: 500 })), false);
+  assert.equal(await defaultProbeReady("http://127.0.0.1:3080", async () => { throw new Error("down"); }), false);
+  assert.equal(await defaultProbeReady("http://127.0.0.1:3080", null), false);
+});
+
+test("launch browser URL is parsed from the dsh web banner", () => {
+  assert.equal(
+    extractLaunchBrowserUrl("dsh web: http://127.0.0.1:3080/?token=abc123\n"),
+    "http://127.0.0.1:3080/?token=abc123",
+  );
+  assert.equal(extractLaunchBrowserUrl("dsh web: http://127.0.0.1:3080"), "http://127.0.0.1:3080");
+  assert.equal(extractLaunchBrowserUrl("dsh web: (http://127.0.0.1:3080/?token=x)."), "http://127.0.0.1:3080/?token=x");
+  assert.equal(extractLaunchBrowserUrl("something else"), "");
+  assert.equal(extractLaunchBrowserUrl(""), "");
+});
+
+test("owned launch exposes the captured browser URL until exit", async () => {
+  const child = fakeChild();
+  child.stdout = new EventEmitter();
+  let ready = false;
+  let spawned = null;
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://127.0.0.1:3080",
+    platform: "win32",
+    env: {},
+    fileSystem: { existsSync: () => false, mkdirSync: () => {} },
+    spawnProcess() { spawned = child; return child; },
+    probeReady: async () => ready,
+    delay: () => new Promise((resolve) => setImmediate(resolve)),
+    readinessAttempts: 4,
+  });
+  assert.equal(launcher.browserUrl(), "");
+  const started = launcher.start();
+  while (!spawned) await new Promise((resolve) => setImmediate(resolve));
+  child.stdout.emit("data", "dsh web: http://127.0.0.1:3080/?token=");
+  assert.equal(launcher.browserUrl(), "", "a split banner line must not freeze a truncated token");
+  child.stdout.emit("data", "tok123\n");
+  ready = true;
+  assert.deepEqual((await started).ok, true);
+  assert.equal(launcher.browserUrl(), "http://127.0.0.1:3080/?token=tok123");
+  child.emit("exit", 0);
+  assert.equal(launcher.browserUrl(), "");
 });

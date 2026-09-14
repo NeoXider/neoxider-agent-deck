@@ -438,3 +438,26 @@ test("permissions are denied by default, request and check alike", () => {
 test("a missing session is reported rather than silently skipped", () => {
   assert.equal(denyAllPermissions(null), false);
 });
+
+test("open-harness prefers the owned launch URL with token", async () => {
+  const opened = [];
+  const { ipcMain, window } = register({
+    openExternal: async (url) => { opened.push(url); return true; },
+    getHarnessLauncher: () => ({ start: async () => ({ ok: true }), browserUrl: () => "http://127.0.0.1:3080/?token=tok" }),
+  });
+  const event = { sender: window.webContents };
+  await ipcMain.invoke("open-harness", event);
+  assert.deepEqual(opened, ["http://127.0.0.1:3080/?token=tok"]);
+  await ipcMain.invoke("open-harness-session", event, "s1");
+  assert.equal(opened[1], "http://127.0.0.1:3080/?token=tok&sessionId=s1");
+});
+
+test("open-harness falls back to the configured URL without a launcher token", async () => {
+  const opened = [];
+  const { ipcMain, window } = register({
+    openExternal: async (url) => { opened.push(url); return true; },
+  });
+  const event = { sender: window.webContents };
+  await ipcMain.invoke("open-harness", event);
+  assert.deepEqual(opened, ["http://127.0.0.1:3080"]);
+});

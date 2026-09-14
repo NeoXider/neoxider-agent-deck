@@ -106,10 +106,38 @@ async function defaultProbeReady(harnessUrl, fetchImpl = globalThis.fetch) {
   if (typeof fetchImpl !== "function") return false;
   try {
     const response = await fetchImpl(harnessUrl, { method: "GET", signal: AbortSignal.timeout(1500) });
-    return Boolean(response?.ok);
+    if (response?.ok) return true;
+    // dsh >= 0.1.2 gates the browser index behind a per-boot launch token
+    // (HTTP 401 with a fixed body) while /api and the mux stay open. A 401
+    // carrying that body proves OUR harness is up; anything else is not ready.
+    if (response?.status === 401) {
+      const body = await response.text().catch(() => "");
+      return String(body).includes("dsh web authentication required");
+    }
+    return false;
   } catch {
     return false;
   }
+}
+
+// dsh prints `dsh web: <url>` (token included on gated hosts) once the index
+// is served. Capturing it lets open-harness hand the browser a URL that works
+// on the first visit instead of the 401 page.
+function extractLaunchBrowserUrl(text) {
+  const match = /dsh web:\s*["'(]?(https?:\/\/\S+)/.exec(String(text || ""));
+  if (!match) return "";
+  return match[1].replace(/[)\].,;'"]+$/, "");
+}
+
+// The banner line can arrive split across stdout chunks, so a URL is only
+// accepted once its line ends — otherwise the first chunk would freeze a
+// truncated token into browserUrl and later chunks would be ignored.
+function extractCompleteLaunchBrowserUrl(buffered) {
+  const match = /dsh web:\s*["'(]?(https?:\/\/\S+)/.exec(String(buffered || ""));
+  if (!match) return "";
+  const after = String(buffered).slice(match.index + match[0].length);
+  if (!/[\r\n]/.test(after)) return "";
+  return match[1].replace(/[)\].,;'"]+$/, "");
 }
 
 function createHarnessLauncher({
@@ -162,7 +190,7 @@ function createHarnessLauncher({
 
   function spawnOwnedLaunch() {
     if (workingDirectory) fileSystem.mkdirSync(workingDirectory, { recursive: true });
-    const launch = { child: null, error: null, exited: false, ready: false };
+    const launch = { child: null, error: null, exited: false, ready: false, browserUrl: "" };
     const childEnv = { ...env };
     delete childEnv.ELECTRON_RUN_AS_NODE;
     const child = spawnProcess(launchSpec.command, launchSpec.args, {
@@ -170,10 +198,22 @@ function createHarnessLauncher({
       detached: true,
       env: childEnv,
       shell: false,
-      stdio: "ignore",
+      // stdout stays piped (not ignored) so the launch URL with the browser
+      // token can be captured; the drain below keeps the pipe from ever
+      // blocking the child once the URL is known.
+      stdio: ["ignore", "pipe", "ignore"],
       windowsHide: true,
     });
     launch.child = child;
+    if (child.stdout && typeof child.stdout.on === "function") {
+      let buffered = "";
+      child.stdout.on("data", (chunk) => {
+        if (launch.browserUrl) return;
+        buffered = `${buffered}${String(chunk)}`.slice(-4096);
+        const found = extractCompleteLaunchBrowserUrl(buffered);
+        if (found) launch.browserUrl = found;
+      });
+    }
     child.once?.("error", (error) => {
       launch.error = error;
       launch.exited = true;
@@ -224,6 +264,13 @@ function createHarnessLauncher({
     launchSpec,
     legacyBatchPath,
     workingDirectory,
+    // Browser URL of the owned launch, token included when the host prints
+    // one. Empty for foreign (already-running) instances whose token was
+    // never observed, and once the owned child exits.
+    browserUrl() {
+      if (!ownedLaunch || ownedLaunch.exited) return "";
+      return ownedLaunch.browserUrl || "";
+    },
     start() {
       if (startPromise) return startPromise;
       startPromise = startInternal().finally(() => { startPromise = null; });
@@ -237,8 +284,8 @@ module.exports = {
   HARNESS_NPX_ARGS,
   createHarnessLauncher,
   defaultProbeReady,
+  extractLaunchBrowserUrl,
   isLocalHarnessUrl,
-  resolveDshNodeExecutable,
   resolveInstalledDshEntry,
   resolveHarnessLaunchSpec,
 };

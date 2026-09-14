@@ -280,8 +280,21 @@ function registerIpcHandlers({
     if (kind === "edit" && !action.content[0].text) throw new Error("Queued message is empty");
     return api.updateQueue(sessionId, itemId, action);
   });
-  handle("open-harness", async () => openExternal(harnessUrl));
-  handle("open-harness-session", async (_event, sessionId) => openExternal(harnessSessionUrl(harnessUrl, sessionId)));
+  // Browser entry point, token included when the owned Harness launch printed
+  // one. A foreign (already-running) Harness never exposes its launch token,
+  // so those fall back to the configured URL and the browser cookie.
+  const harnessBrowserBase = () => {
+    try {
+      const launcher = typeof getHarnessLauncher === "function" ? getHarnessLauncher() : null;
+      const owned = launcher && typeof launcher.browserUrl === "function" ? launcher.browserUrl() : "";
+      if (owned) return owned;
+    } catch {
+      // fall through to the configured URL
+    }
+    return harnessUrl;
+  };
+  handle("open-harness", async () => openExternal(harnessBrowserBase()));
+  handle("open-harness-session", async (_event, sessionId) => openExternal(harnessSessionUrl(harnessBrowserBase(), sessionId)));
   handle("open-project", async () => openExternal(repositoryUrl));
   handle("open-external", async (_event, value) => {
     const url = parseExternalUrl(value);

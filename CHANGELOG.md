@@ -5,6 +5,13 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.6] - 2026-09-14
+
+### Added
+
+- The Harness readiness probe accepts the token-gated browser index as up. Newer Harness versions answer `GET /` with HTTP 401 and a fixed auth body until the browser completes the launch-token exchange; the widget used to wait out the full startup timeout against such a host.
+- Owned Harness launches capture the printed browser URL, launch token included. Opening Harness or one of its sessions from the widget uses the captured URL, so the browser lands authenticated on the first visit instead of the 401 page.
+
 ## [0.7.5] - 2026-09-13
 
 ### Added
