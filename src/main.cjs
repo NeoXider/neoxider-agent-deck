@@ -32,6 +32,7 @@ const { createFileSelectionBroker } = require("./file-selection-broker.cjs");
 const { createBase64Encoder } = require("./base64-encoder.cjs");
 const { createExternalLinkOpener, parseExternalUrl } = require("./external-links.cjs");
 const { createMuxClient } = require("./mux-client.cjs");
+const { createRemoteMuxClient } = require("./remote-mux.cjs");
 const { createStreamPublisher } = require("./stream-publisher.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
 const { configureProductUserData } = require("./user-data-migration.cjs");
@@ -54,10 +55,11 @@ const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
 app.setName(PRODUCT_NAME);
 if (process.platform === "win32") app.setAppUserModelId(APP_ID);
 configureProductUserData({ app });
-const api = new HarnessApi(HARNESS_URL);
-const dashboardReader = createSharedDashboardReader({ api });
-// nativeImage is the only Electron dependency attachment reading has, so it is injected
-// rather than reached for. So is base64 encoding: base64-encoder.cjs owns that decision.
+const api = new HarnessApi(HARNESS_URL, globalThis.fetch, { getLaunchBrowserUrl: () => harnessLauncher?.browserUrl() || "" });
+const dashboardReader = createSharedDashboardReader({
+  api,
+  onSessions: (sessionIds) => remoteMux.setTrackedSessions(sessionIds),
+});
 const imageEncoder = createBase64Encoder({ strategy: process.env.DSH_WIDGET_B64_STRATEGY });
 const { prepareFiles: prepareFilesFromDisk } = createAttachmentReader({
   encodeImage: (filePath) => imageEncoder.encodeFile(filePath, MAX_IMAGE_BYTES),
@@ -117,6 +119,7 @@ let fullDragOrigin = null;
 let compactDragTrace = [];
 const queueSnapshots = new Map();
 let rendererRecovery;
+let remoteMux;
 let gameBarController;
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -136,6 +139,7 @@ function cleanupApplication() {
   if (windowRef && !windowRef.isDestroyed()) captureWindowBounds(windowMode, windowRef.getBounds());
   if (settingsStore) savePreferences({ retryOnFailure: false });
   muxClient.stop();
+  remoteMux?.stop();
   gameLayerKeeper?.stop();
   compactHitTracker?.stop();
   hotkeyManager?.dispose();
@@ -322,18 +326,20 @@ async function cleanupSentCaptureFiles(attachments) {
 }
 const { publishLiveEvent, publishQueue } = createStreamPublisher({ queueSnapshots, send: sendToRenderer });
 
-// Reconnect and silence handling live in mux-client.cjs: that logic only becomes
-// testable once the socket and the clock are injected, and an untested version of it
-// is how live events once died quietly while the rest of the UI looked healthy.
+// Reconnect and silence handling live in mux-client.cjs.
 const muxClient = createMuxClient({
   harnessUrl: HARNESS_URL,
   onQueue: publishQueue,
   onLiveEvent: publishLiveEvent,
-  // A resubscribe means Harness reset its queue for that session, so a snapshot we
-  // still hold is stale and must be cleared rather than left on screen.
   onSubscribed: (sessionId) => {
     if (queueSnapshots.has(sessionId)) publishQueue(sessionId, []);
   },
+});
+
+remoteMux = createRemoteMuxClient({
+  getTransport: () => api.ensureRemote(),
+  onQueue: publishQueue,
+  onLiveEvent: publishLiveEvent,
 });
 
 function captureWindowBounds(mode, bounds, side = preferences.compactSide, setLastMode = true) {
@@ -604,15 +610,6 @@ function createWindow() {
   }
 }
 
-// The handlers themselves live in ipc-handlers.cjs, behind one shared sender guard.
-//
-// Every mutable binding below is handed over as an accessor, never as a value: this file
-// reassigns windowRef, preferences, windowMode, fullBounds, both drag origins, the
-// compact status, the pending-resize flag, the hotkey error and six lazily created
-// services. A value captured here would be a snapshot frozen at startup — services would
-// still be undefined, and the window would still be the one from before the last mode
-// change. That failure is invisible to unit tests and only shows up in a real run, which
-// is exactly how the screenshot harness earned its own accessors.
 function registerWidgetIpc() {
   registerIpcHandlers({
     ipcMain,
@@ -786,6 +783,7 @@ app.whenReady().then(() => {
   // A screenshot run must capture a fixture, not whatever a live Harness pushes.
   if (!ISOLATED_SMOKE_MODE) {
     muxClient.connect();
+    remoteMux.start();
     const iconPath = path.join(__dirname, "renderer", "assets", "neoxider-github.png");
     const icon = nativeImage.createFromPath(iconPath).resize({ width: 32, height: 32 });
     tray = new Tray(icon);

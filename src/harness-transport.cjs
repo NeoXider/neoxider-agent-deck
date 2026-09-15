@@ -125,10 +125,101 @@ function createRemoteTransport({ baseUrl = "http://127.0.0.1:3080", fetchImpl = 
     return checkEnvelope(await response.json(), attempt.rpcId, endpoint);
   }
 
+  // The mux WebSocket carries the same browser-session cookie as the unary
+  // calls; minting happens lazily on first use of either surface.
+  async function ensureAuthenticated() {
+    await ensureCookie();
+  }
+
+  // One multiplexed stream over /api/remote.mux. Each channel owns its socket so a
+  // dead or wedged stream can never leak frames into another; the server still routes
+  // by streamId and we enforce that on receive as well. The promise settles when the
+  // open frame is sent; handle.closed resolves (with an Error, if any) when the stream
+  // ends for whatever reason.
+  function openChannel({ endpoint, args = {}, onFrame = () => {} }) {
+    return ensureCookie().then((sessionCookie) => new Promise((resolve, reject) => {
+      const WebSocketImpl = globalThis.WebSocket;
+      if (typeof WebSocketImpl !== "function") {
+        reject(new Error("Harness WebSocket is unavailable"));
+        return;
+      }
+      const streamId = randomUUID();
+      let socket;
+      let resolved = false;
+      let rejected = false;
+      let ended = false;
+      let closeResolve;
+      const closed = new Promise((r) => { closeResolve = r; });
+
+      function end(error) {
+        if (ended) return;
+        ended = true;
+        clearTimeout(openTimer);
+        try { socket?.removeAllListeners(); } catch {}
+        try { socket?.close(); } catch {}
+        closeResolve(error);
+      }
+
+      function fail(error) {
+        if (resolved || rejected) return;
+        rejected = true;
+        end(error);
+      }
+
+      const url = new URL("/api/remote.mux", root);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      const openTimer = setTimeout(() => fail(new Error(`Harness ${endpoint} open timed out`)), 8000);
+
+      try {
+        socket = new WebSocketImpl(url.href, { headers: { cookie: sessionCookie } });
+      } catch (error) {
+        clearTimeout(openTimer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+
+      socket.addEventListener("open", () => {
+        try {
+          socket.send(JSON.stringify({ type: "open", streamId, endpoint, payload: { args } }));
+          resolved = true;
+          resolve({
+            close() {
+              if (ended) return;
+              try { socket.send(JSON.stringify({ type: "close", streamId })); } catch {}
+              end();
+            },
+            get closed() { return closed; },
+          });
+        } catch (error) {
+          fail(error instanceof Error ? error : new Error(String(error)));
+        }
+      });
+      socket.addEventListener("message", (event) => {
+        let frame;
+        try { frame = JSON.parse(String(event.data)); } catch { return; }
+        if (!frame || frame.streamId !== streamId) return;
+        if (frame.type === "error") {
+          const error = new Error(`Harness ${endpoint}: ${JSON.stringify(frame.error ?? {})}`);
+          if (resolved) end(error); else fail(error);
+          return;
+        }
+        onFrame(frame.value);
+      });
+      socket.addEventListener("close", () => {
+        if (!resolved) fail(new Error(`Harness ${endpoint} closed`));
+        else end();
+      });
+      socket.addEventListener("error", () => { if (!resolved) fail(new Error(`Harness ${endpoint} failed to open`)); });
+    }));
+  }
+
   return {
     kind: "remote",
     detect: (fetchOverride) => detectGeneration(root, fetchOverride ?? fetchImpl),
     call,
+    cookie: () => cookie,
+    ensureAuthenticated,
+    openChannel,
     dropCookie() {
       cookie = "";
     },

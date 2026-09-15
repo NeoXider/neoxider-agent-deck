@@ -14,7 +14,13 @@ test("production worker paginates HTTP history, reuses revisions, handles compac
   const server = http.createServer(async (request, response) => {
     let body = "";
     for await (const chunk of request) body += chunk;
-    const { rpcId, payload } = JSON.parse(body);
+    // The generation probe GETs the root without an RPC envelope before any call.
+    const parsed = body ? JSON.parse(body) : null;
+    if (!parsed || !parsed.rpcId) {
+      response.writeHead(200, { "content-type": "text/plain" }).end("ok");
+      return;
+    }
+    const { rpcId, payload } = parsed;
     requests += 1;
     if (unavailable) { response.writeHead(503).end(); return; }
     const before = entries.filter((entry) => entry.event.seq < (payload.beforeSeq || Infinity));

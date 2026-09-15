@@ -46,7 +46,9 @@ function createStreamPublisher({ queueSnapshots, send }) {
     } else if (event.type === "tool/call") {
       data = { name: String(event.data?.name || "tool"), callId: String(event.data?.callId || "") };
     } else if (event.type === "tool/result") {
-      data = { callId: String(event.data?.callId || event.data?.toolCallId || "") };
+      // Remote durable events carry the correlation id inside the tool-result block.
+      const resultBlock = Array.isArray(event.data?.message?.content) ? event.data.message.content[0] : null;
+      data = { callId: String(event.data?.callId || event.data?.toolCallId || resultBlock?.toolCallId || "") };
     } else if (event.type === "tool/code-dispatch-start") {
       data = {
         name: String(event.data?.name || "tool"),

@@ -2,12 +2,17 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { HISTORY_PREVIEW_BYTES_BUDGET, HarnessApi, activityFromHistory, boundedHistoryEntries, messagesFromHistory, sessionStateFromHistory, titleFromSession, toolMessagesFromHistory } = require("../src/harness-api.cjs");
 
+// Whatever happens to listen on the default loopback port must not decide the wire
+// dialect under test: a legacy index answers the generation probe with HTTP 200.
+const legacyFetch = async () => ({ ok: true, status: 200 });
+
+
 test("subagent activity refreshes independently of an unchanged parent with bounded retries", async () => {
   let now = 0;
   let rosterCalls = 0;
   let historyCalls = 0;
   let failRoster = false;
-  const api = new HarnessApi(undefined, undefined, { now: () => now, subagentRefreshMs: 10000 });
+  const api = new HarnessApi(undefined, legacyFetch, { now: () => now, subagentRefreshMs: 10000 });
   api.rpc = async (method) => {
     if (method === "session.history") { historyCalls += 1; return { events: [] }; }
     if (method === "subagent.list") {
@@ -37,7 +42,7 @@ test("subagent activity refreshes independently of an unchanged parent with boun
 });
 
 test("dashboard enriches one selected older idle session beyond the bounded recent set", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   const rosters = [];
   const roots = Array.from({ length: 25 }, (_, index) => ({ sessionId: `root-${index}`, updatedAt: 1, running: false }));
   api.rpc = async (method, payload) => {
@@ -123,7 +128,7 @@ test("history retains only a strict aggregate of newest preview bytes and falls 
 });
 
 test("history paginates to the first message and reuses older pages on refresh", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   const calls = [];
   const entries = (first, last) => Array.from({ length: last - first + 1 }, (_, offset) => {
     const seq = first + offset;
@@ -161,7 +166,7 @@ test("history paginates to the first message and reuses older pages on refresh",
 });
 
 test("a truncated history cache repaginates so long conversations remain complete", async () => {
-  const api = new HarnessApi("http://127.0.0.1:3080", globalThis.fetch, {
+  const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, {
     historyCacheEventLimit: 2,
     historyCacheBytesLimit: 4096,
   });
@@ -190,7 +195,7 @@ test("a truncated history cache repaginates so long conversations remain complet
 });
 
 test("history cache enforces byte bounds without truncating the current response", async () => {
-  const api = new HarnessApi("http://127.0.0.1:3080", globalThis.fetch, {
+  const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, {
     historyCacheEventLimit: 20,
     historyCacheBytesLimit: 700,
   });
@@ -211,7 +216,7 @@ test("history cache enforces byte bounds without truncating the current response
 });
 
 test("older pages strip repeated base64 before entering the bounded cache", async () => {
-  const api = new HarnessApi("http://127.0.0.1:3080", globalThis.fetch, {
+  const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, {
     historyCacheEventLimit: 10,
     historyCacheBytesLimit: 64 * 1024,
   });
@@ -240,7 +245,7 @@ test("older pages strip repeated base64 before entering the bounded cache", asyn
 });
 
 test("history revisions are stable and the per-session cache uses LRU eviction", async () => {
-  const api = new HarnessApi("http://127.0.0.1:3080", globalThis.fetch, {
+  const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, {
     historyCacheSessionLimit: 2,
     historyCacheEventLimit: 10,
     historyCacheBytesLimit: 4096,
@@ -299,7 +304,7 @@ test("agent session state distinguishes working, idle, and the latest turn error
 });
 
 test("dashboard ignores stale session.list running after a successful turn end", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   api.rpc = async (method) => {
     if (method === "host.describe") return { version: "test" };
     if (method === "session.list") {
@@ -325,7 +330,7 @@ test("dashboard ignores stale session.list running after a successful turn end",
 });
 
 test("dashboard turns stale running into error after a failed Harness turn", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   api.rpc = async (method) => {
     if (method === "host.describe") return { version: "test" };
     if (method === "session.list") {
@@ -352,7 +357,7 @@ test("dashboard turns stale running into error after a failed Harness turn", asy
 });
 
 test("dashboard retries a transient history failure instead of caching a stale working state", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   let poll = 0;
   let historyCalls = 0;
   api.rpc = async (method) => {
@@ -401,7 +406,7 @@ test("dashboard retries a transient history failure instead of caching a stale w
 });
 
 test("dashboard keeps every root session while workspace membership and enrichment stay bounded", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   const rootSessions = Array.from({ length: 23 }, (_, index) => ({
     sessionId: `root-${index}`,
     running: index === 21,
@@ -470,7 +475,7 @@ test("dashboard keeps every root session while workspace membership and enrichme
 });
 
 test("dashboard preserves the last workspace and archive snapshot across a transient workspace failure", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   let workspacePoll = 0;
   const workspaces = [{ workspaceId: "workspace-stable", path: "C:\\AI\\stable", sessionIds: ["member"] }];
   const archivedSessionIds = ["archived"];
@@ -506,7 +511,7 @@ test("dashboard preserves the last workspace and archive snapshot across a trans
 });
 
 test("a direct workspace refresh seeds the same fallback snapshot used by dashboard", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   let workspacePoll = 0;
   const workspace = { workspaceId: "direct-workspace", path: "C:\\AI\\direct", sessionIds: ["direct-member"] };
   api.rpc = async (method) => {
@@ -582,7 +587,7 @@ test("automatic Full access commands are hidden from widget history", () => {
 });
 
 test("widget Full access uses the exact preset accepted by Harness", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   let line;
   api.executeCommand = async (_sessionId, value) => {
     line = value;
@@ -655,7 +660,7 @@ test("low-level command RPC forwards images without applying widget permission p
 });
 
 test("widget commands forward images but allow only the exact Full access permission mode", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   const calls = [];
   api.executeCommand = async (...args) => {
     calls.push(args);
@@ -699,7 +704,7 @@ test("prompt carries image attachments through the official content blocks", asy
 // so a throw from the derivation readers rejected the shared Promise.all and the renderer
 // received {harness:false, sessions:[]} — every session on screen vanished at once.
 test("a session that fails to enrich degrades alone", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   api.rpc = async (method, payload) => {
     if (method === "host.describe") return { version: "test" };
     if (method === "session.list") {
@@ -726,7 +731,7 @@ test("a session that fails to enrich degrades alone", async () => {
 });
 
 test("dashboard reports how long the current turn has been running", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   let historyCalls = 0;
   api.rpc = async (method) => {
     if (method === "host.describe") return { version: "test" };
@@ -754,7 +759,7 @@ test("dashboard reports how long the current turn has been running", async () =>
 // A restart that answers an empty page for a session that had a conversation is a fault, not
 // a compaction. Replacing the cache with it blanked the chat and cached the blank as final.
 test("an empty history answer cannot blank a conversation the widget already had", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   const full = [1, 2, 3].map((seq) => ({ event: { type: "assistant/message", seq, time: seq, data: { message: { content: [{ type: "text", text: `line ${seq}` }] } } } }));
   let page = { events: full, hasMore: false };
   api.rpc = async () => page;
@@ -773,7 +778,7 @@ test("an empty history answer cannot blank a conversation the widget already had
 });
 
 test("the command catalog merges Harness commands with installed skills", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   api.rpc = async (method) => {
     if (method === "commands/list") return [{ name: "goal", description: "Set a goal" }];
     if (method === "skill.list") {
@@ -797,7 +802,7 @@ test("the command catalog merges Harness commands with installed skills", async 
 
 // Not every Harness build has the skill plugin; skill.list answers "not found" there.
 test("a Harness without skills still returns its commands", async () => {
-  const api = new HarnessApi();
+  const api = new HarnessApi(undefined, legacyFetch);
   api.rpc = async (method) => {
     if (method === "commands/list") return [{ name: "compact", description: "Compact history" }];
     throw new Error("not found");

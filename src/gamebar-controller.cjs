@@ -41,9 +41,11 @@ function createSharedDashboardReader({
   readDashboard = (selectedSessionId) => readHarnessDashboard(api, selectedSessionId),
   now = Date.now,
   cacheMs = DEFAULT_DASHBOARD_CACHE_MS,
+  onSessions = null,
 } = {}) {
   if (typeof readDashboard !== "function" || typeof now !== "function"
-    || !Number.isFinite(cacheMs) || cacheMs < 0) {
+    || !Number.isFinite(cacheMs) || cacheMs < 0
+    || (onSessions !== null && typeof onSessions !== "function")) {
     throw new TypeError("Invalid shared dashboard reader options");
   }
   let cached = null;
@@ -62,14 +64,23 @@ function createSharedDashboardReader({
     };
   }
 
+  function notifySessions(dashboard) {
+    // Remote follow channels do not subscribe themselves: every dashboard read, cached
+    // or fresh, is the authoritative tracking set for them.
+    if (onSessions && dashboard?.ok && Array.isArray(dashboard.sessions)) {
+      onSessions(dashboard.sessions.map((session) => session.sessionId));
+    }
+    return dashboard;
+  }
+
   function read(selection) {
     // Game Bar polls omit selection and share the desktop's enrichment priority.
     if (selection !== undefined) selectedSessionId = typeof selection === "string" ? selection : null;
     const timestamp = Number(now());
     if (!Number.isFinite(timestamp)) return Promise.resolve(offline(new Error("Dashboard clock is unavailable")));
     const cacheAge = timestamp - cachedAt;
-    if (cached && cachedSelection === selectedSessionId && cacheAge >= 0 && cacheAge <= cacheMs) return Promise.resolve(cached);
-    if (inflight) return inflightSelection === selectedSessionId ? inflight : inflight.then(() => read());
+    if (cached && cachedSelection === selectedSessionId && cacheAge >= 0 && cacheAge <= cacheMs) return Promise.resolve(cached).then(notifySessions);
+    if (inflight) return inflightSelection === selectedSessionId ? inflight.then(notifySessions) : inflight.then(() => read());
     const requestedSelection = selectedSessionId;
     inflightSelection = requestedSelection;
     inflight = Promise.resolve()
@@ -85,7 +96,7 @@ function createSharedDashboardReader({
         return cached;
       })
       .finally(() => { inflight = null; });
-    return inflight;
+    return inflight.then(notifySessions);
   }
 
   // Creating a session and immediately refreshing hit the one-second cache and got the
