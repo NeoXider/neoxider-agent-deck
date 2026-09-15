@@ -164,6 +164,7 @@ function createHarnessLauncher({
     : "";
   let startPromise = null;
   let ownedLaunch = null;
+  let capturedBrowserUrl = "";
 
   // One deadline covers the whole start, including the legacy fallback. Each wait used
   // to get its own full budget, so a failed launch held the start-harness IPC call for
@@ -211,7 +212,7 @@ function createHarnessLauncher({
         if (launch.browserUrl) return;
         buffered = `${buffered}${String(chunk)}`.slice(-4096);
         const found = extractCompleteLaunchBrowserUrl(buffered);
-        if (found) launch.browserUrl = found;
+        if (found) { launch.browserUrl = found; capturedBrowserUrl = found; }
       });
     }
     child.once?.("error", (error) => {
@@ -233,7 +234,16 @@ function createHarnessLauncher({
       return { ok: false, started: false, reason: "remote-url" };
     }
     if (await probeReady()) {
-      if (ownedLaunch) ownedLaunch.ready = true;
+      if (ownedLaunch && !ownedLaunch.exited) { ownedLaunch.ready = true; return { ok: true, started: false, alreadyRunning: true }; }
+      // The harness is reachable but we never captured its launch token (foreign
+      // or inherited process). Spawn a dsh just to grab the token from its banner
+      // line — it will exit almost immediately when it finds the port occupied.
+      if (new URL(harnessUrl).protocol !== "http:") {
+        return { ok: false, started: false, reason: "unsupported-local-protocol" };
+      }
+      const probe = spawnOwnedLaunch();
+      for (let i = 0; i < 20 && !probe.browserUrl && !probe.exited; i += 1) await delay(250);
+      if (ownedLaunch === probe) { probe.ready = true; ownedLaunch.ready = true; }
       return { ok: true, started: false, alreadyRunning: true };
     }
     if (new URL(harnessUrl).protocol !== "http:") {
@@ -268,8 +278,8 @@ function createHarnessLauncher({
     // one. Empty for foreign (already-running) instances whose token was
     // never observed, and once the owned child exits.
     browserUrl() {
-      if (!ownedLaunch || ownedLaunch.exited) return "";
-      return ownedLaunch.browserUrl || "";
+      if (ownedLaunch && !ownedLaunch.exited && ownedLaunch.browserUrl) return ownedLaunch.browserUrl;
+      return capturedBrowserUrl || "";
     },
     start() {
       if (startPromise) return startPromise;

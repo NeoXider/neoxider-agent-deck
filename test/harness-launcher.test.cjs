@@ -312,7 +312,7 @@ test("an already-ready Harness instance is reused", async () => {
   });
 
   assert.deepEqual(await launcher.start(), { ok: true, started: false, alreadyRunning: true });
-  assert.equal(spawnCount, 0);
+  assert.equal(spawnCount, 1, "a probe-only spawn is made to capture the launch token");
 });
 
 test("Windows batch file is a bounded fallback when npx cannot launch", async () => {
@@ -406,5 +406,6 @@ test("owned launch exposes the captured browser URL until exit", async () => {
   assert.deepEqual((await started).ok, true);
   assert.equal(launcher.browserUrl(), "http://127.0.0.1:3080/?token=tok123");
   child.emit("exit", 0);
-  assert.equal(launcher.browserUrl(), "");
+  assert.equal(launcher.browserUrl(), "http://127.0.0.1:3080/?token=tok123",
+    "captured token persists after the probe child exits so the API can still authenticate");
 });
