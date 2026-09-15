@@ -1,6 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawn, execSync } = require("node:child_process");
 
 const HARNESS_NPX_ARGS = Object.freeze(["--yes", "@deepseek-ai/dsh@latest", "web", "--no-open"]);
 const HARNESS_DIRECT_ARGS = Object.freeze(["web", "--no-open"]);
@@ -102,6 +102,25 @@ function shellQuote(value) {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(text) ? text : "'" + text.split("'").join("'\''") + "'";
 }
 
+// Kill the process listening on a given TCP port. Used when a foreign harness
+// is running but its launch token is unreachable: we must stop it before we
+// can start a fresh instance that prints the token to our captured stdout.
+function killProcessOnPort(port, { platform = process.platform, execSyncFn = execSync } = {}) {
+  if (platform !== "win32") return;
+  try {
+    const output = execSyncFn("netstat -ano", { encoding: "utf8", windowsHide: true, timeout: 5000 });
+    const pattern = new RegExp(`:${port}\\b.*LISTENING`);
+    for (const line of output.split("\n")) {
+      if (!pattern.test(line)) continue;
+      const parts = line.trim().split(/\s+/);
+      const pid = parseInt(parts[parts.length - 1], 10);
+      if (pid > 0 && pid !== process.pid) {
+        execSyncFn(`taskkill /PID ${pid} /F`, { windowsHide: true, timeout: 5000 });
+      }
+    }
+  } catch {}
+}
+
 async function defaultProbeReady(harnessUrl, fetchImpl = globalThis.fetch) {
   if (typeof fetchImpl !== "function") return false;
   try {
@@ -165,6 +184,7 @@ function createHarnessLauncher({
   let startPromise = null;
   let ownedLaunch = null;
   let capturedBrowserUrl = "";
+  let restartedAfterTokenFailure = false;
 
   // One deadline covers the whole start, including the legacy fallback. Each wait used
   // to get its own full budget, so a failed launch held the start-harness IPC call for
@@ -233,7 +253,7 @@ function createHarnessLauncher({
     if (!isLocalHarnessUrl(harnessUrl)) {
       return { ok: false, started: false, reason: "remote-url" };
     }
-    if (await probeReady()) {
+    if (await probeReady() && !restartedAfterTokenFailure) {
       if (ownedLaunch && !ownedLaunch.exited) { ownedLaunch.ready = true; return { ok: true, started: false, alreadyRunning: true }; }
       // The harness is reachable but we never captured its launch token (foreign
       // or inherited process). Spawn a dsh just to grab the token from its banner
@@ -243,8 +263,19 @@ function createHarnessLauncher({
       }
       const probe = spawnOwnedLaunch();
       for (let i = 0; i < 20 && !probe.browserUrl && !probe.exited; i += 1) await delay(250);
-      if (ownedLaunch === probe) { probe.ready = true; ownedLaunch.ready = true; }
-      return { ok: true, started: false, alreadyRunning: true };
+      if (probe.browserUrl) {
+        if (ownedLaunch === probe) { probe.ready = true; ownedLaunch.ready = true; }
+        return { ok: true, started: false, alreadyRunning: true };
+      }
+      // The second dsh did not print the banner (port occupied, new dsh hangs
+      // without emitting the token). Kill the hanging probe and the foreign
+      // harness so we can start a fresh instance that owns the token.
+      try { if (probe.child && typeof probe.child.kill === "function" && !probe.exited) probe.child.kill(); } catch {}
+      const port = parseInt(new URL(harnessUrl).port, 10) || 3080;
+      killProcessOnPort(port, { platform, execSyncFn: execSync });
+      ownedLaunch = null;
+      restartedAfterTokenFailure = true;
+      await delay(1500);
     }
     if (new URL(harnessUrl).protocol !== "http:") {
       return { ok: false, started: false, reason: "unsupported-local-protocol" };

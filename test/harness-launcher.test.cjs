@@ -303,16 +303,39 @@ test("a never-ready live launcher stays single-owned across repeated retries", a
   assert.equal(spawnCount, 1);
 });
 
-test("an already-ready Harness instance is reused", async () => {
+test("an already-ready Harness instance is reused when the probe captures the token", async () => {
+  let spawnCount = 0;
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://localhost:3080",
+    spawnProcess: () => {
+      spawnCount += 1;
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.unref = () => {};
+      queueMicrotask(() => child.stdout.emit("data", "dsh web: http://localhost:3080/?token=abc\n"));
+      return child;
+    },
+    probeReady: async () => true,
+    delay: async () => {},
+  });
+
+  assert.deepEqual(await launcher.start(), { ok: true, started: false, alreadyRunning: true });
+  assert.equal(spawnCount, 1, "a probe-only spawn is made to capture the launch token");
+});
+
+test("an already-ready Harness without a captured token kills and restarts", async () => {
   let spawnCount = 0;
   const launcher = createHarnessLauncher({
     harnessUrl: "http://localhost:3080",
     spawnProcess: () => { spawnCount += 1; return fakeChild(); },
     probeReady: async () => true,
+    delay: async () => {},
   });
 
-  assert.deepEqual(await launcher.start(), { ok: true, started: false, alreadyRunning: true });
-  assert.equal(spawnCount, 1, "a probe-only spawn is made to capture the launch token");
+  const result = await launcher.start();
+  assert.equal(result.ok, true);
+  assert.equal(result.started, true, "fresh start after killing the foreign harness");
+  assert.ok(spawnCount >= 2, "probe + fresh start");
 });
 
 test("Windows batch file is a bounded fallback when npx cannot launch", async () => {
