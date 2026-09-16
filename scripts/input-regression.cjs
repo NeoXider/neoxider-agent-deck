@@ -1478,29 +1478,38 @@ async function main() {
     failures.push(`eight unchanged 2.5s refresh passes mutated or moved the widget: ${JSON.stringify({ stablePolling, compactIpc: [compactBeforeStablePoll, compactAfterStablePoll], bounds: [boundsBeforeStablePoll, boundsAfterStablePoll] })}`);
   }
 
-  const longHistoryScroll = await contents.executeJavaScript(`(() => {
+  const longHistoryScroll = await contents.executeJavaScript(`(async () => {
     state.messagesStickToBottom = true;
     renderMessages(Array.from({ length: 160 }, (_, index) => ({
       role: index % 2 ? "assistant" : "user",
       text: "Long history message " + (index + 1),
     })));
     const messages = document.querySelector("#messages");
-    const latestPageFirst = messages.querySelector(".bubble")?.textContent;
-    [...messages.querySelectorAll(".history-navigation button")].find((button) => button.textContent === "Older messages")?.click();
+    const latestWindowFirst = messages.querySelector(".bubble")?.textContent;
     messages.scrollTop = 0;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    // Scrolling to the top grows the window above the reading position instead of
+    // swapping pages: the viewport keeps what it showed, now with older rows above.
+    const keptTop = messages.scrollTop;
+    const loadedFirst = messages.querySelector(".bubble")?.textContent || "";
+    messages.scrollTop = 0;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     state.messagesStickToBottom = messagesNearBottom(messages);
     const first = messages.querySelector(".bubble");
     const viewport = messages.getBoundingClientRect();
     const firstBounds = first?.getBoundingClientRect();
     return {
       firstText: first?.textContent || "",
-      latestPageFirst,
+      latestWindowFirst,
+      loadedFirst,
+      bubbles: messages.querySelectorAll(".bubble").length,
       firstVisible: Boolean(firstBounds && firstBounds.top >= viewport.top - 1 && firstBounds.bottom <= viewport.bottom + 1),
       scrollable: messages.scrollHeight > messages.clientHeight,
-      scrollTop: messages.scrollTop,
+      keptPosition: keptTop > 0,
     };
   })()`);
-  if (longHistoryScroll.latestPageFirst !== "Long history message 81" || longHistoryScroll.firstText !== "Long history message 1" || !longHistoryScroll.firstVisible || !longHistoryScroll.scrollable || longHistoryScroll.scrollTop !== 0) {
+  if (longHistoryScroll.latestWindowFirst !== "Long history message 81" || longHistoryScroll.loadedFirst !== "Long history message 1" || longHistoryScroll.firstText !== "Long history message 1" || !longHistoryScroll.firstVisible || !longHistoryScroll.scrollable || !longHistoryScroll.keptPosition || longHistoryScroll.bubbles > 330) {
     failures.push(`long history cannot scroll to its first message: ${JSON.stringify(longHistoryScroll)}`);
   }
 
@@ -1663,7 +1672,7 @@ async function main() {
       kind: "image", mediaType: "image/png", data, name: seq + ".png",
     }] })));
     const result = {
-      retained: visibleMessagePreviews(state.currentMessages, transcriptPage(state.currentMessages.length)).map((message) => message.attachments[0].data?.length || 0),
+      retained: visibleMessagePreviews(state.currentMessages, 0, state.currentMessages.length).map((message) => message.attachments[0].data?.length || 0),
       images: document.querySelectorAll("#messages .message-attachment-preview img").length,
       attachments: document.querySelectorAll("#messages .message-attachment").length,
     };

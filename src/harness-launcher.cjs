@@ -173,6 +173,8 @@ function createHarnessLauncher({
   readinessAttempts = 60,
   readinessInterval = 500,
   now = () => Date.now(),
+  // Injected so tests never shell out to netstat/taskkill on the host.
+  execSyncFn = execSync,
 } = {}) {
   const installedEntry = resolveInstalledDshEntry({ platform, env, workingDirectory, fileSystem });
   const launchSpec = resolveHarnessLaunchSpec({ platform, env, harnessUrl, installedEntry });
@@ -184,7 +186,6 @@ function createHarnessLauncher({
   let startPromise = null;
   let ownedLaunch = null;
   let capturedBrowserUrl = "";
-  let restartedAfterTokenFailure = false;
 
   // One deadline covers the whole start, including the legacy fallback. Each wait used
   // to get its own full budget, so a failed launch held the start-harness IPC call for
@@ -249,38 +250,51 @@ function createHarnessLauncher({
     return launch;
   }
 
-  async function startInternal() {
+  async function startInternal({ forceRestart = false } = {}) {
     if (!isLocalHarnessUrl(harnessUrl)) {
       return { ok: false, started: false, reason: "remote-url" };
     }
-    if (await probeReady() && !restartedAfterTokenFailure) {
+    if (new URL(harnessUrl).protocol !== "http:") {
+      return { ok: false, started: false, reason: "unsupported-local-protocol" };
+    }
+    if (!forceRestart && await probeReady()) {
       if (ownedLaunch && !ownedLaunch.exited) { ownedLaunch.ready = true; return { ok: true, started: false, alreadyRunning: true }; }
       // The harness is reachable but we never captured its launch token (foreign
       // or inherited process). Spawn a dsh just to grab the token from its banner
       // line — it will exit almost immediately when it finds the port occupied.
-      if (new URL(harnessUrl).protocol !== "http:") {
-        return { ok: false, started: false, reason: "unsupported-local-protocol" };
-      }
       const probe = spawnOwnedLaunch();
       for (let i = 0; i < 20 && !probe.browserUrl && !probe.exited; i += 1) await delay(250);
       if (probe.browserUrl) {
         if (ownedLaunch === probe) { probe.ready = true; ownedLaunch.ready = true; }
         return { ok: true, started: false, alreadyRunning: true };
       }
-      // The second dsh did not print the banner (port occupied, new dsh hangs
-      // without emitting the token). Kill the hanging probe and the foreign
-      // harness so we can start a fresh instance that owns the token.
+      // The second dsh did not print the banner, so its token is unreachable from
+      // here. Killing a foreign Harness with live turns would destroy work the
+      // user can see in the browser, so Start stops here: the widget offers to
+      // connect with a pasted launch URL, or to restart Harness explicitly.
       try { if (probe.child && typeof probe.child.kill === "function" && !probe.exited) probe.child.kill(); } catch {}
-      const port = parseInt(new URL(harnessUrl).port, 10) || 3080;
-      killProcessOnPort(port, { platform, execSyncFn: execSync });
-      ownedLaunch = null;
-      restartedAfterTokenFailure = true;
-      await delay(1500);
-    }
-    if (new URL(harnessUrl).protocol !== "http:") {
-      return { ok: false, started: false, reason: "unsupported-local-protocol" };
+      if (ownedLaunch === probe) ownedLaunch = null;
+      return { ok: false, started: false, reason: "token-required" };
     }
 
+    return bootOwned();
+  }
+
+  // Explicit, user-confirmed restart: stop whatever holds the port — including a
+  // foreign Harness with live turns — and boot a fresh owned instance that
+  // prints its launch token to our captured stdout. Never runs implicitly.
+  async function restartInternal() {
+    const port = parseInt(new URL(harnessUrl).port, 10) || 3080;
+    try { if (ownedLaunch?.child && typeof ownedLaunch.child.kill === "function" && !ownedLaunch.exited) ownedLaunch.child.kill(); } catch {}
+    killProcessOnPort(port, { platform, execSyncFn });
+    ownedLaunch = null;
+    await delay(1500);
+    return startInternal({ forceRestart: true });
+  }
+
+  // forceRestart skips the already-running fast path: the caller already
+  // confirmed that the current holder of the port may go.
+  async function bootOwned() {
     if (ownedLaunch?.exited) ownedLaunch = null;
     const deadline = now() + readinessAttempts * readinessInterval;
     let launch = ownedLaunch;
@@ -317,6 +331,11 @@ function createHarnessLauncher({
       startPromise = startInternal().finally(() => { startPromise = null; });
       return startPromise;
     },
+    restart() {
+      if (startPromise) return startPromise;
+      startPromise = restartInternal().finally(() => { startPromise = null; });
+      return startPromise;
+    },
   };
 }
 
@@ -327,6 +346,7 @@ module.exports = {
   defaultProbeReady,
   extractLaunchBrowserUrl,
   isLocalHarnessUrl,
+  killProcessOnPort,
   resolveInstalledDshEntry,
   resolveHarnessLaunchSpec,
 };

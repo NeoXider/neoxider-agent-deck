@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.8.0-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.8.0-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.9.0-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.9.0-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -168,7 +168,7 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Chat-first navigation** — the real mini-chat is the default first page; the agent deck is one tap away.
 - **State-aware agent deck** — every session card changes its avatar, glow and label for working, idle or error state. Activity is cleared from authoritative turn events, so a completed or failed session does not remain falsely marked as working.
 - **Real Harness sessions** — session titles, running state, subagents and errors come from the live HTTP RPC API.
-- **Complete long conversations** — history follows Harness backward pagination to the first event, then reuses cached older pages while polling only the newest tail; no silent 80-message cutoff remains.
+- **Complete long conversations** — history follows Harness backward pagination to the first event. The log itself is one continuous Telegram-style window: scrolling up materializes older messages above the reading position while rows far from the viewport unload back into spacers, so even a 10,000-message chat stays responsive with no page buttons and no frozen pages.
 - **Context pressure** — a compact ring shows projected tokens against the model context window and remains a calm `0%` ring before the first session exists.
 - **Model routing** — use the searchable dark picker for every provider/model exposed by Harness; the active/local route (including LM Studio) stays first.
 - **Reasoning control** — effort options update dynamically for the selected model.
@@ -184,7 +184,7 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Loading, not empty** — a freshly chosen session shows placeholder bubbles until its history arrives instead of claiming for a moment that it is empty.
 - **Optional live activity** — thinking, tool and working status share one compact overlay that floats above the conversation on its own opaque layer, never shifts the reading viewport, and can be hidden persistently with **Show live activity**. Outcomes — a finished or failed turn — are still announced.
 - **Authoritative Harness queue** — messages sent during a running turn appear as compact one-line queued items from Harness itself, with Edit, Delete and Send now actions. Attachments queue too: an image-only message reads as `1 attachment` and refuses in-place text editing, and a file is previewed by name while its full path is preserved for editing.
-- **Respectful scrolling** — reading older messages is never interrupted by forced auto-scroll; a compact jump-to-latest control remains available whenever the chat is away from the bottom, even before another message arrives.
+- **Respectful scrolling** — reading older messages is never interrupted by forced auto-scroll; a compact jump-to-latest pill counts the messages that arrived below the window and returns in one press. Your own messages stay marked on the scroll rail across the whole history.
 - **Compact 2×2 composer** — context/expand and command/attachment actions stay in two vertical pairs, with `/` above the paperclip and a tightly fitted Send button that leaves the input wide.
 - **Files, paste and drag-and-drop** — `Ctrl+V` adds copied files or clipboard images for review without auto-sending. PNG, JPEG, WebP and GIF files use official image content blocks; sent messages retain tiny image previews or compact file/video chips, while other files become explicit local `@path` references.
 - **Instant screenshots** — capture a selected region or the current display from the header or a global shortcut, inspect the PNG preview above the composer, then decide whether to send it.
@@ -192,7 +192,7 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 - **Live chat aura** — selected-session light distinguishes API waiting, thinking, writing, tools, completion and errors, including in Focus mode. Queueing another message preserves the current phase; stopping clears it. Background agents cannot light an idle selected chat, and a late poll cannot restart the same animation.
 - **Your background** — drifting colour fields and panel transparency have an independent **Background opacity** slider. Its saved value does not change native window opacity or activity glow intensity; Motion effects can freeze the fields entirely.
 - **Session-bound attachments** — switching sessions clears the composer's reviewed attachment references and cancels any unfinished clipboard preparation, with a brief notice. Original files remain untouched and text drafts still follow their own sessions.
-- **Connection state** — a disconnected Harness gets a muted offline presentation across the chat and compact modes, keeps the conversation visible, and offers Start. It is separate from a failed model turn.
+- **Connection state** — a disconnected Harness gets a muted offline presentation across the chat and compact modes, keeps the conversation visible, and offers Start. A token-gated Harness that is running but locked gets its own state instead: paste the `dsh web:` launch URL once with **Connect** (or **Restart** it into an owned instance), and the widget re-mints its session cookie after every restart. It is separate from a failed model turn.
 - **Motion with a switch** — a slow aurora drifts behind the widget and brightens while the agent works, the active tab slides, the plane leaves the Send button with the message, the context ring beats when critical, a working session card carries a sweep of light, and new messages slide in. **Settings → Motion effects** takes all of it off at once.
 - **Focus Chat** — one compact composer button hides all chrome and setup surfaces, leaving only messages, optional attachment previews, the input, context and actions; tap it again to restore everything.
 - **Three window states** — full deck, notification avatar, or an iridescent edge handle.
@@ -223,7 +223,7 @@ The NeoXider avatar reacts to agent state: breathing while idle, typing while wo
 ### Portable release
 
 1. Download the latest `NeoXider-Agent-Deck-*-windows-x64-portable.exe` from [Releases](https://github.com/NeoXider/neoxider-agent-deck/releases/latest).
-2. Start DeepSeek Harness Web on `http://127.0.0.1:3080`, or press **Start** in the offline banner. The widget prefers an installed official runtime and avoids spawning a duplicate while a previous launch is still starting.
+2. Start DeepSeek Harness Web on `http://127.0.0.1:3080`, or press **Start** in the offline banner. The widget prefers an installed official runtime and avoids spawning a duplicate while a previous launch is still starting. If Harness was started outside the widget and its browser index asks for authentication, the banner offers **Connect**: paste the `dsh web:` URL from the Harness terminal once and it is remembered.
 3. Run the portable executable.
 
 To install the latest release under `%LOCALAPPDATA%`, create a desktop shortcut and launch it:
@@ -305,7 +305,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.8.0-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.9.0-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
@@ -325,7 +325,7 @@ Screen capture, configurable global hotkeys, and the three-session pet switcher 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). Source version 0.8.0 keeps the widget working across Harness generations: the readiness probe accepts the token-gated browser index as up, and opening Harness from the widget carries the owned launch token so the browser lands authenticated.
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). Source version 0.9.0 reconnects a foreign token-gated Harness with a pasted launch URL instead of going stale, and replaces transcript pages with a Telegram-style loading window.
 
 ## Platform support
 

@@ -229,9 +229,33 @@ function createRemoteTransport({ baseUrl = "http://127.0.0.1:3080", fetchImpl = 
   };
 }
 
+// What the user pastes from the terminal that runs Harness: either the full
+// `dsh web: http://127.0.0.1:3080/?launchToken=…` URL or the bare token. A bare
+// token is resolved against the configured Harness address. Anything that is
+// neither throws, so the offline banner can say why instead of failing later
+// inside the cookie exchange with a bare network error.
+function normalizeHarnessLaunchUrl(value, baseUrl = "http://127.0.0.1:3080") {
+  const text = String(value || "").trim();
+  if (!text) throw new Error("Paste the Harness launch URL first");
+  if (!/[:/\s]/.test(text)) {
+    if (!/^[A-Za-z0-9_-]{8,256}$/.test(text)) throw new Error("That does not look like a Harness launch token");
+    return `${String(baseUrl).replace(/\/$/, "").split("?")[0]}/?launchToken=${encodeURIComponent(text)}`;
+  }
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new Error("That is not a valid Harness launch URL");
+  }
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("The Harness launch URL must be http(s)");
+  url.hash = "";
+  return url.href;
+}
+
 module.exports = {
   GATED_BODY_MARKER,
   createRemoteTransport,
   detectGeneration,
   mintBrowserCookie,
+  normalizeHarnessLaunchUrl,
 };

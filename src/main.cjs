@@ -55,7 +55,7 @@ const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
 app.setName(PRODUCT_NAME);
 if (process.platform === "win32") app.setAppUserModelId(APP_ID);
 configureProductUserData({ app });
-const api = new HarnessApi(HARNESS_URL, globalThis.fetch, { getLaunchBrowserUrl: () => harnessLauncher?.browserUrl() || "" });
+const api = new HarnessApi(HARNESS_URL, globalThis.fetch, { getLaunchBrowserUrl: () => harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl || "" });
 const dashboardReader = createSharedDashboardReader({
   api,
   onSessions: (sessionIds) => remoteMux.setTrackedSessions(sessionIds),

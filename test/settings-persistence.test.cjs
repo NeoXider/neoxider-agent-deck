@@ -80,6 +80,7 @@ const completePreferences = {
   windowLayer: "game",
   compactSide: "left",
   lastSelectedSessionId: "last-opened-chat",
+  harnessLaunchUrl: "http://127.0.0.1:3080/?launchToken=persisted",
   hotkeys: normalizeHotkeyBindings({ captureRegion: { enabled: true, accelerator: "Control+Shift+R" } }),
   windowState: {
     version: 2,
@@ -399,7 +400,17 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     compactSide: "left",
     hotkeys: normalizeHotkeyBindings(),
     lastSelectedSessionId: null,
+    harnessLaunchUrl: "",
     windowState: { version: 2, mode: "full", full: null, orb: null, edge: null },
+  });
+});
+
+test("the Harness launch URL survives restart but oversized values are dropped", () => {
+  withTemporaryStore(({ filePath, store }) => {
+    const url = "http://127.0.0.1:3080/?launchToken=abc123";
+    assert.equal(store.save({ ...completePreferences, harnessLaunchUrl: url }).harnessLaunchUrl, url);
+    assert.equal(createSettingsStore({ filePath }).load().harnessLaunchUrl, url);
+    assert.equal(store.save({ ...completePreferences, harnessLaunchUrl: `http://x/${"y".repeat(3000)}` }).harnessLaunchUrl, "");
   });
 });
 

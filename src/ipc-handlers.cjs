@@ -21,6 +21,7 @@
 // tests against fakes would still pass while the real app quietly broke. The screenshot
 // harness already paid for that lesson once (see scripts/screenshot-harness.cjs).
 const { harnessSessionUrl } = require("./harness-url.cjs");
+const { normalizeHarnessLaunchUrl } = require("./harness-transport.cjs");
 const { renderMarkdownBatch, renderMarkdownAsync } = require("./markdown-service.cjs");
 const { applyPlatformOpacity } = require("./platform-capabilities.cjs");
 
@@ -186,6 +187,14 @@ function registerIpcHandlers({
     return { x: Number(value?.x), y: Number(value?.y) };
   }
 
+  // A failed dashboard is either "Harness is down" or "Harness is up but gated and
+  // we hold no launch token". The renderer shows a Start action for the first and a
+  // launch-URL Connect action for the second, so the failure must say which it is.
+  function dashboardNeedsAuth(error) {
+    return /launch URL is unknown|session cookie|token exchange|HTTP 401|\b401\b|unauthorized/i
+      .test(error instanceof Error ? error.message : String(error ?? ""));
+  }
+
   handle("dashboard", async (_event, selectedSessionId) => {
     try {
       // Through the shared reader, not api.dashboard(): the Game Bar widget reads the same
@@ -193,7 +202,8 @@ function registerIpcHandlers({
       const dashboard = await readDashboard(typeof selectedSessionId === "string" ? selectedSessionId : null);
       return { ok: true, harness: true, ...dashboard };
     } catch (error) {
-      return { ok: false, harness: false, error: error instanceof Error ? error.message : String(error), sessions: [] };
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, harness: false, needsAuth: dashboardNeedsAuth(error), error: message, sessions: [] };
     }
   });
   handle("history", async (_event, sessionId, options) => {
@@ -282,12 +292,18 @@ function registerIpcHandlers({
   });
   // Browser entry point, token included when the owned Harness launch printed
   // one. A foreign (already-running) Harness never exposes its launch token,
-  // so those fall back to the configured URL and the browser cookie.
+  // so those fall back to the persisted launch URL and then the configured URL.
   const harnessBrowserBase = () => {
     try {
       const launcher = typeof getHarnessLauncher === "function" ? getHarnessLauncher() : null;
       const owned = launcher && typeof launcher.browserUrl === "function" ? launcher.browserUrl() : "";
       if (owned) return owned;
+    } catch {
+      // fall through to the persisted URL
+    }
+    try {
+      const persisted = typeof getPreferences === "function" ? getPreferences()?.harnessLaunchUrl : "";
+      if (persisted) return persisted;
     } catch {
       // fall through to the configured URL
     }
@@ -301,7 +317,54 @@ function registerIpcHandlers({
     if (!url) throw new Error("Unsupported external link protocol");
     return openExternal(url);
   });
-  handle("start-harness", async () => getHarnessLauncher().start());
+  // An owned launch prints its token to our captured stdout. Remember it so the
+  // cookie can be re-minted after an app restart, when the same Harness is a
+  // foreign process whose banner we will never see again.
+  function persistCapturedLaunchUrl() {
+    try {
+      const launcher = typeof getHarnessLauncher === "function" ? getHarnessLauncher() : null;
+      const captured = launcher && typeof launcher.browserUrl === "function" ? launcher.browserUrl() : "";
+      if (!captured) return false;
+      const preferences = getPreferences();
+      if (preferences.harnessLaunchUrl === captured) return false;
+      preferences.harnessLaunchUrl = captured;
+      savePreferences();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  handle("start-harness", async () => {
+    const result = await getHarnessLauncher().start();
+    persistCapturedLaunchUrl();
+    return result;
+  });
+  handle("restart-harness", async () => {
+    const result = await getHarnessLauncher().restart();
+    persistCapturedLaunchUrl();
+    invalidateDashboard();
+    return result;
+  });
+  // Connect a foreign gated Harness with the `dsh web:` URL pasted from its
+  // terminal. The URL is verified (cookie minted and one dashboard read) before
+  // it is persisted, so a typo cannot lock the widget to a dead secret.
+  handle("set-harness-launch-url", async (_event, value) => {
+    const normalized = normalizeHarnessLaunchUrl(value, harnessUrl);
+    api.resetRemoteAuth();
+    try {
+      await api.dashboard();
+    } catch (error) {
+      throw new Error(`Harness did not accept that launch URL (${error instanceof Error ? error.message : String(error)})`);
+    }
+    const preferences = getPreferences();
+    if (preferences.harnessLaunchUrl !== normalized) {
+      preferences.harnessLaunchUrl = normalized;
+      savePreferences();
+    }
+    invalidateDashboard();
+    return { ok: true };
+  });
   handle("set-window-layer", (_event, value) => {
     return setWindowLayer(value);
   });
@@ -415,6 +478,7 @@ function registerIpcHandlers({
       windowMode: getWindowMode(),
       compactSide: preferences.compactSide,
       lastSelectedSessionId: preferences.lastSelectedSessionId || null,
+      hasHarnessLaunchUrl: Boolean(preferences.harnessLaunchUrl),
       hotkeys: preferences.hotkeys,
       hotkeyError: getHotkeyRegistrationError(),
       screenshotCapabilities: getScreenshotService()?.capabilities() || {},

@@ -461,3 +461,92 @@ test("open-harness falls back to the configured URL without a launcher token", a
   await ipcMain.invoke("open-harness", event);
   assert.deepEqual(opened, ["http://127.0.0.1:3080"]);
 });
+
+test("a gated Harness without a token reports needs-auth instead of plain offline", async () => {
+  const { ipcMain, window } = register({
+    readDashboard: async () => { throw new Error("Harness launch URL is unknown; cannot mint a browser cookie"); },
+  });
+  const event = { sender: window.webContents };
+  const failed = await ipcMain.invoke("dashboard", event, null);
+  assert.equal(failed.ok, false);
+  assert.equal(failed.harness, false);
+  assert.equal(failed.needsAuth, true);
+  assert.match(failed.error, /launch URL is unknown/);
+  assert.deepEqual(failed.sessions, []);
+});
+
+test("a truly down Harness stays plain offline", async () => {
+  const { ipcMain, window } = register({
+    readDashboard: async () => { throw new Error("fetch failed"); },
+  });
+  const event = { sender: window.webContents };
+  const failed = await ipcMain.invoke("dashboard", event, null);
+  assert.equal(failed.harness, false);
+  assert.equal(failed.needsAuth, false);
+});
+
+test("a pasted launch URL is verified before it is persisted", async () => {
+  const preferences = { harnessLaunchUrl: "" };
+  let saves = 0;
+  let resets = 0;
+  let dashboardCalls = 0;
+  const { ipcMain, window } = register({
+    api: {
+      resetRemoteAuth: () => { resets += 1; },
+      dashboard: async () => { dashboardCalls += 1; return { sessions: [] }; },
+    },
+    getPreferences: () => preferences,
+    savePreferences: () => { saves += 1; },
+    invalidateDashboard: () => {},
+  });
+  const event = { sender: window.webContents };
+  assert.deepEqual(await ipcMain.invoke("set-harness-launch-url", event, "pastetoken123"), { ok: true });
+  assert.equal(resets, 1);
+  assert.equal(dashboardCalls, 1);
+  assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?launchToken=pastetoken123");
+  assert.equal(saves, 1);
+});
+
+test("a rejected launch URL never reaches the saved preferences", async () => {
+  const preferences = { harnessLaunchUrl: "http://127.0.0.1:3080/?launchToken=good" };
+  let saves = 0;
+  const { ipcMain, window } = register({
+    api: {
+      resetRemoteAuth: () => {},
+      dashboard: async () => { throw new Error("Harness HTTP 401"); },
+    },
+    getPreferences: () => preferences,
+    savePreferences: () => { saves += 1; },
+    invalidateDashboard: () => {},
+  });
+  const event = { sender: window.webContents };
+  await assert.rejects(ipcMain.invoke("set-harness-launch-url", event, "badtoken99"), /did not accept/);
+  assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?launchToken=good");
+  assert.equal(saves, 0);
+  await assert.rejects(ipcMain.invoke("set-harness-launch-url", event, "   "), /Paste the Harness launch URL/);
+});
+
+test("a captured owned launch URL is persisted on start and restart", async () => {
+  const preferences = { harnessLaunchUrl: "" };
+  let saves = 0;
+  const launcher = {
+    start: async () => ({ ok: true, started: true }),
+    restart: async () => ({ ok: true, started: true }),
+    browserUrl: () => "http://127.0.0.1:3080/?launchToken=owned",
+  };
+  const { ipcMain, window } = register({
+    getHarnessLauncher: () => launcher,
+    getPreferences: () => preferences,
+    savePreferences: () => { saves += 1; },
+    invalidateDashboard: () => {},
+  });
+  const event = { sender: window.webContents };
+  await ipcMain.invoke("start-harness", event);
+  assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?launchToken=owned");
+  assert.equal(saves, 1);
+  preferences.harnessLaunchUrl = "";
+  saves = 0;
+  await ipcMain.invoke("restart-harness", event);
+  assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?launchToken=owned");
+  assert.equal(saves, 1);
+});

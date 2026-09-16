@@ -50,6 +50,11 @@ const state = {
   composerError: null,
   compactErrorUnread: false,
   harnessOffline: false,
+  harnessNeedsAuth: false,
+  harnessAuthError: "",
+  harnessStartingLabel: "",
+  harnessConnectBusy: false,
+  harnessConnectError: "",
   completionSignalTimer: null,
   compactNotification: null,
   compactNotificationTimer: null,
@@ -2977,13 +2982,11 @@ function restoreOpenToolKeys(root, keys) {
 
 // Where the caller's own messages sit in the log. Scrolling back to "the thing I
 // asked" meant dragging through everything the agent said in between; the rail turns
-// that into one click, and the marks are placed by real offsets so they line up with
-// the scrollbar beside them rather than approximating.
-// A rebuild of the log must not throw the jump away. renderMessages replaces every bubble
-// on the 2.5s poll and restores the scroll offset it captured beforehand; a smooth scroll
-// still in flight gets captured half-way and snapped back, which is the click that
-// "did nothing". The pin survives those rebuilds - the restore re-resolves the message and
-// lands on it instead of on a stale offset - and it lets go on the next deliberate scroll.
+// that into one click. A rebuild must not throw the jump away, so the pin survives
+// repaints and re-resolves the message instead of a stale offset.
+// The rail is bounded: past a few hundred own messages it samples evenly, because
+// every tick costs style and layout on each keystroke reflow.
+const MESSAGE_MARKS_MAX = 400;
 const MESSAGE_PIN_MS = 1600;
 const MESSAGE_PIN_OFFSET = 6;
 function activeMessageScrollPin() {
@@ -3000,13 +3003,17 @@ function releaseMessageScrollPin() {
 function applyMessageScrollPin({ smooth = false } = {}) {
   const pin = activeMessageScrollPin();
   if (!pin) return false;
+  if (pin.sessionId !== undefined && pin.sessionId !== state.selectedSessionId) {
+    state.messageScrollPin = null;
+    return false;
+  }
   const root = $("#messages");
   if (!root || root.clientHeight <= 0) return false;
-  const bubble = root.querySelectorAll(".bubble.user")[pin.userIndex];
-  if (!bubble) return false;
+  const node = root.querySelector(`[data-vmsg="${pin.msgIndex}"]`);
+  if (!node) return false;
   // Measured, not offsetTop: the bubble's offsetParent is the wrap, not the scroller, so
   // only the live rectangles agree with what the scrollbar is actually showing.
-  const delta = bubble.getBoundingClientRect().top - root.getBoundingClientRect().top;
+  const delta = node.getBoundingClientRect().top - root.getBoundingClientRect().top;
   const limit = Math.max(0, root.scrollHeight - root.clientHeight);
   const target = Math.max(0, Math.min(limit, root.scrollTop + delta - MESSAGE_PIN_OFFSET));
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -3026,42 +3033,82 @@ function pinTranscriptAncestors() {
   }
 }
 
-function scrollToUserMessage(userIndex) {
-  const bubbles = $$("#messages .bubble.user");
-  // Resolved live, never from a captured node. renderMessages rebuilds the whole log
-  // on the 2.5s poll, so a bubble captured when the mark was drawn is detached moments
-  // later - scrollIntoView on a detached node does nothing, which is exactly the mark
-  // that "did not click". An index into the current bubbles cannot go stale that way.
-  if (!bubbles[userIndex]) return;
+function scrollToUserMessage(msgIndex) {
+  if (!Number.isInteger(msgIndex)) return;
+  // Resolved live, never from a captured node. renderMessages reconciles the log
+  // on every change, so a bubble captured when the mark was drawn may be an
+  // unloaded window away moments later. The message index cannot go stale that
+  // way: the window expands to include it first.
+  ensureMessageRendered(msgIndex);
+  const node = document.querySelector(`#messages [data-vmsg="${msgIndex}"]`);
+  if (!node) return;
   state.messagesStickToBottom = false;
   state.unseenMessages = 0;
-  state.messageScrollPin = { userIndex, expires: Date.now() + MESSAGE_PIN_MS };
+  state.messageScrollPin = { msgIndex, sessionId: state.selectedSessionId, expires: Date.now() + MESSAGE_PIN_MS };
   // scrollIntoView rather than measured scrollTop math: rows that skipped layout
   // report remembered sizes, so math computed up front lands off target with nothing
   // left to correct it. The browser resolves the real geometry on the way there.
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  bubbles[userIndex].scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+  node.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
   pinTranscriptAncestors();
-  flashMessageMark(userIndex);
+  // Skipped rows still report placeholder sizes while the smooth flight is measured,
+  // so it can land off target; the scrollend settle corrects that in a live window,
+  // but a throttled one may never fire it. Re-assert the pin once it has landed.
+  // A hand on the wheel released the pin already, so this never fights a deliberate
+  // scroll; an expired pin is a no-op.
+  setTimeout(() => {
+    if (activeMessageScrollPin()) applyMessageScrollPin();
+  }, 700);
+  flashMessageMark(msgIndex);
   updateScrollLatestButton();
+}
+
+// A marked message may sit in an unloaded part of the history. Center the
+// window on it first, so the jump always lands on a real node.
+function ensureMessageRendered(msgIndex) {
+  const total = state.currentMessages.length;
+  if (transcriptViewSessionId !== state.selectedSessionId) transcriptWindow(total);
+  if (msgIndex >= transcriptViewStart && msgIndex < transcriptViewEnd) return false;
+  const half = Math.floor(TRANSCRIPT_WINDOW_MAX / 2);
+  let start = Math.max(0, msgIndex - half);
+  const end = Math.min(total, start + TRANSCRIPT_WINDOW_MAX);
+  start = Math.max(0, end - TRANSCRIPT_WINDOW_MAX);
+  transcriptViewStart = start;
+  transcriptViewEnd = end;
+  transcriptViewTotal = total;
+  state.messagesStickToBottom = false;
+  renderMessages(state.currentMessages);
+  return true;
 }
 
 function renderMessageMarks() {
   const rail = $("#messageMarks");
   const root = $("#messages");
-  const bubbles = [...root.querySelectorAll(".bubble.user")];
+  const messages = state.currentMessages;
+  const total = messages.length;
+  // Against the message count, not the rendered nodes: unloaded history has no
+  // DOM offsets, but the spacers stand in for it at the running average row
+  // height, so an index fraction means the same thing as a scrollbar position.
+  const userEntries = [];
+  for (let index = 0; index < total; index += 1) {
+    if (messages[index]?.role === "user") userEntries.push({ ordinal: userEntries.length, msgIndex: index });
+  }
+  // Five thousand ticks cost a millisecond per keystroke: style and layout pay
+  // per node on every reflow. Past a few hundred the rail is denser than its
+  // own pixels anyway, so it samples evenly and every tick still jumps exactly.
+  const stride = Math.max(1, Math.ceil(userEntries.length / MESSAGE_MARKS_MAX));
+  const sampled = userEntries.filter((_, position) => position % stride === 0 || position === userEntries.length - 1);
   const span = root.scrollHeight;
   const scrollable = span - root.clientHeight > 4;
   const marks = scrollable
-    ? bubbles.map((bubble, userIndex) => ({
-        userIndex,
-        // Against scrollHeight, not clientHeight: the fraction has to mean the same
-        // thing as a scrollbar position or the mark points at the wrong message.
-        ratio: Math.max(0, Math.min(1, (bubble.offsetTop + bubble.offsetHeight / 2) / span)),
-        label: compactText(bubble.textContent || "Your message", 80),
+    ? sampled.map(({ ordinal, msgIndex }) => ({
+        ordinal,
+        msgIndex,
+        ratio: total ? Math.max(0, Math.min(1, (msgIndex + 0.5) / total)) : 0,
+        label: compactText(messages[msgIndex]?.text || "Your message", 80),
       }))
     : [];
-  const signature = JSON.stringify(marks.map((mark) => [Math.round(mark.ratio * 1000), mark.label]));
+  const signature = JSON.stringify([total, marks.map((mark) => [mark.msgIndex, Math.round(mark.ratio * 1000), mark.label])]);
   if (signature === state.messageMarksSignature) return false;
   state.messageMarksSignature = signature;
   rail.classList.toggle("has-marks", marks.length > 0);
@@ -3073,11 +3120,11 @@ function renderMessageMarks() {
     tick.className = "message-mark";
     tick.style.top = `${(mark.ratio * 100).toFixed(3)}%`;
     tick.title = mark.label;
-    tick.dataset.userIndex = String(mark.userIndex);
-    tick.setAttribute("aria-label", `Your message ${mark.userIndex + 1} of ${marks.length}: ${mark.label}`);
+    tick.dataset.msgIndex = String(mark.msgIndex);
+    tick.setAttribute("aria-label", `Your message ${mark.ordinal + 1} of ${marks.length}: ${mark.label}`);
     // The click reads the index off the element, so it resolves the live bubble at
     // click time rather than closing over one that a later render will have replaced.
-    tick.addEventListener("click", () => scrollToUserMessage(Number(tick.dataset.userIndex)));
+    tick.addEventListener("click", () => scrollToUserMessage(Number(tick.dataset.msgIndex)));
     rail.append(tick);
   }
   return true;
@@ -3086,9 +3133,9 @@ function renderMessageMarks() {
 // The rail lands you somewhere in the middle of a long conversation, where one bubble
 // looks like another. The pulse says which one you asked for, and it is re-applied by
 // index after a rebuild so a poll landing mid-flash does not swallow it.
-function flashMessageMark(userIndex) {
+function flashMessageMark(msgIndex) {
   clearTimeout(state.messageMarkFlashTimer);
-  state.messageMarkFlashIndex = userIndex;
+  state.messageMarkFlashIndex = msgIndex;
   paintMessageMarkFlash();
   state.messageMarkFlashTimer = setTimeout(() => {
     state.messageMarkFlashIndex = null;
@@ -3098,9 +3145,9 @@ function flashMessageMark(userIndex) {
 
 function paintMessageMarkFlash() {
   for (const previous of $$("#messages .bubble.mark-target")) previous.classList.remove("mark-target");
-  if (state.messageMarkFlashIndex === null) return;
-  const bubble = $$("#messages .bubble.user")[state.messageMarkFlashIndex];
-  if (bubble) bubble.classList.add("mark-target");
+  if (state.messageMarkFlashIndex === null || state.messageMarkFlashIndex === undefined) return;
+  const node = document.querySelector(`#messages [data-vmsg="${state.messageMarkFlashIndex}"]`);
+  if (node) node.classList.add("mark-target");
 }
 
 // The magnet, and only where it helps. An earlier version used CSS scroll-snap on the
@@ -3144,8 +3191,13 @@ function scheduleMessageMagnet() {
 
 function updateScrollLatestButton() {
   const button = $("#scrollLatestButton");
-  const visible = !state.messagesStickToBottom;
-  const label = state.unseenMessages > 1 ? `${state.unseenMessages} new` : state.unseenMessages === 1 ? "New" : "Latest";
+  const hiddenNewer = transcriptHiddenNewerCount();
+  const visible = !state.messagesStickToBottom || hiddenNewer > 0;
+  const label = hiddenNewer > 1
+    ? `${hiddenNewer} new`
+    : hiddenNewer === 1
+      ? "New"
+      : state.unseenMessages > 1 ? `${state.unseenMessages} new` : state.unseenMessages === 1 ? "New" : "Latest";
   const signature = JSON.stringify([visible, label]);
   if (signature === state.scrollLatestSignature) return false;
   state.scrollLatestSignature = signature;
@@ -3532,7 +3584,7 @@ function liveDuplicatesFinalAnswer(text) {
 function syncLiveBubbleContent(root) {
   const cache = transcriptCache();
   const stream = liveAssistantSnapshot();
-  const text = transcriptPage(state.currentMessages.length).latest && stream?.text && !liveDuplicatesFinalAnswer(stream.text) ? stream.text : "";
+  const text = transcriptAtLatest() && stream?.text && !liveDuplicatesFinalAnswer(stream.text) ? stream.text : "";
   let bubble = root.querySelector(".live-assistant");
   if (!text) {
     if (!bubble) return false;
@@ -3759,15 +3811,34 @@ function boundedMessagePreviews(messages, maxPreviewBytes = HISTORY_PREVIEW_BYTE
   return bounded;
 }
 
-// A page replaces the previous page instead of accumulating thousands of hidden nodes.
-// Keep the complete history for copying/recall, but only inspect and build this window.
-const TRANSCRIPT_PAGE_SIZE = 80;
-let transcriptPageSessionId;
-let transcriptPageEnd = null;
+// ---------------------------------------------------------------------------
+// The transcript is a window, not pages.
+//
+// Long conversations used to be cut into pages of 80 with Older/Newer/Latest
+// buttons. A page hid everything outside it: while an older page was open the
+// live bubble never appeared, arrivals never replaced the page being read, and
+// a chat left on an old page looked frozen while Harness moved on. The log now
+// behaves like Telegram: it always reaches the newest message, scrolling up
+// materializes older messages above the reading position, and rows far from
+// the viewport are unloaded back into spacers that keep the scrollbar honest.
+// No buttons, no gaps, no frozen pages.
+// ---------------------------------------------------------------------------
+const TRANSCRIPT_WINDOW_INITIAL = 80;
+const TRANSCRIPT_WINDOW_GROW = 80;
+const TRANSCRIPT_WINDOW_MAX = 320;
+const TRANSCRIPT_TOP_LOAD_PX = 700;
+const TRANSCRIPT_ROW_ESTIMATE_PX = 64;
+let transcriptViewSessionId;
+let transcriptViewStart = 0;
+let transcriptViewEnd = 0;
+let transcriptViewTotal = 0;
+let transcriptAverageRowHeight = TRANSCRIPT_ROW_ESTIMATE_PX;
+let transcriptGrowing = false;
+let transcriptSilentGrow = false;
 let transcriptPreviewCache = { source: [], messages: [] };
 
-function visibleMessagePreviews(messages, page) {
-  const source = messages.slice(page.start, page.end);
+function visibleMessagePreviews(messages, start, end) {
+  const source = messages.slice(start, end);
   if (source.length === transcriptPreviewCache.source.length
       && source.every((message, index) => message === transcriptPreviewCache.source[index])) return transcriptPreviewCache.messages;
   const bounded = boundedMessagePreviews(source);
@@ -3775,46 +3846,149 @@ function visibleMessagePreviews(messages, page) {
   return bounded;
 }
 
-function transcriptPage(total) {
-  if (transcriptPageSessionId !== state.selectedSessionId) {
-    transcriptPageSessionId = state.selectedSessionId;
-    transcriptPageEnd = null;
+// half-open [start, end) over the full message list, tool runs never cut.
+function transcriptWindow(total) {
+  if (transcriptViewSessionId !== state.selectedSessionId) {
+    transcriptViewSessionId = state.selectedSessionId;
+    transcriptViewStart = Math.max(0, total - TRANSCRIPT_WINDOW_INITIAL);
+    transcriptViewEnd = total;
+    transcriptViewTotal = total;
+  } else if (total !== transcriptViewTotal) {
+    const previousTotal = transcriptViewTotal;
+    transcriptViewTotal = total;
+    if (total > previousTotal && transcriptViewEnd >= previousTotal) {
+      if (state.messagesStickToBottom) {
+        // Following the bottom: slide the window with the arrivals so the DOM
+        // stays bounded instead of growing by one row per message.
+        transcriptViewStart += total - previousTotal;
+        transcriptViewEnd = total;
+      }
+      // Away from the bottom the end stays frozen: arrivals accumulate as the
+      // hidden-newer count behind the pill instead of moving the text.
+    } else {
+      transcriptViewEnd = Math.min(transcriptViewEnd, total);
+    }
+    transcriptViewStart = Math.min(transcriptViewStart, transcriptViewEnd);
+    if (transcriptViewEnd - transcriptViewStart > TRANSCRIPT_WINDOW_MAX) {
+      transcriptViewStart = transcriptViewEnd - TRANSCRIPT_WINDOW_MAX;
+    }
+    if (transcriptViewEnd === total && transcriptViewEnd - transcriptViewStart < Math.min(TRANSCRIPT_WINDOW_INITIAL, total)) {
+      transcriptViewStart = Math.max(0, total - TRANSCRIPT_WINDOW_INITIAL);
+    }
   }
-  const end = transcriptPageEnd === null ? total : Math.min(total, transcriptPageEnd);
-  return { start: Math.max(0, end - TRANSCRIPT_PAGE_SIZE), end, total, latest: end === total };
+  const messages = state.currentMessages;
+  let start = Math.max(0, Math.min(transcriptViewStart, total));
+  let end = Math.max(start, Math.min(transcriptViewEnd, total));
+  while (start > 0 && messages[start - 1]?.role === "tool" && messages[start]?.role === "tool") start -= 1;
+  while (end < total && messages[end - 1]?.role === "tool" && messages[end]?.role === "tool") end += 1;
+  transcriptViewStart = start;
+  transcriptViewEnd = end;
+  return { start, end, total, latest: end === total };
 }
 
-function showTranscriptPage(end = null) {
-  transcriptPageEnd = end;
+function transcriptAtLatest() {
+  return transcriptViewSessionId === state.selectedSessionId
+    && transcriptViewEnd >= state.currentMessages.length;
+}
+
+function transcriptHiddenNewerCount() {
+  if (transcriptViewSessionId !== state.selectedSessionId) return 0;
+  return Math.max(0, state.currentMessages.length - transcriptViewEnd);
+}
+
+function jumpToLatestTranscript() {
+  const total = state.currentMessages.length;
+  transcriptViewSessionId = state.selectedSessionId;
+  transcriptViewEnd = total;
+  transcriptViewStart = Math.max(0, total - TRANSCRIPT_WINDOW_INITIAL);
+  transcriptViewTotal = total;
   releaseMessageScrollPin();
   state.messageMarkFlashIndex = null;
-  state.messagesStickToBottom = end === null;
+  state.messagesStickToBottom = true;
+  state.unseenMessages = 0;
   renderMessages(state.currentMessages);
-  if (end !== null) $("#messages").scrollTop = 0;
-  $("#messages .history-navigation button")?.focus({ preventScroll: true });
+  $("#messages").scrollTop = $("#messages").scrollHeight;
 }
 
-function createHistoryNavigation(page) {
-  const nav = document.createElement("nav");
-  nav.className = "history-navigation";
-  nav.setAttribute("aria-label", "Conversation history pages");
-  const label = document.createElement("span");
-  label.textContent = `Messages ${page.start + 1}–${page.end} of ${page.total}`;
-  nav.append(label);
-  const add = (label, end) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = label;
-    button.addEventListener("click", () => showTranscriptPage(end));
-    nav.append(button);
-  };
-  if (page.start > 0) add("Older messages", page.start);
-  if (!page.latest) {
-    const nextEnd = Math.min(page.total, page.end + TRANSCRIPT_PAGE_SIZE);
-    add("Newer messages", nextEnd === page.total ? null : nextEnd);
-    add("Latest messages", null);
+// Scrolling up towards the top edge materializes the next older chunk above
+// the reading position. The added height is restored under the viewport, so
+// the message being read does not move.
+function growTranscriptWindowUp() {
+  const root = $("#messages");
+  if (!root || transcriptViewSessionId !== state.selectedSessionId || transcriptViewStart <= 0) return false;
+  const previousHeight = root.scrollHeight;
+  const previousTop = root.scrollTop;
+  transcriptViewStart = Math.max(0, transcriptViewStart - TRANSCRIPT_WINDOW_GROW);
+  if (transcriptViewEnd - transcriptViewStart > TRANSCRIPT_WINDOW_MAX) {
+    transcriptViewEnd = transcriptViewStart + TRANSCRIPT_WINDOW_MAX;
   }
-  return nav;
+  state.messagesStickToBottom = false;
+  transcriptSilentGrow = true;
+  try {
+    renderMessages(state.currentMessages);
+  } finally {
+    transcriptSilentGrow = false;
+  }
+  root.scrollTop = previousTop + (root.scrollHeight - previousHeight);
+  updateScrollLatestButton();
+  return true;
+}
+
+function maybeGrowTranscriptWindow() {
+  // Synchronous, not rAF-deferred: a scroll flurry re-enters through the guard,
+  // while a deferred grow would starve in a throttled window and leave the top
+  // of the history unreachable until the next frame pump.
+  if (transcriptGrowing) return;
+  const root = $("#messages");
+  if (!root || root.scrollTop >= TRANSCRIPT_TOP_LOAD_PX) return;
+  if (!state.currentMessages.length) return;
+  if (transcriptViewSessionId !== state.selectedSessionId || transcriptViewStart <= 0) return;
+  transcriptGrowing = true;
+  try {
+    growTranscriptWindowUp();
+  } finally {
+    transcriptGrowing = false;
+  }
+}
+
+function transcriptSpacer(height, label) {
+  const spacer = document.createElement("div");
+  spacer.className = "transcript-spacer";
+  spacer.setAttribute("aria-hidden", "true");
+  spacer.style.height = `${Math.max(0, Math.round(height))}px`;
+  if (label) spacer.setAttribute("title", label);
+  return spacer;
+}
+
+function transcriptWindowEdge(text) {
+  const edge = document.createElement("div");
+  edge.className = "transcript-window-edge";
+  edge.setAttribute("aria-hidden", "true");
+  edge.textContent = text;
+  return edge;
+}
+
+// The average rendered row keeps both spacers honest without measuring every
+// hidden message. It converges as the user scrolls and materializes more.
+function rememberTranscriptRowHeights(root, messageCount) {
+  if (!messageCount) return;
+  let height = 0;
+  let blocks = 0;
+  for (const node of root.children || []) {
+    if (typeof node?.classList?.contains !== "function") continue;
+    if (node.classList.contains("transcript-spacer") || node.classList.contains("transcript-window-edge")) continue;
+    const rect = typeof node.getBoundingClientRect === "function" ? node.getBoundingClientRect() : null;
+    if (rect.height > 0) {
+      height += rect.height;
+      blocks += 1;
+    }
+  }
+  if (blocks > 0) {
+    const average = height / Math.max(1, messageCount);
+    if (Number.isFinite(average) && average > 8 && average < 4000) {
+      transcriptAverageRowHeight = transcriptAverageRowHeight * 0.5 + average * 0.5;
+    }
+  }
 }
 
 function createMessageAttachmentStrip(attachments) {
@@ -3861,12 +4035,12 @@ function renderMessages(messages) {
   const previousTop = root.scrollTop;
   const wasPinned = state.messagesStickToBottom;
   state.currentMessages = Array.isArray(messages) ? messages : [];
-  const page = transcriptPage(state.currentMessages.length);
-  const visibleMessages = visibleMessagePreviews(state.currentMessages, page);
-  const liveAssistant = page.latest ? liveAssistantSnapshot() : null;
-  const steering = page.latest ? steeringPromptsFor() : [];
+  const window = transcriptWindow(state.currentMessages.length);
+  const visibleMessages = visibleMessagePreviews(state.currentMessages, window.start, window.end);
+  const liveAssistant = window.latest ? liveAssistantSnapshot() : null;
+  const steering = window.latest ? steeringPromptsFor() : [];
   const awaitingHistory = transcriptAwaitingHistory();
-  const signature = `${state.selectedSessionId || "new"}::${awaitingHistory ? "loading" : "loaded"}::${page.start}:${page.end}:${page.total}::${visibleMessages.map(messageSignature).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}`;
+  const signature = `${state.selectedSessionId || "new"}::${awaitingHistory ? "loading" : "loaded"}::${window.start}:${window.end}:${window.total}::${visibleMessages.map(messageSignature).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}`;
   const previousSignature = state.historySignature;
   const changed = Boolean(previousSignature && signature !== previousSignature);
   const unchanged = root.dataset.rendered === "true" && signature === previousSignature;
@@ -3880,7 +4054,14 @@ function renderMessages(messages) {
   const liveText = liveBubble ? (liveBubbleText.get(liveBubble) || "").trim() : "";
   root.dataset.rendered = "true";
   const blocks = [];
-  if (page.start > 0 || !page.latest) blocks.push({ key: "history-navigation", signature: `${page.start}:${page.end}:${page.total}`, build: () => createHistoryNavigation(page) });
+  // The scroll-up hint only exists while older history is actually unloaded, so a
+  // short chat renders exactly the bubbles it has and no extra rows.
+  if (window.start > 0) {
+    const hidden = window.start;
+    const topHeight = hidden * transcriptAverageRowHeight;
+    blocks.push({ key: "window-top", signature: `top:${window.start}:${Math.round(topHeight)}`, count: 0, build: () => transcriptSpacer(topHeight, `${hidden} older messages`) });
+    blocks.push({ key: "window-top-edge", signature: `edge:${window.start}`, count: 0, build: () => transcriptWindowEdge("Older messages load as you scroll up") });
+  }
   if (!state.currentMessages.length && !liveAssistant?.text && !steering.length) {
     blocks.push(awaitingHistory
       ? { key: "skeleton", signature: "skeleton", build: transcriptSkeleton }
@@ -3888,6 +4069,7 @@ function renderMessages(messages) {
   } else {
     let modelSetupShown = false;
     for (let index = 0; index < visibleMessages.length;) {
+      const globalIndex = window.start + index;
       const message = visibleMessages[index];
       if (message.role === "reasoning") {
         index += 1;
@@ -3895,35 +4077,41 @@ function renderMessages(messages) {
       }
       if (message.role === "tool") {
         const run = [];
-        const start = page.start + index;
+        const start = globalIndex;
         while (index < visibleMessages.length && visibleMessages[index].role === "tool") run.push(visibleMessages[index++]);
         blocks.push({
           key: `tools:${run.map((entry) => entry.callId || entry.seq || entry.name || "tool").join("|") || start}`,
           signature: run.map(messageSignature).join("|"),
+          count: run.length,
           build: () => createActivityRun(run),
         });
         continue;
       }
       if (["assistant", "error"].includes(message.role) && isMissingModelError(message.text)) {
-        if (!modelSetupShown) blocks.push({ key: "model-setup", signature: "model-setup", build: createModelSetupCard });
+        if (!modelSetupShown) blocks.push({ key: "model-setup", signature: "model-setup", count: 0, build: createModelSetupCard });
         modelSetupShown = true;
         index += 1;
         continue;
       }
-      const commandName = message.role === "command" ? commandResultName(state.currentMessages, page.start + index) : "";
+      const commandName = message.role === "command" ? commandResultName(state.currentMessages, globalIndex) : "";
       const structuredCommand = commandName === "goal" ? createGoalResultCard(message.text) : null;
       if (structuredCommand) {
-        blocks.push({ key: `goal:${message.seq || page.start + index}`, signature: messageSignature(message), build: () => structuredCommand });
+        blocks.push({ key: `goal:${message.seq || globalIndex}`, signature: messageSignature(message), count: 1, msgIndex: globalIndex, build: () => structuredCommand });
         index += 1;
         continue;
       }
-      blocks.push({ key: messageBlockKey(message, page.start + index), signature: messageSignature(message), message, build: () => createMessageBubble(message) });
+      blocks.push({ key: messageBlockKey(message, globalIndex), signature: messageSignature(message), count: 1, msgIndex: globalIndex, message, build: () => createMessageBubble(message) });
       index += 1;
     }
     for (const item of steering) {
-      blocks.push({ key: `steer:${item.id || item.preview || ""}`, signature: JSON.stringify([item.id, item.preview, item.text]), build: () => createSteeringBubble(item) });
+      blocks.push({ key: `steer:${item.id || item.preview || ""}`, signature: JSON.stringify([item.id, item.preview, item.text]), count: 0, build: () => createSteeringBubble(item) });
     }
-    if (liveAssistant?.text && !liveDuplicatesFinalAnswer(liveAssistant.text)) blocks.push({ key: "live", signature: "live", build: createLiveBubble });
+    if (liveAssistant?.text && !liveDuplicatesFinalAnswer(liveAssistant.text)) blocks.push({ key: "live", signature: "live", count: 0, build: createLiveBubble });
+    if (!window.latest) {
+      const hidden = window.total - window.end;
+      const bottomHeight = hidden * transcriptAverageRowHeight;
+      blocks.push({ key: "window-bottom", signature: `bottom:${window.end}:${window.total}:${Math.round(bottomHeight)}`, count: 0, build: () => transcriptSpacer(bottomHeight, `${hidden} newer messages`) });
+    }
   }
   const nodes = [];
   const next = new Map();
@@ -3941,13 +4129,15 @@ function renderMessages(messages) {
       cache.delete("live");
     } else {
       node = block.build();
-      if (settled && !cached) markTranscriptEntry(node);
+      if (settled && !cached && !transcriptSilentGrow) markTranscriptEntry(node);
     }
+    if (Number.isInteger(block.msgIndex)) node.dataset.vmsg = String(block.msgIndex);
     next.set(key, { signature: block.signature, node });
     nodes.push(node);
   }
   state.transcriptCache = next;
   reconcileChildren(root, nodes);
+  rememberTranscriptRowHeights(root, visibleMessages.length);
   syncLiveBubbleContent(root);
   restoreOpenToolKeys(root, expandedTools);
   if (applyMessageScrollPin()) {
@@ -4261,7 +4451,8 @@ async function handleLiveEvent(payload) {
   let stream = state.liveStreamsBySession.get(sessionId) || { text: "", reasoning: "", lastSeq: 0 };
   if (Number(event.seq) && Number(event.seq) <= Number(stream.lastSeq)) return;
   if (Number(event.seq)) stream.lastSeq = Number(event.seq);
-  if (["turn/start", "assistant/chunk", "tool/call", "tool/result", "tool/code-dispatch-start", "tool/code-dispatch", "turn/end", "todo/write"].includes(event.type)) bumpLiveSessionRevision(sessionId);
+  stream.lastEventAt = Date.now();
+  if (["turn/start", "assistant/chunk", "assistant/message", "tool/call", "tool/result", "tool/code-dispatch-start", "tool/code-dispatch", "turn/end", "todo/write"].includes(event.type)) bumpLiveSessionRevision(sessionId);
 
   if (event.type === "todo/write") {
     const todos = normalizedTodos(event.data?.todos);
@@ -4301,7 +4492,7 @@ async function handleLiveEvent(payload) {
     if (session) session.projections = projectionsWithTodos(session.projections, []);
     if (sessionId === state.selectedSessionId) renderTodos();
     const activity = { active: true, kind: "waiting", label: "Waiting", text: "Preparing the next step…" };
-    stream = { text: "", reasoning: "", lastSeq: Number(event.seq) || 0, active: true, activity };
+    stream = { text: "", reasoning: "", lastSeq: Number(event.seq) || 0, lastEventAt: Date.now(), active: true, activity };
     state.liveStreamsBySession.set(sessionId, stream);
     updateLiveSessionState(sessionId, true, activity, "working", { render: false });
     scheduleLivePaint();
@@ -4361,6 +4552,15 @@ async function handleLiveEvent(payload) {
     return;
   }
 
+  // The remote follow channel delivers finished assistant messages as their own
+  // events. Without this branch they bumped nothing and refreshed nothing, so a
+  // turn whose chunks arrived over assistant-stream left the transcript stale
+  // until the next dashboard poll noticed.
+  if (event.type === "assistant/message") {
+    if (sessionId === state.selectedSessionId) await refreshHistoryAfterLiveMessage(sessionId);
+    return;
+  }
+
   if (event.type === "turn/end") {
     const completedStream = stream;
     const failed = event.data?.reason?.kind === "error";
@@ -4373,6 +4573,15 @@ async function handleLiveEvent(payload) {
     else notifyCompletion(session);
     if (sessionId === state.selectedSessionId) {
       setTimeout(async () => {
+        // The session may have changed while this waited: an authoritative
+        // refresh is only ever for the session on screen, never a late write
+        // into whatever replaced it.
+        if (sessionId !== state.selectedSessionId) {
+          if (state.liveStreamsBySession.get(sessionId) === completedStream) {
+            state.liveStreamsBySession.delete(sessionId);
+          }
+          return;
+        }
         await refreshHistory({ priority: true });
         if (state.liveStreamsBySession.get(sessionId) === completedStream) {
           state.liveStreamsBySession.delete(sessionId);
@@ -4634,6 +4843,10 @@ async function performRefresh() {
     };
     const wasOffline = state.harnessOffline;
     state.harnessOffline = !dashboard.harness;
+    // needsAuth/error ride the same payload: a gated Harness that answers 401
+    // without a minted cookie is "running but locked", not "down".
+    state.harnessNeedsAuth = !dashboard.harness && dashboard.needsAuth === true;
+    state.harnessAuthError = !dashboard.harness ? String(dashboard.error || "") : "";
     if (state.harnessOffline) invalidateDisconnectedStreams(liveRevisionsAtRequest);
     document.body.classList.toggle("harness-offline", state.harnessOffline);
     state.dashboard = dashboard;
@@ -4689,7 +4902,7 @@ async function performRefresh() {
       state.dashboardInitialized = false;
     }
     syncCompactStatus();
-    $("#offlineBanner").classList.toggle("show", !dashboard.harness);
+    renderOfflineBanner();
     if (dashboard.harness && !state.harnessStarting) {
       if ($("#offlineBannerText").textContent !== "Harness is offline") $("#offlineBannerText").textContent = "Harness is offline";
       if ($("#startHarnessButton").textContent !== "Start") $("#startHarnessButton").textContent = "Start";
@@ -4699,6 +4912,16 @@ async function performRefresh() {
     const selectedRunning = Boolean(selectedSession?.running);
     const commandFeedback = commandFeedbackFor(state.selectedSessionId);
     const selectedStream = state.liveStreamsBySession.get(state.selectedSessionId);
+    // A dropped turn/end frame used to leave the stream active forever, and an
+    // active stream suppresses the history refresh below — the chat froze on the
+    // old transcript while Harness had already moved on. A stream the dashboard
+    // reports as idle, silent for two poll intervals, is dead: retire it so the
+    // transcript can catch up.
+    if (selectedStream?.active && !selectedRunning && Date.now() - (selectedStream.lastEventAt || 0) > 8000) {
+      selectedStream.active = false;
+      selectedStream.activity = null;
+    }
+    const selectedStreamUsable = Boolean(selectedStream?.active);
     if (chatVisual && dashboard.harness) chatVisual.notePoll(state.selectedSessionId, {
       running: selectedRunning || Boolean(selectedStream?.active),
       runningSince: selectedSession?.runningSince,
@@ -4742,7 +4965,7 @@ async function performRefresh() {
     if (!state.workspacesLoaded) await loadWorkspaces();
     if (state.tab === "chat") {
       if (!state.selectedSessionId) await refreshHistory();
-      else if (!selectedLiveStreamIsActive() && !selectedHistoryIsCurrent(selectedSession)) await refreshHistory();
+      else if (!selectedStreamUsable && !selectedHistoryIsCurrent(selectedSession)) await refreshHistory();
     }
   } finally {
     state.refreshing = false;
@@ -4765,9 +4988,49 @@ async function refresh({ afterCurrent = false } = {}) {
   return afterCurrent ? refresh() : state.dashboard;
 }
 
+// The banner has two offline shapes: "Harness is down" (Start boots an owned
+// instance) and "Harness is up but gated" (Connect pastes the `dsh web:` URL
+// from its terminal, Restart replaces it with an owned instance). A gated
+// Harness keeps serving the browser from its own cookie while the widget holds
+// none — which is exactly the "browser shows everything, widget shows nothing
+// new" report — so the banner must say which one it is.
+function renderOfflineBanner() {
+  const banner = $("#offlineBanner");
+  if (!banner) return;
+  banner.classList.toggle("show", state.harnessOffline);
+  if (!state.harnessOffline) return;
+  const label = $("#offlineBannerText");
+  const start = $("#startHarnessButton");
+  const connectRow = $("#harnessConnectRow");
+  const connectError = $("#harnessConnectError");
+  const connectButton = $("#harnessConnectButton");
+  const restartButton = $("#harnessRestartButton");
+  const input = $("#harnessLaunchUrlInput");
+  const text = state.harnessStarting
+    ? (state.harnessStartingLabel || "Launching Harness")
+    : state.harnessNeedsAuth
+      ? "Harness is running but needs its launch URL"
+      : "Harness is offline";
+  if (label && label.textContent !== text) label.textContent = text;
+  if (connectRow) connectRow.hidden = !state.harnessNeedsAuth;
+  if (connectError) {
+    connectError.hidden = !state.harnessConnectError;
+    if (state.harnessConnectError && connectError.textContent !== state.harnessConnectError) {
+      connectError.textContent = state.harnessConnectError;
+    }
+  }
+  const busy = state.harnessStarting || state.harnessConnectBusy;
+  if (connectButton) connectButton.disabled = Boolean(busy);
+  if (restartButton) restartButton.disabled = Boolean(busy);
+  if (input) input.disabled = Boolean(busy);
+}
+
 async function startHarnessFromBanner() {
   if (state.harnessStarting) return;
   state.harnessStarting = true;
+  state.harnessStartingLabel = "Launching Harness";
+  state.harnessConnectError = "";
+  renderOfflineBanner();
   const button = $("#startHarnessButton");
   const label = $("#offlineBannerText");
   button.disabled = true;
@@ -4776,11 +5039,19 @@ async function startHarnessFromBanner() {
   try {
     const result = await window.widget.startHarness();
     if (!result?.ok) {
+      if (result?.reason === "token-required") {
+        state.harnessNeedsAuth = true;
+        state.harnessStartingLabel = "";
+        renderOfflineBanner();
+        requestAnimationFrame(() => $("#harnessLaunchUrlInput")?.focus());
+        return;
+      }
       const reason = result?.reason === "remote-url"
         ? "Remote Harness cannot be started here"
         : "Harness could not be started";
       throw new Error(reason);
     }
+    state.harnessStartingLabel = "Connecting…";
     label.textContent = "Connecting…";
     await refresh({ afterCurrent: true });
     if (!state.dashboard?.harness) throw new Error("Harness started but is not responding yet");
@@ -4789,6 +5060,7 @@ async function startHarnessFromBanner() {
     button.textContent = "Retry";
   } finally {
     state.harnessStarting = false;
+    state.harnessStartingLabel = "";
     button.disabled = false;
     if (state.dashboard?.harness) {
       label.textContent = "Harness is offline";
@@ -4797,6 +5069,56 @@ async function startHarnessFromBanner() {
     } else if (button.textContent !== "Retry") {
       button.textContent = "Start";
     }
+    renderOfflineBanner();
+  }
+}
+
+async function connectHarnessWithUrl() {
+  if (state.harnessConnectBusy || state.harnessStarting) return;
+  const input = $("#harnessLaunchUrlInput");
+  const value = input?.value.trim() || "";
+  if (!value) {
+    state.harnessConnectError = "Paste the dsh web: URL from the Harness terminal first";
+    renderOfflineBanner();
+    input?.focus();
+    return;
+  }
+  state.harnessConnectBusy = true;
+  state.harnessConnectError = "";
+  renderOfflineBanner();
+  try {
+    await window.widget.setHarnessLaunchUrl(value);
+    if (input) input.value = "";
+    state.harnessConnectError = "";
+    await refresh({ afterCurrent: true });
+    if (!state.dashboard?.harness) throw new Error("Harness is still not responding");
+  } catch (error) {
+    state.harnessConnectError = String(error?.message || error || "Harness did not accept that URL");
+  } finally {
+    state.harnessConnectBusy = false;
+    renderOfflineBanner();
+  }
+  if (state.harnessConnectError) {
+    input?.focus();
+    input?.select();
+  }
+}
+
+async function restartHarnessFromBanner() {
+  if (state.harnessConnectBusy || state.harnessStarting) return;
+  state.harnessConnectBusy = true;
+  state.harnessConnectError = "";
+  renderOfflineBanner();
+  try {
+    const result = await window.widget.restartHarness();
+    if (!result?.ok) throw new Error(result?.reason === "remote-url" ? "Remote Harness cannot be restarted here" : "Harness could not be restarted");
+    await refresh({ afterCurrent: true });
+    if (!state.dashboard?.harness) throw new Error("Harness restarted but is not responding yet");
+  } catch (error) {
+    state.harnessConnectError = String(error?.message || error || "Harness could not be restarted");
+  } finally {
+    state.harnessConnectBusy = false;
+    renderOfflineBanner();
   }
 }
 
@@ -5595,6 +5917,7 @@ $("#messages").addEventListener("scroll", () => {
     if (nearBottom) state.unseenMessages = 0;
   }
   updateScrollLatestButton();
+  maybeGrowTranscriptWindow();
   syncMessageMagnet();
   scheduleMessageMagnet();
 });
@@ -5608,8 +5931,8 @@ $("#messages").addEventListener("scrollend", () => {
   const pin = activeMessageScrollPin();
   if (!pin || state.messagesStickToBottom) return;
   const root = $("#messages");
-  const bubble = root?.querySelectorAll(".bubble.user")[pin.userIndex];
-  if (!root || !bubble) return;
+  const node = root?.querySelector(`[data-vmsg="${pin.msgIndex}"]`);
+  if (!root || !node) return;
   // Measure-then-scroll math is computed against remembered row sizes while skipped
   // rows are still resolving theirs, so the smooth flight can land off target with
   // nothing left to correct it. scrollIntoView resolves the real geometry on the way
@@ -5638,7 +5961,7 @@ if (typeof ResizeObserver === "function") {
   }).observe($("#messages"));
 }
 $("#scrollLatestButton").addEventListener("click", () => {
-  if (!transcriptPage(state.currentMessages.length).latest) showTranscriptPage();
+  if (transcriptHiddenNewerCount() > 0) jumpToLatestTranscript();
   releaseMessageScrollPin();
   clearTimeout(state.scrollLatestAutoScrollTimer);
   state.scrollLatestAutoScrolling = true;
@@ -5717,6 +6040,14 @@ $("#goalDelete").addEventListener("click", () => {
 $("#cancelButton").addEventListener("click", () => { stopCurrentTurn().catch(showError); });
 $("#focusChatButton").addEventListener("click", () => setFocusMode(!state.focusMode));
 $("#startHarnessButton").addEventListener("click", startHarnessFromBanner);
+$("#harnessConnectButton")?.addEventListener("click", connectHarnessWithUrl);
+$("#harnessRestartButton")?.addEventListener("click", restartHarnessFromBanner);
+$("#harnessLaunchUrlInput")?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    connectHarnessWithUrl();
+  }
+});
 $("#openHarnessButton").addEventListener("click", () => window.widget.openHarness());
 $("#openSessionButton").addEventListener("click", () => {
   if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId);
@@ -6389,7 +6720,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.7.6", latestVersion: "0.8.0", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.8.0", latestVersion: "0.9.0", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {

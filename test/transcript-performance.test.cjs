@@ -16,44 +16,90 @@ function declaration(name) {
   throw new Error(`Unclosed ${name}`);
 }
 
+function domNode(tag = "div") {
+  return {
+    tag,
+    className: "",
+    dataset: {},
+    style: {},
+    textContent: "",
+    children: [],
+    setAttribute() {},
+    append(...nodes) { this.children.push(...nodes); },
+  };
+}
+
 function harness() {
   let builds = 0;
-  const root = { scrollTop: 0, scrollHeight: 1000, clientHeight: 500, dataset: {}, querySelector: () => null };
-  const state = { selectedSessionId: "large", currentMessages: [], transcriptCache: new Map(), messagesStickToBottom: true };
+  const root = {
+    scrollTop: 0, scrollHeight: 1000, clientHeight: 500, dataset: {},
+    children: [],
+    querySelector: () => null,
+    querySelectorAll: () => [],
+  };
+  const state = {
+    selectedSessionId: "large",
+    currentMessages: [],
+    transcriptCache: new Map(),
+    messagesStickToBottom: true,
+    unseenMessages: 0,
+    historySignature: "",
+    messageScrollPin: null,
+    messageMarkFlashIndex: null,
+  };
   const context = vm.createContext({
-    state, root, $: () => root,
+    state, root,
+    document: { createElement: (tag) => domNode(tag), querySelector: () => null },
+    requestAnimationFrame: (callback) => { callback(); return 0; },
+    $: () => root,
+    $$: () => [],
     HISTORY_PREVIEW_BYTES_BUDGET: 1024,
     liveAssistantSnapshot: () => null, steeringPromptsFor: () => [], transcriptAwaitingHistory: () => false,
+    liveDuplicatesFinalAnswer: () => false,
     paintLiveAssistant: () => false, openToolKeys: () => new Set(), captureMessageSelection: () => null,
+    activeMessageScrollPin: () => null,
     liveBubbleText: new WeakMap(),
-    createMessageBubble: message => { builds++; return { message }; },
-    createActivityRun: messages => { builds++; return { messages }; },
-    createHistoryNavigation: page => ({ page }),
+    createMessageBubble: (message) => { builds++; return { message, dataset: {}, className: "bubble" }; },
+    createActivityRun: (messages) => { builds++; return { messages, dataset: {}, className: "tool-group" }; },
+    createSteeringBubble: () => ({ dataset: {} }),
+    createLiveBubble: () => ({ dataset: {} }),
+    transcriptSkeleton: () => ({ dataset: {} }),
+    transcriptEmptyState: () => ({ dataset: {} }),
     createGoalResultCard: () => null, isMissingModelError: () => false,
-    markTranscriptEntry: () => {}, reconcileChildren: (_root, nodes) => { root.nodes = nodes; },
+    markTranscriptEntry: () => {}, reconcileChildren: (_root, nodes) => { _root.nodes = nodes; },
     syncLiveBubbleContent: () => false, restoreOpenToolKeys: () => {}, applyMessageScrollPin: () => false,
     paintMessageMarkFlash: () => {}, restoreMessageSelection: () => {}, syncActivityCard: () => {},
     updateScrollLatestButton: () => {}, renderMessageMarks: () => {}, syncMessageMagnet: () => {},
   });
   vm.runInContext(`
-    const TRANSCRIPT_PAGE_SIZE = 80;
-    let transcriptPageSessionId;
-    let transcriptPageEnd = null;
+    const TRANSCRIPT_WINDOW_INITIAL = 80;
+    const TRANSCRIPT_WINDOW_GROW = 80;
+    const TRANSCRIPT_WINDOW_MAX = 320;
+    const TRANSCRIPT_TOP_LOAD_PX = 700;
+    const TRANSCRIPT_ROW_ESTIMATE_PX = 64;
+    let transcriptViewSessionId;
+    let transcriptViewStart = 0;
+    let transcriptViewEnd = 0;
+    let transcriptViewTotal = 0;
+    let transcriptAverageRowHeight = TRANSCRIPT_ROW_ESTIMATE_PX;
+    let transcriptGrowing = false;
+    let transcriptSilentGrow = false;
     let transcriptPreviewCache = { source: [], messages: [] };
-    ${["transcriptPage", "visibleMessagePreviews", "boundedMessagePreviews", "messagePreviewBytes", "messageSignature", "messageBlockKey", "transcriptCache", "commandResultName", "renderMessages"].map(declaration).join("\n")}
+    ${["transcriptWindow", "transcriptAtLatest", "transcriptHiddenNewerCount", "jumpToLatestTranscript", "growTranscriptWindowUp", "maybeGrowTranscriptWindow", "transcriptSpacer", "transcriptWindowEdge", "rememberTranscriptRowHeights", "visibleMessagePreviews", "boundedMessagePreviews", "messagePreviewBytes", "messageSignature", "messageBlockKey", "transcriptCache", "commandResultName", "renderMessages", "releaseMessageScrollPin"].map(declaration).join("\n")}
   `, context);
   return { context, root, state, builds: () => builds, run: code => vm.runInContext(code, context) };
 }
 
-test("100,000-message histories build at most 80 messages and reuse unchanged nodes", () => {
+test("100,000-message histories materialize a bounded window and reuse unchanged nodes", () => {
   const app = harness();
   app.state.currentMessages = Array.from({ length: 100000 }, (_, seq) => ({ role: seq % 2 ? "assistant" : "user", text: `Message ${seq}`, seq: seq + 1 }));
-  // Off-page message data must never be inspected or serialized by rendering.
-  Object.defineProperty(app.state.currentMessages[0], "text", { get() { throw new Error("Read off-page text"); } });
+  // Off-window message data must never be inspected or serialized by rendering.
+  Object.defineProperty(app.state.currentMessages[0], "text", { get() { throw new Error("Read off-window text"); } });
   app.run("renderMessages(state.currentMessages)");
   assert.equal(app.builds(), 80);
-  assert.equal(app.root.nodes.length, 81);
-  assert.equal(app.root.nodes[1].message.seq, 99921);
+  // 80 bubbles plus the top spacer and the scroll-up hint; no page buttons.
+  assert.equal(app.root.nodes.length, 82);
+  assert.equal(app.root.nodes[2].message.seq, 99921);
   const originalNodes = app.root.nodes.slice();
   app.run("renderMessages(state.currentMessages)");
   assert.equal(app.builds(), 80);
@@ -61,27 +107,45 @@ test("100,000-message histories build at most 80 messages and reuse unchanged no
   app.state.currentMessages.push({ role: "assistant", seq: 100001, text: "Newest" });
   app.run("renderMessages(state.currentMessages)");
   assert.equal(app.builds(), 81);
-  assert.equal(app.root.nodes.length, 81);
-  assert.equal(app.state.transcriptCache.size, 81);
+  assert.equal(app.root.nodes.length, 82);
+  assert.equal(app.state.transcriptCache.size, 82);
 });
 
-test("older pages remain bounded, retain position on arrivals, and reset for another session", () => {
+test("scrolling up grows the window, unloads distant rows, and jumps back to latest", () => {
   const app = harness();
-  app.state.currentMessages = Array.from({ length: 241 }, (_, seq) => ({ role: "user", text: `${seq}`, seq: seq + 1 }));
-  const seen = [];
-  for (const end of [241, 161, 81, 1]) {
-    app.run(`transcriptPageEnd = ${end}; renderMessages(state.currentMessages)`);
-    seen.push(...app.root.nodes.filter(node => node.message).map(node => node.message.seq));
-    assert.ok(app.root.nodes.length <= 81);
-    assert.ok(app.state.transcriptCache.size <= 81);
-  }
-  assert.equal(new Set(seen).size, 241, "every message is reachable without gaps");
-  app.state.currentMessages.push({ role: "user", seq: 242, text: "Arrived" });
+  app.state.currentMessages = Array.from({ length: 500 }, (_, seq) => ({ role: "user", text: `${seq}`, seq: seq + 1 }));
   app.run("renderMessages(state.currentMessages)");
-  assert.equal(app.root.nodes.at(-1).message.seq, 1, "arrivals do not replace the page being read");
-  app.state.selectedSessionId = "another";
+  assert.equal(app.root.nodes.filter((node) => node.message).length, 80);
+  for (let grown = 0; grown < 5; grown += 1) app.run("growTranscriptWindowUp()");
+  assert.equal(app.run("transcriptViewStart"), 20);
+  // 480 rows would exceed the cap, so the newest 160 unload into the bottom
+  // spacer instead of accumulating DOM.
+  assert.equal(app.run("transcriptViewEnd"), 340);
+  assert.equal(app.run("transcriptHiddenNewerCount()"), 160);
+  assert.equal(app.root.nodes.filter((node) => node.message).length, 320);
+  assert.ok(app.root.nodes.length <= 324);
+  app.run("jumpToLatestTranscript()");
+  assert.equal(app.run("transcriptViewStart"), 420);
+  assert.equal(app.run("transcriptViewEnd"), 500);
+  assert.equal(app.run("transcriptHiddenNewerCount()"), 0);
+  assert.equal(app.root.nodes.filter((node) => node.message).length, 80);
+});
+
+test("tool runs are never cut by the window boundary", () => {
+  const app = harness();
+  app.state.currentMessages = [
+    { role: "user", text: "first", seq: 1 },
+    { role: "tool", callId: "a", name: "read", seq: 2 },
+    { role: "tool", callId: "b", name: "write", seq: 3 },
+    { role: "tool", callId: "c", name: "run", seq: 4 },
+    ...Array.from({ length: 79 }, (_, offset) => ({ role: "user", text: `${offset}`, seq: offset + 5 })),
+  ];
+  // 83 messages open a window at index 3, right inside the tool run.
   app.run("renderMessages(state.currentMessages)");
-  assert.equal(app.root.nodes.at(-1).message.seq, 242);
+  assert.equal(app.run("transcriptViewStart"), 1, "the window reaches back to the run start");
+  const groups = app.root.nodes.filter((node) => node.messages);
+  assert.equal(groups.length, 1, "the run split by the initial window stays one card");
+  assert.equal(groups[0].messages.length, 3);
 });
 
 test("a long streaming answer continues updating past the markdown limit with bounded DOM text", () => {

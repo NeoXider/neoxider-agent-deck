@@ -5,6 +5,22 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-16
+
+### Fixed
+
+- Reconnect a foreign token-gated Harness instead of going stale. A Harness started outside the widget answers the browser from its own cookie while the widget holds none, so the browser showed every new message and the widget showed none. The offline banner now tells the two states apart: a running but locked Harness offers **Connect** for pasting the `dsh web:` launch URL (verified before it is saved, remembered across restarts) and an explicit **Restart** into an owned instance. Pressing **Start** no longer kills a foreign Harness with live turns to steal its port.
+- Retire a live stream the dashboard reports as idle. A dropped `turn/end` frame used to leave the stream active forever, and an active stream suppresses history refreshes, freezing the chat on the old transcript. A stream silent for two poll intervals while its session is idle is retired so the transcript catches up; finished remote assistant messages also invalidate history on arrival.
+- A late `turn/end` follow-up can no longer render into the wrong session. The 90 ms authoritative refresh now bails when the session changed while it waited, instead of painting another chat's history over the one on screen.
+
+### Changed
+
+- The transcript is a Telegram-style window, not pages. The Older/Newer/Latest buttons are gone: scrolling up materializes older messages above the reading position, rows far from the viewport unload back into spacers that keep the scrollbar honest, and the jump-to-latest pill counts the messages that arrived below. Tool runs are never cut by the window boundary, and message marks address the whole history by index. Composer typing in a 10,000-message chat dropped from ~490 ms to ~100 ms per the large-chat smoke.
+
+### Verification
+
+- Add regression coverage for the launch-URL connect flow, the needs-auth offline state, the stale-stream retirement, the cross-session turn/end guard, and the bounded transcript window with scroll-up growth and pill return. Re-run the full suite: 659 unit tests, 102 visual scenarios, native input, large-chat, motion, and the high-severity audit.
+
 ## [0.8.0] - 2026-09-15
 
 ### Added

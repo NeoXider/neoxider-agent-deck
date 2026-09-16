@@ -323,19 +323,51 @@ test("an already-ready Harness instance is reused when the probe captures the to
   assert.equal(spawnCount, 1, "a probe-only spawn is made to capture the launch token");
 });
 
-test("an already-ready Harness without a captured token kills and restarts", async () => {
+test("an already-ready Harness without a captured token asks for its launch URL", async () => {
+  let execCalls = 0;
   let spawnCount = 0;
   const launcher = createHarnessLauncher({
     harnessUrl: "http://localhost:3080",
+    platform: "win32",
+    env: {},
     spawnProcess: () => { spawnCount += 1; return fakeChild(); },
     probeReady: async () => true,
     delay: async () => {},
+    execSyncFn: () => { execCalls += 1; return ""; },
   });
 
+  // The foreign process must survive: Start reports what it needs instead of
+  // killing a Harness that may hold live turns visible in the browser.
   const result = await launcher.start();
+  assert.deepEqual(result, { ok: false, started: false, reason: "token-required" });
+  assert.equal(spawnCount, 1, "only the token-probe spawn runs");
+  assert.equal(execCalls, 0, "no port kill runs without an explicit restart");
+});
+
+test("an explicit restart stops the port holder and boots an owned Harness", async () => {
+  const commands = [];
+  let spawnCount = 0;
+  let probeCount = 0;
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://localhost:3080",
+    platform: "win32",
+    env: {},
+    spawnProcess: () => { spawnCount += 1; return fakeChild(); },
+    probeReady: async () => { probeCount += 1; return probeCount >= 2; },
+    delay: async () => {},
+    execSyncFn: (command) => {
+      commands.push(command);
+      if (String(command).startsWith("netstat")) return "  TCP    127.0.0.1:3080         0.0.0.0:0              LISTENING       1234\n";
+      return "";
+    },
+  });
+
+  const result = await launcher.restart();
   assert.equal(result.ok, true);
-  assert.equal(result.started, true, "fresh start after killing the foreign harness");
-  assert.ok(spawnCount >= 2, "probe + fresh start");
+  assert.equal(result.started, true, "fresh owned start after the explicit restart");
+  assert.ok(commands.some((command) => String(command).startsWith("netstat")), "the port holder is looked up");
+  assert.ok(commands.some((command) => String(command).includes("taskkill /PID 1234 /F")), "the port holder is stopped");
+  assert.ok(spawnCount >= 1, "an owned Harness is booted");
 });
 
 test("Windows batch file is a bounded fallback when npx cannot launch", async () => {

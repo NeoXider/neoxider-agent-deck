@@ -172,7 +172,7 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(renderer, /Retry models/);
   assert.match(renderer, /Load a model in LM Studio or another Harness provider/);
   assert.match(renderer, /\["assistant", "error"\]\.includes\(message\.role\) && isMissingModelError\(message\.text\)/);
-  assert.match(renderer, /if \(!modelSetupShown\) blocks\.push\(\{ key: "model-setup", signature: "model-setup", build: createModelSetupCard \}\)/);
+  assert.match(renderer, /if \(!modelSetupShown\) blocks\.push\(\{ key: "model-setup", signature: "model-setup", count: 0, build: createModelSetupCard \}\)/);
   assert.match(html, /id="controlsPrimary">Auto<\/b>/);
   assert.match(renderer, /\$\("#controlsPrimary"\)\.textContent = shortModel/);
   assert.match(renderer, /shortModel = "No model"/);
@@ -714,19 +714,24 @@ test("the caller's own messages are marked on the scroll rail and pull the scrol
   const css = readSource("src", "renderer", "styles.css");
   const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
   // Scrolling back to "the thing I asked" meant dragging through everything the agent
-  // said in between. The marks are placed against scrollHeight so a mark means what the
-  // scrollbar beside it means, and the rail sits in the gutter rather than over it, so
-  // dragging the scrollbar still works.
+  // said in between. The marks are placed by message-index fraction so a mark means what
+  // the scrollbar beside it means even for unloaded history (the spacers stand in for
+  // it at the running average row height), and the rail sits in the gutter rather than
+  // over it, so dragging the scrollbar still works.
   assert.match(html, /id="messageMarks" class="message-marks no-drag"/);
-  assert.match(renderer, /bubble\.offsetTop \+ bubble\.offsetHeight \/ 2\) \/ span/);
-  // The click resolves the live bubble by index, never a captured node - renderMessages
-  // rebuilds the log on the poll and a captured bubble is detached moments later.
-  assert.match(renderer, /function scrollToUserMessage\(userIndex\)/);
-  assert.match(renderer, /\$\$\("#messages \.bubble\.user"\)/);
-  assert.match(renderer, /scrollToUserMessage\(Number\(tick\.dataset\.userIndex\)\)/);
+  assert.match(renderer, /\(msgIndex \+ 0\.5\) \/ total/);
+  // The click resolves the live node by message index, never a captured node - and the
+  // window expands to include an unloaded row first, so a jump cannot land on nothing.
+  assert.match(renderer, /function scrollToUserMessage\(msgIndex\)/);
+  assert.match(renderer, /function ensureMessageRendered\(msgIndex\)/);
+  assert.match(renderer, /scrollToUserMessage\(Number\(tick\.dataset\.msgIndex\)\)/);
   assert.doesNotMatch(renderer, /mark\.bubble\.scrollIntoView/);
   assert.match(visualSmoke, /messageMarksAllResolve: true/);
   assert.match(renderer, /function renderMessageMarks\(\)/);
+  // The rail is bounded: thousands of ticks would tax every keystroke reflow, and
+  // past a few hundred the rail is denser than its own pixels anyway.
+  assert.match(renderer, /const MESSAGE_MARKS_MAX = 400;/);
+  assert.match(renderer, /Math\.ceil\(userEntries\.length \/ MESSAGE_MARKS_MAX\)/);
   assert.match(css, /\.message-marks \{[^}]*right:5px/);
   assert.match(css, /\.message-mark:hover::after, \.message-mark:focus-visible::after/);
   // A 3px tick is a 3px click target, so the button carries transparent hit area around it
@@ -738,7 +743,7 @@ test("the caller's own messages are marked on the scroll rail and pull the scrol
   // The press that "did nothing": every repaint writes the scroll offset it captured before
   // the rebuild, which both throws away the jump and cancels the smooth scroll mid-flight.
   // A short-lived pin outranks that offset until the caller scrolls for themselves.
-  assert.match(renderer, /state\.messageScrollPin = \{ userIndex, expires: Date\.now\(\) \+ MESSAGE_PIN_MS \}/);
+  assert.match(renderer, /state\.messageScrollPin = \{ msgIndex, sessionId: state\.selectedSessionId, expires: Date\.now\(\) \+ MESSAGE_PIN_MS \}/);
   assert.match(renderer, /function applyMessageScrollPin\(\{ smooth = false \} = \{\}\)/);
   // Every path that writes a captured offset back: the full rebuild, the live-stream
   // repaint that runs on each poll, and the shared layout snapshot.
@@ -766,8 +771,57 @@ test("long transcripts skip off-screen layout work so typing stays cheap", () =>
   // long conversation that reflow used to walk every bubble in the log and the whole
   // widget stuttered while editing. Off-screen rows skip layout and paint now, with
   // their remembered size keeping the scrollbar honest.
-  assert.match(css, /#messages > \* \{[^}]*content-visibility:visible/);
-  assert.match(renderer, /const TRANSCRIPT_PAGE_SIZE = 80;/);
+  assert.match(css, /#messages > \* \{[^}]*content-visibility:auto/);
+  assert.match(css, /#messages > \* \{[^}]*contain-intrinsic-size:auto 64px/);
+  assert.match(renderer, /const TRANSCRIPT_WINDOW_INITIAL = 80;/);
+});
+
+test("the transcript is a Telegram-style window, not pages", () => {
+  // Pages hid everything outside them behind Older/Newer/Latest buttons: an older
+  // page never showed the live bubble and arrivals never replaced the page being
+  // read, so a chat left on an old page looked frozen. The log is one continuous
+  // window now: scrolling up materializes older rows, distant rows unload into
+  // spacers, and the pill counts what arrived below the window.
+  assert.doesNotMatch(renderer, /TRANSCRIPT_PAGE_SIZE/);
+  assert.doesNotMatch(renderer, /history-navigation/);
+  assert.doesNotMatch(renderer, /showTranscriptPage/);
+  assert.match(renderer, /Older messages load as you scroll up/);
+  assert.match(renderer, /const TRANSCRIPT_WINDOW_MAX = 320;/);
+  assert.match(renderer, /function transcriptWindow\(total\)/);
+  assert.match(renderer, /function growTranscriptWindowUp\(\)/);
+  assert.match(renderer, /function jumpToLatestTranscript\(\)/);
+  assert.match(renderer, /function transcriptSpacer\(height, label\)/);
+  assert.match(renderer, /function ensureMessageRendered\(msgIndex\)/);
+  assert.match(renderer, /maybeGrowTranscriptWindow\(\);/);
+  assert.match(renderer, /transcriptHiddenNewerCount\(\)/);
+  const css = readSource("src", "renderer", "styles.css");
+  assert.match(css, /\.transcript-spacer/);
+  assert.match(css, /\.transcript-window-edge/);
+  assert.doesNotMatch(css, /\.history-navigation/);
+});
+
+test("a gated Harness offers Connect with its launch URL instead of plain offline", () => {
+  // A foreign token-gated Harness keeps serving the browser from its own cookie
+  // while the widget holds none: the browser shows everything and the widget
+  // shows nothing new. The banner says which offline it is and connects by URL.
+  assert.match(html, /id="harnessConnectRow"/);
+  assert.match(html, /id="harnessLaunchUrlInput"/);
+  assert.match(html, /id="harnessConnectButton"[^>]*>Connect<\/button>/);
+  assert.match(html, /id="harnessRestartButton"[^>]*>Restart<\/button>/);
+  assert.match(html, /id="harnessConnectError"/);
+  assert.match(renderer, /harnessNeedsAuth: false/);
+  assert.match(renderer, /function renderOfflineBanner\(\)/);
+  assert.match(renderer, /Harness is running but needs its launch URL/);
+  assert.match(renderer, /await window\.widget\.setHarnessLaunchUrl\(value\)/);
+  assert.match(renderer, /await window\.widget\.restartHarness\(\)/);
+  assert.match(renderer, /result\?\.reason === "token-required"/);
+  const preload = readSource("src", "preload.cjs");
+  assert.match(preload, /setHarnessLaunchUrl: \(url\) => ipcRenderer\.invoke\("set-harness-launch-url", url\)/);
+  assert.match(preload, /restartHarness: \(\) => ipcRenderer\.invoke\("restart-harness"\)/);
+  assert.match(ipc, /handle\("set-harness-launch-url"/);
+  assert.match(ipc, /handle\("restart-harness"/);
+  assert.match(ipc, /needsAuth: dashboardNeedsAuth\(error\)/);
+  assert.match(settingsStore, /harnessLaunchUrl: ""/);
 });
 
 test("a mark jump lands exactly even with skipped transcript rows", () => {
@@ -775,7 +829,11 @@ test("a mark jump lands exactly even with skipped transcript rows", () => {
   // Skipped rows report remembered sizes, so scrollTop math computed up front lands
   // off target with nothing left to correct it. The jump rides scrollIntoView, which
   // resolves the real geometry on the way, and a scrollend settle snaps the remainder.
-  assert.match(renderer, /bubbles\[userIndex\]\.scrollIntoView\(\{ block: "start", behavior: reduceMotion \? "auto" : "smooth" \}\)/);
+  assert.match(renderer, /node\.scrollIntoView\(\{ block: "start", behavior: reduceMotion \? "auto" : "smooth" \}\)/);
+  // Marks address the full history by message index and expand the window first, so a
+  // jump to an unloaded row cannot land on a detached node the way captured bubbles did.
+  assert.match(renderer, /function ensureMessageRendered\(msgIndex\)/);
+  assert.match(renderer, /document\.querySelector\(`#messages \[data-vmsg="\$\{msgIndex\}"\]`\)/);
   assert.match(renderer, /\$\("#messages"\)\.addEventListener\("scrollend", \(\) => \{/);
   // scrollIntoView also scrolls overflow:hidden ancestors, which would drag the whole
   // widget - titlebar included - up behind the jump. Those containers never scroll by
@@ -1312,9 +1370,16 @@ test("visible polling skips stable or actively streamed history while priority e
   assert.match(history, /historyLoadedRevision/);
   assert.match(history, /const skipReconciliation = rendererAlreadyHasRevision && sameRevision/);
   assert.match(history, /if \(skipReconciliation\) \{\s*paintLiveAssistant\(\);\s*return "unchanged"/);
-  assert.match(refresh, /!selectedLiveStreamIsActive\(\) && !selectedHistoryIsCurrent\(selectedSession\)/);
+  assert.match(refresh, /!selectedStreamUsable && !selectedHistoryIsCurrent\(selectedSession\)/);
+  // A stream the dashboard reports as idle, silent for two poll intervals, is a
+  // dropped turn/end: it is retired instead of suppressing history refreshes forever.
+  assert.match(refresh, /selectedStream\?\.active && !selectedRunning && Date\.now\(\) - \(selectedStream\.lastEventAt \|\| 0\) > 8000/);
   assert.match(live, /event\.type === "user\/message"[\s\S]+refreshHistoryAfterLiveMessage\(sessionId\)/);
+  assert.match(live, /event\.type === "assistant\/message"[\s\S]+refreshHistoryAfterLiveMessage\(sessionId\)/);
   assert.match(live, /event\.type === "turn\/end"[\s\S]+refreshHistory\(\{ priority: true \}\)/);
+  // The turn/end follow-up waits 90ms, and the session may have changed while it
+  // waited: its refresh must bail instead of writing another chat's history here.
+  assert.match(live, /if \(sessionId !== state\.selectedSessionId\) \{\s*if \(state\.liveStreamsBySession\.get\(sessionId\) === completedStream\) \{\s*state\.liveStreamsBySession\.delete\(sessionId\);\s*\}\s*return;\s*\}/);
 });
 
 test("a tap on the brand is resolved by the drag handler, not by a stolen click", () => {
@@ -1554,7 +1619,9 @@ test("the transcript is reconciled by key instead of rebuilt on every change", (
   // The cache is per session: sequence numbers repeat across sessions.
   assert.match(renderer, /if \(state\.transcriptCacheSessionId !== state\.selectedSessionId\) \{\s*state\.transcriptCache = new Map\(\);/);
   // Only newcomers slide in, and only once the log is already on screen for this session.
-  assert.match(body, /if \(settled && !cached\) markTranscriptEntry\(node\);/);
+  // History grown by scrolling up arrives silently: eighty rows sliding in at once
+  // is a wave, not a signal.
+  assert.match(body, /if \(settled && !cached && !transcriptSilentGrow\) markTranscriptEntry\(node\);/);
   const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /#messages > \.enter \{ animation:transcript-enter/);
   // The bubble that streamed the answer becomes the answer, rather than vanishing and

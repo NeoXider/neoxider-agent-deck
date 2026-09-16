@@ -6,7 +6,7 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 // Exercise the real renderer in Chromium, including layout and composer input.
 // A hidden fixture keeps this repeatable without a running Harness or user data.
 const root = path.resolve(__dirname, "..");
-const deadline = setTimeout(() => { console.error("Large chat smoke timed out"); app.exit(1); }, 45000);
+const deadline = setTimeout(() => { console.error("Large chat smoke timed out"); app.exit(1); }, 60000);
 
 async function main() {
   await app.whenReady();
@@ -28,6 +28,7 @@ async function main() {
   });
   await new Promise((resolve) => setTimeout(resolve, 1200));
   const result = await win.webContents.executeJavaScript(`(async () => {
+    const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const messages = Array.from({ length: 10000 }, (_, index) => ({
       role: index % 2 ? "assistant" : "user", seq: index + 1,
       text: "Message " + index + "\\n" + "Long conversation text. ".repeat(40),
@@ -57,11 +58,24 @@ async function main() {
       stableNode: firstNode === log.querySelector(".bubble"),
       renderMs, repeatMs, typingMs,
     };
-    log.querySelector(".history-navigation button").click();
-    result.olderVisible = log.textContent.includes("Message 9840") && !log.textContent.includes("Message 9999");
-    result.olderBubbles = log.querySelectorAll(".bubble").length;
-    [...log.querySelectorAll(".history-navigation button")].find((button) => button.textContent === "Latest messages").click();
+    // Telegram-style: scrolling to the top loads older history above the reading
+    // position and unloads the newest rows once the window exceeds its cap.
+    for (let i = 0; i < 5; i++) {
+      log.scrollTop = 0;
+      await frames();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    result.grownStart = transcriptViewStart;
+    result.grownEnd = transcriptViewEnd;
+    result.grownBubbles = log.querySelectorAll(".bubble").length;
+    result.olderVisible = log.textContent.includes("Message 9520");
+    result.unloadedLatest = !log.textContent.includes("Message 9999");
+    result.pillVisible = !document.querySelector("#scrollLatestButton").hidden;
+    result.pillText = document.querySelector("#scrollLatestCount").textContent;
+    document.querySelector("#scrollLatestButton").click();
+    await frames();
     result.returnedToLatest = log.textContent.includes("Message 9999");
+    result.returnedBubbles = log.querySelectorAll(".bubble").length;
     const session = state.dashboard.sessions.find((session) => session.sessionId === state.selectedSessionId);
     session.subagents = Array.from({ length: 10 }, (_, index) => ({ kind: "child", activity: index < 3 ? "running" : "inactive" }));
     renderContext();
@@ -79,13 +93,17 @@ async function main() {
   assert.equal(result.totalMessages, 10000, "history remains available");
   assert.equal(result.latestVisible, true, "latest answer is shown");
   assert.equal(result.stableNode, true, "unchanged refresh preserves DOM nodes");
-  assert.equal(result.olderVisible, true, "older history is accessible with actual controls");
-  assert.ok(result.olderBubbles <= 100, "older pages must not accumulate DOM");
-  assert.equal(result.returnedToLatest, true, "latest control returns to the current answer");
+  assert.ok(result.bubbles <= 100, "the initial window stays small");
+  assert.equal(result.olderVisible, true, "older history loads by scrolling up, with no page buttons");
+  assert.ok(result.grownBubbles <= 330, "the grown window must not accumulate DOM");
+  assert.equal(result.unloadedLatest, true, "distant newest rows unload once the window exceeds its cap");
+  assert.equal(result.pillVisible, true, "the pill offers the way back");
+  assert.match(String(result.pillText), /new/, "the pill counts the unloaded newer messages");
+  assert.equal(result.returnedToLatest, true, "the pill returns to the current answer");
+  assert.ok(result.returnedBubbles <= 100, "returning to latest restores the small window");
   assert.equal(result.subagentCount, "10 subagents · 3 running");
   assert.equal(result.subagentsVisible, true);
   assert.equal(result.subagentsVisibleInFocus, true);
-  assert.ok(result.bubbles <= 100, "visible history must remain bounded");
   assert.ok(result.renderMs < 2500, "initial rendering must finish promptly");
   assert.ok(result.repeatMs < 1000, "unchanged refresh must stay inexpensive");
   assert.ok(result.typingMs < 1500, "composer editing must remain responsive");

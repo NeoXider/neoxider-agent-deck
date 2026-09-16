@@ -84,6 +84,12 @@
       <div id="offlineBanner" class="offline-banner no-drag" role="status" aria-live="polite">
         <span id="offlineBannerText">Harness is offline</span>
         <button id="startHarnessButton" type="button">Start</button>
+        <div id="harnessConnectRow" class="harness-connect" hidden>
+          <input id="harnessLaunchUrlInput" type="text" placeholder="Paste the dsh web: URL…" aria-label="Harness launch URL" autocomplete="off" autocapitalize="off" spellcheck="false" />
+          <button id="harnessConnectButton" type="button">Connect</button>
+          <button id="harnessRestartButton" type="button" title="Stop the running Harness and start a fresh one owned by the widget">Restart</button>
+        </div>
+        <div id="harnessConnectError" class="harness-connect-error" role="alert" hidden></div>
       </div>
 
       <section id="agentsPanel" class="panel" role="tabpanel" aria-labelledby="agentsTab" hidden>

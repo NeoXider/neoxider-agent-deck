@@ -124,6 +124,13 @@ class HarnessApi {
     });
   }
 
+  // Drop the minted browser-session cookie so the next remote call re-mints it
+  // from the current launch URL. Used after the user pastes a new launch URL;
+  // the generation probe stays cached because the Harness itself did not change.
+  resetRemoteAuth() {
+    try { this._remoteTransport?.dropCookie(); } catch {}
+  }
+
   async listSubagents(parentSessionId) {
     const remote = await this.ensureRemote();
     if (remote) return remote.call("subagent/list", { request: { parentSessionId } }, 4000);

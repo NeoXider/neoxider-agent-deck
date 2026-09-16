@@ -274,11 +274,14 @@ function attachScreenshotHarness({
             // on every poll, and the offset it restores was captured mid-jump.
             markJumpAligned: (() => {
               const root = document.querySelector('#messages');
-              const index = window.__markJump?.target;
-              if (!root || index === undefined) return false;
-              const bubble = root.querySelectorAll('.bubble.user')[index];
-              if (!bubble) return false;
-              return Math.abs(bubble.getBoundingClientRect().top - root.getBoundingClientRect().top) <= 10;
+              const ordinal = window.__markJump?.target;
+              if (!root || ordinal === undefined) return false;
+              // Marks address the full history by message index and expand the window
+              // first, so the jump target is resolved the same way the click did.
+              const mark = document.querySelectorAll('#messageMarks .message-mark')[ordinal];
+              const node = mark && root.querySelector('[data-vmsg="' + mark.dataset.msgIndex + '"]');
+              if (!node) return false;
+              return Math.abs(node.getBoundingClientRect().top - root.getBoundingClientRect().top) <= 10;
             })(),
             markJumpFlashed: document.querySelectorAll('#messages .bubble.mark-target').length,
             messageMarksMagnet: (document.querySelector('#messages')?.className || '').includes('magnet'),
@@ -291,10 +294,10 @@ function attachScreenshotHarness({
             })(),
             // A mark's position has to mean what the scrollbar beside it means.
             messageMarksAllResolve: (() => {
-              const bubbles = document.querySelectorAll('#messages .bubble.user');
+              const root = document.querySelector('#messages');
               const marks = [...document.querySelectorAll('#messageMarks .message-mark')];
-              if (!marks.length) return false;
-              return marks.every((mark) => bubbles[Number(mark.dataset.userIndex)] instanceof Element);
+              if (!root || !marks.length) return false;
+              return marks.every((mark) => root.querySelector('[data-vmsg="' + mark.dataset.msgIndex + '"]') instanceof Element);
             })(),
             messageMarksOrdered: (() => {
               const tops = [...document.querySelectorAll('#messageMarks .message-mark')]

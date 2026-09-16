@@ -18,6 +18,11 @@ const DEFAULT_PREFERENCES = Object.freeze({
   windowLayer: "above",
   compactSide: "right",
   lastSelectedSessionId: null,
+  // Browser URL of the Harness launch that minted our session cookie, token
+  // included. A foreign (already-running) gated Harness never exposes its token
+  // except through the `dsh web:` banner line, so the user pastes that URL once
+  // and the widget re-mints its cookie from it after every restart.
+  harnessLaunchUrl: "",
   hotkeys: DEFAULT_HOTKEYS,
   windowState: Object.freeze({ version: 2, mode: "full", full: null, orb: null, edge: null }),
 });
@@ -82,6 +87,9 @@ function normalizePreferences(raw = {}) {
     compactSide,
     lastSelectedSessionId: typeof source.lastSelectedSessionId === "string" && source.lastSelectedSessionId.trim() && source.lastSelectedSessionId.length <= 512
       ? source.lastSelectedSessionId : null,
+    harnessLaunchUrl: typeof source.harnessLaunchUrl === "string" && source.harnessLaunchUrl.trim().length <= 2048
+      ? source.harnessLaunchUrl.trim()
+      : "",
     hotkeys,
     windowState: {
       version: SCHEMA_VERSION,

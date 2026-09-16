@@ -4,6 +4,7 @@ const {
   createRemoteTransport,
   detectGeneration,
   mintBrowserCookie,
+  normalizeHarnessLaunchUrl,
 } = require("../src/harness-transport.cjs");
 
 function response({ ok = true, status = 200, headers = {}, json = null, text = "" } = {}) {
@@ -130,4 +131,22 @@ test("envelope violations surface instead of returning garbage", async () => {
     createRemoteTransport({ ...base, getLaunchBrowserUrl: () => "" }).call("session/list", {}),
     /launch URL is unknown/,
   );
+});
+
+test("pasted launch URLs accept the banner URL or a bare token", () => {
+  assert.equal(
+    normalizeHarnessLaunchUrl("dsh web: http://127.0.0.1:3080/?launchToken=abc".replace(/^dsh web: /, "")),
+    "http://127.0.0.1:3080/?launchToken=abc",
+  );
+  assert.equal(
+    normalizeHarnessLaunchUrl("  http://127.0.0.1:3080/?launchToken=abc#frag  "),
+    "http://127.0.0.1:3080/?launchToken=abc",
+  );
+  assert.equal(
+    normalizeHarnessLaunchUrl("abcDEF-123_456", "http://127.0.0.1:3080"),
+    "http://127.0.0.1:3080/?launchToken=abcDEF-123_456",
+  );
+  assert.throws(() => normalizeHarnessLaunchUrl(""), /Paste the Harness launch URL/);
+  assert.throws(() => normalizeHarnessLaunchUrl("not a url with spaces"), /not a valid Harness launch URL/);
+  assert.throws(() => normalizeHarnessLaunchUrl("ftp://127.0.0.1:3080/x"), /must be http/);
 });
