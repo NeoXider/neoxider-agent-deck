@@ -5,6 +5,14 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-09-16
+
+### Fixed
+
+- **The 0.9.1 release could not be built.** 0.9.1 stopped the jump-to-latest pill from calling history you had already read "new", but the large-chat smoke that gates every release still expected the old label after scrolling up, so the Windows build failed and 0.9.1 was never published. The smoke now checks the corrected behaviour: history you scrolled away from reads **Latest**, and only answers that arrive while you are away are counted as new. Everything listed under 0.9.1 ships in this release.
+
+- **The visual suite no longer waits out cases that already finished.** Each case is a separate Electron launch, and with its output piped back to the runner a case on Windows intermittently stayed alive after quitting, with its screenshot already on disk, until the 20-second timeout. It happened in most runs while a real Harness was up, and in 0.9.0 as much as now; the same launch writing to a file never hung, so the runner now does that. The widget itself is not affected: a normal launch has no pipes.
+
 ## [0.9.1] - 2026-09-16
 
 ### Fixed

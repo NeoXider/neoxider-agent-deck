@@ -71,10 +71,15 @@ async function main() {
     result.olderVisible = log.textContent.includes("Message 9520");
     result.unloadedLatest = !log.textContent.includes("Message 9999");
     result.pillVisible = !document.querySelector("#scrollLatestButton").hidden;
-    result.pillText = document.querySelector("#scrollLatestCount").textContent;
+    // Rows that were read and scrolled away from are not new.
+    result.pillTextAway = document.querySelector("#scrollLatestCount").textContent;
+    // Three answers arrive while the reader is up in the history: only those are new.
+    renderMessages([...state.currentMessages, ...[10000, 10001, 10002].map((index) => ({ role: "assistant", seq: index + 1, text: "Message " + index }))]);
+    await frames();
+    result.pillTextArrived = document.querySelector("#scrollLatestCount").textContent;
     document.querySelector("#scrollLatestButton").click();
     await frames();
-    result.returnedToLatest = log.textContent.includes("Message 9999");
+    result.returnedToLatest = log.textContent.includes("Message 10002");
     result.returnedBubbles = log.querySelectorAll(".bubble").length;
     const session = state.dashboard.sessions.find((session) => session.sessionId === state.selectedSessionId);
     session.subagents = Array.from({ length: 10 }, (_, index) => ({ kind: "child", activity: index < 3 ? "running" : "inactive" }));
@@ -98,7 +103,8 @@ async function main() {
   assert.ok(result.grownBubbles <= 330, "the grown window must not accumulate DOM");
   assert.equal(result.unloadedLatest, true, "distant newest rows unload once the window exceeds its cap");
   assert.equal(result.pillVisible, true, "the pill offers the way back");
-  assert.match(String(result.pillText), /new/, "the pill counts the unloaded newer messages");
+  assert.equal(result.pillTextAway, "Latest", "history scrolled away from is not called new");
+  assert.equal(result.pillTextArrived, "3 new", "the pill counts only what arrived while away");
   assert.equal(result.returnedToLatest, true, "the pill returns to the current answer");
   assert.ok(result.returnedBubbles <= 100, "returning to latest restores the small window");
   assert.equal(result.subagentCount, "10 subagents · 3 running");

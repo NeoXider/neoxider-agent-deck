@@ -1965,3 +1965,14 @@ test("the README cover names the release it was rendered from", () => {
   assert.match(coverRenderer, /const \{ version \} = require\(path\.join\(root, "package\.json"\)\);/);
   assert.match(coverRenderer, /querySelectorAll\("\[data-release-version\]"\)/);
 });
+
+test("visual cases write their output to a file, never through a pipe", () => {
+  // With stdout and stderr piped, a captured case on Windows intermittently stayed alive
+  // after app.quit() and sat out the whole timeout; the same output to a file never did.
+  const runner = readSource("scripts", "ui-visual-smoke.cjs");
+  assert.match(runner, /const logFd = openSync\(logPath, "w"\);/);
+  assert.match(runner, /stdio: \["ignore", logFd, logFd\],/);
+  assert.match(runner, /closeSync\(logFd\);/);
+  assert.doesNotMatch(runner, /stdio: \["ignore", "pipe", "pipe"\]/);
+  assert.doesNotMatch(runner, /child\.stdout\.on\("data"/);
+});

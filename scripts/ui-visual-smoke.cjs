@@ -1,5 +1,5 @@
 const { spawn } = require("node:child_process");
-const { mkdirSync, readFileSync, rmSync, statSync } = require("node:fs");
+const { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync } = require("node:fs");
 const path = require("node:path");
 
 const electron = require("electron");
@@ -40,8 +40,8 @@ const cases = [
   { name: "live-stream", tab: "chat", fixture: "live-stream", width: 360, height: 500, expect: { liveBubbles: 1, historicalReasoning: 0 } },
   { name: "scroll-away", tab: "chat", fixture: "scroll-away", width: 360, height: 500, expect: { scrollLatestVisible: true } },
   { name: "glow-settings", tab: "chat", fixture: "glow-settings", expect: { motionEffectsChecked: true, motionOff: false, glowControl: 1, glowIntensity: "0.82", showThinkingChecked: true, windowLayerOptions: 3, autoStartHydrated: true } },
-  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.9.1 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
-  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.9.1 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
+  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.9.2 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
+  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.9.2 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
   { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.9 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
   { name: "hotkey-settings", tab: "chat", fixture: "hotkey-settings", width: 420, height: 640, expect: { settingsOpen: true, hotkeySettingsOpen: true, hotkeyRows: 8 } },
   { name: "capture-menu", tab: "chat", fixture: "capture-menu", expect: { captureMenuOpen: true, captureRows: 2 } },
@@ -135,6 +135,14 @@ function runElectron(testCase) {
     const audit = path.join(output, `${testCase.name}.json`);
     rmSync(screenshot, { force: true });
     rmSync(audit, { force: true });
+    // The child writes to a file, not a pipe. On Windows an Electron whose stdout and stderr
+    // were pipes intermittently stayed alive after app.quit() - with its network and GPU
+    // processes - once its window had been captured, so the case sat out the whole timeout
+    // with a finished screenshot on disk. It reproduced in most runs against a live Harness
+    // and never with the same output going to a file. A normal launch has no pipes at all.
+    const logPath = path.join(output, `${testCase.name}.log`);
+    const logFd = openSync(logPath, "w");
+    const readOutput = () => { try { return readFileSync(logPath, "utf8"); } catch { return ""; } };
     const motionPreference = testCase.reducedMotion ? "--force-prefers-reduced-motion" : "--force-prefers-no-reduced-motion";
     const child = spawn(electron, [root, motionPreference], {
       cwd: root,
@@ -154,19 +162,17 @@ function runElectron(testCase) {
         ...(testCase.width ? { WIDGET_SCREENSHOT_WIDTH: String(testCase.width) } : {}),
         ...(testCase.height ? { WIDGET_SCREENSHOT_HEIGHT: String(testCase.height) } : {}),
       },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", logFd, logFd],
       windowsHide: true,
     });
-    let outputText = "";
+    closeSync(logFd);
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
       child.kill();
-      reject(new Error(`${testCase.name} exceeded the 20 second UI smoke timeout\n${outputText}`));
+      reject(new Error(`${testCase.name} exceeded the 20 second UI smoke timeout\n${readOutput()}`));
     }, 20000);
-    child.stdout.on("data", (chunk) => { outputText += chunk; });
-    child.stderr.on("data", (chunk) => { outputText += chunk; });
     child.once("error", (error) => {
       if (settled) return;
       settled = true;
@@ -178,7 +184,7 @@ function runElectron(testCase) {
       settled = true;
       clearTimeout(timer);
       if (code === 0) resolve({ screenshot, audit });
-      else reject(new Error(`${testCase.name} exited ${code}\n${outputText}`));
+      else reject(new Error(`${testCase.name} exited ${code}\n${readOutput()}`));
     });
   });
 }

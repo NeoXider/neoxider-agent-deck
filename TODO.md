@@ -82,7 +82,11 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
 
-## Shipped in 0.9.1
+## Shipped in 0.9.2
+
+- Published the 0.9.1 work after aligning the large-chat release smoke with the corrected jump-to-latest label; covered by the smoke itself, which now also checks that only arrivals are counted.
+
+## Shipped in 0.9.1 (tagged, not published)
 
 - Kept the Edge line under the pointer with a grab offset and a committed side crossing; covered by geometry and IPC regressions.
 - Republished the avatar hit rectangles on a dock side flip and after the entry animation settles, clipped to the window; covered by contract and IPC regressions.
