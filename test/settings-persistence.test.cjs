@@ -80,7 +80,7 @@ const completePreferences = {
   windowLayer: "game",
   compactSide: "left",
   lastSelectedSessionId: "last-opened-chat",
-  harnessLaunchUrl: "http://127.0.0.1:3080/?launchToken=persisted",
+  harnessLaunchUrl: "http://127.0.0.1:3080/?token=persisted",
   hotkeys: normalizeHotkeyBindings({ captureRegion: { enabled: true, accelerator: "Control+Shift+R" } }),
   windowState: {
     version: 2,
@@ -407,10 +407,30 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
 
 test("the Harness launch URL survives restart but oversized values are dropped", () => {
   withTemporaryStore(({ filePath, store }) => {
-    const url = "http://127.0.0.1:3080/?launchToken=abc123";
+    const url = "http://127.0.0.1:3080/?token=abc123";
     assert.equal(store.save({ ...completePreferences, harnessLaunchUrl: url }).harnessLaunchUrl, url);
     assert.equal(createSettingsStore({ filePath }).load().harnessLaunchUrl, url);
     assert.equal(store.save({ ...completePreferences, harnessLaunchUrl: `http://x/${"y".repeat(3000)}` }).harnessLaunchUrl, "");
+  });
+});
+
+// "Open Harness" hands the saved URL to the OS shell, and the settings file is writable
+// by anything with disk access, so a planted non-web URL must not survive a load.
+test("a saved launch URL that is not http(s) is dropped on load", () => {
+  withTemporaryStore(({ filePath }) => {
+    for (const planted of [
+      "file:///C:/Windows/System32/calc.exe",
+      "javascript:alert(1)",
+      "ms-settings:privacy",
+      "C:\\Windows\\System32\\calc.exe",
+      "not a url",
+    ]) {
+      fs.writeFileSync(filePath, JSON.stringify({ ...completePreferences, harnessLaunchUrl: planted }), "utf8");
+      assert.equal(createSettingsStore({ filePath }).load().harnessLaunchUrl, "", planted);
+    }
+    assert.equal(normalizePreferences({ harnessLaunchUrl: "  https://harness.example.test/?token=x  " }).harnessLaunchUrl,
+      "https://harness.example.test/?token=x");
+    assert.equal(normalizePreferences({ harnessLaunchUrl: 42 }).harnessLaunchUrl, "");
   });
 });
 

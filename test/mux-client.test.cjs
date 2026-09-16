@@ -186,3 +186,73 @@ test("an error without a close still forces the socket down one path", () => {
   // onerror does not always imply onclose; the client must not be left half-dead.
   assert.equal(sockets[0].closed, 1);
 });
+
+// /api/events.mux only exists on the legacy Harness. Against a token-gated one the client
+// could never authenticate and reconnect-looped for as long as the app ran.
+test("a closed connect gate opens no socket and is re-checked on the backoff", () => {
+  let allowed = false;
+  let checks = 0;
+  const { clock, sockets, client } = harness({
+    reconnectMin: 1500,
+    reconnectMax: 6000,
+    shouldConnect: () => { checks += 1; return allowed; },
+  });
+  client.connect();
+  assert.equal(sockets.length, 0);
+  assert.equal(checks, 1);
+
+  clock.advance(1500);
+  assert.equal(checks, 2);
+  clock.advance(3000);
+  assert.equal(checks, 3);
+  assert.equal(sockets.length, 0, "a gated Harness is never dialed");
+
+  allowed = true;
+  clock.advance(6000);
+  assert.equal(sockets.length, 1, "the client connects once the gate opens");
+  sockets[0].open();
+  assert.equal(client.state.reconnectDelay, 1500, "a healthy connection resets the backoff");
+
+  // A reconnect after a drop consults the gate again.
+  allowed = false;
+  sockets[0].close();
+  clock.advance(1500);
+  assert.equal(sockets.length, 1);
+});
+
+test("an async connect gate is awaited and a throwing gate counts as closed", async () => {
+  let resolveGate;
+  const { sockets, client } = harness({
+    shouldConnect: () => new Promise((resolve) => { resolveGate = resolve; }),
+  });
+  client.connect();
+  client.connect();
+  assert.equal(sockets.length, 0);
+  resolveGate(true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(sockets.length, 1, "one pending verdict yields one socket");
+
+  const throwing = harness({ shouldConnect: () => { throw new Error("generation probe failed"); } });
+  assert.doesNotThrow(() => throwing.client.connect());
+  assert.equal(throwing.sockets.length, 0);
+  assert.equal(throwing.clock.pending, 1, "a retry is scheduled");
+
+  const rejecting = harness({ shouldConnect: async () => { throw new Error("offline"); } });
+  rejecting.client.connect();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(rejecting.sockets.length, 0);
+  assert.equal(rejecting.clock.pending, 1);
+});
+
+test("stop while the connect gate is pending opens nothing", async () => {
+  let resolveGate;
+  const { clock, sockets, client } = harness({
+    shouldConnect: () => new Promise((resolve) => { resolveGate = resolve; }),
+  });
+  client.connect();
+  client.stop();
+  resolveGate(true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(sockets.length, 0);
+  assert.equal(clock.pending, 0);
+});

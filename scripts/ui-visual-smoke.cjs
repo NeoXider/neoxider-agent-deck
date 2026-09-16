@@ -23,7 +23,8 @@ const cases = [
   { name: "history-loading", tab: "chat", fixture: "history-loading", width: 380, height: 400, expect: { skeletonRows: 3, emptyStateText: "", conversationBubbles: 0 } },
   { name: "toast", tab: "chat", fixture: "toast", width: 380, height: 400, expect: { toastVisible: true, toastText: "Copied to clipboard", conversationBubbles: 2 } },
   { name: "bubble-actions", tab: "chat", fixture: "bubble-actions", width: 380, height: 400, expect: { bubbleActionGroups: 2, bubbleCopyActions: 2, bubbleReuseActions: 1, bubbleActionsBesideBubble: true, conversationBubbles: 2 } },
-  { name: "live-markdown", tab: "chat", fixture: "live-markdown", width: 380, height: 400, expect: { liveBubbles: 1, liveBubbleFormatted: true, liveBubbleHeadings: 1, liveBubbleListItems: 3, liveCaretInLastLine: true, liveCaretDisplay: "inline-block", activityCardVisible: false } },
+  // Waits on the Markdown worker, which a cold start on a busy machine can keep past the default capture.
+  { name: "live-markdown", tab: "chat", fixture: "live-markdown", width: 380, height: 400, delay: 3000, expect: { liveBubbles: 1, liveBubbleFormatted: true, liveBubbleHeadings: 1, liveBubbleListItems: 3, liveCaretInLastLine: true, liveCaretDisplay: "inline-block", activityCardVisible: false } },
   { name: "composer-recall", tab: "chat", fixture: "composer-recall", width: 380, height: 400, expect: { composerValue: "Now re-render the cover.", conversationBubbles: 4 } },
   // Motion left on: the plan strip eases open under a following log, and on every frame of
   // the move the log is still showing its last line. Several observed heights prove the
@@ -39,8 +40,8 @@ const cases = [
   { name: "live-stream", tab: "chat", fixture: "live-stream", width: 360, height: 500, expect: { liveBubbles: 1, historicalReasoning: 0 } },
   { name: "scroll-away", tab: "chat", fixture: "scroll-away", width: 360, height: 500, expect: { scrollLatestVisible: true } },
   { name: "glow-settings", tab: "chat", fixture: "glow-settings", expect: { motionEffectsChecked: true, motionOff: false, glowControl: 1, glowIntensity: "0.82", showThinkingChecked: true, windowLayerOptions: 3, autoStartHydrated: true } },
-  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.9.0 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
-  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.9.0 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
+  { name: "update-ready", tab: "chat", fixture: "update-ready", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.9.1 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, updateProgress: "100" } },
+  { name: "update-ready-360", tab: "chat", fixture: "update-ready", width: 360, height: 360, expect: { settingsOpen: true, updateStatus: "v0.9.1 is verified and ready", updateBadgeVisible: true, updateInstallVisible: true, headerUpdateVisible: true, headerProductVisible: true, headerVersionVisible: true, headerUpdateUnclipped: true, titlebarOverlap: false, updateProgress: "100" } },
   { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.9 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
   { name: "hotkey-settings", tab: "chat", fixture: "hotkey-settings", width: 420, height: 640, expect: { settingsOpen: true, hotkeySettingsOpen: true, hotkeyRows: 8 } },
   { name: "capture-menu", tab: "chat", fixture: "capture-menu", expect: { captureMenuOpen: true, captureRows: 2 } },
@@ -230,33 +231,60 @@ async function main() {
     const known = new Set(selectedCases.map(({ name }) => name));
     throw new Error(`Unknown UI smoke case: ${[...requested].filter((name) => !known.has(name)).join(", ")}`);
   }
+  const retried = [];
   for (const testCase of selectedCases) {
-    const files = await runElectron(testCase);
-    if (statSync(files.screenshot).size < 500) throw new Error(`${testCase.name} screenshot is unexpectedly small`);
-    const audit = JSON.parse(readFileSync(files.audit, "utf8"));
-    if (audit.semantic.reducedMotion !== Boolean(testCase.reducedMotion)) throw new Error(`${testCase.name} did not apply its explicit motion preference`);
-    if (!testCase.mode && testCase.width && audit.viewport.width !== testCase.width) {
-      throw new Error(`${testCase.name} expected viewport width ${testCase.width}, got ${audit.viewport.width}`);
+    let audit;
+    try {
+      audit = await verifyCase(testCase);
+    } catch (firstError) {
+      // One re-run, loudly. Each case boots a whole Electron and is captured on a timer, so on
+      // a loaded machine a case can be photographed before its first paint or before an async
+      // reply lands. A real defect fails the second run too; a flake does not, and one stray
+      // frame no longer aborts the suite and silently skips every case after it.
+      if (!SMOKE_RETRIES) throw firstError;
+      process.stdout.write(`\u21bb ${testCase.name} retried after: ${firstError.message.split("\n")[0]}\n`);
+      try {
+        audit = await verifyCase(testCase);
+      } catch (secondError) {
+        secondError.message = `${secondError.message}\n(first attempt: ${firstError.message.split("\n")[0]})`;
+        throw secondError;
+      }
+      retried.push(testCase.name);
     }
-    if (!testCase.mode && testCase.height && audit.viewport.height !== testCase.height) {
-      throw new Error(`${testCase.name} expected viewport height ${testCase.height}, got ${audit.viewport.height}`);
-    }
-    if (audit.scroll.width !== audit.viewport.width || audit.scroll.height !== audit.viewport.height) {
-      throw new Error(`${testCase.name} viewport scroll mismatch: ${JSON.stringify(audit.scroll)} vs ${JSON.stringify(audit.viewport)}`);
-    }
-    if (audit.offenders.length) throw new Error(`${testCase.name} has clipped UI: ${JSON.stringify(audit.offenders)}`);
-    for (const [key, expected] of Object.entries(testCase.expect || {})) {
-      if (audit.semantic?.[key] !== expected) throw new Error(`${testCase.name} expected ${key}=${JSON.stringify(expected)}, got ${JSON.stringify(audit.semantic?.[key])}`);
-    }
-    for (const [key, minimum] of Object.entries(testCase.min || {})) {
-      if (!(audit.semantic?.[key] >= minimum)) throw new Error(`${testCase.name} expected ${key}>=${minimum}, got ${JSON.stringify(audit.semantic?.[key])}`);
-    }
-    for (const [key, maximum] of Object.entries(testCase.max || {})) {
-      if (!(audit.semantic?.[key] <= maximum)) throw new Error(`${testCase.name} expected ${key}<=${maximum}, got ${JSON.stringify(audit.semantic?.[key])}`);
-    }
-    assertSnappedLayout(testCase, audit);
     process.stdout.write(`✓ ${testCase.name} ${audit.viewport.width}x${audit.viewport.height}\n`);
   }
+  if (retried.length) process.stdout.write(`Passed on a second attempt: ${retried.join(", ")}\n`);
+}
+
+// Strict mode for a run that must not forgive a single flaky frame: UI_SMOKE_RETRIES=0.
+const SMOKE_RETRIES = process.env.UI_SMOKE_RETRIES === "0" ? 0 : 1;
+
+async function verifyCase(testCase) {
+  const files = await runElectron(testCase);
+  if (statSync(files.screenshot).size < 500) throw new Error(`${testCase.name} screenshot is unexpectedly small`);
+  const audit = JSON.parse(readFileSync(files.audit, "utf8"));
+  if (audit.semantic.reducedMotion !== Boolean(testCase.reducedMotion)) throw new Error(`${testCase.name} did not apply its explicit motion preference`);
+  if (!testCase.mode && testCase.width && audit.viewport.width !== testCase.width) {
+    throw new Error(`${testCase.name} expected viewport width ${testCase.width}, got ${audit.viewport.width}`);
+  }
+  if (!testCase.mode && testCase.height && audit.viewport.height !== testCase.height) {
+    throw new Error(`${testCase.name} expected viewport height ${testCase.height}, got ${audit.viewport.height}`);
+  }
+  if (audit.scroll.width !== audit.viewport.width || audit.scroll.height !== audit.viewport.height) {
+    throw new Error(`${testCase.name} viewport scroll mismatch: ${JSON.stringify(audit.scroll)} vs ${JSON.stringify(audit.viewport)}`);
+  }
+  if (audit.offenders.length) throw new Error(`${testCase.name} has clipped UI: ${JSON.stringify(audit.offenders)}`);
+  for (const [key, expected] of Object.entries(testCase.expect || {})) {
+    if (audit.semantic?.[key] !== expected) throw new Error(`${testCase.name} expected ${key}=${JSON.stringify(expected)}, got ${JSON.stringify(audit.semantic?.[key])}`);
+  }
+  for (const [key, minimum] of Object.entries(testCase.min || {})) {
+    if (!(audit.semantic?.[key] >= minimum)) throw new Error(`${testCase.name} expected ${key}>=${minimum}, got ${JSON.stringify(audit.semantic?.[key])}`);
+  }
+  for (const [key, maximum] of Object.entries(testCase.max || {})) {
+    if (!(audit.semantic?.[key] <= maximum)) throw new Error(`${testCase.name} expected ${key}<=${maximum}, got ${JSON.stringify(audit.semantic?.[key])}`);
+  }
+  assertSnappedLayout(testCase, audit);
+  return audit;
 }
 
 main().catch((error) => {

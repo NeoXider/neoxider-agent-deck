@@ -5,6 +5,9 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const source = path.join(root, "docs", "cover-source.html");
 const output = path.join(root, "docs", "cover.png");
+// The eyebrow names the release. It was typed into the HTML and nothing checked it, so the
+// cover said 0.7.2 through two later releases. It is filled in from package.json instead.
+const { version } = require(path.join(root, "package.json"));
 
 app.disableHardwareAcceleration();
 // The cover is a fixed 1672x941 composition. Without this it renders at whatever scaling
@@ -23,6 +26,7 @@ app.whenReady().then(async () => {
     webPreferences: { sandbox: true, contextIsolation: true },
   });
   await window.loadFile(source);
+  await window.webContents.executeJavaScript(`document.querySelectorAll("[data-release-version]").forEach((node) => { node.textContent = ${JSON.stringify(version)}; })`);
   await new Promise((resolve) => setTimeout(resolve, 350));
   const image = await window.webContents.capturePage({ x: 0, y: 0, width: 1672, height: 941 });
   writeFileSync(output, image.toPNG());

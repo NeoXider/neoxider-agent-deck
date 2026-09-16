@@ -40,6 +40,10 @@ const NAMED_KEYS = new Map(
     .map((key) => [key.toLowerCase(), key === "Esc" ? "Escape" : key === "Return" ? "Enter" : key]),
 );
 const MODIFIER_ORDER = new Map("CommandOrControl Command Control Alt AltGr Shift Super".split(" ").map((value, index) => [value, index]));
+// Named keys that are ordinary typing and navigation, so binding one on its own would take
+// it away from every application on the desktop. The media keys are exactly the opposite:
+// they exist to be bound bare, so they stay allowed.
+const BARE_FORBIDDEN_KEYS = new Set(["Space", "Tab", "Enter", "Escape", "Backspace", "Delete", "Insert", "Home", "End", "PageUp", "PageDown", "Up", "Down", "Left", "Right", "Plus"]);
 
 class HotkeyConfigurationError extends Error {
   constructor(message, details = {}) {
@@ -74,8 +78,11 @@ function normalizeAccelerator(value) {
   const printableKey = /^[a-z0-9]$/i.test(rawKey) ? rawKey.toUpperCase() : "";
   const key = named || functionKey || printableKey;
   if (!key) throw new HotkeyConfigurationError(`Unsupported shortcut key: ${rawKey}`, { code: "unsupported-key" });
-  if (!modifiers.length && printableKey) {
-    throw new HotkeyConfigurationError("Printable global shortcuts require a modifier", { code: "modifier-required" });
+  // A global shortcut takes its key away from every other application. That is a fair trade
+  // for a chord, and never for a key the desktop needs: bound bare, Tab stops moving focus
+  // anywhere on the machine, Enter stops confirming, Space stops typing.
+  if (!modifiers.length && (printableKey || BARE_FORBIDDEN_KEYS.has(key))) {
+    throw new HotkeyConfigurationError("Global shortcuts require a modifier", { code: "modifier-required" });
   }
   modifiers.sort((left, right) => MODIFIER_ORDER.get(left) - MODIFIER_ORDER.get(right));
   return [...modifiers, key].join("+");

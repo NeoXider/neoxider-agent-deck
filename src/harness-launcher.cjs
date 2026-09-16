@@ -1,10 +1,17 @@
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn, execSync } = require("node:child_process");
+const { spawn, execFile } = require("node:child_process");
 
 const HARNESS_NPX_ARGS = Object.freeze(["--yes", "@deepseek-ai/dsh@latest", "web", "--no-open"]);
 const HARNESS_DIRECT_ARGS = Object.freeze(["web", "--no-open"]);
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+// Image names a Harness listener legitimately runs under. A restart only kills a port
+// holder whose image is one of these (plus the configured launch executable).
+const HARNESS_IMAGE_NAMES = Object.freeze(["node.exe", "node", "dsh.exe", "dsh"]);
+const COMMAND_TIMEOUT_MS = 5000;
+// How long a "token-required" verdict is reused. Each Start click used to spawn a whole
+// npx/dsh tree just to learn the same answer again.
+const TOKEN_PROBE_CACHE_MS = 30000;
 
 function isLocalHarnessUrl(value) {
   try {
@@ -102,23 +109,97 @@ function shellQuote(value) {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(text) ? text : "'" + text.split("'").join("'\''") + "'";
 }
 
-// Kill the process listening on a given TCP port. Used when a foreign harness
-// is running but its launch token is unreachable: we must stop it before we
-// can start a fresh instance that prints the token to our captured stdout.
-function killProcessOnPort(port, { platform = process.platform, execSyncFn = execSync } = {}) {
-  if (platform !== "win32") return;
-  try {
-    const output = execSyncFn("netstat -ano", { encoding: "utf8", windowsHide: true, timeout: 5000 });
-    const pattern = new RegExp(`:${port}\\b.*LISTENING`);
-    for (const line of output.split("\n")) {
-      if (!pattern.test(line)) continue;
-      const parts = line.trim().split(/\s+/);
-      const pid = parseInt(parts[parts.length - 1], 10);
-      if (pid > 0 && pid !== process.pid) {
-        execSyncFn(`taskkill /PID ${pid} /F`, { windowsHide: true, timeout: 5000 });
-      }
+// Every shell-out the launcher makes goes through here, and it never rejects: the
+// caller decides what a failure means (restart re-probes the port rather than trusting
+// an exit code). These used to be execSync calls on the Electron main thread, so a slow
+// netstat or taskkill froze the whole widget for up to five seconds each.
+function defaultRunCommand(file, args, { timeout = COMMAND_TIMEOUT_MS, detached = false } = {}) {
+  return new Promise((resolve) => {
+    if (!detached) {
+      execFile(file, args, { encoding: "utf8", timeout, windowsHide: true }, (error, stdout) => {
+        resolve({ stdout: String(stdout || ""), error: error || null });
+      });
+      return;
     }
-  } catch {}
+    // libuv puts every non-detached child into a kill-on-close job on Windows, so a
+    // taskkill started from quit cleanup would die with the app before reaping anything.
+    try {
+      const child = spawn(file, args, { detached: true, stdio: "ignore", windowsHide: true });
+      child.once("error", (error) => resolve({ stdout: "", error }));
+      child.once("exit", (code) => resolve({ stdout: "", error: code === 0 ? null : new Error(`${file} exited with code ${code}`) }));
+      child.unref();
+    } catch (error) {
+      resolve({ stdout: "", error });
+    }
+  });
+}
+
+// Absolute System32 paths: a bare name is searched in the current directory first on
+// Windows, so a stray netstat.exe or taskkill.exe there would run instead.
+function windowsTool(name, env = process.env) {
+  const root = typeof env?.SystemRoot === "string" ? env.SystemRoot.trim() : "";
+  return root ? path.win32.join(root, "System32", `${name}.exe`) : `${name}.exe`;
+}
+
+// `netstat -ano` rows: Proto, Local, Foreign, State, PID. The column headers are
+// localized and so is the state on some Windows builds, which is why a wildcard foreign
+// address also counts as listening. Only the local address decides the port, so a
+// client connection to the Harness is never mistaken for the Harness itself.
+function listeningPidsFromNetstat(output, port) {
+  const pids = new Set();
+  for (const line of String(output || "").split(/\r?\n/)) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5 || parts[0].toUpperCase() !== "TCP") continue;
+    const [, local, foreign, state, pidText] = parts;
+    if (!local.endsWith(`:${port}`)) continue;
+    const listening = state.toUpperCase() === "LISTENING" || /^(?:0\.0\.0\.0|\[::\]):0$/.test(foreign);
+    const pid = Number.parseInt(pidText, 10);
+    if (listening && pid > 0) pids.add(pid);
+  }
+  return [...pids];
+}
+
+// `tasklist /FO CSV /NH` prints `"node.exe","1234",...`; a PID with no match prints a
+// localized notice instead. Anything unparseable is "unknown", not "foreign".
+function imageNameFromTasklist(output, pid) {
+  for (const line of String(output || "").split(/\r?\n/)) {
+    const match = /^"([^"]+)","(\d+)"/.exec(line.trim());
+    if (match && Number(match[2]) === pid) return match[1];
+  }
+  return "";
+}
+
+// Stop whatever listens on the Harness port. Used by an explicit, user-confirmed
+// restart when a foreign Harness holds the port and its launch token is unreachable.
+// The holder's image is checked first so an unrelated program that happens to own the
+// port is left alone. When the image cannot be established (tasklist failed or timed
+// out) the kill still goes ahead: the port is the configured Harness port and the user
+// asked for the restart, and refusing would make restart useless on a machine where
+// tasklist is unavailable. Only Windows is supported; the report says so and the caller
+// re-probes the port instead of assuming the kill worked.
+async function killProcessOnPort(port, {
+  platform = process.platform,
+  env = process.env,
+  runCommand = defaultRunCommand,
+  imageNames = HARNESS_IMAGE_NAMES,
+  selfPid = process.pid,
+} = {}) {
+  const report = { supported: platform === "win32", killed: [], skipped: [], failed: [] };
+  if (!report.supported) return report;
+  const listing = await runCommand(windowsTool("netstat", env), ["-ano"]);
+  const allowed = new Set([...imageNames].map((name) => String(name).toLowerCase()));
+  for (const pid of listeningPidsFromNetstat(listing.stdout, port)) {
+    if (pid === selfPid) continue;
+    const lookup = await runCommand(windowsTool("tasklist", env), ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"]);
+    const image = imageNameFromTasklist(lookup.stdout, pid);
+    if (image && !allowed.has(image.toLowerCase())) {
+      report.skipped.push({ pid, image });
+      continue;
+    }
+    const result = await runCommand(windowsTool("taskkill", env), ["/PID", String(pid), "/T", "/F"]);
+    (result.error ? report.failed : report.killed).push(pid);
+  }
+  return report;
 }
 
 async function defaultProbeReady(harnessUrl, fetchImpl = globalThis.fetch) {
@@ -173,8 +254,15 @@ function createHarnessLauncher({
   readinessAttempts = 60,
   readinessInterval = 500,
   now = () => Date.now(),
-  // Injected so tests never shell out to netstat/taskkill on the host.
-  execSyncFn = execSync,
+  // Injected so tests never shell out to netstat/tasklist/taskkill or signal real
+  // processes on the host.
+  runCommand = defaultRunCommand,
+  killProcess = (pid, signal) => process.kill(pid, signal),
+  // After an explicit restart kills the port holder, the port must stop answering
+  // before a new instance is booted; this bounds that wait.
+  stopAttempts = 20,
+  stopInterval = 250,
+  tokenProbeCacheMs = TOKEN_PROBE_CACHE_MS,
 } = {}) {
   const installedEntry = resolveInstalledDshEntry({ platform, env, workingDirectory, fileSystem });
   const launchSpec = resolveHarnessLaunchSpec({ platform, env, harnessUrl, installedEntry });
@@ -183,9 +271,52 @@ function createHarnessLauncher({
   const legacyBatchPath = platform === "win32" && desktopPath
     ? path.win32.join(desktopPath, "Запустить DeepSeek Harness.bat")
     : "";
+  // A configured dsh or Node executable is the listener's image too; the npx route goes
+  // through a command processor, and the listener under it is plain node.
+  const listenerImageNames = /^npx(?:\.cmd)?$/.test(launchSpec.displayCommand)
+    ? [...HARNESS_IMAGE_NAMES]
+    : [...HARNESS_IMAGE_NAMES, path.win32.basename(launchSpec.command)];
   let startPromise = null;
   let ownedLaunch = null;
   let capturedBrowserUrl = "";
+  // Every spawned child that has not exited yet, probes included, so dispose() can reap
+  // the ones nothing else references any more.
+  const liveLaunches = new Set();
+  let tokenRequiredUntil = 0;
+  let disposed = false;
+
+  // A launch that dies (or never serves) before becoming ready has a token nobody can
+  // use, and the captured token outranks the saved launch URL in every reader, so a dead
+  // instance would make a good saved URL look broken. A probe is exempt: it only ever
+  // reports on the instance that already holds the port, and exiting is its job.
+  function dropLaunchToken(launch) {
+    if (!launch || launch.probe || launch.ready) return;
+    if (launch.browserUrl && capturedBrowserUrl === launch.browserUrl) capturedBrowserUrl = "";
+  }
+
+  function markReady(launch) {
+    launch.ready = true;
+    if (launch.browserUrl) capturedBrowserUrl = launch.browserUrl;
+  }
+
+  // child.kill() only reaches the direct child: cmd.exe on Windows and the login shell
+  // on POSIX, leaving the npx/node grandchild running with the port or the probe's
+  // console. The launch is spawned detached, so on POSIX it leads its own process group.
+  // A launch whose direct child already exited is skipped: its PID may be reused by now.
+  async function killLaunchTree(launch, { detached = false } = {}) {
+    const child = launch?.child;
+    if (!child || launch.exited) return;
+    const pid = Number(child.pid);
+    if (Number.isInteger(pid) && pid > 0) {
+      if (platform === "win32") {
+        const result = await runCommand(windowsTool("taskkill", env), ["/PID", String(pid), "/T", "/F"], { detached });
+        if (!result?.error) return;
+      } else {
+        try { killProcess(-pid, "SIGTERM"); return; } catch {}
+      }
+    }
+    try { if (typeof child.kill === "function") child.kill(); } catch {}
+  }
 
   // One deadline covers the whole start, including the legacy fallback. Each wait used
   // to get its own full budget, so a failed launch held the start-harness IPC call for
@@ -210,9 +341,11 @@ function createHarnessLauncher({
     return { ok: true, started: true, fallback: "windows-batch", command: legacyBatchPath };
   }
 
-  function spawnOwnedLaunch() {
+  function spawnOwnedLaunch({ probe = false } = {}) {
+    // A start that was already under way when the app quit must not leave a new tree.
+    if (disposed) throw new Error("Harness launcher is disposed");
     if (workingDirectory) fileSystem.mkdirSync(workingDirectory, { recursive: true });
-    const launch = { child: null, error: null, exited: false, ready: false, browserUrl: "" };
+    const launch = { child: null, error: null, exited: false, ready: false, browserUrl: "", probe };
     const childEnv = { ...env };
     delete childEnv.ELECTRON_RUN_AS_NODE;
     const child = spawnProcess(launchSpec.command, launchSpec.args, {
@@ -236,47 +369,71 @@ function createHarnessLauncher({
         if (found) { launch.browserUrl = found; capturedBrowserUrl = found; }
       });
     }
+    liveLaunches.add(launch);
     child.once?.("error", (error) => {
       launch.error = error;
       launch.exited = true;
+      liveLaunches.delete(launch);
+      dropLaunchToken(launch);
     });
     child.once?.("exit", (code) => {
       launch.exited = true;
+      liveLaunches.delete(launch);
       if (launch.ready) return;
       launch.error = new Error(`Harness launcher exited before becoming ready (code ${code})`);
+      dropLaunchToken(launch);
     });
     child.unref?.();
     ownedLaunch = launch;
     return launch;
   }
 
-  async function startInternal({ forceRestart = false } = {}) {
+  // After the port holder is killed, the old instance must actually stop answering;
+  // otherwise the new launch's first readiness probe is answered by the survivor and a
+  // restart that changed nothing reports success.
+  async function waitUntilStopped(attempts) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (!(await probeReady())) return true;
+      if (attempt + 1 < attempts) await delay(stopInterval);
+    }
+    return false;
+  }
+
+  function unsupportedTarget() {
     if (!isLocalHarnessUrl(harnessUrl)) {
       return { ok: false, started: false, reason: "remote-url" };
     }
     if (new URL(harnessUrl).protocol !== "http:") {
       return { ok: false, started: false, reason: "unsupported-local-protocol" };
     }
+    return null;
+  }
+
+  async function startInternal({ forceRestart = false } = {}) {
+    const unsupported = unsupportedTarget();
+    if (unsupported) return unsupported;
     if (!forceRestart && await probeReady()) {
-      if (ownedLaunch && !ownedLaunch.exited) { ownedLaunch.ready = true; return { ok: true, started: false, alreadyRunning: true }; }
+      if (ownedLaunch && !ownedLaunch.exited) { markReady(ownedLaunch); return { ok: true, started: false, alreadyRunning: true }; }
+      if (now() < tokenRequiredUntil) return { ok: false, started: false, reason: "token-required" };
       // The harness is reachable but we never captured its launch token (foreign
       // or inherited process). Spawn a dsh just to grab the token from its banner
       // line — it will exit almost immediately when it finds the port occupied.
-      const probe = spawnOwnedLaunch();
+      const probe = spawnOwnedLaunch({ probe: true });
       for (let i = 0; i < 20 && !probe.browserUrl && !probe.exited; i += 1) await delay(250);
       if (probe.browserUrl) {
-        if (ownedLaunch === probe) { probe.ready = true; ownedLaunch.ready = true; }
+        if (ownedLaunch === probe) probe.ready = true;
         return { ok: true, started: false, alreadyRunning: true };
       }
       // The second dsh did not print the banner, so its token is unreachable from
       // here. Killing a foreign Harness with live turns would destroy work the
       // user can see in the browser, so Start stops here: the widget offers to
       // connect with a pasted launch URL, or to restart Harness explicitly.
-      try { if (probe.child && typeof probe.child.kill === "function" && !probe.exited) probe.child.kill(); } catch {}
       if (ownedLaunch === probe) ownedLaunch = null;
+      await killLaunchTree(probe);
+      tokenRequiredUntil = now() + tokenProbeCacheMs;
       return { ok: false, started: false, reason: "token-required" };
     }
-
+    tokenRequiredUntil = 0;
     return bootOwned();
   }
 
@@ -284,11 +441,30 @@ function createHarnessLauncher({
   // foreign Harness with live turns — and boot a fresh owned instance that
   // prints its launch token to our captured stdout. Never runs implicitly.
   async function restartInternal() {
+    // Checked before anything is killed: a remote Harness URL used to reach the port
+    // kill below and stop whatever local process shared its port number.
+    const unsupported = unsupportedTarget();
+    if (unsupported) return unsupported;
+    tokenRequiredUntil = 0;
     const port = parseInt(new URL(harnessUrl).port, 10) || 3080;
-    try { if (ownedLaunch?.child && typeof ownedLaunch.child.kill === "function" && !ownedLaunch.exited) ownedLaunch.child.kill(); } catch {}
-    killProcessOnPort(port, { platform, execSyncFn });
+    const previous = ownedLaunch;
     ownedLaunch = null;
-    await delay(1500);
+    const killedOwned = Boolean(previous && !previous.exited);
+    if (killedOwned) await killLaunchTree(previous);
+    const report = await killProcessOnPort(port, { platform, env, runCommand, imageNames: listenerImageNames });
+    // With nothing killed there is nothing to wait for: one probe tells whether the
+    // port is already free.
+    const attempted = killedOwned || report.killed.length > 0 || report.failed.length > 0;
+    if (!(await waitUntilStopped(attempted ? stopAttempts : 1))) {
+      return {
+        ok: false,
+        started: false,
+        reason: report.supported ? "restart-failed" : "restart-unsupported",
+        ...(report.skipped.length > 0 ? { blockedBy: report.skipped.map((entry) => entry.image) } : {}),
+      };
+    }
+    // The instance that printed the captured token is gone now; the new one prints its own.
+    capturedBrowserUrl = "";
     return startInternal({ forceRestart: true });
   }
 
@@ -296,15 +472,26 @@ function createHarnessLauncher({
   // confirmed that the current holder of the port may go.
   async function bootOwned() {
     if (ownedLaunch?.exited) ownedLaunch = null;
+    // A probe was spawned while another instance held the port, so it cannot be the
+    // server now that the port is free; waiting on it would only burn the deadline.
+    if (ownedLaunch?.probe) {
+      const stale = ownedLaunch;
+      ownedLaunch = null;
+      await killLaunchTree(stale);
+    }
     const deadline = now() + readinessAttempts * readinessInterval;
     let launch = ownedLaunch;
     try {
       if (!launch) launch = spawnOwnedLaunch();
       const ready = await waitUntilReady(() => launch.error, deadline);
       if (!ready) throw new Error("DeepSeek Harness did not become ready before the startup timeout");
-      launch.ready = true;
+      markReady(launch);
       return { ok: true, started: true, fallback: null, command: launchSpec.displayCommand };
     } catch (error) {
+      // A launch that is still alive after the timeout keeps its own token (browserUrl()
+      // reads it from the live launch, and a later Retry promotes it again); only the
+      // copy that would outlive it is dropped.
+      dropLaunchToken(launch);
       const definiteFailure = Boolean(launch?.error || launch?.exited || !launch);
       if (definiteFailure) {
         if (ownedLaunch === launch) ownedLaunch = null;
@@ -326,15 +513,42 @@ function createHarnessLauncher({
       if (ownedLaunch && !ownedLaunch.exited && ownedLaunch.browserUrl) return ownedLaunch.browserUrl;
       return capturedBrowserUrl || "";
     },
+    // Forget a captured banner token. It outranks the saved preference in every reader
+    // and is never cleared on its own, so a token scraped from a launch that is now
+    // dead would shadow a launch URL the user has just proved by pasting it.
+    forgetBrowserUrl() {
+      capturedBrowserUrl = "";
+      if (ownedLaunch) ownedLaunch.browserUrl = "";
+      return true;
+    },
     start() {
+      if (disposed) return Promise.resolve({ ok: false, started: false, reason: "disposed" });
       if (startPromise) return startPromise;
       startPromise = startInternal().finally(() => { startPromise = null; });
       return startPromise;
     },
     restart() {
+      if (disposed) return Promise.resolve({ ok: false, started: false, reason: "disposed" });
       if (startPromise) return startPromise;
       startPromise = restartInternal().finally(() => { startPromise = null; });
       return startPromise;
+    },
+    // Reap what this launcher spawned; meant for the app's quit cleanup, which cannot
+    // wait, so Windows kills run through a detached taskkill that outlives the app. The
+    // returned promise settles when the kills finish, for callers that can wait.
+    // Probes and launches that never became ready are always reaped. A READY owned
+    // Harness is left running unless stopOwnedHarness is set: it is meant to outlive
+    // the widget (its launch URL is persisted so the next run reconnects to it), and
+    // killing it would end live turns the user can see in the browser.
+    dispose({ stopOwnedHarness = false } = {}) {
+      disposed = true;
+      const doomed = [...liveLaunches].filter((launch) => launch.probe || !launch.ready || stopOwnedHarness);
+      for (const launch of doomed) {
+        liveLaunches.delete(launch);
+        if (ownedLaunch === launch) ownedLaunch = null;
+      }
+      return Promise.all(doomed.map((launch) => killLaunchTree(launch, { detached: true }).catch(() => {})))
+        .then(() => doomed.length);
     },
   };
 }
@@ -345,8 +559,10 @@ module.exports = {
   createHarnessLauncher,
   defaultProbeReady,
   extractLaunchBrowserUrl,
+  imageNameFromTasklist,
   isLocalHarnessUrl,
   killProcessOnPort,
+  listeningPidsFromNetstat,
   resolveInstalledDshEntry,
   resolveHarnessLaunchSpec,
 };

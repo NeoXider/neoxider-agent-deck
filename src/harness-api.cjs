@@ -48,6 +48,36 @@ class HarnessApi {
     this._generationPromise = null;
     this._remoteTransport = null;
     this.getLaunchBrowserUrl = typeof options.getLaunchBrowserUrl === "function" ? options.getLaunchBrowserUrl : () => "";
+    // A launch URL being verified outranks every stored one, for exactly as long as the
+    // check runs. See verifyLaunchUrl.
+    this._candidateLaunchUrl = "";
+  }
+
+  // What the cookie is minted from right now: a URL under verification first, then
+  // whatever the owner (captured banner token, then the saved preference) supplies.
+  resolveLaunchBrowserUrl() {
+    return this._candidateLaunchUrl || this.getLaunchBrowserUrl();
+  }
+
+  // Prove one candidate launch URL before anybody commits to it. Connect used to call
+  // dashboard() straight after normalizing the pasted text, but the cookie is minted
+  // from the *stored* URL, so the check never saw what the user pasted: on a first
+  // connect nothing is stored, the mint throws, and the button could not succeed at
+  // all; with a good URL already stored, a typo "verified" against the old cookie and
+  // was then written over it. The candidate is dropped either way, and so is the
+  // cookie it minted, so the next call re-mints from whatever the caller kept.
+  async verifyLaunchUrl(candidate) {
+    const value = String(candidate || "").trim();
+    if (!value) throw new Error("Paste the Harness launch URL first");
+    this._candidateLaunchUrl = value;
+    this.resetRemoteAuth();
+    try {
+      await this.dashboard();
+    } finally {
+      this._candidateLaunchUrl = "";
+      this.resetRemoteAuth();
+    }
+    return true;
   }
 
   async detectGeneration() {
@@ -70,7 +100,7 @@ class HarnessApi {
       this._remoteTransport = createRemoteTransport({
         baseUrl: this.baseUrl,
         fetchImpl: this.fetch,
-        getLaunchBrowserUrl: () => this.getLaunchBrowserUrl(),
+        getLaunchBrowserUrl: () => this.resolveLaunchBrowserUrl(),
       });
     }
     return this._remoteTransport;
@@ -156,10 +186,14 @@ class HarnessApi {
     const address = { kind: "session", sessionId };
     if (beforeSeq == null || throughSeq == null) {
       const snapshot = await this.remoteChannelFirstFrame(remote, "session/follow", { request: { address, maxMessages } });
+      const throughSeq = Number.isFinite(snapshot.cursor) ? snapshot.cursor : null;
       return {
         events: Array.isArray(snapshot.records) ? snapshot.records : [],
-        hasMore: Boolean(snapshot.hasMore),
-        throughSeq: Number.isFinite(snapshot.cursor) ? snapshot.cursor : null,
+        // session/page cannot be walked without the cursor: the next fetch would land
+        // back in this branch, return the identical page and fail as "no progress",
+        // taking the whole transcript down. Serve the snapshot as the complete answer.
+        hasMore: Boolean(snapshot.hasMore) && throughSeq !== null,
+        throughSeq,
       };
     }
     const page = await remote.call("session/page", { request: { address, throughSeq, beforeSeq, maxMessages } }, 8000);
@@ -286,7 +320,11 @@ class HarnessApi {
     {
       const cachedState = this.sessionStateCache.get(session.sessionId);
       const shouldEnrich = Boolean(session.running || index < 18 || session.sessionId === selectedSessionId);
-      const shouldReadState = shouldEnrich && (!cachedState || cachedState.updatedAt !== session.updatedAt);
+      // The selected session is always re-read: its preview, activity and clock
+      // are what the open chat renders, and session.list does not promise to
+      // bump updatedAt for every new message. Anything else keeps the cache.
+      const shouldReadState = shouldEnrich && (!cachedState || cachedState.updatedAt !== session.updatedAt
+        || session.sessionId === selectedSessionId);
       // Children can change activity without changing the parent's updatedAt.
       // Refresh their roster on a bounded cadence independent of history polling.
       const now = this.now();
@@ -582,6 +620,26 @@ class HarnessApi {
     this.sessionStateCache.delete(key);
     this.historyCache.delete(key);
     this.historyReader?.forget(key);
+  }
+
+  // Drop per-session state for every session not in the given list (the dashboard's
+  // current one). sessionStateCache and fullAccessSessions gained an entry for each
+  // session ever seen and were never evicted. The caller must include any session it
+  // still shows outside that list, such as an open subagent chat, or its history cache
+  // is rebuilt on every read. An empty list is ignored: a Harness that is restarting
+  // or re-indexing can answer with no sessions, and wiping the history cache then
+  // would defeat the cached floor that keeps a transcript from blanking out.
+  retainSessions(sessionIds) {
+    const keep = new Set([...(sessionIds || [])].map((id) => String(id || "")).filter(Boolean));
+    if (keep.size === 0) return 0;
+    const known = new Set([...this.sessionStateCache.keys(), ...this.fullAccessSessions, ...this.historyCache.keys()]);
+    let evicted = 0;
+    for (const key of known) {
+      if (keep.has(key)) continue;
+      this.forgetSession(key);
+      evicted += 1;
+    }
+    return evicted;
   }
 }
 

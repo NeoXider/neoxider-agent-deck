@@ -81,11 +81,14 @@ function harness() {
     let transcriptViewStart = 0;
     let transcriptViewEnd = 0;
     let transcriptViewTotal = 0;
+    let transcriptSeenTotal = 0;
     let transcriptAverageRowHeight = TRANSCRIPT_ROW_ESTIMATE_PX;
     let transcriptGrowing = false;
+    let transcriptProgrammaticScrollAt = 0;
+    const TRANSCRIPT_PROGRAMMATIC_SCROLL_MS = 250;
     let transcriptSilentGrow = false;
     let transcriptPreviewCache = { source: [], messages: [] };
-    ${["transcriptWindow", "transcriptAtLatest", "transcriptHiddenNewerCount", "jumpToLatestTranscript", "growTranscriptWindowUp", "maybeGrowTranscriptWindow", "transcriptSpacer", "transcriptWindowEdge", "rememberTranscriptRowHeights", "visibleMessagePreviews", "boundedMessagePreviews", "messagePreviewBytes", "messageSignature", "messageBlockKey", "transcriptCache", "commandResultName", "renderMessages", "releaseMessageScrollPin"].map(declaration).join("\n")}
+    ${["transcriptWindow", "transcriptAtLatest", "transcriptHiddenNewerCount", "transcriptArrivedCount", "jumpToLatestTranscript", "growTranscriptWindowUp", "growTranscriptWindowDown", "settleTranscriptScroll", "maybeGrowTranscriptWindow", "transcriptSpacer", "transcriptWindowEdge", "rememberTranscriptRowHeights", "visibleMessagePreviews", "boundedMessagePreviews", "messagePreviewBytes", "messageSignature", "messageBlockKey", "transcriptCache", "commandResultName", "renderMessages", "releaseMessageScrollPin"].map(declaration).join("\n")}
   `, context);
   return { context, root, state, builds: () => builds, run: code => vm.runInContext(code, context) };
 }
@@ -122,6 +125,8 @@ test("scrolling up grows the window, unloads distant rows, and jumps back to lat
   // spacer instead of accumulating DOM.
   assert.equal(app.run("transcriptViewEnd"), 340);
   assert.equal(app.run("transcriptHiddenNewerCount()"), 160);
+  // Those 160 rows were read and scrolled away; nothing arrived, so nothing is new.
+  assert.equal(app.run("transcriptArrivedCount()"), 0);
   assert.equal(app.root.nodes.filter((node) => node.message).length, 320);
   assert.ok(app.root.nodes.length <= 324);
   app.run("jumpToLatestTranscript()");
@@ -230,4 +235,37 @@ test("an abandoned queued session is skipped and an unexpected rejection release
   await rejection;
   assert.equal(app.state.historyPriorityPromise, null);
   assert.equal(app.state.historyPrioritySessionId, null);
+});
+
+// The window used to grow only backwards, so the newest messages stayed behind a spacer
+// once they had been unloaded, and scrolling down landed on blank space.
+test("scrolling back down grows the window towards the newest message", () => {
+  const app = harness();
+  app.state.currentMessages = Array.from({ length: 500 }, (_, seq) => ({ role: "user", text: `${seq}`, seq: seq + 1 }));
+  app.run("renderMessages(state.currentMessages)");
+  for (let grown = 0; grown < 5; grown += 1) app.run("growTranscriptWindowUp()");
+  assert.equal(app.run("transcriptViewEnd"), 340);
+  app.run("growTranscriptWindowDown()");
+  assert.equal(app.run("transcriptViewEnd"), 420);
+  assert.equal(app.run("transcriptViewEnd - transcriptViewStart <= TRANSCRIPT_WINDOW_MAX"), true, "growing down still respects the DOM cap");
+  app.run("growTranscriptWindowDown()");
+  assert.equal(app.run("transcriptViewEnd"), 500);
+  assert.equal(app.run("transcriptHiddenNewerCount()"), 0);
+  // At the newest message there is nothing further to grow into.
+  assert.equal(app.run("growTranscriptWindowDown()"), false);
+});
+
+test("only messages that arrived while away count as new", () => {
+  const app = harness();
+  app.state.currentMessages = Array.from({ length: 500 }, (_, seq) => ({ role: "user", text: `${seq}`, seq: seq + 1 }));
+  app.run("renderMessages(state.currentMessages)");
+  for (let grown = 0; grown < 5; grown += 1) app.run("growTranscriptWindowUp()");
+  // Away from the bottom, three messages arrive.
+  app.state.messagesStickToBottom = false;
+  for (let seq = 501; seq <= 503; seq += 1) app.state.currentMessages.push({ role: "assistant", text: `${seq}`, seq });
+  app.run("renderMessages(state.currentMessages)");
+  assert.equal(app.run("transcriptHiddenNewerCount()"), 163);
+  assert.equal(app.run("transcriptArrivedCount()"), 3);
+  app.run("jumpToLatestTranscript()");
+  assert.equal(app.run("transcriptArrivedCount()"), 0);
 });

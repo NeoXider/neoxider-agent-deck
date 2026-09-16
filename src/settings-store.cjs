@@ -61,6 +61,22 @@ function normalizeCompactBounds(value, fallbackSide) {
   return x === null || y === null ? null : { x, y, side };
 }
 
+// The saved launch URL is later handed to the OS shell by "Open Harness", and the
+// settings file is writable by anything with disk access — a Harness agent included.
+// Only an http(s) URL survives; a file:// or custom-scheme value is dropped. The origin
+// is checked against the configured Harness by the transport, which knows that address.
+function normalizeLaunchUrl(value) {
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  if (!text || text.length > 2048) return "";
+  try {
+    const url = new URL(text);
+    return url.protocol === "http:" || url.protocol === "https:" ? text : "";
+  } catch {
+    return "";
+  }
+}
+
 function normalizePreferences(raw = {}) {
   const source = raw && typeof raw === "object" ? raw : {};
   const compactSide = source.compactSide === "left" ? "left" : "right";
@@ -87,9 +103,7 @@ function normalizePreferences(raw = {}) {
     compactSide,
     lastSelectedSessionId: typeof source.lastSelectedSessionId === "string" && source.lastSelectedSessionId.trim() && source.lastSelectedSessionId.length <= 512
       ? source.lastSelectedSessionId : null,
-    harnessLaunchUrl: typeof source.harnessLaunchUrl === "string" && source.harnessLaunchUrl.trim().length <= 2048
-      ? source.harnessLaunchUrl.trim()
-      : "",
+    harnessLaunchUrl: normalizeLaunchUrl(source.harnessLaunchUrl),
     hotkeys,
     windowState: {
       version: SCHEMA_VERSION,

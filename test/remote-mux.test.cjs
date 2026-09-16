@@ -208,6 +208,78 @@ test("stop closes all channels and clears follows", async () => {
   }
 });
 
+// A transport whose opens stay pending until the test releases them, which is the
+// window in which untrack()/stop() used to find no handle to close.
+function createSlowTransport() {
+  const inner = createFakeTransport();
+  const pending = [];
+  return {
+    channels: inner.channels,
+    pending,
+    openChannel(options) {
+      return new Promise((resolve) => {
+        pending.push(() => resolve(inner.openChannel(options)));
+      });
+    },
+    releaseAll() {
+      for (const release of pending.splice(0)) release();
+    },
+  };
+}
+
+test("a follow untracked while its channel is still opening is closed once it opens", async () => {
+  const transport = createSlowTransport();
+  const events = [];
+  const gate = createTransportGate();
+  gate.setTransport(transport);
+  const mux = createRemoteMuxClient({ getTransport: gate.getTransport, onLiveEvent: (e) => events.push(e), sleep: fakeSleep().sleep });
+  mux.setTrackedSessions(["s1"]);
+  await tick();
+  assert.equal(transport.pending.length, 1, "the follow open is in flight");
+  mux.setTrackedSessions([]);
+  transport.releaseAll();
+  await tick();
+  const follow = transport.channels.find((c) => c.endpoint === "session/follow");
+  assert.ok(follow, "the open completed");
+  assert.equal(follow.closeCalls, 1, "the late socket is closed instead of streaming for an untracked session");
+  assert.equal(mux.state.follows, 0);
+  assert.equal(transport.channels.length, 1, "no reconnect is attempted for the abandoned follow");
+  mux.stop();
+});
+
+test("a control channel that opens after stop is closed immediately", async () => {
+  const transport = createSlowTransport();
+  const gate = createTransportGate();
+  gate.setTransport(transport);
+  const { calls, sleep } = fakeSleep();
+  const mux = createRemoteMuxClient({ getTransport: gate.getTransport, sleep });
+  mux.start();
+  mux.setTrackedSessions(["s1"]);
+  await tick();
+  assert.equal(transport.pending.length, 2);
+  mux.stop();
+  transport.releaseAll();
+  await tick();
+  assert.equal(transport.channels.length, 2);
+  for (const channel of transport.channels) {
+    assert.equal(channel.closeCalls, 1, `${channel.endpoint} must be closed once it opens after stop`);
+  }
+  assert.deepEqual(calls, [], "a stopped client does not back off and retry");
+  assert.equal(mux.state.connected, false);
+});
+
+test("a follow untracked before its transport resolves never opens a channel", async () => {
+  const transport = createFakeTransport();
+  let releaseTransport;
+  const getTransport = () => new Promise((resolve) => { releaseTransport = () => resolve(transport); });
+  const mux = createRemoteMuxClient({ getTransport, sleep: fakeSleep().sleep });
+  mux.track("s1");
+  mux.untrack("s1");
+  releaseTransport();
+  await tick();
+  assert.equal(transport.channels.length, 0);
+});
+
 test("reconnect constants are exported", () => {
   assert.equal(REMOTE_MUX_RECONNECT_MIN, 1500);
   assert.equal(REMOTE_MUX_RECONNECT_MAX, 30000);

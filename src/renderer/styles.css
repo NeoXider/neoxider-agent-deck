@@ -121,7 +121,10 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .title { max-width:100%; min-width:0; margin-top:2px; display:flex; align-items:center; gap:6px; overflow:hidden; font-size:16px; font-weight:750; letter-spacing:-.02em; white-space:nowrap; }
 .product-name { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .title small { margin-left:6px; color:var(--muted); font-size:9px; font-weight:600; }
-.version-badge { flex:none; display:inline-flex; align-items:center; padding:2px 5px; border:1px solid rgba(73,231,198,.2); border-radius:7px; background:rgba(73,231,198,.07); color:#8de8d6; font-size:7px; font-weight:750; vertical-align:2px; }
+/* At 7px and below "v0.9.0" rendered as a blob in which the leading zero and its dot
+   vanished, and the widget read as version 9. Tabular figures and a little tracking
+   keep every digit and separator distinct at the smallest size the header can afford. */
+.version-badge { flex:none; display:inline-flex; align-items:center; padding:2px 5px; border:1px solid rgba(73,231,198,.2); border-radius:7px; background:rgba(73,231,198,.07); color:#8de8d6; font-size:8.5px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:.02em; line-height:1; vertical-align:2px; }
 .header-update-button { flex:none; min-width:42px; height:22px; padding:0 8px; border:1px solid rgba(73,231,198,.38); border-radius:8px; background:linear-gradient(135deg,rgba(73,231,198,.22),rgba(139,121,255,.22)); color:#dffcf6; font-size:8px; font-weight:800; letter-spacing:.02em; cursor:pointer; box-shadow:0 0 13px rgba(73,231,198,.13); animation:update-ready-pulse 2.4s ease-in-out infinite; }
 .header-update-button:hover,.header-update-button:focus-visible { border-color:rgba(73,231,198,.7); box-shadow:0 0 17px rgba(73,231,198,.25); }
 .header-update-button[hidden] { display:none; }
@@ -1030,7 +1033,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
   .brand-copy-button { flex:1 1 auto; }
   .eyebrow, .title small { display:none; }
   .title { margin-top:0; font-size:14px; }
-  .version-badge { margin-left:3px; padding:2px 4px; }
+  .version-badge { margin-left:3px; padding:2px 4px; font-size:8px; }
   .header-update-button { min-width:36px; padding:0 6px; font-size:7px; }
   .tabs { width:64px; }
   .window-actions { gap:1px; }
@@ -1042,7 +1045,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
   .brand { gap:5px; }
   .brand-copy-button { flex:1 1 auto; }
   .title { gap:3px; font-size:13px; }
-  .version-badge { padding:1px 3px; font-size:6px; }
+  .version-badge { padding:1px 3px; font-size:7.5px; letter-spacing:0; }
   .header-update-button { width:34px; min-width:34px; padding:0 3px; font-size:6px; }
   .tabs { width:56px; }
   .window-actions { gap:0; }

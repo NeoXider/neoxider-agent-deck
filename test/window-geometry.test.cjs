@@ -137,3 +137,19 @@ test("an edge drag stays flush on a display that does not start at zero", () => 
   assert.deepEqual(edgeDragBounds(bounds, { x: 3100, y: 100 }, second), { ...bounds, side: "right", x: 3112 });
   assert.deepEqual(edgeDragBounds(bounds, { x: 2000, y: 100 }, second), { ...bounds, side: "left", x: 1920 });
 });
+
+// Flipping on the bare midline meant the line teleported the whole width of the display
+// the instant the pointer crossed it, and teleported back on the smallest wobble.
+test("an edge drag commits to a side instead of flipping on the midline", () => {
+  const bounds = { x: 1832, y: 300, width: 88, height: 132 };
+  // 12% of 1920 is 230, so the flip zone is 730..1190 and a pointer inside it holds.
+  assert.equal(edgeDragBounds(bounds, { x: 950, y: 300 }, workArea, "right").side, "right");
+  assert.equal(edgeDragBounds(bounds, { x: 970, y: 300 }, workArea, "left").side, "left");
+  assert.equal(edgeDragBounds(bounds, { x: 1100, y: 300 }, workArea, "left").side, "left", "a wobble past the middle is not a crossing");
+  // Past the zone the pointer wins, whichever side it started on.
+  assert.equal(edgeDragBounds(bounds, { x: 700, y: 300 }, workArea, "right").side, "left");
+  assert.equal(edgeDragBounds(bounds, { x: 1400, y: 300 }, workArea, "left").side, "right");
+  // With no side held the old deterministic answer stands, so a first move cannot stall.
+  assert.equal(edgeDragBounds(bounds, { x: 960, y: 300 }, workArea).side, "right");
+  assert.equal(edgeDragBounds(bounds, { x: 959, y: 300 }, workArea).side, "left");
+});

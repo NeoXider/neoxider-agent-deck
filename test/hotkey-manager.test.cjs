@@ -182,3 +182,16 @@ test("will-quit unregisters only shortcuts owned by the manager and dispose is i
   assert.equal(shortcuts.registered.size, 0);
   assert.equal(shortcuts.calls.filter(([kind]) => kind === "unregister").length, 1);
 });
+
+// A global shortcut takes its key from the whole desktop. The field captured every keydown,
+// so pressing Tab to leave it bound Tab itself: focus stopped moving in every application,
+// and the field's own preventDefault left no way out of it by keyboard either.
+test("a key the desktop needs cannot be bound without a modifier", () => {
+  for (const bare of ["Tab", "Enter", "Space", "Escape", "Backspace", "Delete", "Up", "Home"]) {
+    assert.throws(() => normalizeHotkeyBindings({ showRestore: { accelerator: bare, enabled: true } }), /require a modifier/, `${bare} must not bind bare`);
+  }
+  // With a modifier they are ordinary chords, and the media keys exist to be bound bare.
+  assert.equal(normalizeHotkeyBindings({ showRestore: { accelerator: "Control+Tab", enabled: true } }).showRestore.accelerator, "Control+Tab");
+  assert.equal(normalizeHotkeyBindings({ showRestore: { accelerator: "MediaPlayPause", enabled: true } }).showRestore.accelerator, "MediaPlayPause");
+  assert.equal(normalizeHotkeyBindings({ showRestore: { accelerator: "F7", enabled: true } }).showRestore.accelerator, "F7");
+});

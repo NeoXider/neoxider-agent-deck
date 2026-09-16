@@ -5,6 +5,52 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-09-16
+
+### Fixed
+
+- **Dragging the Edge line no longer throws it away from the pointer.** Every move applied the absolute cursor position where a grab offset was meant, so the window re-centred itself on the cursor: grab the line anywhere but its exact middle and it jumped up to 38 pixels on the first move, then kept that gap for the whole gesture. The docked side also flipped on the bare midline of the display, so near the middle the line teleported the full screen width and back on the smallest wobble. The line now stays where it was taken hold of, and a side change needs a committed crossing rather than a touch.
+
+- **The avatar stopped answering the mouse after being dragged to the other side of the screen.** Flipping the docked side moves every control about 44 pixels inside the orb window, and nothing re-measured the rectangles the click tracker owns. It kept testing the cursor against the old side, so the visible circle forwarded its clicks to the desktop while an empty region beside it swallowed them, with no way back except a global shortcut. The rectangles are republished on a side change, and again once the entry animation has settled, because the first measurement used to bake that animation's own transform into them. Published rectangles are also clipped to the window, so a control laid out a pixel past its edge no longer claims the desktop beside it.
+
+- **Releasing the avatar no longer teleports it.** A drop away from an edge snapped the window there in a single frame, up to ~950 pixels, and the circle then slid another 44 pixels inside the window once the new side arrived. The window now flies to the edge over a few eased frames, the side is applied before the flight starts, and a new drag or a mode change stops a flight in progress without leaving the window misplaced.
+
+- **Full mode reopened at a stale position for the rest of the session.** A drag interrupted by a mode change never delivers its pointerup, because the element it started on is hidden by then. The main process cleared the drag origin only on that message, and while an origin is stranded it stops recording every later move and resize. A stranded compact origin was worse still: the orb could never resize again and its whole transparent window kept eating clicks. Both origins are now released on a mode change and on a renderer reload, and the window itself ends a gesture its element can no longer finish.
+
+- **The collapse and restore animation no longer flickers.** The fade was cleared by its own timer before the mode change was even sent, so the old mode came back at full opacity for at least one painted frame, and for as many frames as the main process took to answer, immediately before the window snapped to its new size. It now comes off only once the new mode is on screen. With **Motion effects** off the transition no longer blocks for its full duration with nothing to show for it, and message entrances no longer pile up to replay all at once when motion is switched back on.
+
+- **A press on the avatar could do nothing at all.** The main process announces the window mode after every internal resize, including the orb's own status panel, and the renderer treated each of those as an authoritative answer that outranked the request it was still making. Only a real mode change counts now.
+
+- **The chat could look dead in a long conversation.** The virtualized window only ever grew backwards, so after a few chunks of scrollback the newest messages sat below it behind a spacer. Scrolling back down landed on the foot of that spacer: a blank region where arrivals never appeared, with no way out but the jump-to-latest pill. The window now grows towards the newest message as well, holding the reading position against a row that survives the grow, and the log only counts itself as following the conversation when it actually holds the newest message. Growth also answers the hand only: the scroll a grow makes to restore the reading position no longer triggers the next grow, which could walk the whole history to the top in one burst.
+
+- **The jump-to-latest pill counted old messages as new.** Scrolling up a long history, or jumping to an early message, labelled every unloaded row below as "new". It now counts only what arrived while you were away from the newest message, and says **Latest** otherwise.
+
+- **One failed render no longer freezes the chat.** The transcript committed its render signature before building the DOM, so a single throw left it half-built and every later render matched the signature and returned without repairing it.
+
+- **Connecting to a token-gated Harness works.** The Connect action verified the launch URL that was already stored rather than the one just pasted: on a first connect nothing is stored, so the check could never pass, and with a working URL stored any typo "passed" against the old cookie and was then written over the working one. The link it built also carried the token under `launchToken`, while Harness reads `token`. A captured banner token from an earlier launch outranked the preference everywhere and was never cleared, so a URL the user had just proved changed nothing; it is now dropped on connect and whenever the launch that printed it dies. The pasted URL stays in the field until the connection is proven. After a restart every surface minted its own cookie at once; they now share one exchange.
+
+- **Restart Harness no longer reports a restart it did not make.** Off Windows the widget cannot stop a Harness it did not start, and on Windows a failed kill was swallowed, yet in both cases the still-running old instance answered the readiness check and the banner reported success. Restart now waits for the port to free up and otherwise says why it could not proceed and what to do next, including when the port is held by something that is not Harness. The port lookup runs off the main thread, works on a localized Windows, and only stops a node or dsh process.
+
+- **Start no longer leaves stray processes behind.** Killing a launch stopped only its command shell, leaving the npx and node processes running, and every Start press against a locked Harness spawned another probe just to relearn the same answer. Whole process trees are stopped now, the answer is reused for half a minute, and launches that never became ready are reaped when the widget quits. A Harness the widget started and that is serving your sessions is left running on quit.
+
+- **A closed session no longer keeps a live socket.** Untracking a session while its follow channel was still opening leaked that socket, which kept publishing events for a session the widget no longer showed. An error thrown while handling one of those events no longer escapes into the socket callback either.
+
+- **Long histories load reliably.** A history snapshot without a usable cursor made pagination fail with "made no progress" for any conversation over 80 messages; it now serves what it has.
+
+- **A widget left running for days stays lean.** Per-session caches in the main process and per-session bookkeeping in the renderer are released once a session leaves the dashboard. Drafts and sent-message history are kept, since they are your own text. The legacy event socket is only opened against a Harness that speaks it, instead of retrying forever against a token-gated one.
+
+- **An answer that finished while the stream was disconnected now appears.** The poll re-reads history when a session's preview no longer matches the answer that was loaded.
+
+- **A launch URL read back from settings is checked.** The saved URL has to be an http(s) address for this Harness, and opening Harness goes through the same protocol check as every other external link, so a value planted in the settings file cannot be handed to the operating system shell.
+
+- **The main process survives a stray exception.** An uncaught exception or unhandled rejection used to end the app with no window and no message; it is logged instead.
+
+- **Jumping to one of your own messages threw an error every time.** A variable renamed in 0.9.0 left two references to the old name on the settle path, so the correction that lands the jump exactly never ran. The rail's screen-reader labels also count all your messages, not just the sampled ticks.
+
+- **A global shortcut can no longer be bound to a key the desktop needs.** The shortcut field captured every keypress, so pressing Tab to leave it bound Tab itself for the whole machine, and the field's own handling then left no way out of it by keyboard. Tab now leaves the field, and Enter, Space, Escape, Backspace and the arrows need a modifier like every printable key.
+
+- **The version badge is readable.** At 6 to 7 pixels "v0.9.0" rendered as a blob in which the leading zero and its dot disappeared, so the widget looked like version 9. It uses a larger size with tabular figures at every width.
+
 ## [0.9.0] - 2026-09-16
 
 ### Fixed

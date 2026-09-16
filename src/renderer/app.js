@@ -14,6 +14,7 @@ const state = {
   historyLoadedSessionId: null,
   historyLoadedUpdatedAt: undefined,
   historyLoadedRevision: null,
+  historyLoadedPreview: null,
   modelsBusy: false,
   modelsRequestSequence: 0,
   commandsBusy: false,
@@ -641,6 +642,23 @@ function syncCompactStatus() {
 // window forwards clicks to whatever is behind it, so the widget stops being a transparent
 // slab over the desktop. The rectangles are measured live because the controls swap sides
 // with the dock and the panel changes size.
+let compactHitAreaSettleTimer = null;
+// Re-measure and republish, now and again once the entry animation has settled. Two
+// things used to leave the tracker testing the cursor against rectangles that no longer
+// describe anything: flipping the dock side moves every control ~44px inside the window
+// and republished nothing at all, so the visible circle forwarded its clicks to the
+// desktop and the avatar could not be grabbed again; and a measurement taken on the first
+// frame of the entry animation bakes that animation's transform into the rectangles.
+function schedulePublishCompactHitAreas() {
+  state.compactHitAreaSignature = "";
+  requestAnimationFrame(publishCompactHitAreas);
+  clearTimeout(compactHitAreaSettleTimer);
+  compactHitAreaSettleTimer = setTimeout(() => {
+    state.compactHitAreaSignature = "";
+    publishCompactHitAreas();
+  }, MODE_ENTER_DURATION + 40);
+}
+
 function publishCompactHitAreas() {
   if (!window.widget.setCompactHitAreas || state.windowMode !== "orb") return;
   const areas = [];
@@ -938,8 +956,13 @@ function clearModeTransitionClasses(kind) {
   [...document.body.classList].filter((name) => name.startsWith(prefix)).forEach((name) => document.body.classList.remove(name));
 }
 
+// The OS preference and the widget's own Motion effects switch say the same thing, so both
+// answer here. With the switch off, the CSS already refuses to animate, but the transition
+// still blocked for its full duration before the window changed at all: a dead pause with
+// nothing on screen to explain it.
 function prefersReducedMotion() {
-  return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+  return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+    || document.body.classList.contains("motion-off");
 }
 
 function animateModeExit(targetMode, requestSequence) {
@@ -950,8 +973,11 @@ function animateModeExit(targetMode, requestSequence) {
   document.body.classList.add("mode-transition-out", `mode-transition-to-${targetMode}`);
   return new Promise((resolve) => {
     setTimeout(() => {
+      // The classes stay on deliberately. Clearing them here restored the old mode at full
+      // opacity for at least one painted frame - and for as many frames as the main process
+      // took to answer - right before the window snapped to its new size. setWindowMode
+      // takes them off once the new mode is on the body.
       const currentTransition = transitionSequence === modeTransitionSequence;
-      if (currentTransition) clearModeTransitionClasses("out");
       resolve(currentTransition && requestSequence === modeRequestSequence);
     }, MODE_EXIT_DURATION);
   });
@@ -979,7 +1005,13 @@ function applyWindowMode(mode) {
   document.body.classList.remove("mode-full", "mode-orb", "mode-edge");
   document.body.classList.add(`mode-${mode}`);
   syncCrowdedChatState();
-  if (mode !== "edge") window.widget.setEdgePointerActive(true);
+  if (mode !== "edge") {
+    // Outside Edge the whole window takes the pointer. The hover flag belongs to the line, so
+    // it must not survive the switch, or the next return to Edge starts from a stale answer.
+    edgePointerActive = false;
+    $("#edgeMode").classList.remove("edge-hit-active");
+    window.widget.setEdgePointerActive(true);
+  }
   if (mode === "full") {
     acknowledgeSessionError(state.selectedSessionId);
     clearAcknowledgedErrorPresentation();
@@ -998,32 +1030,46 @@ function applyWindowMode(mode) {
   // syncCompactStatus only republishes when its own signature changed, and entering avatar
   // mode usually changes nothing it tracks — so the measurement has to be forced here, or
   // the freshly shown orb would keep the whole window interactive until something else moved.
-  state.compactHitAreaSignature = "";
-  requestAnimationFrame(publishCompactHitAreas);
+  schedulePublishCompactHitAreas();
 }
 
 async function setWindowMode(mode) {
   if (mode === "edge" && state.platformPresentation?.edgeAvailable === false) return state.windowMode;
   if (mode !== "full") clearAcknowledgedErrorPresentation();
   const requestSequence = ++modeRequestSequence;
-  if (!await animateModeExit(mode, requestSequence) || requestSequence !== modeRequestSequence) return state.windowMode;
-  const appliedMode = await window.widget.setWindowMode(mode);
-  if (requestSequence !== modeRequestSequence) return state.windowMode;
-  applyWindowMode(appliedMode);
-  return state.windowMode;
+  try {
+    if (!await animateModeExit(mode, requestSequence) || requestSequence !== modeRequestSequence) return state.windowMode;
+    const appliedMode = await window.widget.setWindowMode(mode);
+    if (requestSequence !== modeRequestSequence) return state.windowMode;
+    applyWindowMode(appliedMode);
+    return state.windowMode;
+  } finally {
+    // Whatever happened - applied, superseded, or thrown - the fade must not be left on.
+    clearModeTransitionClasses("out");
+  }
 }
 
 function applyAuthoritativeWindowMode(mode) {
   // Native hotkeys, tray actions, and the main-process acknowledgement all outrank
   // a renderer request that is still waiting for its exit animation or IPC reply.
-  modeRequestSequence += 1;
-  clearModeTransitionClasses("out");
+  // Only a real mode change does, though: main broadcasts this at the end of every
+  // applyWindowMode, including the orb's own status resize and a display re-clamp. Taking
+  // those as authoritative bumped the sequence and made the next click on the avatar
+  // return without ever asking the main process to change mode - a press that did nothing.
+  if (mode !== state.windowMode) {
+    modeRequestSequence += 1;
+    clearModeTransitionClasses("out");
+  }
   applyWindowMode(mode);
 }
 
 function applyCompactSide(side) {
+  const previous = document.body.classList.contains("side-left") ? "left" : "right";
   document.body.classList.toggle("side-left", side === "left");
   document.body.classList.toggle("side-right", side !== "left");
+  // The dock side decides where the circle and its buttons sit inside the window, so the
+  // rectangles the hit tracker owns are stale the moment it changes.
+  if (state.windowMode === "orb" && previous !== (side === "left" ? "left" : "right")) schedulePublishCompactHitAreas();
 }
 
 let compactDrag = null;
@@ -2702,8 +2748,10 @@ async function loadCommands() {
     renderCommandHint();
   } catch {
     if (requestSequence !== state.commandsRequestSequence || sessionId !== state.selectedSessionId) return;
-    state.commandCatalog = [];
-    state.commandsLoadedSessionId = sessionId;
+    // A failed load is not a loaded one: keep the previous catalog and stay
+    // unloaded so the next poll retries. Marking failure as loaded emptied the
+    // slash menu permanently after a single blip, turning every command into
+    // "Unknown Harness command" until the session was switched.
     renderCommands();
     renderCommandHint();
   } finally {
@@ -3121,7 +3169,8 @@ function renderMessageMarks() {
     tick.style.top = `${(mark.ratio * 100).toFixed(3)}%`;
     tick.title = mark.label;
     tick.dataset.msgIndex = String(mark.msgIndex);
-    tick.setAttribute("aria-label", `Your message ${mark.ordinal + 1} of ${marks.length}: ${mark.label}`);
+    // Of all your messages, not of the sampled ticks: a long chat announced "message 998 of 334".
+    tick.setAttribute("aria-label", `Your message ${mark.ordinal + 1} of ${userEntries.length}: ${mark.label}`);
     // The click reads the index off the element, so it resolves the live bubble at
     // click time rather than closing over one that a later render will have replaced.
     tick.addEventListener("click", () => scrollToUserMessage(Number(tick.dataset.msgIndex)));
@@ -3192,12 +3241,15 @@ function scheduleMessageMagnet() {
 function updateScrollLatestButton() {
   const button = $("#scrollLatestButton");
   const hiddenNewer = transcriptHiddenNewerCount();
+  const arrived = transcriptArrivedCount();
   const visible = !state.messagesStickToBottom || hiddenNewer > 0;
-  const label = hiddenNewer > 1
-    ? `${hiddenNewer} new`
-    : hiddenNewer === 1
+  const label = arrived > 1
+    ? `${arrived} new`
+    : arrived === 1
       ? "New"
-      : state.unseenMessages > 1 ? `${state.unseenMessages} new` : state.unseenMessages === 1 ? "New" : "Latest";
+      : hiddenNewer > 0
+        ? "Latest"
+        : state.unseenMessages > 1 ? `${state.unseenMessages} new` : state.unseenMessages === 1 ? "New" : "Latest";
   const signature = JSON.stringify([visible, label]);
   if (signature === state.scrollLatestSignature) return false;
   state.scrollLatestSignature = signature;
@@ -3279,14 +3331,22 @@ function reconcileChildren(root, nodes) {
 
 // A block that arrives while the log is already on screen slides in; the first load of a
 // session does not animate a hundred bubbles at once.
+// With motion off there is no animation to end, so the class used to stay on every bubble
+// built in the meantime, and switching Motion effects back on slid the whole transcript in
+// at once. The timer covers any other animationend that never arrives.
+const TRANSCRIPT_ENTER_FALLBACK_MS = 600;
 function markTranscriptEntry(node) {
+  if (prefersReducedMotion()) return;
   node.classList.add("enter");
-  const settle = (event) => {
-    if (event.target !== node) return;
+  let timer = null;
+  const settle = () => {
+    clearTimeout(timer);
     node.classList.remove("enter");
-    node.removeEventListener("animationend", settle);
+    node.removeEventListener("animationend", onEnd);
   };
-  node.addEventListener("animationend", settle);
+  const onEnd = (event) => { if (event.target === node) settle(); };
+  timer = setTimeout(settle, TRANSCRIPT_ENTER_FALLBACK_MS);
+  node.addEventListener("animationend", onEnd);
 }
 
 function transcriptEmptyState() {
@@ -3832,8 +3892,26 @@ let transcriptViewSessionId;
 let transcriptViewStart = 0;
 let transcriptViewEnd = 0;
 let transcriptViewTotal = 0;
+// How many messages the user had in front of them the last time the window reached the
+// newest one. Rows hidden below the window up to this mark were already read and simply
+// scrolled away; only rows past it are arrivals worth calling new.
+let transcriptSeenTotal = 0;
 let transcriptAverageRowHeight = TRANSCRIPT_ROW_ESTIMATE_PX;
 let transcriptGrowing = false;
+// When the last grow moved the scroll itself. See settleTranscriptScroll.
+let transcriptProgrammaticScrollAt = 0;
+const TRANSCRIPT_PROGRAMMATIC_SCROLL_MS = 250;
+
+// A grow restores the reading position with a programmatic scroll, and that scroll fires the
+// same event a hand does. When the rows that materialized were shorter than the spacer they
+// replaced, the restored offset was still inside the load zone, so that event grew the window
+// again, and again: one wheel tick walked the whole history to the top in a single burst of
+// renders and lost the place. Growth answers the hand only, never its own correction.
+function settleTranscriptScroll(root, top) {
+  const before = root.scrollTop;
+  root.scrollTop = Math.max(0, top);
+  if (root.scrollTop !== before) transcriptProgrammaticScrollAt = Date.now();
+}
 let transcriptSilentGrow = false;
 let transcriptPreviewCache = { source: [], messages: [] };
 
@@ -3883,6 +3961,7 @@ function transcriptWindow(total) {
   while (end < total && messages[end - 1]?.role === "tool" && messages[end]?.role === "tool") end += 1;
   transcriptViewStart = start;
   transcriptViewEnd = end;
+  if (end === total) transcriptSeenTotal = total;
   return { start, end, total, latest: end === total };
 }
 
@@ -3896,12 +3975,21 @@ function transcriptHiddenNewerCount() {
   return Math.max(0, state.currentMessages.length - transcriptViewEnd);
 }
 
+// The part of the hidden rows that actually arrived while the user was away from the
+// newest message. Counting every hidden row instead labelled a scrolled-away history
+// "160 new" with nothing new in it, and did the same after every jump to an old message.
+function transcriptArrivedCount() {
+  if (transcriptViewSessionId !== state.selectedSessionId) return 0;
+  return Math.max(0, state.currentMessages.length - Math.max(transcriptSeenTotal, transcriptViewEnd));
+}
+
 function jumpToLatestTranscript() {
   const total = state.currentMessages.length;
   transcriptViewSessionId = state.selectedSessionId;
   transcriptViewEnd = total;
   transcriptViewStart = Math.max(0, total - TRANSCRIPT_WINDOW_INITIAL);
   transcriptViewTotal = total;
+  transcriptSeenTotal = total;
   releaseMessageScrollPin();
   state.messageMarkFlashIndex = null;
   state.messagesStickToBottom = true;
@@ -3929,7 +4017,39 @@ function growTranscriptWindowUp() {
   } finally {
     transcriptSilentGrow = false;
   }
-  root.scrollTop = previousTop + (root.scrollHeight - previousHeight);
+  settleTranscriptScroll(root, previousTop + (root.scrollHeight - previousHeight));
+  updateScrollLatestButton();
+  return true;
+}
+
+// The mirror of growTranscriptWindowUp, and the reason the log could look dead. The window
+// only ever grew upwards, so after a few chunks of scrollback the newest messages sat below
+// it behind a spacer. Scrolling back down landed on the bottom of that spacer: a blank
+// region where arrivals never appeared, with no way out but the jump-to-latest pill.
+// The anchor is the last row already on screen, which survives the grow, so trimming the
+// top of the window to stay under the DOM cap cannot move the text being read.
+function growTranscriptWindowDown() {
+  const root = $("#messages");
+  const total = state.currentMessages.length;
+  if (!root || transcriptViewSessionId !== state.selectedSessionId || transcriptViewEnd >= total) return false;
+  const anchorIndex = Math.max(transcriptViewStart, transcriptViewEnd - 1);
+  const anchorBefore = root.querySelector(`[data-vmsg="${anchorIndex}"]`);
+  const offsetBefore = anchorBefore ? anchorBefore.getBoundingClientRect().top - root.getBoundingClientRect().top : null;
+  transcriptViewEnd = Math.min(total, transcriptViewEnd + TRANSCRIPT_WINDOW_GROW);
+  if (transcriptViewEnd - transcriptViewStart > TRANSCRIPT_WINDOW_MAX) {
+    transcriptViewStart = transcriptViewEnd - TRANSCRIPT_WINDOW_MAX;
+  }
+  transcriptSilentGrow = true;
+  try {
+    renderMessages(state.currentMessages);
+  } finally {
+    transcriptSilentGrow = false;
+  }
+  const anchorAfter = offsetBefore === null ? null : root.querySelector(`[data-vmsg="${anchorIndex}"]`);
+  if (anchorAfter) {
+    const offsetAfter = anchorAfter.getBoundingClientRect().top - root.getBoundingClientRect().top;
+    settleTranscriptScroll(root, root.scrollTop + (offsetAfter - offsetBefore));
+  }
   updateScrollLatestButton();
   return true;
 }
@@ -3939,13 +4059,21 @@ function maybeGrowTranscriptWindow() {
   // while a deferred grow would starve in a throttled window and leave the top
   // of the history unreachable until the next frame pump.
   if (transcriptGrowing) return;
+  const ownScroll = transcriptProgrammaticScrollAt && Date.now() - transcriptProgrammaticScrollAt < TRANSCRIPT_PROGRAMMATIC_SCROLL_MS;
+  transcriptProgrammaticScrollAt = 0;
+  if (ownScroll) return;
   const root = $("#messages");
-  if (!root || root.scrollTop >= TRANSCRIPT_TOP_LOAD_PX) return;
-  if (!state.currentMessages.length) return;
-  if (transcriptViewSessionId !== state.selectedSessionId || transcriptViewStart <= 0) return;
+  if (!root || !state.currentMessages.length) return;
+  if (transcriptViewSessionId !== state.selectedSessionId) return;
+  const towardsOlder = root.scrollTop < TRANSCRIPT_TOP_LOAD_PX && transcriptViewStart > 0;
+  const towardsNewer = !towardsOlder
+    && root.scrollHeight - root.scrollTop - root.clientHeight < TRANSCRIPT_TOP_LOAD_PX
+    && transcriptViewEnd < state.currentMessages.length;
+  if (!towardsOlder && !towardsNewer) return;
   transcriptGrowing = true;
   try {
-    growTranscriptWindowUp();
+    if (towardsOlder) growTranscriptWindowUp();
+    else growTranscriptWindowDown();
   } finally {
     transcriptGrowing = false;
   }
@@ -3978,7 +4106,7 @@ function rememberTranscriptRowHeights(root, messageCount) {
     if (typeof node?.classList?.contains !== "function") continue;
     if (node.classList.contains("transcript-spacer") || node.classList.contains("transcript-window-edge")) continue;
     const rect = typeof node.getBoundingClientRect === "function" ? node.getBoundingClientRect() : null;
-    if (rect.height > 0) {
+    if (rect?.height > 0) {
       height += rect.height;
       blocks += 1;
     }
@@ -4035,17 +4163,22 @@ function renderMessages(messages) {
   const previousTop = root.scrollTop;
   const wasPinned = state.messagesStickToBottom;
   state.currentMessages = Array.isArray(messages) ? messages : [];
-  const window = transcriptWindow(state.currentMessages.length);
-  const visibleMessages = visibleMessagePreviews(state.currentMessages, window.start, window.end);
-  const liveAssistant = window.latest ? liveAssistantSnapshot() : null;
-  const steering = window.latest ? steeringPromptsFor() : [];
+  // Not `window`: that name shadowed the global for the rest of the hottest function in
+  // the app, waiting for the first window.matchMedia or getSelection added below.
+  const view = transcriptWindow(state.currentMessages.length);
+  const visibleMessages = visibleMessagePreviews(state.currentMessages, view.start, view.end);
+  const liveAssistant = view.latest ? liveAssistantSnapshot() : null;
+  const steering = view.latest ? steeringPromptsFor() : [];
   const awaitingHistory = transcriptAwaitingHistory();
-  const signature = `${state.selectedSessionId || "new"}::${awaitingHistory ? "loading" : "loaded"}::${window.start}:${window.end}:${window.total}::${visibleMessages.map(messageSignature).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}`;
+  const signature = `${state.selectedSessionId || "new"}::${awaitingHistory ? "loading" : "loaded"}::${view.start}:${view.end}:${view.total}::${visibleMessages.map(messageSignature).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}`;
   const previousSignature = state.historySignature;
   const changed = Boolean(previousSignature && signature !== previousSignature);
   const unchanged = root.dataset.rendered === "true" && signature === previousSignature;
-  state.historySignature = signature;
   if (unchanged) return paintLiveAssistant();
+  // Cleared until the DOM really matches: committing the new signature first meant a single
+  // throw below froze the chat, because every later render matched it and returned early
+  // without repairing the half-built transcript.
+  state.historySignature = "";
   const expandedTools = openToolKeys(root);
   const selection = captureMessageSelection(root);
   const cache = transcriptCache();
@@ -4056,11 +4189,11 @@ function renderMessages(messages) {
   const blocks = [];
   // The scroll-up hint only exists while older history is actually unloaded, so a
   // short chat renders exactly the bubbles it has and no extra rows.
-  if (window.start > 0) {
-    const hidden = window.start;
+  if (view.start > 0) {
+    const hidden = view.start;
     const topHeight = hidden * transcriptAverageRowHeight;
-    blocks.push({ key: "window-top", signature: `top:${window.start}:${Math.round(topHeight)}`, count: 0, build: () => transcriptSpacer(topHeight, `${hidden} older messages`) });
-    blocks.push({ key: "window-top-edge", signature: `edge:${window.start}`, count: 0, build: () => transcriptWindowEdge("Older messages load as you scroll up") });
+    blocks.push({ key: "window-top", signature: `top:${view.start}:${Math.round(topHeight)}`, count: 0, build: () => transcriptSpacer(topHeight, `${hidden} older messages`) });
+    blocks.push({ key: "window-top-edge", signature: `edge:${view.start}`, count: 0, build: () => transcriptWindowEdge("Older messages load as you scroll up") });
   }
   if (!state.currentMessages.length && !liveAssistant?.text && !steering.length) {
     blocks.push(awaitingHistory
@@ -4069,7 +4202,7 @@ function renderMessages(messages) {
   } else {
     let modelSetupShown = false;
     for (let index = 0; index < visibleMessages.length;) {
-      const globalIndex = window.start + index;
+      const globalIndex = view.start + index;
       const message = visibleMessages[index];
       if (message.role === "reasoning") {
         index += 1;
@@ -4107,10 +4240,10 @@ function renderMessages(messages) {
       blocks.push({ key: `steer:${item.id || item.preview || ""}`, signature: JSON.stringify([item.id, item.preview, item.text]), count: 0, build: () => createSteeringBubble(item) });
     }
     if (liveAssistant?.text && !liveDuplicatesFinalAnswer(liveAssistant.text)) blocks.push({ key: "live", signature: "live", count: 0, build: createLiveBubble });
-    if (!window.latest) {
-      const hidden = window.total - window.end;
+    if (!view.latest) {
+      const hidden = view.total - view.end;
       const bottomHeight = hidden * transcriptAverageRowHeight;
-      blocks.push({ key: "window-bottom", signature: `bottom:${window.end}:${window.total}:${Math.round(bottomHeight)}`, count: 0, build: () => transcriptSpacer(bottomHeight, `${hidden} newer messages`) });
+      blocks.push({ key: "window-bottom", signature: `bottom:${view.end}:${view.total}:${Math.round(bottomHeight)}`, count: 0, build: () => transcriptSpacer(bottomHeight, `${hidden} newer messages`) });
     }
   }
   const nodes = [];
@@ -4137,13 +4270,19 @@ function renderMessages(messages) {
   }
   state.transcriptCache = next;
   reconcileChildren(root, nodes);
+  state.historySignature = signature;
   rememberTranscriptRowHeights(root, visibleMessages.length);
   syncLiveBubbleContent(root);
   restoreOpenToolKeys(root, expandedTools);
+  // A layout wobble (spacer estimate settling, images resolving) can clear the
+  // pinned flag while the viewport never actually left the bottom. Geometry is
+  // the truth here: whatever was visually at the bottom stays at the bottom.
+  const visuallyAtBottom = root.scrollHeight - previousTop - root.clientHeight < 44;
   if (applyMessageScrollPin()) {
     if (changed) state.unseenMessages = 1;
-  } else if (wasPinned) {
+  } else if (wasPinned || (visuallyAtBottom && view.latest)) {
     root.scrollTop = root.scrollHeight;
+    state.messagesStickToBottom = true;
     state.unseenMessages = 0;
   } else {
     root.scrollTop = Math.min(previousTop, Math.max(0, root.scrollHeight - root.clientHeight));
@@ -4238,6 +4377,7 @@ function invalidateSelectedHistoryVersion() {
   state.historyLoadedSessionId = null;
   state.historyLoadedUpdatedAt = undefined;
   state.historyLoadedRevision = null;
+  state.historyLoadedPreview = null;
 }
 
 function selectedSessionUpdatedAt(sessionId = state.selectedSessionId) {
@@ -4248,6 +4388,22 @@ function selectedHistoryIsCurrent(session) {
   return Boolean(session)
     && state.historyLoadedSessionId === session.sessionId
     && Object.is(state.historyLoadedUpdatedAt, session.updatedAt);
+}
+
+// session.list does not promise an updatedAt bump for every new message, but
+// the dashboard preview always carries the newest assistant text. A preview
+// that moved while no live stream owns the session means history is behind.
+function selectedPreviewChanged(session) {
+  if (!session || state.historyLoadedPreview == null) return false;
+  if (state.historyLoadedSessionId !== session.sessionId) return false;
+  return (session.preview || "") !== state.historyLoadedPreview;
+}
+
+function latestAssistantPreview(messages) {
+  for (let index = (Array.isArray(messages) ? messages.length : 0) - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "assistant" && messages[index]?.text) return messages[index].text;
+  }
+  return "";
 }
 
 function selectedLiveStreamIsActive(sessionId = state.selectedSessionId) {
@@ -4314,6 +4470,7 @@ async function refreshHistory({ priority = false } = {}) {
     if (view.revision !== null && view.revision !== undefined) state.historyLoadedRevision = view.revision;
     if (state.historyPendingSessionId === sessionId) state.historyPendingSessionId = null;
     const messages = skipReconciliation ? state.currentMessages : view.messages || [];
+    state.historyLoadedPreview = latestAssistantPreview(messages);
     if (chatVisual) {
       const historySession = state.dashboard?.sessions?.find((session) => session.sessionId === sessionId);
       chatVisual.notePoll(sessionId, {
@@ -4774,6 +4931,20 @@ function detectCompletedSessions(nextSessions) {
   for (const tracked of [state.completedSignalSessionIds, state.errorSignalSessionIds, state.unacknowledgedErrorSessionIds]) {
     for (const sessionId of tracked) if (!existing.has(sessionId)) tracked.delete(sessionId);
   }
+  // The rest of the per-session bookkeeping goes the same way. A widget left running for days
+  // kept the queue snapshots, revision counters and command feedback of every session it had
+  // ever seen, and the poll copies one of those maps wholesale on every tick. The selected
+  // session is kept even if one poll omits it. Live streams are left alone, since a session
+  // created a moment ago can stream before the dashboard lists it, and so are drafts and sent
+  // history: they are the user's own text, grow only as fast as the user types, and losing
+  // them to one short poll would be worse than keeping them.
+  const keep = (sessionId) => existing.has(sessionId) || sessionId === state.selectedSessionId;
+  for (const map of [state.queuedPromptsBySession, state.steeringPromptsBySession, state.queueSnapshotRevisions, state.queueHandoffEpochs, state.queueRecoveryGenerations, state.liveSessionRevisions, state.turnGenerationsBySession, state.commandFeedbackBySession]) {
+    for (const sessionId of [...map.keys()]) if (!keep(sessionId)) map.delete(sessionId);
+  }
+  for (const set of [state.todoExpandedSessionIds, state.cancelPendingSessionIds]) {
+    for (const sessionId of [...set]) if (!keep(sessionId)) set.delete(sessionId);
+  }
   for (const sessionId of currentRunning) {
     state.completedSignalSessionIds.delete(sessionId);
     state.errorSignalSessionIds.delete(sessionId);
@@ -4965,7 +5136,7 @@ async function performRefresh() {
     if (!state.workspacesLoaded) await loadWorkspaces();
     if (state.tab === "chat") {
       if (!state.selectedSessionId) await refreshHistory();
-      else if (!selectedStreamUsable && !selectedHistoryIsCurrent(selectedSession)) await refreshHistory();
+      else if (!selectedStreamUsable && (!selectedHistoryIsCurrent(selectedSession) || selectedPreviewChanged(selectedSession))) await refreshHistory();
     }
   } finally {
     state.refreshing = false;
@@ -5000,7 +5171,6 @@ function renderOfflineBanner() {
   banner.classList.toggle("show", state.harnessOffline);
   if (!state.harnessOffline) return;
   const label = $("#offlineBannerText");
-  const start = $("#startHarnessButton");
   const connectRow = $("#harnessConnectRow");
   const connectError = $("#harnessConnectError");
   const connectButton = $("#harnessConnectButton");
@@ -5088,10 +5258,12 @@ async function connectHarnessWithUrl() {
   renderOfflineBanner();
   try {
     await window.widget.setHarnessLaunchUrl(value);
-    if (input) input.value = "";
     state.harnessConnectError = "";
     await refresh({ afterCurrent: true });
     if (!state.dashboard?.harness) throw new Error("Harness is still not responding");
+    // Only now: clearing the field before the dashboard came back left a failed connect with
+    // an error, an empty field and nothing to fix, so the dsh web: line had to be copied again.
+    if (input) input.value = "";
   } catch (error) {
     state.harnessConnectError = String(error?.message || error || "Harness did not accept that URL");
   } finally {
@@ -5104,6 +5276,20 @@ async function connectHarnessWithUrl() {
   }
 }
 
+// Restart used to say "could not be restarted" for every refusal, which gave the user nothing
+// to do. Each reason the launcher reports has a next step, so the banner names it.
+function harnessRestartFailure(result) {
+  const blocker = Array.isArray(result?.blockedBy) ? result.blockedBy.filter(Boolean)[0] : "";
+  if (blocker) return `The Harness port is held by ${blocker}, which is not Harness. Close it, then press Start`;
+  switch (result?.reason) {
+    case "remote-url": return "Remote Harness cannot be restarted here";
+    case "restart-unsupported": return "This system cannot stop the running Harness. Stop it in its terminal, then press Start";
+    case "restart-failed": return "The running Harness did not stop. Close it in its terminal and try again";
+    case "disposed": return "The widget is shutting down";
+    default: return "Harness could not be restarted";
+  }
+}
+
 async function restartHarnessFromBanner() {
   if (state.harnessConnectBusy || state.harnessStarting) return;
   state.harnessConnectBusy = true;
@@ -5111,7 +5297,7 @@ async function restartHarnessFromBanner() {
   renderOfflineBanner();
   try {
     const result = await window.widget.restartHarness();
-    if (!result?.ok) throw new Error(result?.reason === "remote-url" ? "Remote Harness cannot be restarted here" : "Harness could not be restarted");
+    if (!result?.ok) throw new Error(harnessRestartFailure(result));
     await refresh({ afterCurrent: true });
     if (!state.dashboard?.harness) throw new Error("Harness restarted but is not responding yet");
   } catch (error) {
@@ -5386,6 +5572,8 @@ function applyMotionEffects(value) {
   state.motionEffects = value !== false;
   $("#motionEffectsToggle").checked = state.motionEffects;
   document.body.classList.toggle("motion-off", !state.motionEffects);
+  // Nothing built while motion was off may replay its entrance now that it is back on.
+  if (state.motionEffects) $$("#messages > .enter").forEach((node) => node.classList.remove("enter"));
   return state.motionEffects;
 }
 
@@ -5913,8 +6101,11 @@ $("#messages").addEventListener("scroll", () => {
   // bottom - or lands on it because skipped rows report remembered sizes - must not
   // re-pin to the bottom halfway there. The hand still wins at once via wheel/pointer/keys.
   if (!activeMessageScrollPin()) {
-    state.messagesStickToBottom = nearBottom;
-    if (nearBottom) state.unseenMessages = 0;
+    // The bottom of the viewport is only the bottom of the conversation when the window
+    // actually holds the newest message. Sticking to the foot of a spacer told every later
+    // render to scroll to a blank region and call it "following the conversation".
+    state.messagesStickToBottom = nearBottom && transcriptAtLatest();
+    if (state.messagesStickToBottom) state.unseenMessages = 0;
   }
   updateScrollLatestButton();
   maybeGrowTranscriptWindow();
@@ -5938,9 +6129,9 @@ $("#messages").addEventListener("scrollend", () => {
   // nothing left to correct it. scrollIntoView resolves the real geometry on the way
   // there instead of trusting the estimate. The tolerance guard keeps the correction
   // itself from becoming a new scroll that would re-enter this handler forever.
-  const delta = bubble.getBoundingClientRect().top - root.getBoundingClientRect().top;
+  const delta = node.getBoundingClientRect().top - root.getBoundingClientRect().top;
   if (Math.abs(delta - MESSAGE_PIN_OFFSET) <= 1.5) return;
-  bubble.scrollIntoView({ block: "start", behavior: "auto" });
+  node.scrollIntoView({ block: "start", behavior: "auto" });
   pinTranscriptAncestors();
   root.scrollTop = Math.max(0, root.scrollTop - MESSAGE_PIN_OFFSET);
 });
@@ -5960,8 +6151,13 @@ if (typeof ResizeObserver === "function") {
     root.scrollTop = root.scrollHeight;
   }).observe($("#messages"));
 }
-$("#scrollLatestButton").addEventListener("click", () => {
-  if (transcriptHiddenNewerCount() > 0) jumpToLatestTranscript();
+$("#scrollLatestButton").addEventListener("click", async () => {
+  // The pill can outrun the transcript: refresh first so the jump lands on the
+  // messages it promised, not on a window that has since moved on.
+  if (transcriptHiddenNewerCount() > 0) {
+    try { await refreshHistory(); } catch {}
+    jumpToLatestTranscript();
+  }
   releaseMessageScrollPin();
   clearTimeout(state.scrollLatestAutoScrollTimer);
   state.scrollLatestAutoScrolling = true;
@@ -6096,6 +6292,16 @@ for (const target of [$("#orbMode"), $("#edgeMode")]) {
   target.addEventListener("pointerup", endCompactDrag);
   target.addEventListener("pointercancel", endCompactDrag);
 }
+// The element a drag started on is display:none the moment the mode changes under it, and
+// a hidden element delivers neither pointerup nor pointercancel. The window still does, so
+// it carries the end of any gesture its own element can no longer finish. Both handlers
+// ignore a pointerId they do not own, so this never ends someone else's drag.
+for (const eventName of ["pointerup", "pointercancel"]) {
+  window.addEventListener(eventName, (event) => {
+    if (compactDrag) endCompactDrag(event);
+    if (fullDrag) endFullDrag(event);
+  }, true);
+}
 document.addEventListener("mousemove", updateEdgePointerHit, true);
 document.addEventListener("mouseleave", () => {
   if (!compactDrag) setEdgePointerActive(false);
@@ -6175,6 +6381,10 @@ $("#compactAutoExpandToggle").addEventListener("change", async (event) => {
 $$('[data-hotkey-action]').forEach((input) => {
   input.addEventListener("focus", () => setHotkeyStatus("Press a new combination · Esc cancels"));
   input.addEventListener("keydown", async (event) => {
+    // Tab leaves the field. Capturing it bound the Tab key itself as a global shortcut for
+    // the whole desktop, and the field's own preventDefault then left the keyboard with no
+    // way out of it at all.
+    if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) return;
     event.preventDefault();
     event.stopPropagation();
     if (event.key === "Escape") {
@@ -6720,7 +6930,7 @@ if (screenshotFixture) {
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"
-        ? { status: "ready", currentVersion: "0.8.0", latestVersion: "0.9.0", installMode: "portable-replace", progress: 100 }
+        ? { status: "ready", currentVersion: "0.9.0", latestVersion: "0.9.1", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
     } else if (screenshotFixture === "hotkey-settings") {

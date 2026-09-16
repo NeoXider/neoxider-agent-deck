@@ -13,9 +13,10 @@ const { createQuitCoordinator } = require("./quit-coordinator.cjs");
 const { createRegionSelector } = require("./region-selector.cjs");
 const { createRendererRecoveryController } = require("./renderer-recovery.cjs");
 const { createScreenshotCaptureGate, createScreenshotService } = require("./screenshot-service.cjs");
-const { createInstalledUpdateService } = require("./installed-update-service.cjs");
 const { createUpdateOrchestrator } = require("./update-orchestrator.cjs");
-const { createUpdateService } = require("./update-service.cjs");
+const { createApplicationUpdateService: selectUpdateService } = require("./update-service-factory.cjs");
+const { createCompactGlide } = require("./compact-glide.cjs");
+const { installProcessGuards } = require("./process-guards.cjs");
 const {
   applyPlatformOpacity,
   applyPlatformWindowLayer,
@@ -38,7 +39,7 @@ const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.c
 const { configureProductUserData } = require("./user-data-migration.cjs");
 const {
   compactVisibleInset,
-  edgeDragBounds,
+  edgeDragPlacement,
   moveCompactBounds,
   snapCompactBounds,
 } = require("./window-geometry.cjs");
@@ -55,10 +56,16 @@ const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
 app.setName(PRODUCT_NAME);
 if (process.platform === "win32") app.setAppUserModelId(APP_ID);
 configureProductUserData({ app });
+// A throw during startup or in a socket callback used to end the app without a word.
+installProcessGuards();
 const api = new HarnessApi(HARNESS_URL, globalThis.fetch, { getLaunchBrowserUrl: () => harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl || "" });
 const dashboardReader = createSharedDashboardReader({
   api,
-  onSessions: (sessionIds) => remoteMux.setTrackedSessions(sessionIds),
+  onSessions: (sessionIds) => {
+    remoteMux.setTrackedSessions(sessionIds);
+    // The open chat is kept even when it is a subagent or archived session the list omits.
+    api.retainSessions([...sessionIds, preferences.lastSelectedSessionId].filter(Boolean));
+  },
 });
 const imageEncoder = createBase64Encoder({ strategy: process.env.DSH_WIDGET_B64_STRATEGY });
 const { prepareFiles: prepareFilesFromDisk } = createAttachmentReader({
@@ -117,6 +124,12 @@ let compactStatusResizePending = false;
 let compactHitAreas = [];
 let fullDragOrigin = null;
 let compactDragTrace = [];
+// A stranded full origin silently stops every later move and resize from being captured,
+// so Full reopens at a stale position for the rest of the session; a stranded compact one
+// keeps the orb from ever resizing again and leaves its transparent window eating clicks.
+function releaseDragOrigins() { compactDragOrigin = null; fullDragOrigin = null; compactGlide.stop(); }
+// The release snap flies to the edge over a few frames; see compact-glide.cjs.
+const compactGlide = createCompactGlide({ setPosition: (x, y) => (windowRef && !windowRef.isDestroyed() ? (windowRef.setPosition(x, y, false), true) : false) });
 const queueSnapshots = new Map();
 let rendererRecovery;
 let remoteMux;
@@ -139,6 +152,7 @@ function cleanupApplication() {
   if (windowRef && !windowRef.isDestroyed()) captureWindowBounds(windowMode, windowRef.getBounds());
   if (settingsStore) savePreferences({ retryOnFailure: false });
   muxClient.stop();
+  harnessLauncher?.dispose();
   remoteMux?.stop();
   gameLayerKeeper?.stop();
   compactHitTracker?.stop();
@@ -213,30 +227,15 @@ async function openGameBarSession(sessionId) {
   if (!sendToRenderer("gamebar-select-session", sessionId)) throw new Error("Renderer unavailable");
 }
 function createApplicationUpdateService() {
-  const shared = {
+  return selectUpdateService({
     currentVersion: app.getVersion(),
     isPackaged: app.isPackaged,
+    portableExecutable: process.env.PORTABLE_EXECUTABLE_FILE || "",
     openExternal: (url) => shell.openExternal(url),
     onState: (state) => sendToRenderer("update-state", state),
-  };
-  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE) {
-    return createUpdateService({
-      ...shared,
-      requestQuit: (reason) => quitCoordinator.requestQuit(reason),
-    });
-  }
-  let updater = null;
-  try {
-    ({ autoUpdater: updater } = require("electron-updater"));
-  } catch (error) {
-    console.error("Installed updater is unavailable", error);
-  }
-  return createInstalledUpdateService({
-    ...shared,
-    updater,
-    isMas: Boolean(process.mas),
-    isWindowsStore: Boolean(process.windowsStore),
-    isMacSigned: false,
+    requestQuit: (reason) => quitCoordinator.requestQuit(reason),
+    isMas: process.mas,
+    isWindowsStore: process.windowsStore,
   });
 }
 function screenshotDisplayPoint() {
@@ -329,6 +328,8 @@ const { publishLiveEvent, publishQueue } = createStreamPublisher({ queueSnapshot
 // Reconnect and silence handling live in mux-client.cjs.
 const muxClient = createMuxClient({
   harnessUrl: HARNESS_URL,
+  // Only a legacy Harness speaks this socket; a gated one can never authenticate it.
+  shouldConnect: async () => (await api.detectGeneration()) === "legacy",
   onQueue: publishQueue,
   onLiveEvent: publishLiveEvent,
   onSubscribed: (sessionId) => {
@@ -409,20 +410,16 @@ function moveWindowWithinNearestDisplay(bounds, candidate, preserveSize = false)
 
 // The display is chosen from the POINTER, not from the window, so dragging the line onto
 // another monitor moves it there instead of pinning it to the edge of the one it left.
-function moveEdgeWindowToPointer(bounds, pointer) {
-  if (!PLATFORM_CAPABILITIES.programmaticPosition) return bounds;
+function moveEdgeWindowToPointer(origin, pointer) {
+  if (!PLATFORM_CAPABILITIES.programmaticPosition) return origin?.bounds || origin;
   const display = screen.getDisplayNearestPoint({ x: Math.round(pointer.x), y: Math.round(pointer.y) }).workArea;
-  const flush = edgeDragBounds(bounds, pointer, display);
-  // Clamped by the visible line, so the pointer can carry it right up to the top or bottom
-  // of the screen instead of stopping 28 px short on the window's transparent padding.
-  const inset = compactVisibleInset("edge", flush.side, flush);
-  const moved = moveCompactBounds(flush, { x: flush.x, y: pointer.y - bounds.height / 2 }, display, inset);
-  windowRef.setPosition(moved.x, moved.y, false);
-  if (flush.side !== preferences.compactSide) {
-    preferences.compactSide = flush.side;
-    sendToRenderer("compact-side", flush.side);
+  const placed = edgeDragPlacement(origin, pointer, display, preferences.compactSide);
+  windowRef.setPosition(placed.x, placed.y, false);
+  if (placed.side !== preferences.compactSide) {
+    preferences.compactSide = placed.side;
+    sendToRenderer("compact-side", placed.side);
   }
-  return { ...moved, side: flush.side };
+  return placed;
 }
 
 function snapCurrentCompactWindow({ traceEnd = false } = {}) {
@@ -436,10 +433,13 @@ function snapCurrentCompactWindow({ traceEnd = false } = {}) {
   const snapped = snapCompactBounds(bounds, display, windowMode, currentCompactInset(bounds));
   if (traceEnd) traceCompactDrag("end", { before: bounds, snapped });
   preferences.compactSide = snapped.side;
-  setPlatformBounds(windowRef, { x: snapped.x, y: snapped.y, width: snapped.width, height: snapped.height }, true, PLATFORM_CAPABILITIES);
+  // The side goes first so the circle is already on its new side of the window when the
+  // flight starts, instead of sliding ~44px after the window has landed.
+  sendToRenderer("compact-side", preferences.compactSide);
+  const target = { x: snapped.x, y: snapped.y, width: snapped.width, height: snapped.height };
+  compactGlide.glide(bounds, target, () => { if (windowRef && !windowRef.isDestroyed()) setPlatformBounds(windowRef, target, true, PLATFORM_CAPABILITIES); });
   captureWindowBounds(windowMode, snapped, snapped.side);
   savePreferences();
-  sendToRenderer("compact-side", preferences.compactSide);
   return { ...windowRef.getBounds(), side: preferences.compactSide };
 }
 
@@ -447,6 +447,9 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   if (!windowRef || windowRef.isDestroyed() || !["full", "orb", "edge"].includes(nextMode)) return;
   if (nextMode === "edge" && PLATFORM_CAPABILITIES.edgeMode === "unavailable") nextMode = "orb";
   const preservedOrbPosition = preserveCompactPosition && nextMode === "orb" ? preferences.windowState.orb : null;
+  // A drag interrupted by a mode change never delivers its pointerup: the element that
+  // started it is display:none by then. See releaseDragOrigins for what a stranded one costs.
+  if (nextMode !== windowMode) releaseDragOrigins();
   if (captureCurrent) captureWindowBounds(windowMode, windowRef.getBounds());
   windowMode = nextMode;
   preferences.windowState.mode = nextMode;
@@ -553,7 +556,8 @@ function createWindow() {
   // A frameless transparent window that loses its renderer stays on screen as a dead
   // click-through shape the user cannot close except from the task manager. Reload it,
   // but give up after a few attempts so a reproducible crash cannot become a loop.
-  windowRef.webContents.on("did-finish-load", () => rendererRecovery.loaded());
+  // A reloaded renderer has no memory of the gesture it was in the middle of.
+  windowRef.webContents.on("did-finish-load", () => { releaseDragOrigins(); rendererRecovery.loaded(); });
   windowRef.webContents.on("did-fail-load", (_event, code, description, _url, isMainFrame) => {
     if (isMainFrame !== false && code !== -3) rendererRecovery.failed(`load-${code || description || "failed"}`);
   });
@@ -637,7 +641,7 @@ function registerWidgetIpc() {
     getCompactStatus: () => compactStatus,
     setCompactStatus: (value) => { compactStatus = value; },
     getCompactDragOrigin: () => compactDragOrigin,
-    setCompactDragOrigin: (value) => { compactDragOrigin = value; },
+    setCompactDragOrigin: (value) => { if (value) compactGlide.stop(); compactDragOrigin = value; },
     getFullDragOrigin: () => fullDragOrigin,
     setFullDragOrigin: (value) => { fullDragOrigin = value; },
     getCompactStatusResizePending: () => compactStatusResizePending,

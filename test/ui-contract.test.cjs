@@ -344,10 +344,24 @@ test("manual chat scrolling is preserved and jump-to-latest stays visible away f
   const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /\.scroll-latest\s*\{[^}]*position:absolute;[^}]*right:7px;[^}]*bottom:7px/);
   assert.match(css, /\.scroll-latest\.completion-pop/);
-  // The jump itself is a smooth scrollTo, never a bare offset write.
+  // The jump itself is a smooth scrollTo, never a bare offset write. When hidden
+  // rows arrived below the window, the pill refreshes first so the jump lands on
+  // the messages it promised.
   const latestClick = renderer.slice(renderer.indexOf('$("#scrollLatestButton").addEventListener("click"'), renderer.indexOf('$("#todoToggle").addEventListener'));
+  assert.match(latestClick, /try \{ await refreshHistory\(\); \} catch \{\}/);
+  assert.match(latestClick, /jumpToLatestTranscript\(\);/);
   assert.match(latestClick, /\$\("#messages"\)\.scrollTo\(\{ top: \$\("#messages"\)\.scrollHeight, behavior:/);
   assert.doesNotMatch(latestClick, /root\.scrollTop = root\.scrollHeight;\s*\}/);
+});
+
+test("a failed command load retries instead of emptying the slash menu", () => {
+  // One blip used to mark the session as loaded with an empty catalog, making every
+  // slash command permanently "unknown" until the session was switched.
+  const load = renderer.slice(renderer.indexOf("async function loadCommands"), renderer.indexOf("async function applyModelSelection"));
+  assert.match(load, /state\.commandCatalog = commands;/);
+  const failure = load.slice(load.indexOf("} catch {"), load.indexOf("} finally {"));
+  assert.doesNotMatch(failure, /state\.commandsLoadedSessionId/);
+  assert.doesNotMatch(failure, /state\.commandCatalog = \[\];/);
 });
 
 test("activity glow intensity is brighter by default, adjustable, and persisted", () => {
@@ -510,8 +524,9 @@ test("compact modes preserve short clicks and start native drag only after the m
   assert.match(ipc, /move-compact-drag/);
   assert.match(ipc, /getCursorScreenPoint/);
   // Edge drags take a dedicated pointer-following path rather than freezing x. The freeze
-  // stopped drift but made the opposite screen edge unreachable.
-  assert.match(ipc, /if \(getWindowMode\(\) === "edge"\) \{\s*\n\s*const moved = moveEdgeDragToPointer\(/);
+  // stopped drift but made the opposite screen edge unreachable. The mover takes the
+  // whole drag origin: it needs where the pointer grabbed, not just the bounds.
+  assert.match(ipc, /const moved = moveEdgeDragToPointer\(compactDragOrigin, \{ x: screenX, y: screenY \}\);/);
   assert.doesNotMatch(ipc, /edgeLocked \? compactDragOrigin\.bounds\.x/);
   assert.match(ipc, /end-compact-drag/);
   assert.match(ipc, /wasActive !== compactStatus\.active \|\| wasExpanded !== compactStatus\.expanded/);
@@ -842,7 +857,9 @@ test("a mark jump lands exactly even with skipped transcript rows", () => {
   assert.match(renderer, /for \(const selector of \["\.widget-shell", "\.chat-panel", "\.messages-wrap"\]\) \{/);
   // While the pin owns the scroll, passing near the bottom must not re-pin to it:
   // landing on an underestimated bottom used to stick the log there and hide the jump.
-  assert.match(renderer, /if \(!activeMessageScrollPin\(\)\) \{\s*\n\s*state\.messagesStickToBottom = nearBottom;/);
+  // And the bottom only counts as the bottom of the conversation when the virtualized
+  // window actually holds the newest message, or the log follows the foot of a spacer.
+  assert.match(renderer, /if \(!activeMessageScrollPin\(\)\) \{[\s\S]{0,320}?state\.messagesStickToBottom = nearBottom && transcriptAtLatest\(\);/);
   assert.match(visualSmoke, /markJumpAligned: true, markJumpFlashed: 1/);
 });
 
@@ -1152,8 +1169,11 @@ test("updates download in the background and expose install only after verificat
     assert.match(preload, new RegExp(api));
   }
   assert.match(main, /createApplicationUpdateService/);
-  assert.match(main, /createUpdateService/);
-  assert.match(main, /createInstalledUpdateService/);
+  // Which service a build gets is decided in its own module, where it can be tested.
+  assert.match(main, /require\("\.\/update-service-factory\.cjs"\)/);
+  const updateFactory = readSource("src", "update-service-factory.cjs");
+  assert.match(updateFactory, /createUpdateService/);
+  assert.match(updateFactory, /createInstalledUpdateService/);
   assert.match(main, /sendToRenderer\("update-state", state\)/);
   assert.match(main, /createUpdateOrchestrator/);
   assert.match(main, /checkForUpdates: \(\) => updateOrchestrator\?\.checkAndStage\(\)/);
@@ -1335,7 +1355,9 @@ test("continuous slider input is debounced instead of rewritten per tick", () =>
 test("a dead renderer is recovered instead of left on screen", () => {
   assert.match(main, /require\("\.\/renderer-recovery\.cjs"\)/);
   assert.match(main, /on\("render-process-gone"/);
-  assert.match(main, /on\("did-finish-load", \(\) => rendererRecovery\.loaded\(\)\)/);
+  // A reloaded renderer has no memory of the gesture it was mid-flight in, so the
+  // load handler releases stranded drag origins before marking recovery loaded.
+  assert.match(main, /on\("did-finish-load", \(\) => \{ releaseDragOrigins\(\); rendererRecovery\.loaded\(\); \}\)/);
   assert.match(main, /on\("did-fail-load"/);
   assert.match(main, /on\("unresponsive"/);
 });
@@ -1370,7 +1392,11 @@ test("visible polling skips stable or actively streamed history while priority e
   assert.match(history, /historyLoadedRevision/);
   assert.match(history, /const skipReconciliation = rendererAlreadyHasRevision && sameRevision/);
   assert.match(history, /if \(skipReconciliation\) \{\s*paintLiveAssistant\(\);\s*return "unchanged"/);
-  assert.match(refresh, /!selectedStreamUsable && !selectedHistoryIsCurrent\(selectedSession\)/);
+  assert.match(refresh, /!selectedStreamUsable && \(!selectedHistoryIsCurrent\(selectedSession\) \|\| selectedPreviewChanged\(selectedSession\)\)/);
+  // session.list need not bump updatedAt for every message, but the preview always
+  // carries the newest assistant text, so a moved preview refreshes history too.
+  assert.match(renderer, /function selectedPreviewChanged\(session\)/);
+  assert.match(renderer, /function latestAssistantPreview\(messages\)/);
   // A stream the dashboard reports as idle, silent for two poll intervals, is a
   // dropped turn/end: it is retired instead of suppressing history refreshes forever.
   assert.match(refresh, /selectedStream\?\.active && !selectedRunning && Date\.now\(\) - \(selectedStream\.lastEventAt \|\| 0\) > 8000/);
@@ -1784,4 +1810,158 @@ test("the compact handles carry no native tooltip", () => {
   assert.match(html, /<button id="edgeMode" class="edge-mode no-drag" type="button" aria-label="Restore widget">/);
   assert.match(html, /<button id="orbRestore" class="orb-avatar" type="button" aria-label="Restore widget">/);
   assert.doesNotMatch(html, /title="Restore widget"/);
+});
+
+test("the virtualized transcript grows towards the newest message, not only backwards", () => {
+  // The window only ever grew upwards, so a few chunks of scrollback left the newest
+  // messages below it behind a spacer. Scrolling back down landed on the foot of that
+  // spacer: a blank region where arrivals never appeared and the only way out was the pill.
+  assert.match(renderer, /function growTranscriptWindowDown\(\)/);
+  const grow = functionBody(renderer, "function maybeGrowTranscriptWindow()");
+  assert.match(grow, /transcriptViewStart > 0/);
+  assert.match(grow, /transcriptViewEnd < state\.currentMessages\.length/);
+  assert.match(grow, /if \(towardsOlder\) growTranscriptWindowUp\(\);\s*\n\s*else growTranscriptWindowDown\(\);/);
+  // Growing down trims the top of the window to stay under the DOM cap, so the reading
+  // position is held against a row that survives the grow rather than against a height.
+  const down = functionBody(renderer, "function growTranscriptWindowDown()");
+  assert.match(down, /const anchorIndex = Math\.max\(transcriptViewStart, transcriptViewEnd - 1\);/);
+  assert.match(down, /settleTranscriptScroll\(root, root\.scrollTop \+ \(offsetAfter - offsetBefore\)\);/);
+  // The scroll a grow causes is its own correction, not a request for another grow.
+  const settle = functionBody(renderer, "function settleTranscriptScroll(root, top)");
+  assert.match(settle, /if \(root\.scrollTop !== before\) transcriptProgrammaticScrollAt = Date\.now\(\);/);
+  assert.match(grow, /if \(ownScroll\) return;/);
+  assert.match(down, /transcriptViewEnd = Math\.min\(total, transcriptViewEnd \+ TRANSCRIPT_WINDOW_GROW\);/);
+});
+
+test("a drag interrupted by a mode change, a reload or a hidden element still ends", () => {
+  // The element a drag started on is display:none the moment the mode changes, and a hidden
+  // element delivers neither pointerup nor pointercancel. A stranded full origin silently
+  // stopped Full from recording its position for the rest of the session; a stranded compact
+  // one froze the orb's size and left its whole window eating clicks.
+  assert.match(main, /function releaseDragOrigins\(\) \{ compactDragOrigin = null; fullDragOrigin = null; compactGlide\.stop\(\); \}/);
+  assert.match(main, /if \(nextMode !== windowMode\) releaseDragOrigins\(\);/);
+  assert.match(main, /on\("did-finish-load", \(\) => \{ releaseDragOrigins\(\); rendererRecovery\.loaded\(\); \}\)/);
+  assert.match(renderer, /for \(const eventName of \["pointerup", "pointercancel"\]\) \{\s*\n\s*window\.addEventListener\(eventName, \(event\) => \{\s*\n\s*if \(compactDrag\) endCompactDrag\(event\);\s*\n\s*if \(fullDrag\) endFullDrag\(event\);/);
+});
+
+test("the avatar's click rectangles follow its dock side and its settled layout", () => {
+  // A side flip moves every orb control ~44px inside the window and republished nothing,
+  // so the visible circle forwarded its clicks to the desktop after being dragged across.
+  const side = functionBody(renderer, "function applyCompactSide(side)");
+  assert.match(side, /schedulePublishCompactHitAreas\(\);/);
+  const schedule = functionBody(renderer, "function schedulePublishCompactHitAreas()");
+  assert.match(schedule, /requestAnimationFrame\(publishCompactHitAreas\);/);
+  // Measured again once the entry animation has settled, not only on its first frame.
+  assert.match(schedule, /MODE_ENTER_DURATION \+ 40/);
+});
+
+test("the release snap flies to the edge, with the side applied first", () => {
+  const snap = main.slice(main.indexOf("function snapCurrentCompactWindow("), main.indexOf("function applyWindowMode("));
+  const sideAt = snap.indexOf('sendToRenderer("compact-side"');
+  const glideAt = snap.indexOf("compactGlide.glide(");
+  assert.ok(sideAt > 0 && glideAt > 0, "both the side and the flight are in the snap");
+  assert.ok(sideAt < glideAt, "the side goes before the flight");
+  assert.doesNotMatch(snap, /setPlatformBounds\(windowRef, \{ x: snapped\.x/, "no single-frame teleport");
+  // A new drag must not fight a flight in progress.
+  assert.match(main, /setCompactDragOrigin: \(value\) => \{ if \(value\) compactGlide\.stop\(\); compactDragOrigin = value; \}/);
+});
+
+test("mode transitions keep their fade across the IPC and honour the motion switch", () => {
+  const exit = functionBody(renderer, "function animateModeExit(targetMode, requestSequence)");
+  const exitTimer = exit.slice(exit.indexOf("setTimeout(() => {"), exit.indexOf("MODE_EXIT_DURATION);"));
+  assert.ok(exitTimer.length > 0, "the exit timer is found");
+  assert.doesNotMatch(exitTimer, /clearModeTransitionClasses/, "the timer must not clear the fade before the window changes");
+  const set = functionBody(renderer, "async function setWindowMode(mode)");
+  assert.match(set, /\} finally \{[\s\S]*clearModeTransitionClasses\("out"\);/);
+  const authoritative = functionBody(renderer, "function applyAuthoritativeWindowMode(mode)");
+  assert.match(authoritative, /if \(mode !== state\.windowMode\) \{\s*\n\s*modeRequestSequence \+= 1;/);
+  assert.match(renderer, /return Boolean\(window\.matchMedia\?\.\("\(prefers-reduced-motion: reduce\)"\)\.matches\)\s*\n\s*\|\| document\.body\.classList\.contains\("motion-off"\);/);
+  // Entrances do not pile up while motion is off and replay when it comes back.
+  const entry = functionBody(renderer, "function markTranscriptEntry(node)");
+  assert.match(entry, /if \(prefersReducedMotion\(\)\) return;/);
+  assert.match(entry, /timer = setTimeout\(settle, TRANSCRIPT_ENTER_FALLBACK_MS\);/);
+});
+
+test("the transcript commits its signature only once the DOM matches it", () => {
+  const render = functionBody(renderer, "function renderMessages(messages)");
+  assert.ok(render.indexOf('state.historySignature = "";') < render.indexOf("reconcileChildren(root, nodes);"));
+  assert.ok(render.indexOf("reconcileChildren(root, nodes);") < render.indexOf("state.historySignature = signature;"));
+  assert.doesNotMatch(render, /const window = /, "the global window must not be shadowed");
+  // The foot of a spacer is not the foot of the conversation.
+  assert.match(render, /\} else if \(wasPinned \|\| \(visuallyAtBottom && view\.latest\)\) \{/);
+});
+
+test("the jump-to-latest pill counts only what actually arrived", () => {
+  assert.match(renderer, /function transcriptArrivedCount\(\)/);
+  const pill = functionBody(renderer, "function updateScrollLatestButton()");
+  assert.match(pill, /const label = arrived > 1\s*\n\s*\? `\$\{arrived\} new`/);
+  assert.match(renderer, /if \(end === total\) transcriptSeenTotal = total;/);
+});
+
+test("per-session bookkeeping is released when a session leaves a healthy dashboard", () => {
+  const sweep = functionBody(renderer, "function detectCompletedSessions(nextSessions)");
+  for (const name of ["queuedPromptsBySession", "steeringPromptsBySession", "queueSnapshotRevisions", "queueHandoffEpochs", "queueRecoveryGenerations", "liveSessionRevisions", "turnGenerationsBySession", "commandFeedbackBySession", "todoExpandedSessionIds", "cancelPendingSessionIds"]) {
+    assert.match(sweep, new RegExp(`state\.${name}`), `${name} is swept`);
+  }
+  assert.match(sweep, /const keep = \(sessionId\) => existing\.has\(sessionId\) \|\| sessionId === state\.selectedSessionId;/);
+  // Drafts and live streams are the user's text and a just-created session's output.
+  assert.doesNotMatch(sweep, /composerDraftsBySession|liveStreamsBySession/);
+});
+
+test("the version badge stays legible at every width", () => {
+  const css = readSource("src", "renderer", "styles.css");
+  const sizes = [...css.matchAll(/\.version-badge \{[^}]*font-size:([\d.]+)px/g)].map((match) => Number(match[1]));
+  assert.ok(sizes.length >= 3, "the base rule and both narrow overrides set a size");
+  assert.ok(sizes.every((size) => size >= 7.5), `every badge size is readable: ${sizes.join(", ")}`);
+  assert.match(css, /\.version-badge \{[^}]*font-variant-numeric:tabular-nums/);
+});
+
+test("the main process survives a stray throw", () => {
+  assert.match(main, /require\("\.\/process-guards\.cjs"\)/);
+  assert.match(main, /\ninstallProcessGuards\(\);\n/);
+});
+
+test("the main process reaps launcher children, gates the legacy socket, and bounds its caches", () => {
+  const cleanup = functionBody(main, "function cleanupApplication()");
+  // Probe and failed launches leave npx/node trees behind unless the launcher reaps them.
+  assert.match(cleanup, /harnessLauncher\?\.dispose\(\);/);
+  // A gated Harness can never authenticate the legacy mux, which then retried forever.
+  assert.match(main, /shouldConnect: async \(\) => \(await api\.detectGeneration\(\)\) === "legacy",/);
+  // Per-session API caches follow the dashboard, keeping the open chat.
+  assert.match(main, /api\.retainSessions\(\[\.\.\.sessionIds, preferences\.lastSelectedSessionId\]\.filter\(Boolean\)\);/);
+  // Only a saved URL for this Harness is a way into it.
+  assert.match(ipc, /if \(persisted && isSameHarnessOrigin\(persisted, harnessUrl\)\) return persisted;/);
+});
+
+test("a refused Harness restart says what to do next", () => {
+  const failure = functionBody(renderer, "function harnessRestartFailure(result)");
+  for (const reason of ["remote-url", "restart-unsupported", "restart-failed", "disposed"]) {
+    assert.match(failure, new RegExp(`case "${reason}":`));
+  }
+  assert.match(failure, /result\.blockedBy/);
+  assert.match(renderer, /if \(!result\?\.ok\) throw new Error\(harnessRestartFailure\(result\)\);/);
+});
+
+test("the visual runner forgives one flaky frame, loudly, and never a repeatable failure", () => {
+  const runner = readSource("scripts", "ui-visual-smoke.cjs");
+  // A case is booted and photographed on a timer, so a loaded machine can capture it before
+  // its first paint. One failure used to abort the run and silently skip every later case.
+  assert.match(runner, /async function verifyCase\(testCase\)/);
+  assert.match(runner, /retried after: /);
+  assert.match(runner, /Passed on a second attempt: /);
+  // The second failure is the one that is thrown, with the first one attached.
+  assert.ok(runner.includes("secondError.message = `${secondError.message}\\n(first attempt: "), "the second failure carries the first");
+  // And a strict run can refuse the second chance entirely.
+  assert.match(runner, /const SMOKE_RETRIES = process\.env\.UI_SMOKE_RETRIES === "0" \? 0 : 1;/);
+});
+
+test("the README cover names the release it was rendered from", () => {
+  // The eyebrow was typed into the HTML, nothing checked it, and it said 0.7.2 through two
+  // later releases. The renderer fills it from package.json instead.
+  const coverSource = readSource("docs", "cover-source.html");
+  const coverRenderer = readSource("scripts", "render-readme-cover.cjs");
+  assert.match(coverSource, /<span data-release-version>/);
+  assert.doesNotMatch(coverSource, /Agent Deck · \d+\.\d+\.\d+/);
+  assert.match(coverRenderer, /const \{ version \} = require\(path\.join\(root, "package\.json"\)\);/);
+  assert.match(coverRenderer, /querySelectorAll\("\[data-release-version\]"\)/);
 });

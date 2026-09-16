@@ -21,7 +21,7 @@
 // tests against fakes would still pass while the real app quietly broke. The screenshot
 // harness already paid for that lesson once (see scripts/screenshot-harness.cjs).
 const { harnessSessionUrl } = require("./harness-url.cjs");
-const { normalizeHarnessLaunchUrl } = require("./harness-transport.cjs");
+const { isSameHarnessOrigin, normalizeHarnessLaunchUrl } = require("./harness-transport.cjs");
 const { renderMarkdownBatch, renderMarkdownAsync } = require("./markdown-service.cjs");
 const { applyPlatformOpacity } = require("./platform-capabilities.cjs");
 
@@ -180,7 +180,9 @@ function registerIpcHandlers({
   }
 
   function compactPointer(value) {
-    const native = getCursorScreenPoint();
+    // Read inside an ipcMain listener, where a throw is an uncaught exception in main.
+    let native = null;
+    try { native = getCursorScreenPoint(); } catch { native = null; }
     const nativeX = Number(native?.x);
     const nativeY = Number(native?.y);
     if (Number.isFinite(nativeX) && Number.isFinite(nativeY)) return { x: nativeX, y: nativeY };
@@ -303,14 +305,23 @@ function registerIpcHandlers({
     }
     try {
       const persisted = typeof getPreferences === "function" ? getPreferences()?.harnessLaunchUrl : "";
-      if (persisted) return persisted;
+      // A saved URL that points anywhere but this Harness is not a way into it.
+      if (persisted && isSameHarnessOrigin(persisted, harnessUrl)) return persisted;
     } catch {
       // fall through to the configured URL
     }
     return harnessUrl;
   };
-  handle("open-harness", async () => openExternal(harnessBrowserBase()));
-  handle("open-harness-session", async (_event, sessionId) => openExternal(harnessSessionUrl(harnessBrowserBase(), sessionId)));
+  // Through the same protocol check as every other external link. The launch URL is read
+  // back from a settings file that an agent with full disk access can write, and handing
+  // that straight to the OS shell would open whatever it had been replaced with.
+  const openHarnessUrl = (value) => {
+    const url = parseExternalUrl(value);
+    if (!url) throw new Error("Unsupported Harness URL");
+    return openExternal(url);
+  };
+  handle("open-harness", async () => openHarnessUrl(harnessBrowserBase()));
+  handle("open-harness-session", async (_event, sessionId) => openHarnessUrl(harnessSessionUrl(harnessBrowserBase(), sessionId)));
   handle("open-project", async () => openExternal(repositoryUrl));
   handle("open-external", async (_event, value) => {
     const url = parseExternalUrl(value);
@@ -351,13 +362,16 @@ function registerIpcHandlers({
   // it is persisted, so a typo cannot lock the widget to a dead secret.
   handle("set-harness-launch-url", async (_event, value) => {
     const normalized = normalizeHarnessLaunchUrl(value, harnessUrl);
-    api.resetRemoteAuth();
     try {
-      await api.dashboard();
+      // The pasted URL itself, not the one already stored: see HarnessApi.verifyLaunchUrl.
+      await api.verifyLaunchUrl(normalized);
     } catch (error) {
       throw new Error(`Harness did not accept that launch URL (${error instanceof Error ? error.message : String(error)})`);
     }
     const preferences = getPreferences();
+    // A banner token captured from an earlier owned launch outranks the preference in
+    // every reader, so a URL the user has just proved would otherwise change nothing.
+    try { getHarnessLauncher()?.forgetBrowserUrl?.(); } catch {}
     if (preferences.harnessLaunchUrl !== normalized) {
       preferences.harnessLaunchUrl = normalized;
       savePreferences();
@@ -517,12 +531,18 @@ function registerIpcHandlers({
   // measures them and reports window-relative rectangles; every other pixel of that window
   // forwards the mouse through to whatever is behind it.
   on("set-compact-hit-areas", (_event, areas) => {
-    const rectangles = (Array.isArray(areas) ? areas : []).slice(0, 8).map((area) => ({
-      x: Math.round(Number(area?.x) || 0),
-      y: Math.round(Number(area?.y) || 0),
-      width: Math.max(0, Math.round(Number(area?.width) || 0)),
-      height: Math.max(0, Math.round(Number(area?.height) || 0)),
-    })).filter((area) => area.width > 0 && area.height > 0);
+    // Clipped to the window: a control laid out a pixel past the left edge measured a
+    // negative x, and the tracker then treated desktop beside the window as the widget.
+    const windowBounds = getWindow()?.getBounds?.();
+    const limitX = Number.isFinite(windowBounds?.width) ? windowBounds.width : Infinity;
+    const limitY = Number.isFinite(windowBounds?.height) ? windowBounds.height : Infinity;
+    const rectangles = (Array.isArray(areas) ? areas : []).slice(0, 8).map((area) => {
+      const left = Math.max(0, Math.round(Number(area?.x) || 0));
+      const top = Math.max(0, Math.round(Number(area?.y) || 0));
+      const right = Math.min(limitX, Math.round((Number(area?.x) || 0) + Math.max(0, Number(area?.width) || 0)));
+      const bottom = Math.min(limitY, Math.round((Number(area?.y) || 0) + Math.max(0, Number(area?.height) || 0)));
+      return { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+    }).filter((area) => area.width > 0 && area.height > 0);
     setCompactHitAreas(rectangles);
     getCompactHitTracker()?.tick?.();
   });
@@ -604,8 +624,10 @@ function registerIpcHandlers({
     // crossing the middle of the display moves it to the other edge. Freezing x here
     // instead did stop the drift it was aimed at, but it also left the opposite edge
     // unreachable: the line could only ever slide up and down the side it started on.
+    // The whole origin goes to the edge mover, not just its bounds: it needs the point the
+    // gesture grabbed, or it can only re-centre the window on the cursor.
     if (getWindowMode() === "edge") {
-      const moved = moveEdgeDragToPointer(compactDragOrigin.bounds, { x: screenX, y: screenY });
+      const moved = moveEdgeDragToPointer(compactDragOrigin, { x: screenX, y: screenY });
       traceCompactDrag("move", { screenX, screenY, x: moved.x, y: moved.y, side: moved.side });
       return;
     }

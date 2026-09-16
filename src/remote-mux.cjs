@@ -17,9 +17,9 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onLiveEvent =
 
   // The transport is async because the generation probe may still be settling, and it
   // is null until the harness proves itself to be on the remote generation.
-  async function withChannel(endpoint, args, onFrame) {
+  async function withChannel(endpoint, args, onFrame, isAbandoned = () => false) {
     const transport = await getTransport();
-    if (!transport) return null;
+    if (!transport || isAbandoned()) return null;
     try {
       return await transport.openChannel({ endpoint, args, onFrame });
     } catch (error) {
@@ -44,8 +44,15 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onLiveEvent =
             } else if (value.type === "queue" && value.sessionId) {
               onQueue(value.sessionId, Array.isArray(value.items) ? value.items : []);
             }
-          });
+          }, () => stopped);
         } catch {}
+        // stop() can only close a handle it can see, and there is none while the open is
+        // pending. A socket that opens after stop() must be closed here, or it lives on
+        // until the Harness drops it, publishing queue frames nobody asked for.
+        if (handle && stopped) {
+          try { handle.close(); } catch {}
+          break;
+        }
         if (handle) {
           controlHandle = handle;
           delay = REMOTE_MUX_RECONNECT_MIN;
@@ -67,7 +74,8 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onLiveEvent =
 
   async function runFollow(entry, sessionId) {
     let delay = REMOTE_MUX_RECONNECT_MIN;
-    while (!stopped && !entry.closing && follows.get(sessionId) === entry) {
+    const abandoned = () => stopped || entry.closing || follows.get(sessionId) !== entry;
+    while (!abandoned()) {
       let handle = null;
       try {
         handle = await withChannel("session/follow", { request: { address: { kind: "session", sessionId }, assistantStream: true } }, (value) => {
@@ -80,14 +88,21 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onLiveEvent =
             const chunk = value.frame.chunk && typeof value.frame.chunk === "object" ? value.frame.chunk : {};
             onLiveEvent({ sessionId, event: { type: "assistant/chunk", seq: 0, data: { chunk } } });
           }
-        });
+        }, abandoned);
       } catch {}
+      // untrack()/stop() close entry.handle, which is still null while the open is
+      // pending. Without this check the freshly opened socket was stored and awaited
+      // until the Harness dropped it, streaming live events for an untracked session.
+      if (handle && abandoned()) {
+        try { handle.close(); } catch {}
+        break;
+      }
       if (handle) {
         entry.handle = handle;
         delay = REMOTE_MUX_RECONNECT_MIN;
         try { await handle.closed; } catch {}
       }
-      if (stopped || entry.closing || follows.get(sessionId) !== entry) break;
+      if (abandoned()) break;
       const finished = entry.handle;
       entry.handle = null;
       try { finished?.close(); } catch {}

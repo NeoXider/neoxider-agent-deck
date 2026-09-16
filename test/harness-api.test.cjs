@@ -756,6 +756,34 @@ test("dashboard reports how long the current turn has been running", async () =>
   assert.equal(second.sessions[0].runningSince, 1000);
 });
 
+test("the selected session re-reads history on every dashboard poll", async () => {
+  const api = new HarnessApi(undefined, legacyFetch);
+  const historySessions = [];
+  api.rpc = async (method, payload) => {
+    if (method === "host.describe") return { version: "test" };
+    if (method === "session.list") {
+      return { items: [
+        { sessionId: "open-chat", running: false, updatedAt: 5, cwd: "C:\\AI\\open" },
+        { sessionId: "background-chat", running: false, updatedAt: 5, cwd: "C:\\AI\\bg" },
+      ] };
+    }
+    if (method === "workspace.list") return { items: [], archivedSessionIds: [] };
+    if (method === "subagent.list") return { entries: [] };
+    if (method === "session.history") {
+      historySessions.push(payload.sessionId);
+      return { events: [] };
+    }
+    throw new Error(`Unexpected RPC ${method}`);
+  };
+
+  // session.list updatedAt never moves, yet the open chat must see new messages
+  // while background sessions keep their cached enrichment.
+  await api.dashboard("open-chat");
+  await api.dashboard("open-chat");
+  assert.equal(historySessions.filter((id) => id === "open-chat").length, 2);
+  assert.equal(historySessions.filter((id) => id === "background-chat").length, 1);
+});
+
 // A restart that answers an empty page for a session that had a conversation is a fault, not
 // a compaction. Replacing the cache with it blanked the chat and cached the blank as final.
 test("an empty history answer cannot blank a conversation the widget already had", async () => {
@@ -808,4 +836,96 @@ test("a Harness without skills still returns its commands", async () => {
     throw new Error("not found");
   };
   assert.deepEqual(await api.commandCatalog("s1"), [{ name: "compact", description: "Compact history", kind: "command" }]);
+});
+
+// Connect pastes a launch URL for a Harness the widget does not own. The cookie is
+// minted from whatever resolveLaunchBrowserUrl returns, so unless the candidate is put
+// in front of the stored one, the check verifies the wrong secret: nothing at all on a
+// first connect, and the previous good URL when one is stored.
+test("a launch URL under verification outranks the stored one, and only while it is checked", async () => {
+  const api = new HarnessApi(undefined, legacyFetch, { getLaunchBrowserUrl: () => "http://127.0.0.1:3080/?token=stored" });
+  assert.equal(api.resolveLaunchBrowserUrl(), "http://127.0.0.1:3080/?token=stored");
+
+  const seen = [];
+  api.dashboard = async () => { seen.push(api.resolveLaunchBrowserUrl()); return { sessions: [] }; };
+  assert.equal(await api.verifyLaunchUrl("http://127.0.0.1:3080/?token=candidate"), true);
+  assert.deepEqual(seen, ["http://127.0.0.1:3080/?token=candidate"]);
+  assert.equal(api.resolveLaunchBrowserUrl(), "http://127.0.0.1:3080/?token=stored", "the candidate is dropped once the check is over");
+
+  // A first connect has nothing stored; the candidate is the only thing that can answer.
+  const fresh = new HarnessApi(undefined, legacyFetch);
+  assert.equal(fresh.resolveLaunchBrowserUrl(), "");
+  const freshSeen = [];
+  fresh.dashboard = async () => { freshSeen.push(fresh.resolveLaunchBrowserUrl()); return { sessions: [] }; };
+  await fresh.verifyLaunchUrl("http://127.0.0.1:3080/?token=first");
+  assert.deepEqual(freshSeen, ["http://127.0.0.1:3080/?token=first"]);
+
+  // A rejected candidate must not linger and shadow the stored URL afterwards.
+  api.dashboard = async () => { throw new Error("Harness HTTP 401"); };
+  await assert.rejects(api.verifyLaunchUrl("http://127.0.0.1:3080/?token=bad"), /401/);
+  assert.equal(api.resolveLaunchBrowserUrl(), "http://127.0.0.1:3080/?token=stored");
+  await assert.rejects(api.verifyLaunchUrl("   "), /Paste the Harness launch URL/);
+});
+
+// A remote follow snapshot that says hasMore but carries no cursor cannot be paged:
+// session/page needs throughSeq. The next fetch took the snapshot branch again, got the
+// identical page and threw "no progress", so the whole transcript failed to load.
+test("a remote snapshot without a cursor is served instead of dead-ending pagination", async () => {
+  const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+  const records = [3, 4].map((seq) => ({ event: { type: "assistant/message", seq, data: { message: { content: [{ type: "text", text: `line ${seq}` }] } } } }));
+  let opens = 0;
+  const remote = {
+    openChannel: async ({ endpoint, onFrame }) => {
+      assert.equal(endpoint, "session/follow");
+      opens += 1;
+      queueMicrotask(() => onFrame({ type: "snapshot", records, hasMore: true }));
+      return { close() {}, closed: new Promise(() => {}) };
+    },
+    call: async (endpoint) => { throw new Error(`unexpected ${endpoint} without a cursor`); },
+  };
+  api.ensureRemote = async () => remote;
+
+  const result = await api.history("s1");
+  assert.deepEqual(result.messages.map((message) => message.text), ["line 3", "line 4"]);
+  assert.equal(opens, 1, "one snapshot, no second identical fetch");
+
+  // With a cursor the older page is still walked.
+  const older = [{ event: { type: "assistant/message", seq: 1, data: { message: { content: [{ type: "text", text: "line 1" }] } } } }];
+  const pages = [];
+  remote.openChannel = async ({ onFrame }) => {
+    queueMicrotask(() => onFrame({ type: "snapshot", records, hasMore: true, cursor: 4 }));
+    return { close() {}, closed: new Promise(() => {}) };
+  };
+  remote.call = async (endpoint, args) => {
+    pages.push([endpoint, args.request.throughSeq, args.request.beforeSeq]);
+    return { records: older, hasMore: false };
+  };
+  const paged = await api.history("s2");
+  assert.deepEqual(pages, [["session/page", 4, 3]]);
+  assert.deepEqual(paged.messages.map((message) => message.text), ["line 1", "line 3", "line 4"]);
+});
+
+// sessionStateCache and fullAccessSessions used to keep one entry for every session the
+// widget had ever seen, for the life of the process.
+test("retainSessions evicts per-session state for sessions no longer listed", () => {
+  const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+  const forgotten = [];
+  api.historyReader = { forget: (id) => forgotten.push(id) };
+  for (const id of ["keep", "gone-a", "gone-b"]) api.sessionStateCache.set(id, { updatedAt: 1 });
+  api.fullAccessSessions.add("keep");
+  api.fullAccessSessions.add("gone-c");
+  api.cacheHistory("keep", { events: [] });
+  api.cacheHistory("gone-d", { events: [] });
+
+  assert.equal(api.retainSessions(["keep", "never-seen"]), 4);
+  assert.deepEqual([...api.sessionStateCache.keys()], ["keep"]);
+  assert.deepEqual([...api.fullAccessSessions], ["keep"]);
+  assert.deepEqual([...api.historyCache.keys()], ["keep"]);
+  assert.deepEqual(forgotten.sort(), ["gone-a", "gone-b", "gone-c", "gone-d"]);
+
+  // A restarting Harness can list nothing; that must not wipe the transcript floor.
+  assert.equal(api.retainSessions([]), 0);
+  assert.equal(api.retainSessions(null), 0);
+  assert.deepEqual([...api.historyCache.keys()], ["keep"]);
+  assert.equal(api.retainSessions(new Set(["keep"])), 0);
 });

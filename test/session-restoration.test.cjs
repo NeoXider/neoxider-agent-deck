@@ -97,6 +97,9 @@ test("a superseded backend revision is applied before matching-revision response
   const start = renderer.indexOf("async function refreshHistory({");
   const end = renderer.indexOf("function refreshHistoryAfterLiveMessage(", start);
   vm.runInContext(renderer.slice(start, end), context);
+  const previewStart = renderer.indexOf("function latestAssistantPreview(");
+  const previewEnd = renderer.indexOf("function selectedLiveStreamIsActive(", previewStart);
+  vm.runInContext(renderer.slice(previewStart, previewEnd), context);
   const olderRequest = context.refreshHistory();
   const newerRequest = context.refreshHistory({ priority: true });
   pending[0]({ revision: "R2", unchanged: false, messages: [{ text: "new R2" }] });

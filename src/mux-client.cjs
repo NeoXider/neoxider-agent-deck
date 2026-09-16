@@ -28,12 +28,18 @@ function createMuxClient({
   silenceTimeout = MUX_SILENCE_TIMEOUT,
   reconnectMin = MUX_RECONNECT_MIN,
   reconnectMax = MUX_RECONNECT_MAX,
+  // Consulted before every (re)connect; may return a promise. /api/events.mux only
+  // exists on the legacy Harness generation, and against a token-gated one this client
+  // can never authenticate, so without a gate it reconnect-looped for as long as the
+  // app ran. A closed gate is retried on the same backoff as a failed connection.
+  shouldConnect = () => true,
 } = {}) {
   let socket = null;
   let reconnectTimer = null;
   let silenceTimer = null;
   let reconnectDelay = reconnectMin;
   let stopped = false;
+  let gatePending = false;
 
   function handleFrame(frame) {
     if (frame?.type === "session/subscribed") onSubscribed(frame.sessionId);
@@ -41,8 +47,46 @@ function createMuxClient({
     else if (frame?.type === "session/event") onLiveEvent(frame);
   }
 
+  function scheduleReconnect() {
+    if (stopped || reconnectTimer) return;
+    const delay = reconnectDelay;
+    // Back off so an offline Harness is not hammered every 1.5s indefinitely.
+    reconnectDelay = Math.min(reconnectDelay * 2, reconnectMax);
+    reconnectTimer = setTimeoutImpl(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+  }
+
   function connect() {
+    if (stopped || socket || gatePending) return;
+    let verdict;
+    try {
+      verdict = shouldConnect();
+    } catch {
+      verdict = false;
+    }
+    if (verdict && typeof verdict.then === "function") {
+      gatePending = true;
+      Promise.resolve(verdict).then((allowed) => Boolean(allowed), () => false).then((allowed) => {
+        gatePending = false;
+        proceed(allowed);
+      });
+      return;
+    }
+    proceed(Boolean(verdict));
+  }
+
+  function proceed(allowed) {
     if (stopped || socket) return;
+    if (!allowed) {
+      scheduleReconnect();
+      return;
+    }
+    open();
+  }
+
+  function open() {
     const current = new WebSocketImpl(muxUrl(harnessUrl));
     socket = current;
 
@@ -61,14 +105,7 @@ function createMuxClient({
       clearTimeoutImpl(silenceTimer);
       silenceTimer = null;
       if (socket === current) socket = null;
-      if (stopped || reconnectTimer) return;
-      const delay = reconnectDelay;
-      // Back off so an offline Harness is not hammered every 1.5s indefinitely.
-      reconnectDelay = Math.min(reconnectDelay * 2, reconnectMax);
-      reconnectTimer = setTimeoutImpl(() => {
-        reconnectTimer = null;
-        connect();
-      }, delay);
+      scheduleReconnect();
     };
 
     current.onopen = () => {

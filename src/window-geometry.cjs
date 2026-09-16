@@ -113,15 +113,41 @@ function moveCompactBounds(bounds, requested, workArea, inset) {
 // So the line stays flush and the SIDE follows the pointer: cross the middle of the
 // display and it moves to the other edge at once. x is derived from the pointer on every
 // move rather than accumulated, so the drift has nothing to build up from.
-function edgeDragBounds(bounds, pointer, workArea) {
+// Flipping on the bare midline made the line teleport the full width of the display the
+// instant the pointer crossed it, and teleport back on the smallest wobble. The flip needs
+// commitment: past the middle by this much of the display, or the current side stands.
+const EDGE_SIDE_FLIP_RATIO = 0.12;
+
+function edgeDragBounds(bounds, pointer, workArea, currentSide = "") {
   const pointerX = Number(pointer?.x);
   const middle = workArea.x + workArea.width / 2;
-  const side = Number.isFinite(pointerX) && pointerX < middle ? "left" : "right";
+  const hysteresis = workArea.width * EDGE_SIDE_FLIP_RATIO;
+  const held = currentSide === "left" || currentSide === "right" ? currentSide : "";
+  let side;
+  if (!Number.isFinite(pointerX)) side = held || "right";
+  else if (pointerX < middle - hysteresis) side = "left";
+  else if (pointerX > middle + hysteresis) side = "right";
+  else side = held || (pointerX < middle ? "left" : "right");
   return {
     ...bounds,
     side,
     x: side === "left" ? workArea.x : workArea.x + workArea.width - bounds.width,
   };
+}
+
+// Where the edge window belongs for one move of a drag: flush to the side the pointer has
+// committed to, and vertically wherever the gesture grabbed it. Re-centring on the cursor
+// instead threw the line up to half its height away on the first move and kept that gap
+// for the rest of the drag, so it never sat under the pointer that was carrying it.
+function edgeDragPlacement(origin, pointer, workArea, currentSide = "") {
+  const bounds = origin?.bounds || origin;
+  const flush = edgeDragBounds(bounds, pointer, workArea, currentSide);
+  const grabOffsetY = Number.isFinite(origin?.screenY)
+    ? clamp(origin.screenY - bounds.y, 0, bounds.height)
+    : bounds.height / 2;
+  const inset = compactVisibleInset("edge", flush.side, flush);
+  const moved = moveCompactBounds(flush, { x: flush.x, y: Number(pointer?.y) - grabOffsetY }, workArea, inset);
+  return { ...moved, side: flush.side };
 }
 
 // `inset` describes where the visible element is RIGHT NOW, which is what makes the side
@@ -150,6 +176,7 @@ module.exports = {
   compactVisibleInset,
   compactVisibleRect,
   edgeDragBounds,
+  edgeDragPlacement,
   moveCompactBounds,
   snapCompactBounds,
 };

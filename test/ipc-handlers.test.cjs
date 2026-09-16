@@ -331,6 +331,7 @@ test("compact dragging uses the native cursor and Edge follows the pointer acros
   let mode = "edge";
   const moveCalls = [];
   const edgeCalls = [];
+  const edgeOrigins = [];
   const { ipcMain, window } = register({
     getWindowMode: () => mode,
     getCursorScreenPoint: () => cursor,
@@ -340,7 +341,10 @@ test("compact dragging uses the native cursor and Edge follows the pointer acros
       moveCalls.push(candidate);
       return candidate;
     },
-    moveEdgeDragToPointer: (_bounds, pointer) => {
+    moveEdgeDragToPointer: (origin, pointer) => {
+      // The whole origin, not just its bounds: without the grab point the mover can only
+      // re-centre the window on the cursor, which is what threw the line off the pointer.
+      edgeOrigins.push(origin);
       edgeCalls.push(pointer);
       const side = pointer.x < 960 ? "left" : "right";
       return { x: side === "left" ? 0 : 1832, y: pointer.y, side };
@@ -361,6 +365,9 @@ test("compact dragging uses the native cursor and Edge follows the pointer acros
   cursor = { x: 300, y: 400 };
   ipcMain.emit("move-compact-drag", event, { x: 9000, y: 9000 });
   assert.deepEqual(edgeCalls.at(-1), { x: 300, y: 400 });
+  // Every edge move carries the grab point, so the line can stay where it was taken hold of.
+  assert.ok(edgeOrigins.every((origin) => Number.isFinite(origin?.screenY) && origin?.bounds));
+  assert.equal(edgeOrigins.at(-1).screenY, dragOrigin.screenY);
 
   mode = "orb";
   dragOrigin = null;
@@ -488,32 +495,63 @@ test("a truly down Harness stays plain offline", async () => {
 test("a pasted launch URL is verified before it is persisted", async () => {
   const preferences = { harnessLaunchUrl: "" };
   let saves = 0;
-  let resets = 0;
-  let dashboardCalls = 0;
+  let forgotten = 0;
+  // The fake verifies the URL it is handed, which is the whole point: the handler used
+  // to check whatever was already stored, so on a first connect (nothing stored) the
+  // check could not pass at all. A fake that ignores its argument would keep passing.
+  const verified = [];
   const { ipcMain, window } = register({
     api: {
-      resetRemoteAuth: () => { resets += 1; },
-      dashboard: async () => { dashboardCalls += 1; return { sessions: [] }; },
+      verifyLaunchUrl: async (candidate) => {
+        verified.push(candidate);
+        if (candidate !== "http://127.0.0.1:3080/?token=pastetoken123") throw new Error("Harness HTTP 401");
+        return true;
+      },
     },
+    getHarnessLauncher: () => ({ forgetBrowserUrl: () => { forgotten += 1; return true; } }),
     getPreferences: () => preferences,
     savePreferences: () => { saves += 1; },
     invalidateDashboard: () => {},
   });
   const event = { sender: window.webContents };
   assert.deepEqual(await ipcMain.invoke("set-harness-launch-url", event, "pastetoken123"), { ok: true });
-  assert.equal(resets, 1);
-  assert.equal(dashboardCalls, 1);
-  assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?launchToken=pastetoken123");
+  assert.deepEqual(verified, ["http://127.0.0.1:3080/?token=pastetoken123"]);
+  assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?token=pastetoken123");
   assert.equal(saves, 1);
+  // A banner token captured from an earlier launch outranks the preference everywhere,
+  // so a URL the user just proved would otherwise be ignored.
+  assert.equal(forgotten, 1);
 });
 
-test("a rejected launch URL never reaches the saved preferences", async () => {
-  const preferences = { harnessLaunchUrl: "http://127.0.0.1:3080/?launchToken=good" };
+test("a typo cannot overwrite a launch URL that still works", async () => {
+  // The inverse of the first-connect failure: with a good URL stored, verifying the
+  // stored one instead of the pasted one made every typo "succeed" and then replaced
+  // the working secret with it.
+  const preferences = { harnessLaunchUrl: "http://127.0.0.1:3080/?token=good" };
   let saves = 0;
   const { ipcMain, window } = register({
     api: {
-      resetRemoteAuth: () => {},
-      dashboard: async () => { throw new Error("Harness HTTP 401"); },
+      verifyLaunchUrl: async (candidate) => {
+        if (candidate !== preferences.harnessLaunchUrl) throw new Error("Harness HTTP 401");
+        return true;
+      },
+    },
+    getPreferences: () => preferences,
+    savePreferences: () => { saves += 1; },
+    invalidateDashboard: () => {},
+  });
+  const event = { sender: window.webContents };
+  await assert.rejects(ipcMain.invoke("set-harness-launch-url", event, "typoedgarbage"), /did not accept/);
+  assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?token=good");
+  assert.equal(saves, 0);
+});
+
+test("a rejected launch URL never reaches the saved preferences", async () => {
+  const preferences = { harnessLaunchUrl: "http://127.0.0.1:3080/?token=good" };
+  let saves = 0;
+  const { ipcMain, window } = register({
+    api: {
+      verifyLaunchUrl: async () => { throw new Error("Harness HTTP 401"); },
     },
     getPreferences: () => preferences,
     savePreferences: () => { saves += 1; },
@@ -521,7 +559,7 @@ test("a rejected launch URL never reaches the saved preferences", async () => {
   });
   const event = { sender: window.webContents };
   await assert.rejects(ipcMain.invoke("set-harness-launch-url", event, "badtoken99"), /did not accept/);
-  assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?launchToken=good");
+  assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?token=good");
   assert.equal(saves, 0);
   await assert.rejects(ipcMain.invoke("set-harness-launch-url", event, "   "), /Paste the Harness launch URL/);
 });
@@ -549,4 +587,57 @@ test("a captured owned launch URL is persisted on start and restart", async () =
   await ipcMain.invoke("restart-harness", event);
   assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?launchToken=owned");
   assert.equal(saves, 1);
+});
+
+// The launch URL is read back from a settings file an agent with full disk access can write,
+// so opening Harness goes through the same protocol check as every other external link.
+test("opening Harness never hands a planted launch URL to the shell", async () => {
+  const { parseExternalUrl } = require("../src/external-links.cjs");
+  const opened = [];
+  const { ipcMain, window } = register({
+    parseExternalUrl,
+    openExternal: (url) => { opened.push(url); return true; },
+    getHarnessLauncher: () => ({ browserUrl: () => "" }),
+    getPreferences: () => ({ harnessLaunchUrl: "file:///C:/Windows/System32/calc.exe" }),
+  });
+  const event = { sender: window.webContents };
+  // The planted file URL is not this Harness, so the configured address is opened instead.
+  await ipcMain.invoke("open-harness", event);
+  await ipcMain.invoke("open-harness-session", event, "s1");
+  assert.equal(opened.length, 2);
+  assert.ok(opened.every((url) => url.startsWith("http://127.0.0.1:3080/")), opened.join(", "));
+});
+
+test("a URL that reaches the opener is still protocol-checked", async () => {
+  const { parseExternalUrl } = require("../src/external-links.cjs");
+  const opened = [];
+  const { ipcMain, window } = register({
+    parseExternalUrl,
+    harnessUrl: "file:///C:/Windows",
+    openExternal: (url) => { opened.push(url); return true; },
+    getHarnessLauncher: () => ({ browserUrl: () => "" }),
+    getPreferences: () => ({ harnessLaunchUrl: "" }),
+  });
+  await assert.rejects(ipcMain.invoke("open-harness", { sender: window.webContents }), /Unsupported Harness URL/);
+  assert.deepEqual(opened, []);
+});
+
+// A control laid out a pixel past the window edge measured a negative x, and the tracker
+// then treated desktop beside the window as part of the widget.
+test("published hit areas are clipped to the window", () => {
+  let published = null;
+  const { ipcMain, window } = register({
+    getWindow: () => ({ ...window, getBounds: () => ({ x: 500, y: 200, width: 172, height: 128 }) }),
+    setCompactHitAreas: (areas) => { published = areas; },
+  });
+  const event = { sender: window.webContents, senderFrame: { parent: null } };
+  ipcMain.emit("set-compact-hit-areas", event, [
+    { x: -6, y: 10, width: 40, height: 40 },
+    { x: 150, y: 100, width: 60, height: 60 },
+    { x: 400, y: 10, width: 20, height: 20 },
+  ]);
+  assert.deepEqual(published, [
+    { x: 0, y: 10, width: 34, height: 40 },
+    { x: 150, y: 100, width: 22, height: 28 },
+  ]);
 });

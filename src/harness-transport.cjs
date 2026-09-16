@@ -84,12 +84,30 @@ function checkEnvelope(envelope, rpcId, endpoint) {
 function createRemoteTransport({ baseUrl = "http://127.0.0.1:3080", fetchImpl = globalThis.fetch, getLaunchBrowserUrl = () => "" } = {}) {
   const root = String(baseUrl).replace(/\/$/, "").split("?")[0];
   let cookie = "";
+  // One shared mint: after a restart every surface (dashboard, history, models,
+  // commands, queue) fires at once with no cookie, and N parallel token
+  // exchanges are exactly the stampede that makes some of them fail.
+  let mintPromise = null;
 
   async function ensureCookie() {
     if (cookie) return cookie;
-    const launchUrl = typeof getLaunchBrowserUrl === "function" ? getLaunchBrowserUrl() : "";
-    cookie = await mintBrowserCookie(launchUrl, fetchImpl);
-    return cookie;
+    if (!mintPromise) {
+      mintPromise = (async () => {
+        try {
+          const launchUrl = typeof getLaunchBrowserUrl === "function" ? getLaunchBrowserUrl() : "";
+          // The launch URL can come from the settings file, which anything with disk
+          // access can write; never send the exchange anywhere but the configured Harness.
+          if (launchUrl && !isSameHarnessOrigin(launchUrl, root)) {
+            throw new Error("Harness launch URL does not point at the configured Harness address");
+          }
+          cookie = await mintBrowserCookie(launchUrl, fetchImpl);
+          return cookie;
+        } finally {
+          mintPromise = null;
+        }
+      })();
+    }
+    return mintPromise;
   }
 
   async function post(endpoint, args, timeoutMs) {
@@ -203,7 +221,13 @@ function createRemoteTransport({ baseUrl = "http://127.0.0.1:3080", fetchImpl = 
           if (resolved) end(error); else fail(error);
           return;
         }
-        onFrame(frame.value);
+        // A throw from the publisher chain would escape into the WebSocket's event
+        // dispatch, where nothing catches it; one bad frame must not take the stream down.
+        try {
+          onFrame(frame.value);
+        } catch (error) {
+          console.error(`Harness ${endpoint} frame handler failed`, error);
+        }
       });
       socket.addEventListener("close", () => {
         if (!resolved) fail(new Error(`Harness ${endpoint} closed`));
@@ -229,17 +253,44 @@ function createRemoteTransport({ baseUrl = "http://127.0.0.1:3080", fetchImpl = 
   };
 }
 
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+
+// Whether a launch URL belongs to the configured Harness. The launch URL is handed to
+// the OS shell and used for the token exchange, and it can be planted in the settings
+// file, so only the configured origin is trusted. Loopback names are one host here:
+// dsh always prints its banner as http://127.0.0.1:<port> — even when bound to ::1 —
+// while the widget may be configured with localhost, and a strict origin match would
+// reject the very URL the Harness terminal shows.
+function isSameHarnessOrigin(value, baseUrl) {
+  let candidate;
+  let base;
+  try {
+    candidate = new URL(String(value));
+    base = new URL(String(baseUrl));
+  } catch {
+    return false;
+  }
+  if (!["http:", "https:"].includes(candidate.protocol)) return false;
+  if (candidate.protocol !== base.protocol || candidate.port !== base.port) return false;
+  if (candidate.username || candidate.password) return false;
+  const host = candidate.hostname.toLowerCase();
+  const expected = base.hostname.toLowerCase();
+  return host === expected || (LOOPBACK_HOSTNAMES.has(host) && LOOPBACK_HOSTNAMES.has(expected));
+}
+
 // What the user pastes from the terminal that runs Harness: either the full
-// `dsh web: http://127.0.0.1:3080/?launchToken=…` URL or the bare token. A bare
-// token is resolved against the configured Harness address. Anything that is
-// neither throws, so the offline banner can say why instead of failing later
-// inside the cookie exchange with a bare network error.
+// `dsh web: http://127.0.0.1:3080/?token=…` URL or the bare token. A bare
+// token is resolved against the configured Harness address. The query key is
+// `token`: that is what the server's launch-token exchange reads (TOKEN_QUERY).
+// Anything that is neither throws, so the offline banner can say why instead
+// of failing later inside the cookie exchange with a bare network error. A URL for
+// any other host is refused: see isSameHarnessOrigin.
 function normalizeHarnessLaunchUrl(value, baseUrl = "http://127.0.0.1:3080") {
   const text = String(value || "").trim();
   if (!text) throw new Error("Paste the Harness launch URL first");
   if (!/[:/\s]/.test(text)) {
     if (!/^[A-Za-z0-9_-]{8,256}$/.test(text)) throw new Error("That does not look like a Harness launch token");
-    return `${String(baseUrl).replace(/\/$/, "").split("?")[0]}/?launchToken=${encodeURIComponent(text)}`;
+    return `${String(baseUrl).replace(/\/$/, "").split("?")[0]}/?token=${encodeURIComponent(text)}`;
   }
   let url;
   try {
@@ -248,6 +299,11 @@ function normalizeHarnessLaunchUrl(value, baseUrl = "http://127.0.0.1:3080") {
     throw new Error("That is not a valid Harness launch URL");
   }
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("The Harness launch URL must be http(s)");
+  if (!isSameHarnessOrigin(url.href, baseUrl)) {
+    let expected = String(baseUrl);
+    try { expected = new URL(String(baseUrl)).origin; } catch {}
+    throw new Error(`The Harness launch URL must point at the configured Harness (${expected})`);
+  }
   url.hash = "";
   return url.href;
 }
@@ -256,6 +312,7 @@ module.exports = {
   GATED_BODY_MARKER,
   createRemoteTransport,
   detectGeneration,
+  isSameHarnessOrigin,
   mintBrowserCookie,
   normalizeHarnessLaunchUrl,
 };

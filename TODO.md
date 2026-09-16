@@ -82,6 +82,17 @@ This backlog records planned work only. Items are not part of the current releas
 
 - Previewed a queued file attachment by its name instead of its absolute path, while keeping the full path in the editable text; verified live against Harness with the new `npm run queue-smoke` and covered by queue-view regressions.
 
+## Shipped in 0.9.1
+
+- Kept the Edge line under the pointer with a grab offset and a committed side crossing; covered by geometry and IPC regressions.
+- Republished the avatar hit rectangles on a dock side flip and after the entry animation settles, clipped to the window; covered by contract and IPC regressions.
+- Replaced the release teleport with an eased flight that applies the side first, in a new tested compact-glide module.
+- Released stranded drag origins on mode changes, renderer reloads and window-level pointer ends; covered by contract regressions.
+- Kept the mode-transition fade across the IPC, honoured Motion effects in transitions and entrances, and stopped internal resizes from swallowing avatar presses.
+- Grew the virtualized transcript towards the newest message, counted only real arrivals on the pill, gated growth on user scrolls, and committed the render signature after the DOM; covered by transcript and contract regressions.
+- Fixed the gated-Harness connect flow (pasted URL verified, token key, stale banner token, shared cookie mint) and made restart, process reaping, follow channels, pagination and cache eviction honest; covered by launcher, transport, remote-mux, API and IPC regressions.
+- Added process guards, same-origin checks for saved launch URLs, a tested update-service factory, bare-key hotkey refusal and a legible version badge.
+
 ## Shipped in 0.7.0
 
 - Reconciled the transcript by key so a poll, a tool result or a new message patches only what changed, with the streaming bubble adopted by the message it becomes; covered by contract regressions and the chat, live-stream and writing visual cases.
