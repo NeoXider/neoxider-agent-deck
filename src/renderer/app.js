@@ -2616,11 +2616,22 @@ function renderAttachments() {
   const messageLayout = captureMessageLayoutSnapshot();
   syncCrowdedChatState();
   const root = $("#attachmentList");
-  root.replaceChildren();
+  const scrollLeft = root.scrollLeft;
+  const existing = new Map(Array.from(root.children, (chip) => [chip.attachment, chip]));
+  const pending = new Set(state.pendingAttachments);
+  for (const [attachment, chip] of existing) {
+    if (!pending.has(attachment)) chip.remove();
+  }
   state.pendingAttachments.forEach((attachment, index) => {
+    const previous = existing.get(attachment);
+    if (previous) {
+      if (root.children[index] !== previous) root.insertBefore(previous, root.children[index] || null);
+      return;
+    }
     const displayKind = attachment.kind === "image" ? "image" : attachment.previewKind === "video" ? "video" : "file";
     const chip = document.createElement("div");
     chip.className = "attachment-chip";
+    chip.attachment = attachment;
     chip.title = attachment.path;
     chip.dataset.attachmentKind = displayKind;
     chip.setAttribute("role", "group");
@@ -2660,12 +2671,21 @@ function renderAttachments() {
     removeText.textContent = "Remove";
     remove.append(createIcon("close"), removeText);
     remove.addEventListener("click", () => {
-      state.pendingAttachments.splice(index, 1);
+      const currentIndex = state.pendingAttachments.indexOf(attachment);
+      if (currentIndex < 0) return;
+      const restoreFocus = document.activeElement === remove;
+      state.pendingAttachments.splice(currentIndex, 1);
       renderAttachments();
+      if (restoreFocus) {
+        const next = root.children[Math.min(currentIndex, root.children.length - 1)];
+        (next?.querySelector(".attachment-remove") || $("#attachButton")).focus({ preventScroll: true });
+      }
     });
     chip.append(preview, name, remove);
-    root.append(chip);
+    root.insertBefore(chip, root.children[index] || null);
   });
+  while (root.children.length > state.pendingAttachments.length) root.lastElementChild.remove();
+  root.scrollLeft = scrollLeft;
   const count = state.pendingAttachments.length;
   $("#attachmentBar").classList.toggle("has-items", count > 0);
   $("#attachmentCount").textContent = `${count} file${count === 1 ? "" : "s"}`;
@@ -3199,43 +3219,10 @@ function paintMessageMarkFlash() {
   if (node) node.classList.add("mark-target");
 }
 
-// The magnet, and only where it helps. An earlier version used CSS scroll-snap on the
-// whole log, but proximity snap pulled the view down to the first user message even at the
-// very top, hiding the agent's opening reply, and it fought a deliberate drag. This one is
-// a gentle JS pull on scroll-idle: once the scroll settles with a user message already
-// close to the top of the viewport, it eases that message flush. It never fires at the top
-// (so the opening reply is safe), never while the log follows a running turn, and only
-// within a small pull distance, so ordinary scrolling is untouched.
-const MESSAGE_MAGNET_PULL = 26;
+// Reading position belongs to the user. Only an explicit rail or Latest click
+// starts a smooth scroll; idle timers must never pull a message into alignment.
 function syncMessageMagnet() {
-  // The class is only a marker that the magnet is armed; the pull itself is scheduled on
-  // scroll. It carries no scroll-snap CSS any more.
-  $("#messages").classList.toggle("magnet", !state.messagesStickToBottom);
-}
-
-function scheduleMessageMagnet() {
-  clearTimeout(state.messageMagnetTimer);
-  if (state.messagesStickToBottom || state.scrollLatestAutoScrolling || state.messageMagnetSnapping) return;
-  state.messageMagnetTimer = setTimeout(() => {
-    const root = $("#messages");
-    if (state.messagesStickToBottom || state.scrollLatestAutoScrolling || state.messageMagnetSnapping) return;
-    if (activeMessageScrollPin()) return; // a mark jump owns the scroll until it settles
-    if (root.scrollTop < 8) return; // the top is a deliberate place to be; never pull off it
-    const viewportTop = root.getBoundingClientRect().top;
-    let best = null;
-    let bestDist = Infinity;
-    for (const bubble of root.querySelectorAll(".bubble.user")) {
-      const dist = bubble.getBoundingClientRect().top - viewportTop;
-      if (Math.abs(dist) < Math.abs(bestDist)) { bestDist = dist; best = bubble; }
-    }
-    if (!best || Math.abs(bestDist) < 1 || Math.abs(bestDist) > MESSAGE_MAGNET_PULL) return;
-    state.messageMagnetSnapping = true;
-    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    best.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
-    pinTranscriptAncestors();
-    clearTimeout(state.messageMagnetReleaseTimer);
-    state.messageMagnetReleaseTimer = setTimeout(() => { state.messageMagnetSnapping = false; }, reduceMotion ? 0 : 420);
-  }, 160);
+  $("#messages").classList.remove("magnet");
 }
 
 function updateScrollLatestButton() {
@@ -3309,6 +3296,9 @@ function messageSignature(message) {
     message.text || "",
     message.arguments || "",
     message.result || "",
+    message.beforeTokens ?? null,
+    message.afterTokens ?? null,
+    Boolean(message.estimated),
     (message.attachments || []).map((attachment) => [attachment.kind, attachment.previewKind, attachment.mediaType, attachment.name, attachment.data?.length || 0]),
   ]);
 }
@@ -3376,7 +3366,27 @@ function transcriptAwaitingHistory() {
   return Boolean(state.selectedSessionId) && state.historyPendingSessionId === state.selectedSessionId;
 }
 
+function createContextCompactionDivider(message) {
+  const divider = document.createElement("div");
+  divider.className = "context-compaction";
+  divider.setAttribute("role", "separator");
+  const label = document.createElement("span");
+  label.className = "context-compaction-label";
+  const hasCounts = Number.isFinite(message.beforeTokens) && Number.isFinite(message.afterTokens);
+  label.textContent = hasCounts
+    ? `${message.estimated ? "≈ " : ""}${formatTokens(message.beforeTokens)} → ${formatTokens(message.afterTokens)}`
+    : "Context compacted";
+  const description = hasCounts
+    ? `Context compacted · ${message.beforeTokens.toLocaleString()} → ${message.afterTokens.toLocaleString()} tokens${message.estimated ? " · Estimated size of the replaced context and its summary" : ""}`
+    : "Context compacted · Token counts unavailable in this history";
+  divider.title = description;
+  divider.setAttribute("aria-label", description);
+  divider.append(label);
+  return divider;
+}
+
 function createMessageBubble(message, bubble = document.createElement("div")) {
+  if (message.role === "compaction") return createContextCompactionDivider(message);
   bubble.className = `bubble ${message.role}`;
   delete bubble.dataset.formatted;
   delete bubble.dataset.liveSeq;
@@ -3900,6 +3910,8 @@ let transcriptAverageRowHeight = TRANSCRIPT_ROW_ESTIMATE_PX;
 let transcriptGrowing = false;
 // When the last grow moved the scroll itself. See settleTranscriptScroll.
 let transcriptProgrammaticScrollAt = 0;
+let transcriptProgrammaticScrollTop = null;
+let transcriptReadingPosition = null;
 const TRANSCRIPT_PROGRAMMATIC_SCROLL_MS = 250;
 
 // A grow restores the reading position with a programmatic scroll, and that scroll fires the
@@ -3911,6 +3923,7 @@ function settleTranscriptScroll(root, top) {
   const before = root.scrollTop;
   root.scrollTop = Math.max(0, top);
   if (root.scrollTop !== before) transcriptProgrammaticScrollAt = Date.now();
+  transcriptProgrammaticScrollTop = root.scrollTop;
 }
 let transcriptSilentGrow = false;
 let transcriptPreviewCache = { source: [], messages: [] };
@@ -3931,6 +3944,8 @@ function transcriptWindow(total) {
     transcriptViewStart = Math.max(0, total - TRANSCRIPT_WINDOW_INITIAL);
     transcriptViewEnd = total;
     transcriptViewTotal = total;
+    transcriptSeenTotal = 0;
+    transcriptAverageRowHeight = TRANSCRIPT_ROW_ESTIMATE_PX;
   } else if (total !== transcriptViewTotal) {
     const previousTotal = transcriptViewTotal;
     transcriptViewTotal = total;
@@ -4004,8 +4019,6 @@ function jumpToLatestTranscript() {
 function growTranscriptWindowUp() {
   const root = $("#messages");
   if (!root || transcriptViewSessionId !== state.selectedSessionId || transcriptViewStart <= 0) return false;
-  const previousHeight = root.scrollHeight;
-  const previousTop = root.scrollTop;
   transcriptViewStart = Math.max(0, transcriptViewStart - TRANSCRIPT_WINDOW_GROW);
   if (transcriptViewEnd - transcriptViewStart > TRANSCRIPT_WINDOW_MAX) {
     transcriptViewEnd = transcriptViewStart + TRANSCRIPT_WINDOW_MAX;
@@ -4017,7 +4030,6 @@ function growTranscriptWindowUp() {
   } finally {
     transcriptSilentGrow = false;
   }
-  settleTranscriptScroll(root, previousTop + (root.scrollHeight - previousHeight));
   updateScrollLatestButton();
   return true;
 }
@@ -4032,9 +4044,6 @@ function growTranscriptWindowDown() {
   const root = $("#messages");
   const total = state.currentMessages.length;
   if (!root || transcriptViewSessionId !== state.selectedSessionId || transcriptViewEnd >= total) return false;
-  const anchorIndex = Math.max(transcriptViewStart, transcriptViewEnd - 1);
-  const anchorBefore = root.querySelector(`[data-vmsg="${anchorIndex}"]`);
-  const offsetBefore = anchorBefore ? anchorBefore.getBoundingClientRect().top - root.getBoundingClientRect().top : null;
   transcriptViewEnd = Math.min(total, transcriptViewEnd + TRANSCRIPT_WINDOW_GROW);
   if (transcriptViewEnd - transcriptViewStart > TRANSCRIPT_WINDOW_MAX) {
     transcriptViewStart = transcriptViewEnd - TRANSCRIPT_WINDOW_MAX;
@@ -4045,34 +4054,80 @@ function growTranscriptWindowDown() {
   } finally {
     transcriptSilentGrow = false;
   }
-  const anchorAfter = offsetBefore === null ? null : root.querySelector(`[data-vmsg="${anchorIndex}"]`);
-  if (anchorAfter) {
-    const offsetAfter = anchorAfter.getBoundingClientRect().top - root.getBoundingClientRect().top;
-    settleTranscriptScroll(root, root.scrollTop + (offsetAfter - offsetBefore));
-  }
   updateScrollLatestButton();
   return true;
 }
 
+// Capture a real visible row, including tool groups. An index alone is not
+// enough when a history refresh inserts entries ahead of the viewport.
+function captureTranscriptAnchor(root) {
+  if (typeof root.getBoundingClientRect !== "function") return null;
+  const viewport = root.getBoundingClientRect();
+  for (const node of root.children) {
+    if (!node.dataset.transcriptKey) continue;
+    const rect = node.getBoundingClientRect();
+    if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
+      return { key: node.dataset.transcriptKey, offset: rect.top - viewport.top };
+    }
+  }
+  return null;
+}
+
+function restoreTranscriptAnchor(root, anchor) {
+  if (!anchor) return false;
+  const node = [...root.children].find((row) => row.dataset.transcriptKey === anchor.key);
+  if (!node) return false;
+  const offset = node.getBoundingClientRect().top - root.getBoundingClientRect().top;
+  settleTranscriptScroll(root, root.scrollTop + offset - anchor.offset);
+  return true;
+}
+
+function rememberTranscriptReadingPosition(root) {
+  if (!root?.clientHeight) return;
+  transcriptReadingPosition = {
+    sessionId: state.selectedSessionId,
+    width: root.clientWidth,
+    anchor: captureTranscriptAnchor(root),
+  };
+}
+
 function maybeGrowTranscriptWindow() {
-  // Synchronous, not rAF-deferred: a scroll flurry re-enters through the guard,
-  // while a deferred grow would starve in a throttled window and leave the top
-  // of the history unreachable until the next frame pump.
-  if (transcriptGrowing) return;
-  const ownScroll = transcriptProgrammaticScrollAt && Date.now() - transcriptProgrammaticScrollAt < TRANSCRIPT_PROGRAMMATIC_SCROLL_MS;
-  transcriptProgrammaticScrollAt = 0;
-  if (ownScroll) return;
+  if (transcriptGrowing || activeMessageScrollPin() || state.scrollLatestAutoScrolling) return;
   const root = $("#messages");
-  if (!root || !state.currentMessages.length) return;
+  const ownScroll = transcriptProgrammaticScrollAt
+    && Date.now() - transcriptProgrammaticScrollAt < TRANSCRIPT_PROGRAMMATIC_SCROLL_MS
+    && Math.abs(root.scrollTop - transcriptProgrammaticScrollTop) < 1;
+  if (ownScroll) return;
+  if (!root || !root.clientHeight || !state.currentMessages.length) return;
   if (transcriptViewSessionId !== state.selectedSessionId) return;
-  const towardsOlder = root.scrollTop < TRANSCRIPT_TOP_LOAD_PX && transcriptViewStart > 0;
-  const towardsNewer = !towardsOlder
-    && root.scrollHeight - root.scrollTop - root.clientHeight < TRANSCRIPT_TOP_LOAD_PX
+  const rows = [...root.children].filter((node) => node.dataset.transcriptKey);
+  if (!rows.length) return;
+  const viewport = root.getBoundingClientRect();
+  const first = rows[0].getBoundingClientRect();
+  const last = rows[rows.length - 1].getBoundingClientRect();
+  const towardsOlder = first.top > viewport.top - TRANSCRIPT_TOP_LOAD_PX && transcriptViewStart > 0;
+  const towardsNewer = !towardsOlder && last.bottom < viewport.bottom + TRANSCRIPT_TOP_LOAD_PX
     && transcriptViewEnd < state.currentMessages.length;
   if (!towardsOlder && !towardsNewer) return;
   transcriptGrowing = true;
   try {
-    if (towardsOlder) growTranscriptWindowUp();
+    // A scrollbar drag can skip thousands of rows. Materialize that destination
+    // directly instead of leaving the viewport in a spacer until the next scroll.
+    if (first.top > viewport.bottom || last.bottom < viewport.top) {
+      const average = Math.max(8, transcriptAverageRowHeight);
+      const index = first.top > viewport.bottom
+        ? Math.floor(root.scrollTop / average)
+        : transcriptViewEnd + Math.floor((viewport.top - last.bottom) / average);
+      const total = state.currentMessages.length;
+      const target = Math.max(0, Math.min(total - 1, index));
+      transcriptViewStart = Math.max(0, target - TRANSCRIPT_WINDOW_GROW);
+      transcriptViewEnd = Math.min(total, transcriptViewStart + TRANSCRIPT_WINDOW_MAX);
+      state.messagesStickToBottom = false;
+      transcriptSilentGrow = true;
+      try { renderMessages(state.currentMessages); } finally { transcriptSilentGrow = false; }
+      const row = [...root.children].find((node) => Number(node.dataset.vmsg) >= target && node.dataset.transcriptKey);
+      if (row) settleTranscriptScroll(root, root.scrollTop + row.getBoundingClientRect().top - root.getBoundingClientRect().top);
+    } else if (towardsOlder) growTranscriptWindowUp();
     else growTranscriptWindowDown();
   } finally {
     transcriptGrowing = false;
@@ -4162,6 +4217,7 @@ function renderMessages(messages) {
   const root = $("#messages");
   const previousTop = root.scrollTop;
   const wasPinned = state.messagesStickToBottom;
+  const anchor = transcriptViewSessionId === state.selectedSessionId ? captureTranscriptAnchor(root) : null;
   state.currentMessages = Array.isArray(messages) ? messages : [];
   // Not `window`: that name shadowed the global for the rest of the hottest function in
   // the app, waiting for the first window.matchMedia or getSelection added below.
@@ -4216,6 +4272,7 @@ function renderMessages(messages) {
           key: `tools:${run.map((entry) => entry.callId || entry.seq || entry.name || "tool").join("|") || start}`,
           signature: run.map(messageSignature).join("|"),
           count: run.length,
+          msgIndex: start,
           build: () => createActivityRun(run),
         });
         continue;
@@ -4264,7 +4321,10 @@ function renderMessages(messages) {
       node = block.build();
       if (settled && !cached && !transcriptSilentGrow) markTranscriptEntry(node);
     }
-    if (Number.isInteger(block.msgIndex)) node.dataset.vmsg = String(block.msgIndex);
+    if (Number.isInteger(block.msgIndex)) {
+      node.dataset.vmsg = String(block.msgIndex);
+      node.dataset.transcriptKey = key;
+    }
     next.set(key, { signature: block.signature, node });
     nodes.push(node);
   }
@@ -4274,18 +4334,16 @@ function renderMessages(messages) {
   rememberTranscriptRowHeights(root, visibleMessages.length);
   syncLiveBubbleContent(root);
   restoreOpenToolKeys(root, expandedTools);
-  // A layout wobble (spacer estimate settling, images resolving) can clear the
-  // pinned flag while the viewport never actually left the bottom. Geometry is
-  // the truth here: whatever was visually at the bottom stays at the bottom.
-  const visuallyAtBottom = root.scrollHeight - previousTop - root.clientHeight < 44;
   if (applyMessageScrollPin()) {
     if (changed) state.unseenMessages = 1;
-  } else if (wasPinned || (visuallyAtBottom && view.latest)) {
-    root.scrollTop = root.scrollHeight;
+  } else if (wasPinned && view.latest) {
+    settleTranscriptScroll(root, root.scrollHeight);
     state.messagesStickToBottom = true;
     state.unseenMessages = 0;
   } else {
-    root.scrollTop = Math.min(previousTop, Math.max(0, root.scrollHeight - root.clientHeight));
+    if (!restoreTranscriptAnchor(root, anchor)) {
+      settleTranscriptScroll(root, Math.min(previousTop, Math.max(0, root.scrollHeight - root.clientHeight)));
+    }
     if (changed) state.unseenMessages = 1;
   }
   paintMessageMarkFlash();
@@ -4294,6 +4352,7 @@ function renderMessages(messages) {
   updateScrollLatestButton();
   renderMessageMarks();
   syncMessageMagnet();
+  rememberTranscriptReadingPosition(root);
   return true;
 }
 
@@ -6092,6 +6151,7 @@ $("#messages").addEventListener("click", (event) => {
   window.widget.openExternal(link.href).catch(() => {});
 });
 $("#messages").addEventListener("scroll", () => {
+  if (!$("#messages").clientHeight) return;
   const nearBottom = messagesNearBottom();
   if (state.scrollLatestAutoScrolling) {
     if (nearBottom) finishScrollLatestAutoScroll();
@@ -6110,7 +6170,11 @@ $("#messages").addEventListener("scroll", () => {
   updateScrollLatestButton();
   maybeGrowTranscriptWindow();
   syncMessageMagnet();
-  scheduleMessageMagnet();
+  const root = $("#messages");
+  // A resize can also emit scroll before ResizeObserver restores the old row.
+  if (!transcriptReadingPosition || transcriptReadingPosition.width === root.clientWidth) {
+    rememberTranscriptReadingPosition(root);
+  }
 });
 // A smooth jump is measured before it flies, and rows that skipped layout can resolve
 // to different sizes while it is still in flight - landing it off target. When the
@@ -6138,7 +6202,13 @@ $("#messages").addEventListener("scrollend", () => {
 // Scrolling under your own hand releases the pin at once; it only exists to keep a rebuild
 // from landing on top of a jump that is still in flight.
 for (const eventName of ["wheel", "pointerdown", "keydown"]) {
-  $("#messages").addEventListener(eventName, releaseMessageScrollPin, { passive: true });
+  $("#messages").addEventListener(eventName, (event) => {
+    releaseMessageScrollPin();
+    transcriptProgrammaticScrollAt = 0;
+    clearTimeout(state.scrollLatestAutoScrollTimer);
+    state.scrollLatestAutoScrolling = false;
+    if (eventName === "wheel" && event.deltaY < 0) state.messagesStickToBottom = false;
+  }, { passive: true });
 }
 // The strips around the log ease open and shut, and the window itself is resized by hand
 // and by the size presets. Whatever moves the log's edges, a log that was following the end
@@ -6146,9 +6216,13 @@ for (const eventName of ["wheel", "pointerdown", "keydown"]) {
 // there is no frame in which the last line is cut off.
 if (typeof ResizeObserver === "function") {
   new ResizeObserver(() => {
-    if (!state.messagesStickToBottom || state.scrollLatestAutoScrolling || activeMessageScrollPin()) return;
     const root = $("#messages");
-    root.scrollTop = root.scrollHeight;
+    if (!root.clientHeight || state.scrollLatestAutoScrolling || activeMessageScrollPin()) return;
+    if (state.messagesStickToBottom) root.scrollTop = root.scrollHeight;
+    else if (transcriptReadingPosition?.sessionId === state.selectedSessionId) {
+      restoreTranscriptAnchor(root, transcriptReadingPosition.anchor);
+    }
+    rememberTranscriptReadingPosition(root);
   }).observe($("#messages"));
 }
 $("#scrollLatestButton").addEventListener("click", async () => {

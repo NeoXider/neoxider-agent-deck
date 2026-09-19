@@ -269,6 +269,36 @@ function titleFromSession(session) {
   return "New session";
 }
 
+function compactionMessage(event, previousEvent) {
+  const source = event.data?.source;
+  if (event.type !== "user/message" || source?.kind !== "plugin" || source.plugin !== "compact") return null;
+  // Harness lands a checkpoint immediately after its summary. Only that matched
+  // transaction can price the replaced range; a nearby turn's usage cannot.
+  const summary = previousEvent?.type === "compaction/summary"
+    && previousEvent.data?.compactionId === source.compactionId
+    && previousEvent.seq + 1 === event.seq ? previousEvent.data : null;
+  const beforeTokens = Number.isSafeInteger(summary?.shadowedTokenCount) && summary.shadowedTokenCount >= 0
+    ? summary.shadowedTokenCount : null;
+  const blocks = event.data.content;
+  // These are Harness's fixed text-density estimates: four characters per token,
+  // four tokens per block, and four for the message. Never label these as exact
+  // provider counts or as the entire context (the retained tail is not replaced).
+  const afterTokens = Array.isArray(blocks) && blocks.every((block) => block?.type === "text" && typeof block.text === "string")
+    ? 4 + blocks.reduce((sum, block) => sum + 4 + Math.ceil(block.text.length / 4), 0) : null;
+  return {
+    role: "compaction",
+    text: beforeTokens !== null && afterTokens !== null
+      ? `Context compacted: approximately ${beforeTokens} → ${afterTokens} tokens in the replaced context`
+      : "Context compacted",
+    beforeTokens,
+    afterTokens: beforeTokens === null ? null : afterTokens,
+    estimated: true,
+    compactionId: typeof source.compactionId === "string" ? source.compactionId : null,
+    time: event.time,
+    seq: event.seq,
+  };
+}
+
 function messagesFromHistory(entries) {
   if (!Array.isArray(entries)) return [];
   const boundedEntries = boundedHistoryEntries(entries);
@@ -280,10 +310,15 @@ function messagesFromHistory(entries) {
       && String(event.data?.args || "").trim() === "danger-full-access")
     .map((event) => String(event.data.commandId || ""))
     .filter(Boolean));
-  for (const entry of boundedEntries) {
+  for (const [index, entry] of boundedEntries.entries()) {
     const event = entry && entry.event;
     if (!event || !event.data) continue;
     if (event.type === "user/message") {
+      const compaction = compactionMessage(event, boundedEntries[index - 1]?.event);
+      if (compaction) {
+        messages.push(compaction);
+        continue;
+      }
       if (event.data.source && !["user", "user-rpc"].includes(event.data.source.kind)) continue;
       const { text, attachments } = userContentFromBlocks(event.data.content);
       if (text || attachments.length) messages.push({ role: "user", text, attachments, time: event.time, seq: event.seq });

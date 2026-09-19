@@ -81,6 +81,8 @@ jobs:
       - if: matrix.interactionSmoke
         run: npm run test:large-chat
       - if: matrix.interactionSmoke
+        run: npm run test:stability
+      - if: matrix.interactionSmoke
         run: npm run test:motion
       - if: matrix.interactionSmoke
         run: npm run test:ui

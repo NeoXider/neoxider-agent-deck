@@ -415,16 +415,14 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .composer-error button .ui-icon { width:12px; height:12px; }
 
 .messages-wrap { position:relative; width:100%; min-width:0; min-height:0; flex:1 1 auto; }
-.messages { width:100%; height:100%; min-width:0; min-height:0; overflow:hidden auto; padding:3px 13px 8px 1px; }
+.messages { width:100%; height:100%; min-width:0; min-height:0; overflow:hidden auto; overflow-anchor:none; padding:3px 13px 8px 1px; }
 /* A block that arrives while the log is already on screen slides in. Only newcomers: the
    transcript is reconciled by key, so a poll landing mid-turn re-animates nothing. */
 #messages > .enter { animation:transcript-enter .36s cubic-bezier(.16,1,.3,1) both; }
 @keyframes transcript-enter { from { opacity:0; transform:translateY(10px) scale(.985); } }
-/* The window holds at most a few hundred messages, most of them outside the
-   viewport. Off-screen rows skip layout and paint, with their remembered size
-   keeping the scrollbar honest - so typing stays cheap no matter how tall the
-   spacers standing in for unloaded history are. */
-#messages > * { content-visibility:auto; contain-intrinsic-size:auto 64px; }
+/* The bounded transcript window already limits layout work. Keep its real
+   geometry: skipped layout changes row heights during scroll and mode switches. */
+#messages > * { content-visibility:visible; }
 /* Three quiet placeholders while a session's history is on its way. */
 .transcript-skeleton { display:grid; gap:9px; padding:4px 0; }
 .skeleton-bubble { height:36px; border-radius:14px 14px 14px 4px; background:linear-gradient(100deg,rgba(255,255,255,.045) 25%,rgba(255,255,255,.11) 50%,rgba(255,255,255,.045) 75%); background-size:240% 100%; animation:skeleton-sweep 1.5s ease-in-out infinite; }
@@ -694,11 +692,14 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 @keyframes toast-in { from { opacity:0; transform:translateY(8px) scale(.92); } }
 @keyframes toast-out { to { opacity:0; transform:translateY(6px) scale(.95); } }
 
-.attachment-bar { min-width:0; display:none; grid-template-columns:auto minmax(0,1fr); gap:6px; align-items:center; padding:2px; border:1px solid rgba(73,231,198,.22); border-radius:11px; background:rgba(73,231,198,.055); }
-.attachment-bar.has-items { display:grid; }
+.attachment-bar { flex:none; min-width:0; display:none; grid-template-columns:auto minmax(0,1fr); gap:6px; align-items:center; padding:2px; border:1px solid rgba(73,231,198,.22); border-radius:11px; background:rgba(73,231,198,.055); }
+.attachment-bar.has-items { display:grid; animation:attachment-reveal .18s ease-out; }
+/* Reserve the complete preview row immediately; animating its height lets the flex
+   layout squeeze previews into a sliver while a multiline composer is growing. */
+@keyframes attachment-reveal { from { opacity:0; } to { opacity:1; } }
 .attachment-heading { display:flex; align-items:center; gap:5px; color:#8cebd8; font-size:8px; white-space:nowrap; }
 .attachment-heading .ui-icon { width:15px; height:15px; }
-.attachment-list { min-width:0; display:flex; gap:5px; overflow-x:auto; overflow-y:hidden; padding:0 0 1px; scroll-snap-type:x proximity; overscroll-behavior-x:contain; }
+.attachment-list { min-width:0; min-height:49px; display:flex; gap:5px; overflow-x:auto; overflow-y:hidden; padding:0 0 1px; scroll-snap-type:x proximity; overscroll-behavior-x:contain; }
 .attachment-list::-webkit-scrollbar { height:2px; }
 .attachment-chip { flex:0 0 172px; min-width:0; height:46px; display:grid; grid-template-columns:48px minmax(0,1fr) 26px; gap:5px; align-items:center; padding:2px; border:1px solid rgba(255,255,255,.1); border-radius:9px; background:linear-gradient(135deg,rgba(19,26,36,.98),rgba(16,21,31,.98)); scroll-snap-align:start; }
 .attachment-preview { width:48px; height:40px; display:grid; place-items:center; overflow:hidden; border:1px solid rgba(255,255,255,.075); border-radius:7px; background:rgba(73,231,198,.08); color:#83e5d1; }
@@ -708,7 +709,9 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .attachment-name b { overflow:hidden; color:#e3eaf2; font-size:8px; font-weight:680; text-overflow:ellipsis; white-space:nowrap; }
 .attachment-name small { width:max-content; padding:1px 4px; border-radius:4px; background:rgba(139,121,255,.1); color:#9ca9bb; font-size:6px; font-weight:750; letter-spacing:.06em; text-transform:uppercase; }
 .attachment-remove { position:relative; width:26px; height:28px; display:grid; place-items:center; border:1px solid rgba(255,115,143,.12); border-radius:7px; background:rgba(255,115,143,.045); color:#aeb8c6; cursor:pointer; }
+.attachment-remove { transition:background .14s ease, color .14s ease; }
 .attachment-remove:hover { background:rgba(255,115,143,.1); color:#ff91a7; }
+.attachment-remove:focus-visible { outline:2px solid var(--mint); outline-offset:-2px; }
 .attachment-remove .ui-icon { width:13px; height:13px; }
 .attachment-remove span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 
@@ -1077,7 +1080,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
   .chat-crowded .queue-row { min-height:26px; height:26px; padding:1px 2px 1px 5px; }
   .chat-crowded .queue-row + .queue-row { margin-top:1px; }
   .chat-crowded .attachment-bar { height:30px; padding:1px; }
-  .chat-crowded .attachment-list { height:26px; padding:0; }
+  .chat-crowded .attachment-list { height:26px; min-height:26px; padding:0; }
   .chat-crowded .attachment-chip { height:26px; flex-basis:138px; grid-template-columns:28px minmax(0,1fr) 20px; gap:3px; padding:1px; }
   .chat-crowded .attachment-preview { width:26px; height:22px; }
   .chat-crowded .attachment-preview .ui-icon { width:13px; height:13px; }
@@ -1143,11 +1146,11 @@ body[data-chat-state="waiting"] .widget-shell::before, body[data-chat-state="thi
 .focus-chat .widget-shell { --strip-gap:0px; }
 .chat-panel.active { --strip-gap:7px; }
 .chat-crowded .chat-panel.active { --strip-gap:1px; }
-.activity-card, .todo-dock, .queue-dock, .attachment-bar, .command-menu, .command-hint-bar, .composer-error, .goal-dock, .offline-banner { interpolate-size:allow-keywords; transition:height .24s cubic-bezier(.22,1,.36,1), opacity .18s ease, margin-top .24s cubic-bezier(.22,1,.36,1), padding .24s ease, border-width .24s ease, display .24s allow-discrete; }
-.activity-card, .attachment-bar, .composer-error, .offline-banner { overflow:hidden; }
-.activity-card:not(.has-activity), .activity-card[hidden], .todo-dock[hidden], .queue-dock:not(.has-items), .attachment-bar:not(.has-items), .command-menu:not(.open), .command-hint-bar[hidden], .composer-error[hidden], .goal-dock[hidden], .offline-banner:not(.show) { display:none; height:0; min-height:0; margin-top:calc(-1 * var(--strip-gap,0px)); padding-top:0; padding-bottom:0; border-top-width:0; border-bottom-width:0; opacity:0; overflow:hidden; pointer-events:none; }
+.activity-card, .todo-dock, .queue-dock, .command-menu, .command-hint-bar, .composer-error, .goal-dock, .offline-banner { interpolate-size:allow-keywords; transition:height .24s cubic-bezier(.22,1,.36,1), opacity .18s ease, margin-top .24s cubic-bezier(.22,1,.36,1), padding .24s ease, border-width .24s ease, display .24s allow-discrete; }
+.activity-card, .composer-error, .offline-banner { overflow:hidden; }
+.activity-card:not(.has-activity), .activity-card[hidden], .todo-dock[hidden], .queue-dock:not(.has-items), .command-menu:not(.open), .command-hint-bar[hidden], .composer-error[hidden], .goal-dock[hidden], .offline-banner:not(.show) { display:none; height:0; min-height:0; margin-top:calc(-1 * var(--strip-gap,0px)); padding-top:0; padding-bottom:0; border-top-width:0; border-bottom-width:0; opacity:0; overflow:hidden; pointer-events:none; }
 @starting-style {
-  .activity-card.has-activity:not([hidden]), .todo-dock:not([hidden]), .queue-dock.has-items, .attachment-bar.has-items, .command-menu.open, .command-hint-bar:not([hidden]), .composer-error:not([hidden]), .goal-dock:not([hidden]), .offline-banner.show { height:0; margin-top:calc(-1 * var(--strip-gap,0px)); padding-top:0; padding-bottom:0; border-top-width:0; border-bottom-width:0; opacity:0; }
+  .activity-card.has-activity:not([hidden]), .todo-dock:not([hidden]), .queue-dock.has-items, .command-menu.open, .command-hint-bar:not([hidden]), .composer-error:not([hidden]), .goal-dock:not([hidden]), .offline-banner.show { height:0; margin-top:calc(-1 * var(--strip-gap,0px)); padding-top:0; padding-bottom:0; border-top-width:0; border-bottom-width:0; opacity:0; }
 }
 /* A card opens like a drawer rather than snapping: tool calls, tool groups, the activity
    card, the goal panel and the shortcut list ease their content in. Pickers are left alone,
@@ -1180,3 +1183,8 @@ body.screenshot-backdrop-white { background:#f4f7fb !important; }
 .transcript-spacer { width:100%; flex:none; }
 .transcript-window-edge { padding:8px 4px; color:rgba(154,167,184,.75); font-size:9px; text-align:center; }
 body.screenshot-backdrop-checkerboard { background:conic-gradient(#eef2f7 25%,#242a35 0 50%,#eef2f7 0 75%,#242a35 0) 0 0 / 18px 18px !important; }
+
+.context-compaction { display:flex; align-items:center; flex:none; gap:10px; width:100%; min-width:0; margin:8px 0; padding:6px 2px; color:rgba(147,211,211,.85); }
+.context-compaction::before, .context-compaction::after { content:""; flex:1; min-width:12px; height:1px; background:linear-gradient(90deg,transparent,rgba(87,196,185,.36)); }
+.context-compaction::after { transform:scaleX(-1); }
+.context-compaction-label { min-width:0; max-width:calc(100% - 44px); padding:4px 9px; border:1px solid rgba(87,196,185,.18); border-radius:999px; background:rgba(50,113,117,.07); font-size:10px; font-weight:600; line-height:1.4; text-align:center; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }

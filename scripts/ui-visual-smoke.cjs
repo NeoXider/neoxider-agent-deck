@@ -69,7 +69,7 @@ const cases = [
   { name: "queued-editing", tab: "chat", fixture: "queued-editing", expect: { queueEditorTag: "TEXTAREA", queueDockAboveComposer: true }, min: { queueEditorLines: 3 } },
   // A mark per message the caller wrote, in the gutter beside the scrollbar, with the
   // magnet on because the log is scrolled away from a running turn.
-  { name: "message-marks", tab: "chat", fixture: "message-marks", expect: { messageMarkCount: 5, messageMarksMagnet: true, messageMarksClearOfBubbles: true, messageMarksOrdered: true, messageMarksAllResolve: true, messageMarkHitHeight: 11, scrollLatestVisible: true, messageMarksClearOfLatest: true } },
+  { name: "message-marks", tab: "chat", fixture: "message-marks", expect: { messageMarkCount: 5, messageMarksMagnet: false, messageMarksClearOfBubbles: true, messageMarksOrdered: true, messageMarksAllResolve: true, messageMarkHitHeight: 11, scrollLatestVisible: true, messageMarksClearOfLatest: true } },
   // Press a mark, then let the poll rebuild the log on top of it: the jump has to hold.
   { name: "mark-jump", tab: "chat", fixture: "mark-jump", expect: { markJumpAligned: true, markJumpFlashed: 1, messageMarksClearOfLatest: true } },
   // The goal lives in its own strip under the composer so it never scrolls off in the log and

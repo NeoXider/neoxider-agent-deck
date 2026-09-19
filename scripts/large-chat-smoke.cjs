@@ -6,6 +6,7 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 // Exercise the real renderer in Chromium, including layout and composer input.
 // A hidden fixture keeps this repeatable without a running Harness or user data.
 const root = path.resolve(__dirname, "..");
+app.disableHardwareAcceleration();
 const deadline = setTimeout(() => { console.error("Large chat smoke timed out"); app.exit(1); }, 60000);
 
 async function main() {
@@ -20,9 +21,10 @@ async function main() {
     webPreferences: {
       preload: path.join(root, "src", "preload.cjs"),
       contextIsolation: true, nodeIntegration: false, sandbox: true,
-      backgroundThrottling: false,
+      backgroundThrottling: false, offscreen: true,
     },
   });
+  win.webContents.on("paint", () => {});
   await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
     query: { screenshotFixture: "chat", screenshotStatic: "1" },
   });
@@ -58,8 +60,8 @@ async function main() {
       stableNode: firstNode === log.querySelector(".bubble"),
       renderMs, repeatMs, typingMs,
     };
-    // Telegram-style: scrolling to the top loads older history above the reading
-    // position and unloads the newest rows once the window exceeds its cap.
+    // Dragging to the absolute top materializes the oldest history immediately.
+    // Nearby window-edge growth and reading anchors have a separate regression.
     for (let i = 0; i < 5; i++) {
       log.scrollTop = 0;
       await frames();
@@ -68,7 +70,7 @@ async function main() {
     result.grownStart = transcriptViewStart;
     result.grownEnd = transcriptViewEnd;
     result.grownBubbles = log.querySelectorAll(".bubble").length;
-    result.olderVisible = log.textContent.includes("Message 9520");
+    result.olderVisible = log.textContent.includes("Message 0");
     result.unloadedLatest = !log.textContent.includes("Message 9999");
     result.pillVisible = !document.querySelector("#scrollLatestButton").hidden;
     // Rows that were read and scrolled away from are not new.

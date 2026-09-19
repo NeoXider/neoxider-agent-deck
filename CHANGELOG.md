@@ -5,6 +5,18 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-09-20
+
+### Fixed
+
+- **Long chats stay visible while scrolling.** History loads at the edges of rendered messages, and dragging the scrollbar into unloaded history immediately materializes the destination. Refreshes preserve the visible message instead of an obsolete pixel offset. Rows use their actual layout size, and idle snapping no longer moves the reader's position.
+- **Attachments remain visible above the composer.** The preview strip cannot shrink into a thin line when the prompt grows or the window is small. Its entrance fades without squeezing its height. Refreshes preserve previews, horizontal scrolling and keyboard focus, and repeated removals target the correct file.
+
+### Added
+
+- **Context compaction markers.** A subtle divider shows where a completed compaction occurred, with before/after token estimates when recorded history supports them. The approximate label and tooltip identify estimates of the replaced context and its summary; missing data never produces invented counts.
+- **Renderer regression coverage.** Automated Chromium checks exercise 10,000-message scrolling, arrivals while reading, attachment layout with motion on/off, and compaction marker placement.
+
 ## [0.9.2] - 2026-09-16
 
 ### Fixed

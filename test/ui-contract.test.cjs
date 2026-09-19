@@ -764,30 +764,22 @@ test("the caller's own messages are marked on the scroll rail and pull the scrol
   // repaint that runs on each poll, and the shared layout snapshot.
   assert.equal((renderer.match(/if \(applyMessageScrollPin\(\)\) \{/g) || []).length, 3);
   assert.match(renderer, /for \(const eventName of \["wheel", "pointerdown", "keydown"\]\)/);
-  assert.match(renderer, /if \(activeMessageScrollPin\(\)\) return;/);
+  assert.match(renderer, /activeMessageScrollPin\(\)/);
   // The pulse is re-applied by index, so a repaint landing mid-flash does not swallow it.
   assert.match(renderer, /function paintMessageMarkFlash\(\)/);
   assert.match(visualSmoke, /markJumpAligned: true, markJumpFlashed: 1/);
   assert.match(visualSmoke, /messageMarkHitHeight: 11, scrollLatestVisible: true, messageMarksClearOfLatest: true/);
-  // The magnet is a guarded JS pull on scroll-idle, not CSS scroll-snap: snap on the whole
-  // log pulled the view off the top and hid the agent's opening reply. It never fires at
-  // the top, never while following a running turn, and only within a small pull distance.
+  // Idle scrolling must never snap the reader to a nearby message.
   assert.doesNotMatch(css, /\.messages(\.magnet)?[^{]*\{[^}]*scroll-snap/);
-  assert.match(renderer, /function scheduleMessageMagnet\(\)/);
-  assert.match(renderer, /if \(root\.scrollTop < 8\) return;/);
-  assert.match(renderer, /Math\.abs\(bestDist\) > MESSAGE_MAGNET_PULL\) return;/);
-  assert.match(renderer, /toggle\("magnet", !state\.messagesStickToBottom\)/);
-  assert.match(visualSmoke, /messageMarkCount: 5, messageMarksMagnet: true, messageMarksClearOfBubbles: true, messageMarksOrdered: true/);
+  assert.doesNotMatch(renderer, /function scheduleMessageMagnet/);
+  assert.match(renderer, /classList\.remove\("magnet"\)/);
+
 });
 
-test("long transcripts skip off-screen layout work so typing stays cheap", () => {
+test("bounded transcripts retain real row geometry", () => {
   const css = readSource("src", "renderer", "styles.css");
-  // Every keystroke in the composer or the queue editor reflows the page. In a very
-  // long conversation that reflow used to walk every bubble in the log and the whole
-  // widget stuttered while editing. Off-screen rows skip layout and paint now, with
-  // their remembered size keeping the scrollbar honest.
-  assert.match(css, /#messages > \* \{[^}]*content-visibility:auto/);
-  assert.match(css, /#messages > \* \{[^}]*contain-intrinsic-size:auto 64px/);
+  assert.match(css, /#messages > \* \{[^}]*content-visibility:visible/);
+  assert.match(css, /\.messages \{[^}]*overflow-anchor:none/);
   assert.match(renderer, /const TRANSCRIPT_WINDOW_INITIAL = 80;/);
 });
 
@@ -1664,7 +1656,11 @@ test("the transcript is reconciled by key instead of rebuilt on every change", (
 
 test("the strips around the log ease open and shut while the log stays anchored", () => {
   const css = readSource("src", "renderer", "styles.css");
-  assert.match(css, /\.activity-card, \.todo-dock, \.queue-dock, \.attachment-bar, \.command-menu, \.command-hint-bar, \.composer-error, \.goal-dock, \.offline-banner \{ interpolate-size:allow-keywords; transition:height [^}]*display \.24s allow-discrete; \}/);
+  assert.match(css, /\.activity-card, \.todo-dock, \.queue-dock, \.command-menu, \.command-hint-bar, \.composer-error, \.goal-dock, \.offline-banner \{ interpolate-size:allow-keywords; transition:height [^}]*display \.24s allow-discrete; \}/);
+  // Previews reserve their complete row immediately even while the composer grows.
+  // The Chromium attachment-layout smoke checks actual clipping during that motion.
+  assert.match(css, /\.attachment-bar \{ flex:none;/);
+  assert.match(css, /\.attachment-bar\.has-items \{ display:grid; animation:attachment-reveal \.18s ease-out;/);
   // Hidden is a state the strip animates to: zero height, the flex gap swallowed by a
   // negative margin, and display kept until the exit is over.
   assert.match(css, /\.activity-card:not\(\.has-activity\), \.activity-card\[hidden\], \.todo-dock\[hidden\], \.queue-dock:not\(\.has-items\)[^{]*\{ display:none; height:0;[^}]*margin-top:calc\(-1 \* var\(--strip-gap,0px\)\)/);
@@ -1681,7 +1677,7 @@ test("the strips around the log ease open and shut while the log stays anchored"
     assert.doesNotMatch(css, new RegExp(`@keyframes ${name} `), `${name} is replaced by the eased strip`);
   }
   // Whatever moves the log's edges, a log following the conversation keeps following it.
-  assert.match(renderer, /new ResizeObserver\(\(\) => \{\s*if \(!state\.messagesStickToBottom \|\| state\.scrollLatestAutoScrolling \|\| activeMessageScrollPin\(\)\) return;\s*const root = \$\("#messages"\);\s*root\.scrollTop = root\.scrollHeight;\s*\}\)\.observe\(\$\("#messages"\)\);/);
+  assert.match(renderer, /restoreTranscriptAnchor\(root, transcriptReadingPosition\.anchor\)/);
   // The smoke suite checks the platform actually has the three features this leans on, and
   // one case leaves motion on to watch the strip ease under a following log: several
   // observed heights prove the easing, a one-pixel ceiling on the gap proves the anchor.
@@ -1824,8 +1820,8 @@ test("the virtualized transcript grows towards the newest message, not only back
   // Growing down trims the top of the window to stay under the DOM cap, so the reading
   // position is held against a row that survives the grow rather than against a height.
   const down = functionBody(renderer, "function growTranscriptWindowDown()");
-  assert.match(down, /const anchorIndex = Math\.max\(transcriptViewStart, transcriptViewEnd - 1\);/);
-  assert.match(down, /settleTranscriptScroll\(root, root\.scrollTop \+ \(offsetAfter - offsetBefore\)\);/);
+  assert.match(renderer, /captureTranscriptAnchor\(root\)/);
+  assert.match(renderer, /restoreTranscriptAnchor\(root, anchor\)/);
   // The scroll a grow causes is its own correction, not a request for another grow.
   const settle = functionBody(renderer, "function settleTranscriptScroll(root, top)");
   assert.match(settle, /if \(root\.scrollTop !== before\) transcriptProgrammaticScrollAt = Date\.now\(\);/);
@@ -1888,7 +1884,7 @@ test("the transcript commits its signature only once the DOM matches it", () => 
   assert.ok(render.indexOf("reconcileChildren(root, nodes);") < render.indexOf("state.historySignature = signature;"));
   assert.doesNotMatch(render, /const window = /, "the global window must not be shadowed");
   // The foot of a spacer is not the foot of the conversation.
-  assert.match(render, /\} else if \(wasPinned \|\| \(visuallyAtBottom && view\.latest\)\) \{/);
+  assert.match(render, /\} else if \(wasPinned && view\.latest\) \{/);
 });
 
 test("the jump-to-latest pill counts only what actually arrived", () => {

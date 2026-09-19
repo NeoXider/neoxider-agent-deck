@@ -85,10 +85,12 @@ function harness() {
     let transcriptAverageRowHeight = TRANSCRIPT_ROW_ESTIMATE_PX;
     let transcriptGrowing = false;
     let transcriptProgrammaticScrollAt = 0;
+    let transcriptProgrammaticScrollTop = null;
+    let transcriptReadingPosition = null;
     const TRANSCRIPT_PROGRAMMATIC_SCROLL_MS = 250;
     let transcriptSilentGrow = false;
     let transcriptPreviewCache = { source: [], messages: [] };
-    ${["transcriptWindow", "transcriptAtLatest", "transcriptHiddenNewerCount", "transcriptArrivedCount", "jumpToLatestTranscript", "growTranscriptWindowUp", "growTranscriptWindowDown", "settleTranscriptScroll", "maybeGrowTranscriptWindow", "transcriptSpacer", "transcriptWindowEdge", "rememberTranscriptRowHeights", "visibleMessagePreviews", "boundedMessagePreviews", "messagePreviewBytes", "messageSignature", "messageBlockKey", "transcriptCache", "commandResultName", "renderMessages", "releaseMessageScrollPin"].map(declaration).join("\n")}
+    ${["transcriptWindow", "transcriptAtLatest", "transcriptHiddenNewerCount", "transcriptArrivedCount", "jumpToLatestTranscript", "growTranscriptWindowUp", "growTranscriptWindowDown", "settleTranscriptScroll", "maybeGrowTranscriptWindow", "transcriptSpacer", "transcriptWindowEdge", "rememberTranscriptRowHeights", "visibleMessagePreviews", "boundedMessagePreviews", "messagePreviewBytes", "messageSignature", "messageBlockKey", "transcriptCache", "commandResultName", "renderMessages", "releaseMessageScrollPin", "captureTranscriptAnchor", "restoreTranscriptAnchor", "rememberTranscriptReadingPosition"].map(declaration).join("\n")}
   `, context);
   return { context, root, state, builds: () => builds, run: code => vm.runInContext(code, context) };
 }

@@ -82,6 +82,8 @@ jobs:
       - if: matrix.uiSmoke
         run: npm run test:large-chat
       - if: matrix.uiSmoke
+        run: npm run test:stability
+      - if: matrix.uiSmoke
         run: npm run test:motion
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: matrix.uiSmoke
