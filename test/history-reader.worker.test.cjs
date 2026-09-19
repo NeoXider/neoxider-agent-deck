@@ -2,10 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { Worker } = require("node:worker_threads");
 const { once } = require("node:events");
-const path = require("node:path");
+
 
 test("history worker reports request failures and accepts cache invalidation afterward", async () => {
-  const worker = new Worker(path.join(__dirname, "../src/history-reader.worker.cjs"), {
+  const worker = new Worker(require.resolve("../src/history-reader.worker.cjs"), {
     workerData: { baseUrl: "invalid-url", options: {} },
   });
   try {

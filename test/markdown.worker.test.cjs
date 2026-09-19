@@ -2,10 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { Worker } = require("node:worker_threads");
 const { once } = require("node:events");
-const path = require("node:path");
+
 
 test("worker returns rendering errors without losing the next request", async () => {
-  const worker = new Worker(path.join(__dirname, "../src/markdown.worker.cjs"));
+  const worker = new Worker(require.resolve("../src/markdown.worker.cjs"));
   try {
     worker.postMessage({ id: 1, texts: null });
     const [failure] = await once(worker, "message");

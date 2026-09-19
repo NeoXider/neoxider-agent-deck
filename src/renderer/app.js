@@ -1001,7 +1001,9 @@ function applyWindowMode(mode) {
     return;
   }
   clearModeTransitionClasses("out");
+  hideChatTooltip();
   state.windowMode = mode;
+  if (mode !== "full") state.transcriptModeRestore = null;
   document.body.classList.remove("mode-full", "mode-orb", "mode-edge");
   document.body.classList.add(`mode-${mode}`);
   syncCrowdedChatState();
@@ -1026,6 +1028,7 @@ function applyWindowMode(mode) {
     if (state.currentActivity?.kind === "error") setActivity(null);
   }
   animateModeEnter(previousMode);
+  if (mode === "full") restoreTranscriptAfterModeChange();
   syncCompactStatus();
   // syncCompactStatus only republishes when its own signature changed, and entering avatar
   // mode usually changes nothing it tracks — so the measurement has to be forced here, or
@@ -3181,13 +3184,14 @@ function renderMessageMarks() {
   state.messageMarksSignature = signature;
   rail.classList.toggle("has-marks", marks.length > 0);
   $("#messages").parentElement?.classList.toggle("has-marks", marks.length > 0);
+  hideChatTooltip();
   rail.replaceChildren();
   for (const mark of marks) {
     const tick = document.createElement("button");
     tick.type = "button";
     tick.className = "message-mark";
     tick.style.top = `${(mark.ratio * 100).toFixed(3)}%`;
-    tick.title = mark.label;
+    tick.dataset.tooltip = mark.label;
     tick.dataset.msgIndex = String(mark.msgIndex);
     // Of all your messages, not of the sampled ticks: a long chat announced "message 998 of 334".
     tick.setAttribute("aria-label", `Your message ${mark.ordinal + 1} of ${userEntries.length}: ${mark.label}`);
@@ -3939,6 +3943,7 @@ function visibleMessagePreviews(messages, start, end) {
 
 // half-open [start, end) over the full message list, tool runs never cut.
 function transcriptWindow(total) {
+  let recovered = false;
   if (transcriptViewSessionId !== state.selectedSessionId) {
     transcriptViewSessionId = state.selectedSessionId;
     transcriptViewStart = Math.max(0, total - TRANSCRIPT_WINDOW_INITIAL);
@@ -3972,12 +3977,23 @@ function transcriptWindow(total) {
   const messages = state.currentMessages;
   let start = Math.max(0, Math.min(transcriptViewStart, total));
   let end = Math.max(start, Math.min(transcriptViewEnd, total));
+  // An empty loading view has no reading position to preserve. A wheel/resize
+  // during loading can unset bottom-following; freezing [0, 0) then hid the
+  // entire arriving history behind a spacer and counted it all as new.
+  // The same invariant repairs stale ranges after history replacement.
+  if (total > 0 && (!Number.isInteger(start) || !Number.isInteger(end) || end <= start)) {
+    start = Math.max(0, total - TRANSCRIPT_WINDOW_INITIAL);
+    end = total;
+    recovered = true;
+    state.messagesStickToBottom = true;
+    state.unseenMessages = 0;
+  }
   while (start > 0 && messages[start - 1]?.role === "tool" && messages[start]?.role === "tool") start -= 1;
   while (end < total && messages[end - 1]?.role === "tool" && messages[end]?.role === "tool") end += 1;
   transcriptViewStart = start;
   transcriptViewEnd = end;
   if (end === total) transcriptSeenTotal = total;
-  return { start, end, total, latest: end === total };
+  return { start, end, total, latest: end === total, recovered };
 }
 
 function transcriptAtLatest() {
@@ -4063,11 +4079,12 @@ function growTranscriptWindowDown() {
 function captureTranscriptAnchor(root) {
   if (typeof root.getBoundingClientRect !== "function") return null;
   const viewport = root.getBoundingClientRect();
+  const scale = root.clientHeight > 0 && viewport.height > 0 ? viewport.height / root.clientHeight : 1;
   for (const node of root.children) {
     if (!node.dataset.transcriptKey) continue;
     const rect = node.getBoundingClientRect();
     if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
-      return { key: node.dataset.transcriptKey, offset: rect.top - viewport.top };
+      return { key: node.dataset.transcriptKey, offset: (rect.top - viewport.top) / scale };
     }
   }
   return null;
@@ -4077,18 +4094,123 @@ function restoreTranscriptAnchor(root, anchor) {
   if (!anchor) return false;
   const node = [...root.children].find((row) => row.dataset.transcriptKey === anchor.key);
   if (!node) return false;
-  const offset = node.getBoundingClientRect().top - root.getBoundingClientRect().top;
+  const viewport = root.getBoundingClientRect();
+  const scale = root.clientHeight > 0 && viewport.height > 0 ? viewport.height / root.clientHeight : 1;
+  const offset = (node.getBoundingClientRect().top - viewport.top) / scale;
   settleTranscriptScroll(root, root.scrollTop + offset - anchor.offset);
   return true;
 }
 
+let chatTooltipOwner = null;
+let chatTooltipNode = null;
+let chatTooltipNativeTitle = null;
+let chatTooltipDescription = null;
+
+function hideChatTooltip() {
+  if (chatTooltipOwner) {
+    if (chatTooltipNativeTitle !== null && !chatTooltipOwner.hasAttribute("title")) chatTooltipOwner.setAttribute("title", chatTooltipNativeTitle);
+    if (chatTooltipDescription === null) chatTooltipOwner.removeAttribute("aria-describedby");
+    else chatTooltipOwner.setAttribute("aria-describedby", chatTooltipDescription);
+  }
+  chatTooltipOwner = null;
+  chatTooltipNativeTitle = null;
+  chatTooltipDescription = null;
+  if (chatTooltipNode) {
+    if (chatTooltipNode.matches(":popover-open")) chatTooltipNode.hidePopover();
+    chatTooltipNode.hidden = true;
+  }
+}
+
+function showChatTooltip(owner) {
+  if (!owner?.isConnected || state.windowMode !== "full") return;
+  const label = owner.getAttribute("title") || owner.dataset.tooltip || (owner === chatTooltipOwner ? chatTooltipNativeTitle : "");
+  if (!label) return;
+  if (owner !== chatTooltipOwner) {
+    hideChatTooltip();
+    chatTooltipOwner = owner;
+    chatTooltipNativeTitle = owner.getAttribute("title");
+    chatTooltipDescription = owner.getAttribute("aria-describedby");
+  } else if (owner.hasAttribute("title")) chatTooltipNativeTitle = owner.getAttribute("title");
+  // Native tooltips are separate OS windows and can fall behind an always-on-top
+  // game overlay. The popover lives in this window's top layer instead.
+  owner.removeAttribute("title");
+  if (!chatTooltipNode) {
+    chatTooltipNode = document.createElement("div");
+    chatTooltipNode.id = "chatTooltip";
+    chatTooltipNode.className = "chat-tooltip";
+    chatTooltipNode.setAttribute("role", "tooltip");
+    chatTooltipNode.setAttribute("popover", "manual");
+    document.body.append(chatTooltipNode);
+  }
+  owner.setAttribute("aria-describedby", [chatTooltipDescription, "chatTooltip"].filter(Boolean).join(" "));
+  chatTooltipNode.textContent = label;
+  chatTooltipNode.hidden = false;
+  if (!chatTooltipNode.matches(":popover-open")) chatTooltipNode.showPopover();
+  const anchor = owner.getBoundingClientRect();
+  const bounds = chatTooltipNode.getBoundingClientRect();
+  const left = owner.classList.contains("message-mark") ? anchor.left - bounds.width - 10 : anchor.left + (anchor.width - bounds.width) / 2;
+  const top = anchor.top >= bounds.height + 14 ? anchor.top - bounds.height - 8 : anchor.bottom + 8;
+  chatTooltipNode.style.left = `${Math.max(8, Math.min(left, window.innerWidth - bounds.width - 8))}px`;
+  chatTooltipNode.style.top = `${Math.max(8, Math.min(top, window.innerHeight - bounds.height - 8))}px`;
+}
+
+function chatTooltipTarget(target) {
+  const owner = target?.closest?.("[data-tooltip], [title]");
+  return owner?.closest("#chatPanel") ? owner : null;
+}
+
+document.addEventListener("pointerover", event => showChatTooltip(chatTooltipTarget(event.target)));
+document.addEventListener("focusin", event => showChatTooltip(chatTooltipTarget(event.target)));
+document.addEventListener("pointerout", event => {
+  if (chatTooltipOwner?.contains(event.target) && !chatTooltipOwner.contains(event.relatedTarget)) hideChatTooltip();
+});
+document.addEventListener("focusout", event => { if (chatTooltipOwner?.contains(event.target)) hideChatTooltip(); });
+document.addEventListener("pointerdown", hideChatTooltip, true);
+document.addEventListener("scroll", hideChatTooltip, true);
+document.addEventListener("keydown", hideChatTooltip, true);
+
 function rememberTranscriptReadingPosition(root) {
-  if (!root?.clientHeight) return;
+  // Native compact bounds can arrive just before the mode notification. Never
+  // replace the full-view reading anchor with that transient narrow layout.
+  if (!root?.clientHeight || (root.clientWidth > 0 && root.clientWidth < 250)) return;
+  if (state.transcriptModeRestore) return;
   transcriptReadingPosition = {
     sessionId: state.selectedSessionId,
     width: root.clientWidth,
     anchor: captureTranscriptAnchor(root),
   };
+}
+
+function restoreTranscriptAfterModeChange() {
+  const restore = {
+    sessionId: state.selectedSessionId,
+    pinned: state.messagesStickToBottom,
+    anchor: transcriptReadingPosition?.sessionId === state.selectedSessionId ? transcriptReadingPosition.anchor : null,
+    until: performance.now() + MODE_ENTER_DURATION + 80,
+  };
+  state.transcriptModeRestore = restore;
+  const frame = () => {
+    if (state.transcriptModeRestore !== restore) return;
+    if (state.windowMode !== "full" || state.selectedSessionId !== restore.sessionId) {
+      state.transcriptModeRestore = null;
+      return;
+    }
+    const root = $("#messages");
+    if (root.clientWidth >= 250 && root.clientHeight > 0) {
+      state.messagesStickToBottom = restore.pinned;
+      if (restore.pinned) settleTranscriptScroll(root, root.scrollHeight);
+      else restoreTranscriptAnchor(root, restore.anchor);
+    }
+    // Native resize, composer layout, and entrance motion settle on different
+    // frames. Hold the saved row through this explicit mode change, not just
+    // the first narrow layout. User input cancels the restoration immediately.
+    if (performance.now() < restore.until) requestAnimationFrame(frame);
+    else {
+      state.transcriptModeRestore = null;
+      rememberTranscriptReadingPosition(root);
+    }
+  };
+  requestAnimationFrame(frame);
 }
 
 function maybeGrowTranscriptWindow() {
@@ -4216,12 +4338,13 @@ function createMessageAttachmentStrip(attachments) {
 function renderMessages(messages) {
   const root = $("#messages");
   const previousTop = root.scrollTop;
-  const wasPinned = state.messagesStickToBottom;
+  let wasPinned = state.messagesStickToBottom;
   const anchor = transcriptViewSessionId === state.selectedSessionId ? captureTranscriptAnchor(root) : null;
   state.currentMessages = Array.isArray(messages) ? messages : [];
   // Not `window`: that name shadowed the global for the rest of the hottest function in
   // the app, waiting for the first window.matchMedia or getSelection added below.
   const view = transcriptWindow(state.currentMessages.length);
+  wasPinned ||= view.recovered;
   const visibleMessages = visibleMessagePreviews(state.currentMessages, view.start, view.end);
   const liveAssistant = view.latest ? liveAssistantSnapshot() : null;
   const steering = view.latest ? steeringPromptsFor() : [];
@@ -6151,7 +6274,9 @@ $("#messages").addEventListener("click", (event) => {
   window.widget.openExternal(link.href).catch(() => {});
 });
 $("#messages").addEventListener("scroll", () => {
-  if (!$("#messages").clientHeight) return;
+  const log = $("#messages");
+  if (!log.clientHeight || log.clientWidth < 250 || state.windowMode !== "full"
+      || state.transcriptModeRestore || document.body.classList.contains("mode-transition-in") || document.body.classList.contains("mode-transition-out")) return;
   const nearBottom = messagesNearBottom();
   if (state.scrollLatestAutoScrolling) {
     if (nearBottom) finishScrollLatestAutoScroll();
@@ -6203,6 +6328,7 @@ $("#messages").addEventListener("scrollend", () => {
 // from landing on top of a jump that is still in flight.
 for (const eventName of ["wheel", "pointerdown", "keydown"]) {
   $("#messages").addEventListener(eventName, (event) => {
+    state.transcriptModeRestore = null;
     releaseMessageScrollPin();
     transcriptProgrammaticScrollAt = 0;
     clearTimeout(state.scrollLatestAutoScrollTimer);
@@ -6217,12 +6343,12 @@ for (const eventName of ["wheel", "pointerdown", "keydown"]) {
 if (typeof ResizeObserver === "function") {
   new ResizeObserver(() => {
     const root = $("#messages");
-    if (!root.clientHeight || state.scrollLatestAutoScrolling || activeMessageScrollPin()) return;
+    if (!root.clientHeight || root.clientWidth < 250 || state.windowMode !== "full" || state.scrollLatestAutoScrolling || activeMessageScrollPin()) return;
     if (state.messagesStickToBottom) root.scrollTop = root.scrollHeight;
     else if (transcriptReadingPosition?.sessionId === state.selectedSessionId) {
       restoreTranscriptAnchor(root, transcriptReadingPosition.anchor);
     }
-    rememberTranscriptReadingPosition(root);
+    if (!document.body.classList.contains("mode-transition-in") && !document.body.classList.contains("mode-transition-out")) rememberTranscriptReadingPosition(root);
   }).observe($("#messages"));
 }
 $("#scrollLatestButton").addEventListener("click", async () => {
@@ -6384,6 +6510,7 @@ window.addEventListener("blur", () => {
   if (!compactDrag) setEdgePointerActive(false);
 });
 window.addEventListener("resize", () => {
+  hideChatTooltip();
   resizeMessageInput({ immediate: true });
   resizeCommandMenu();
   syncCrowdedChatState();

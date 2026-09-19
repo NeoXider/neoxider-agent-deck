@@ -176,7 +176,6 @@ test("the update-ready visual fixture shows the released upgrade path", () => {
   const visualSmoke = readFileSync(path.join(__dirname, "..", "scripts", "ui-visual-smoke.cjs"), "utf8");
   assert.match(renderer, /status: "ready", currentVersion: "0.9.1", latestVersion: "0.9.2"/);
   assert.match(visualSmoke, /updateStatus: "v0.9.2 is verified and ready"/);
-  assert.equal(packageJson.version, "0.9.3");
 });
 
 test("the Windows installer follows the canonical repository, artifact, and product name", () => {

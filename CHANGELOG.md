@@ -5,6 +5,14 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4] - 2026-09-20
+
+### Fixed
+
+- **Large live conversations render after loading.** An empty loading state no longer leaves the transcript with zero rendered rows or counts the entire existing history as new. The regression check exercises the normal renderer against a real Harness session.
+- **Reading position survives compact modes.** Switching between the full widget, avatar and edge handle restores the current reading position after the native window and composer finish resizing. Following the latest message remains stable through these transitions.
+- **Tooltips stay above the widget.** Message rail and input hints use the browser's top layer, stay within the window, and dismiss on scrolling, Escape or loss of their target.
+
 ## [0.9.3] - 2026-09-20
 
 ### Fixed

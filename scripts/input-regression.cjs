@@ -1028,6 +1028,7 @@ async function main() {
   }
 
   const fastPollError = await contents.executeJavaScript(`(() => {
+    const previousMode = state.windowMode;
     state.dashboardInitialized = true;
     state.windowMode = "orb";
     state.runningSessionIds.clear();
@@ -1035,6 +1036,9 @@ async function main() {
     state.unacknowledgedErrorSessionIds.clear();
     state.sessionSnapshotsById = new Map([["fast-error", { running: false, state: "idle", updatedAt: 1, preview: "before" }]]);
     detectCompletedSessions([{ sessionId: "fast-error", title: "Tiny model", running: false, state: "error", updatedAt: 2, preview: "failed", projections: { values: {} }, subagents: [] }]);
+    // This fixture changes the logical mode solely to test a background error.
+    // Restore it before later real scrolling checks use the still-visible full UI.
+    state.windowMode = previousMode;
     return { signaled: state.errorSignalSessionIds.has("fast-error"), unread: state.unacknowledgedErrorSessionIds.has("fast-error") };
   })()`);
   if (!fastPollError.signaled || !fastPollError.unread) failures.push(`fast polling error transition was missed: ${JSON.stringify(fastPollError)}`);
@@ -1486,6 +1490,7 @@ async function main() {
     })));
     const messages = document.querySelector("#messages");
     const latestWindowFirst = messages.querySelector(".bubble")?.textContent;
+    messages.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
     messages.scrollTop = 0;
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     await new Promise((resolve) => setTimeout(resolve, 60));
@@ -1493,6 +1498,7 @@ async function main() {
     // swapping pages: the viewport keeps what it showed, now with older rows above.
     const keptTop = messages.scrollTop;
     const loadedFirst = messages.querySelector(".bubble")?.textContent || "";
+    messages.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
     messages.scrollTop = 0;
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     state.messagesStickToBottom = messagesNearBottom(messages);

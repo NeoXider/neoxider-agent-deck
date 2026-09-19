@@ -116,6 +116,79 @@ test("100,000-message histories materialize a bounded window and reuse unchanged
   assert.equal(app.state.transcriptCache.size, 82);
 });
 
+test("first history after an unpinned loading view renders the latest rows instead of a spacer", () => {
+  for (const clientHeight of [500, 0]) {
+  const app = harness();
+  app.root.clientHeight = clientHeight;
+  app.run("renderMessages([])");
+  app.state.messagesStickToBottom = false;
+  app.state.currentMessages = Array.from({ length: 4685 }, (_, index) => ({ role: "user", seq: index + 1, text: `Message ${index}` }));
+  app.run("renderMessages(state.currentMessages)");
+  assert.equal(app.run("transcriptViewStart"), 4605);
+  assert.equal(app.run("transcriptViewEnd"), 4685);
+  assert.equal(app.root.nodes.filter(node => node.message).length, 80);
+  assert.equal(app.run("transcriptArrivedCount()"), 0);
+  assert.equal(app.state.messagesStickToBottom, true);
+  assert.equal(app.root.scrollTop, app.root.scrollHeight);
+  }
+});
+
+test("reading anchors use layout pixels while the window entrance animation is scaled", () => {
+  const app = harness();
+  let scaled = true;
+  app.root.clientHeight = 500;
+  app.root.scrollTop = 100;
+  app.root.getBoundingClientRect = () => ({ top: 50, bottom: scaled ? 300 : 550, height: scaled ? 250 : 500 });
+  const node = { dataset: { transcriptKey: "row" }, getBoundingClientRect: () => ({ top: scaled ? 40 : 20, bottom: 130 }) };
+  app.root.children = [node];
+  const anchor = app.run("captureTranscriptAnchor(root)");
+  assert.equal(anchor.offset, -20);
+  scaled = false;
+  app.context.anchor = anchor;
+  app.run("restoreTranscriptAnchor(root, anchor)");
+  assert.equal(app.root.scrollTop, 90, "restoration compensates actual layout movement, not animation scale");
+});
+
+test("mode restoration preserves reading through layout frames and stops on user cancellation", () => {
+  const state = { selectedSessionId: "session", windowMode: "full", messagesStickToBottom: false };
+  const frames = [];
+  let restored = 0;
+  const context = vm.createContext({
+    state, performance: { now: () => 0 }, MODE_ENTER_DURATION: 390,
+    transcriptReadingPosition: { sessionId: "session", anchor: { key: "row", offset: -20 } },
+    $: () => ({ clientWidth: 400, clientHeight: 500 }),
+    requestAnimationFrame: callback => frames.push(callback),
+    restoreTranscriptAnchor: () => { restored++; },
+    settleTranscriptScroll: () => assert.fail("reading must not jump to the bottom"),
+    rememberTranscriptReadingPosition: () => {},
+  });
+  vm.runInContext(declaration("restoreTranscriptAfterModeChange"), context);
+  vm.runInContext("restoreTranscriptAfterModeChange()", context);
+  state.messagesStickToBottom = true; // A transient resize tries to change it.
+  frames.shift()();
+  assert.equal(state.messagesStickToBottom, false);
+  assert.equal(restored, 1);
+  state.transcriptModeRestore = null; // The wheel / pointer / keyboard handler cancels it.
+  frames.shift()();
+  assert.equal(restored, 1, "no queued animation frame may fight a subsequent user scroll");
+  assert.equal(frames.length, 0);
+});
+
+test("stale, empty, and invalid transcript ranges recover even without a changed history length", () => {
+  for (const range of ["transcriptViewStart=0;transcriptViewEnd=0", "transcriptViewStart=9999;transcriptViewEnd=9999", "transcriptViewStart=NaN;transcriptViewEnd=NaN"]) {
+    const app = harness();
+    app.state.currentMessages = Array.from({ length: 500 }, (_, index) => ({ role: "user", seq: index + 1, text: `${index}` }));
+    app.run("renderMessages(state.currentMessages)");
+    app.run(range);
+    app.state.messagesStickToBottom = false;
+    app.run("renderMessages(state.currentMessages)");
+    assert.equal(app.run("transcriptViewStart"), 420);
+    assert.equal(app.run("transcriptViewEnd"), 500);
+    assert.equal(app.root.nodes.filter(node => node.message).length, 80);
+    assert.equal(app.state.messagesStickToBottom, true);
+  }
+});
+
 test("scrolling up grows the window, unloads distant rows, and jumps back to latest", () => {
   const app = harness();
   app.state.currentMessages = Array.from({ length: 500 }, (_, seq) => ({ role: "user", text: `${seq}`, seq: seq + 1 }));

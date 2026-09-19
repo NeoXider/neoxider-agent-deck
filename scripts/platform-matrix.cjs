@@ -45,7 +45,7 @@ for (const platform of PLATFORMS) {
   const result = spawnSync(
     process.execPath,
     ["--require", hook, "--test", ...testFiles],
-    { cwd: root, encoding: "utf8" },
+    { cwd: root, encoding: "utf8", windowsHide: true },
   );
   const output = `${result.stdout || ""}${result.stderr || ""}`;
   const pass = output.match(/^\s*(?:ℹ|#)\s*pass\s+(\d+)\s*$/m)?.[1] ?? "?";
