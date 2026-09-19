@@ -3377,11 +3377,12 @@ function createContextCompactionDivider(message) {
   const label = document.createElement("span");
   label.className = "context-compaction-label";
   const hasCounts = Number.isFinite(message.beforeTokens) && Number.isFinite(message.afterTokens);
+  const fullContext = message.countScope === "context";
   label.textContent = hasCounts
-    ? `${message.estimated ? "≈ " : ""}${formatTokens(message.beforeTokens)} → ${formatTokens(message.afterTokens)}`
+    ? `${fullContext ? "Context" : "Fragment"} ${message.estimated ? "≈ " : ""}${formatTokens(message.beforeTokens)} → ${formatTokens(message.afterTokens)}`
     : "Context compacted";
   const description = hasCounts
-    ? `Context compacted · ${message.beforeTokens.toLocaleString()} → ${message.afterTokens.toLocaleString()} tokens${message.estimated ? " · Estimated size of the replaced context and its summary" : ""}`
+    ? `Context compacted · ${message.beforeTokens.toLocaleString()} → ${message.afterTokens.toLocaleString()} tokens · ${fullContext ? "Estimated full context, including retained messages and prompt overhead" : "Replaced fragment → summary only. Full context counts unavailable in this history"}`
     : "Context compacted · Token counts unavailable in this history";
   divider.title = description;
   divider.setAttribute("aria-label", description);

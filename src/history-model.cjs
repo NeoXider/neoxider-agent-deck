@@ -1,5 +1,6 @@
 const { createHash } = require("node:crypto");
 const { resultCallId, toMillis } = require("./session-activity.cjs");
+const { createCompactionContextTracker } = require("./context-compaction.cjs");
 
 const HISTORY_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const HISTORY_IMAGE_BASE64_LIMIT = Math.ceil(8 * 1024 * 1024 * 4 / 3) + 8;
@@ -269,7 +270,7 @@ function titleFromSession(session) {
   return "New session";
 }
 
-function compactionMessage(event, previousEvent) {
+function compactionMessage(event, previousEvent, contextCounts) {
   const source = event.data?.source;
   if (event.type !== "user/message" || source?.kind !== "plugin" || source.plugin !== "compact") return null;
   // Harness lands a checkpoint immediately after its summary. Only that matched
@@ -277,22 +278,26 @@ function compactionMessage(event, previousEvent) {
   const summary = previousEvent?.type === "compaction/summary"
     && previousEvent.data?.compactionId === source.compactionId
     && previousEvent.seq + 1 === event.seq ? previousEvent.data : null;
-  const beforeTokens = Number.isSafeInteger(summary?.shadowedTokenCount) && summary.shadowedTokenCount >= 0
+  const replacedTokens = Number.isSafeInteger(summary?.shadowedTokenCount) && summary.shadowedTokenCount >= 0
     ? summary.shadowedTokenCount : null;
   const blocks = event.data.content;
   // These are Harness's fixed text-density estimates: four characters per token,
   // four tokens per block, and four for the message. Never label these as exact
   // provider counts or as the entire context (the retained tail is not replaced).
-  const afterTokens = Array.isArray(blocks) && blocks.every((block) => block?.type === "text" && typeof block.text === "string")
+  const summaryTokens = Array.isArray(blocks) && blocks.every((block) => block?.type === "text" && typeof block.text === "string")
     ? 4 + blocks.reduce((sum, block) => sum + 4 + Math.ceil(block.text.length / 4), 0) : null;
+  const fullContext = Boolean(summary && contextCounts);
+  const beforeTokens = fullContext ? contextCounts.beforeTokens : replacedTokens;
+  const afterTokens = fullContext ? contextCounts.afterTokens : summaryTokens;
   return {
     role: "compaction",
     text: beforeTokens !== null && afterTokens !== null
-      ? `Context compacted: approximately ${beforeTokens} → ${afterTokens} tokens in the replaced context`
+      ? `Context compacted: approximately ${beforeTokens} → ${afterTokens} tokens (${fullContext ? "full context" : "replaced fragment only"})`
       : "Context compacted",
     beforeTokens,
     afterTokens: beforeTokens === null ? null : afterTokens,
     estimated: true,
+    countScope: fullContext ? "context" : "fragment",
     compactionId: typeof source.compactionId === "string" ? source.compactionId : null,
     time: event.time,
     seq: event.seq,
@@ -303,6 +308,7 @@ function messagesFromHistory(entries) {
   if (!Array.isArray(entries)) return [];
   const boundedEntries = boundedHistoryEntries(entries);
   const messages = [];
+  const trackContext = createCompactionContextTracker();
   const hiddenCommandIds = new Set(boundedEntries
     .map((entry) => entry?.event)
     .filter((event) => event?.type === "command/run"
@@ -312,9 +318,10 @@ function messagesFromHistory(entries) {
     .filter(Boolean));
   for (const [index, entry] of boundedEntries.entries()) {
     const event = entry && entry.event;
+    const contextCounts = trackContext(event);
     if (!event || !event.data) continue;
     if (event.type === "user/message") {
-      const compaction = compactionMessage(event, boundedEntries[index - 1]?.event);
+      const compaction = compactionMessage(event, boundedEntries[index - 1]?.event, contextCounts);
       if (compaction) {
         messages.push(compaction);
         continue;

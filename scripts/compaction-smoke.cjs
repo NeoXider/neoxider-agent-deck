@@ -18,12 +18,13 @@ async function main() {
   } });
   win.webContents.on("paint", () => {});
   await win.loadFile(path.join(root, "src/renderer/index.html"), { query: { screenshotFixture: "chat", screenshotStatic: "1" } });
-  const event = (type, seq, data) => ({ event: { type, seq, time: seq * 1000, data } });
+  const event = (type, seq, data) => ({ event: { type, seq, time: seq * 1000, data, ...(type === "user/message" && seq === 4 ? { surfaceOp: { op: "replace", startSeq: 0, endSeq: 1 } } : {}) } });
   const messages = messagesFromHistory([
     event("user/message", 1, { content: [{ type: "text", text: "Continue after summarizing the earlier discussion." }] }),
-    event("compaction/summary", 2, { compactionId: "smoke", shadowedTokenCount: 100000 }),
-    event("user/message", 3, { source: { kind: "plugin", plugin: "compact", compactionId: "smoke" }, content: [{ type: "text", text: "x".repeat(87968) }] }),
-    event("assistant/message", 4, { message: { content: [{ type: "text", text: "The summary is ready. We can continue." }] } }),
+    { event: { type: "assistant/message", seq: 2, surfaceOp: "append", data: { usage: { inputTokens: 99996 }, message: { content: [] } } } },
+    event("compaction/summary", 3, { compactionId: "smoke", shadowedTokenCount: 78000, shadowedRange: { start: 0, end: 1 } }),
+    event("user/message", 4, { source: { kind: "plugin", plugin: "compact", compactionId: "smoke" }, content: [{ type: "text", text: "x".repeat(87968) }] }),
+    event("assistant/message", 5, { message: { content: [{ type: "text", text: "The summary is ready. We can continue." }] } }),
   ]);
   const result = await win.webContents.executeJavaScript(`(async () => {
     renderMessages(${JSON.stringify(messages)});
@@ -48,10 +49,10 @@ async function main() {
       unclipped: bounds.width > 0 && bounds.height > 0 && bounds.left >= parent.left && bounds.right <= parent.right,
       lines };
   })()`);
-  assert.equal(result.initialLabel, "≈ 100k → 22k");
-  assert.equal(result.updatedLabel, "≈ 100k → 18k");
-  assert.equal(result.screenshotLabel, "≈ 100k → 22k");
-  assert.match(result.title, /Estimated size of the replaced context/);
+  assert.equal(result.initialLabel, "Context ≈ 100k → 44k");
+  assert.equal(result.updatedLabel, "Context ≈ 100k → 18k");
+  assert.equal(result.screenshotLabel, "Context ≈ 100k → 44k");
+  assert.match(result.title, /Estimated full context/);
   assert.match(result.before, /earlier discussion/);
   assert.match(result.after, /summary is ready/);
   assert.equal(result.stable, true);

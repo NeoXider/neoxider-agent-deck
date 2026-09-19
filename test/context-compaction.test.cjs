@@ -18,10 +18,65 @@ test("landed compaction stays at its checkpoint position with estimated replaced
   assert.equal(messages[1].beforeTokens, 100000);
   assert.equal(messages[1].afterTokens, 22000);
   assert.equal(messages[1].estimated, true);
+  assert.equal(messages[1].countScope, "fragment");
   assert.equal(messages[1].time, 3000);
   assert.match(messages[1].text, /100000 → 22000/);
   assert.equal(messages[1].text.includes("xxxxx"), false, "internal checkpoint instructions never render");
   assert.deepEqual(messagesFromHistory(JSON.parse(JSON.stringify(history))), messages, "reload preserves counts and position");
+});
+
+function anchoredCompaction() {
+  const anchor = entry("assistant/message", 10, {
+    usage: { inputTokens: 20000, cacheReadTokens: 60000, cacheWriteTokens: 1000 },
+    message: { content: [{ type: "text", text: "Done" }] },
+  });
+  anchor.event.surfaceOp = "append";
+  const compact = summary(11, "compact-a", 42000);
+  compact.event.data.shadowedRange = { start: 1, end: 7 };
+  const landed = checkpoint(12, "compact-a", [{ type: "text", text: "x".repeat(3968) }]);
+  landed.event.surfaceOp = { op: "replace", startSeq: 1, endSeq: 7 };
+  return [anchor, compact, landed];
+}
+
+test("compaction includes retained context and cached prompt tokens, not the summarizer's usage", () => {
+  const marker = messagesFromHistory(anchoredCompaction()).at(-1);
+  assert.equal(marker.countScope, "context");
+  assert.equal(marker.beforeTokens, 81009);
+  assert.equal(marker.afterTokens, 40009);
+  assert.match(marker.text, /full context/);
+});
+
+test("uncertain anchors and mismatched replacement ranges fall back to explicitly scoped fragments", () => {
+  for (const mutate of [
+    (h) => { delete h[0].event.data.usage; },
+    (h) => { h[0].event.data.usage.inputTokens = "20000"; },
+    (h) => { h[0].event.data.usage.inputTokens = 0; h[0].event.data.usage.cacheReadTokens = 0; },
+    (h) => { h[0].event.seq = 8; },
+    (h) => { h[2].event.surfaceOp.startSeq = 2; },
+    (h) => { h[0].event.data.message.content = [{ type: "image", data: "unknown" }]; },
+  ]) {
+    const history = anchoredCompaction();
+    mutate(history);
+    const marker = messagesFromHistory(history).at(-1);
+    assert.equal(marker.countScope, "fragment");
+    assert.equal(marker.beforeTokens, 42000);
+    assert.equal(marker.afterTokens, 1000);
+  }
+});
+
+test("intervening tool results add pressure while request changes invalidate the old anchor", () => {
+  for (const changedHeader of [false, true]) {
+    const history = anchoredCompaction();
+    history[1].event.seq = 12;
+    history[2].event.seq = 13;
+    const middle = changedHeader ? entry("request/header", 11, { header: { tools: [] } })
+      : entry("tool/result", 11, { message: { content: [{ type: "tool-result", content: [{ type: "text", text: "abcdefgh" }] }] } });
+    if (!changedHeader) middle.event.surfaceOp = "append";
+    history.splice(1, 0, middle);
+    const marker = messagesFromHistory(history).at(-1);
+    assert.equal(marker.countScope, changedHeader ? "fragment" : "context");
+    if (!changedHeader) assert.equal(marker.beforeTokens, 81023);
+  }
 });
 
 test("summary/start/end events alone do not claim a successful compaction", () => {
