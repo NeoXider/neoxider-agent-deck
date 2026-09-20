@@ -44,11 +44,15 @@ function createDeviceAccessServer({ upstreamUrl = 'http://127.0.0.1:3080',
     try {
       const origin = new URL(`http://${req.headers.host}`);
       const boundPort = server.address()?.port;
+      // Opening the landing page from another site/extension is navigation,
+      // not a cross-origin API call. It still requires device authentication.
+      const landingNavigation = !requireOrigin && req.method === 'GET' && req.url === '/'
+        && req.headers['sec-fetch-mode'] === 'navigate' && req.headers['sec-fetch-dest'] === 'document';
       if (origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash ||
           !hosts.has(origin.hostname.toLowerCase()) || Number(origin.port || 80) !== boundPort) return false;
-      if (req.headers.origin && req.headers.origin !== origin.origin) return false;
+      if (!landingNavigation && req.headers.origin && req.headers.origin !== origin.origin) return false;
       if (requireOrigin && !req.headers.origin) return false;
-      if (req.headers['sec-fetch-site'] === 'cross-site') return false;
+      if (!landingNavigation && req.headers['sec-fetch-site'] === 'cross-site') return false;
       return true;
     } catch { return false; }
   }

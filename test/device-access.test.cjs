@@ -82,6 +82,20 @@ test('reloading the sign-in page resumes the same request without stacking confi
   assert.equal((await f.request('/_deck/pair', { method: 'POST' })).status, 429);
 });
 
+test('cross-site document navigation opens login but cannot pair or read APIs', async t => {
+  const f = await fixture(t);
+  const headers = { 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' };
+  // Node fetch overrides sec-fetch-mode, so use raw HTTP to reproduce Chrome.
+  const get = path => new Promise((resolve, reject) => {
+    http.get(f.origin + path, { headers }, res => { res.resume(); res.on('end', () => resolve(res.statusCode)); }).on('error', reject);
+  });
+  assert.equal(await get('/'), 200);
+  assert.equal(await get('/_deck/status'), 403);
+  assert.equal(await get('/api/session'), 403);
+  assert.equal((await f.request('/_deck/pair', { method: 'POST', headers })).status, 403);
+  assert.equal(await get('/?token=foreign'), 403);
+});
+
 test('device access requires explicit approval and never exposes upstream credentials', async t => {
   let details;
   const f = await fixture(t, { approveDevice: async value => { details = value; return true; } });
