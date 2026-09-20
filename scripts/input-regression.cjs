@@ -191,6 +191,8 @@ async function main() {
     height: 640,
     show: false,
     webPreferences: {
+      // Hidden regression windows still need animation frames to settle UI work.
+      backgroundThrottling: false,
       preload: path.join(root, "src", "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
