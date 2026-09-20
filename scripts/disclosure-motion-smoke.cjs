@@ -8,7 +8,7 @@ const deadline = setTimeout(() => { console.error("Disclosure motion smoke timed
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 600, height: 800, webPreferences: { backgroundThrottling: false, offscreen: true } });
   win.webContents.on("paint", () => {});
-  const css = fs.readFileSync(path.join(__dirname, "../src/renderer/styles.css"), "utf8");
+  const css = ["styles.css", "appearance.css"].map(file => fs.readFileSync(path.join(__dirname, "../src/renderer", file), "utf8")).join("\n");
   const html = `<style>${css}\nbody{padding:20px;overflow:auto}details{width:350px;margin-bottom:12px} .fixture-body{height:120px;background:#182838}</style>
     <details class="goal-dock"><summary>Goal</summary><div class="fixture-body">Objective</div></details>
     <details class="agent-controls"><summary>Setup</summary><div class="fixture-body">Model and workspace</div></details>

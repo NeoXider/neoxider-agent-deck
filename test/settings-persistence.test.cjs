@@ -11,6 +11,14 @@ const {
 } = require("../src/settings-store.cjs");
 const { normalizeHotkeyBindings } = require("../src/hotkey-manager.cjs");
 
+test("appearance survives restart and invalid choices fall back independently", () => {
+  withTemporaryStore(({ filePath, store }) => {
+    store.save({ ...store.load(), appearance: { theme: "midnight", motion: "subtle" } });
+    assert.deepEqual(createSettingsStore({ filePath }).load().appearance, { theme: "midnight", motion: "subtle" });
+  });
+  assert.deepEqual(normalizePreferences({ appearance: { theme: "unknown", motion: "subtle" } }).appearance, { theme: "aurora", motion: "subtle" });
+});
+
 function withTemporaryStore(run) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "agent-deck-settings-test-"));
   const filePath = path.join(directory, "widget-settings.json");
@@ -75,6 +83,7 @@ const completePreferences = {
   glowIntensity: 0.41,
   showThinking: false,
   motionEffects: true,
+  appearance: { theme: "aurora", motion: "fluid" },
   compactAutoExpand: true,
   size: "large",
   windowLayer: "game",
@@ -395,6 +404,7 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     // Absent from an older file, so the defaults apply rather than the old behaviour being
     // silently carried forward: effects on, avatar collapsed.
     motionEffects: true,
+  appearance: { theme: "aurora", motion: "fluid" },
     compactAutoExpand: false,
     size: "compact",
     windowLayer: "normal",

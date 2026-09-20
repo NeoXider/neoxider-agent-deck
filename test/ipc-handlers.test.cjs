@@ -22,6 +22,19 @@ function fakeIpcMain() {
   };
 }
 
+test("appearance IPC validates both choices before persisting", async () => {
+  const preferences = {};
+  let saves = 0;
+  const { ipcMain, window } = register({ getPreferences: () => preferences, schedulePreferenceSave: () => saves++ });
+  const event = { sender: window.webContents };
+  await ipcMain.invoke("set-appearance", event, { theme: "graphite", motion: "subtle" });
+  assert.deepEqual(preferences.appearance, { theme: "graphite", motion: "subtle" });
+  for (const invalid of [null, {}, { theme: "graphite", motion: "bad" }, { theme: "bad", motion: "fluid" }]) {
+    await assert.rejects(async () => ipcMain.invoke("set-appearance", event, invalid), /Invalid appearance/);
+  }
+  assert.equal(saves, 1);
+});
+
 function fakeWindow() {
   const webContents = { send: () => {}, id: 1 };
   return { webContents, isDestroyed: () => false, getBounds: () => ({ x: 0, y: 0, width: 420, height: 640 }) };

@@ -1,0 +1,53 @@
+/* One motion rhythm; no staggered controls or scaling of readable content. */
+:root { --ease-deck:cubic-bezier(.22,.8,.24,1); --motion-control:180ms; --motion-panel:280ms; }
+.widget-shell { transition:--chat-light-primary .9s ease,--chat-light-secondary .9s ease,background-color 320ms ease,border-color 320ms ease; }
+body[data-motion="subtle"] { --motion-control:120ms; --motion-panel:180ms; }
+.settings-panel { transition:transform var(--motion-panel) var(--ease-deck),opacity 180ms ease; transform:translateY(-6px); }
+.settings-panel.open > * { animation:none; }
+.settings-head { position:sticky; top:-14px; z-index:2; background:inherit; }
+.settings-tabs { display:flex; gap:4px; padding:4px; margin:6px 0 12px; border:1px solid var(--line); border-radius:12px; background:rgba(0,0,0,.18); }
+.settings-tabs { position:relative; isolation:isolate; }
+.settings-tabs::before { content:""; position:absolute; z-index:-1; inset:4px auto 4px 4px; width:calc(50% - 6px); border-radius:8px; background:var(--surface-strong); box-shadow:0 2px 7px #0003; transition:transform var(--motion-panel) var(--ease-deck); }
+.settings-tabs:has(button:last-child[aria-selected="true"])::before { transform:translateX(calc(100% + 4px)); }
+.settings-tabs button { flex:1; border:0; border-radius:8px; padding:8px 5px; background:transparent; color:var(--muted); font-size:11px; }
+.settings-tabs button[aria-selected="true"] { color:var(--text); }
+.settings-page[hidden] { display:none; }
+.settings-page:not([hidden]) { animation:settings-page-in var(--motion-panel) var(--ease-deck); }
+@keyframes settings-page-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+.design-intro { margin:0 0 12px; color:var(--muted); font-size:11px; }
+.design-themes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; margin-bottom:12px; }
+.design-themes button { min-width:0; padding:6px; border:1px solid var(--line); border-radius:12px; background:var(--surface); text-align:left; cursor:pointer; }
+.design-themes button[aria-pressed="true"] { border-color:var(--mint); box-shadow:0 0 0 1px color-mix(in srgb,var(--mint) 20%,transparent); }
+.design-themes b,.design-themes small { display:block; font-size:10px; margin-top:5px; }
+.design-themes small { color:var(--muted); font-size:8px; }
+.theme-swatch { position:relative; display:block; height:48px; border:1px solid #ffffff18; border-radius:7px; overflow:hidden; }
+.theme-swatch::after { content:""; position:absolute; inset:12px 9px; border-top:3px solid #ffffff80; border-bottom:9px solid #ffffff22; border-radius:3px; }
+.swatch-aurora { background:radial-gradient(at 0% 0%,#645397,transparent 80%),#0d242b; }
+.swatch-graphite { background:linear-gradient(130deg,#36383d,#15171b); }
+.swatch-midnight { background:radial-gradient(at 100% 100%,#304b91,transparent 90%),#111528; }
+body[data-design="graphite"] { --mint:#c4d1dd; --violet:#8a9aaf; --focus-ring:#dbe5ee; }
+body[data-design="midnight"] { --mint:#9ebaff; --violet:#b39aff; --focus-ring:#c4d3ff; }
+body[data-design="graphite"] .widget-shell { background:rgba(22,24,28,var(--panel-background-opacity)); border-color:#ffffff24; }
+body[data-design="graphite"] .widget-shell::before,body[data-design="graphite"] .widget-shell::after { opacity:0; animation:none; }
+body[data-design="midnight"] .widget-shell { background:rgba(12,18,40,var(--panel-background-opacity)); border-color:#97b3ff40; }
+body[data-design="midnight"] .settings-panel { background:#101a30; }
+body[data-design="graphite"] .settings-panel { background:#202226; }
+body[data-design="graphite"] .composer,body[data-design="graphite"] .bubble.user { background:#ffffff0b; border-color:#ffffff24; }
+body[data-design="midnight"] .composer,body[data-design="midnight"] .bubble.user { background:#7a9fff12; border-color:#97b3ff38; }
+body[data-design="graphite"] #sendButton { background:linear-gradient(130deg,#d6e0e8,#899bad); }
+body[data-design="midnight"] #sendButton { background:linear-gradient(130deg,#a8c7ff,#9e82ef); }
+button:not(.edge-mode):not(.orb-mode) { transition-timing-function:var(--ease-deck); }
+button:not(.edge-mode):not(.orb-mode):active { transform:scale(.97); transition-duration:100ms; }
+.composer-action:active,.icon-button:active,.composer-stop:active,.composer #sendButton:active { transform:scale(.96); }
+.composer { transition:border-color var(--motion-control) ease,box-shadow var(--motion-panel) ease; }
+.activity-card { flex:none; }
+.activity-card > summary { transition:min-height var(--motion-control) var(--ease-deck),padding var(--motion-control) var(--ease-deck); }
+.activity-card,.todo-dock,.queue-dock,.command-menu,.command-hint-bar,.composer-error,.goal-dock,.offline-banner { transition-timing-function:var(--ease-deck); }
+.panel.active { animation-duration:var(--motion-panel); animation-timing-function:var(--ease-deck); }
+.settings-page .layer-switch button[aria-pressed="true"] { background:var(--surface-strong); color:var(--text); }
+.picker-menu,.command-menu { transition-timing-function:var(--ease-deck); }
+/* Background light is optional; subtle motion keeps feedback without perpetual sweeps. */
+body[data-motion="subtle"] .widget-shell::before,body[data-motion="subtle"] .session-card.state-working::after,body[data-motion="subtle"] .activity-card.has-activity { animation:none; }
+body[data-motion="subtle"] .settings-page { animation:none; }
+body.motion-off .settings-page { animation:none; }
+@media(prefers-reduced-motion:reduce) { .settings-page { animation:none; } }

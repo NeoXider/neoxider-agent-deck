@@ -5991,6 +5991,7 @@ async function hydratePreferences() {
     confirmedBackgroundOpacity = applyBackgroundOpacity(preferences.backgroundOpacity ?? 0.9);
     applyShowThinking(preferences.showThinking);
     applyMotionEffects(preferences.motionEffects);
+    window.deckAppearance?.apply(preferences.appearance);
     applyCompactAutoExpand(preferences.compactAutoExpand);
     syncPressed($$('#sizeSwitch button'), preferences.size, "size");
     applyPlatformCapabilities(preferences.platformCapabilities);
@@ -7125,11 +7126,15 @@ if (screenshotFixture) {
       $("#messages").scrollTop = 0;
       state.unseenMessages = 1;
       updateScrollLatestButton();
-    } else if (screenshotFixture === "glow-settings") {
+    } else if (["glow-settings", "design-settings", "design-graphite", "design-midnight"].includes(screenshotFixture)) {
       setTab("chat");
       applyGlowIntensity(0.82);
       setActivity({ active: true, kind: "writing", label: "Writing", text: "Composing the answer in the mini-chat…" });
       setSettingsOpen(true, { restoreFocus: false });
+      if (screenshotFixture !== "glow-settings") requestAnimationFrame(() => {
+        window.deckAppearance?.selectTab(1);
+        window.deckAppearance?.apply({ theme: screenshotFixture.replace("design-", ""), motion: "fluid" });
+      });
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
       renderUpdateState(screenshotFixture === "update-ready"

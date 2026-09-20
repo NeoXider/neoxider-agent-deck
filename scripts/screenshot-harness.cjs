@@ -513,6 +513,9 @@ function attachScreenshotHarness({
               return Boolean(rect && rect.width > 0 && rect.height > 0);
             })(),
             settingsOpen: document.querySelector('#settingsPanel')?.classList.contains('open') || false,
+            appearanceVisible: Boolean(document.querySelector('#settings-design:not([hidden])')),
+            designTheme: document.body.dataset.design,
+            designChoices: document.querySelectorAll('[data-theme-choice]').length,
             updateStatus: document.querySelector('#updateStatus')?.textContent || '',
             updateBadgeVisible: !document.querySelector('#updateBadge')?.hidden,
             updateInstallVisible: !document.querySelector('#installUpdateButton')?.hidden,

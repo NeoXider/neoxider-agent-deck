@@ -7,6 +7,8 @@ const root = path.resolve(__dirname, "..");
 const output = path.join(root, "tmp", "ui-smoke");
 
 const cases = [
+  ...["settings", "graphite", "midnight"].map(theme => ({ name: `design-${theme}`, tab: "chat", fixture: `design-${theme}`, expect: { settingsOpen: true, appearanceVisible: true, designChoices: 3, designTheme: theme === "settings" ? "aurora" : theme } })),
+  { name: "design-compact", tab: "chat", fixture: "design-settings", width: 360, height: 360, expect: { settingsOpen: true, appearanceVisible: true, designChoices: 3, titlebarOverlap: false } },
   ...[undefined, "orb", "edge"].map(mode => ({ name: `offline-signal-${mode || 'chat'}`, fixture: "chat", phase: "offline", mode, motion: true, expect: { chatVisualPhase: "offline", offlineAvatar: true, offlineBody: true, auroraAnimation: "none", chatBloomAnimation: "none" } })),
   ...["chat", "focus-chat"].flatMap(fixture => ["idle", "waiting"].map(phase => ({ name: `bloom-${fixture}-${phase}`, fixture, tab: "chat", phase, width: 360, height: 360, motion: true, expect: { chatVisualPhase: phase, panelBackgroundOpacity: .9, auroraAnimation: "aurora-drift", chatBloomAnimation: phase === "idle" ? "none" : "chat-glow-breathe" }, min: { chatLightEnergy: phase === "idle" ? .2 : .8 } }))),
   ...[0, .5, 1].map(backgroundOpacity => ({ name: `background-${backgroundOpacity}`, fixture: "chat", tab: "chat", phase: "waiting", backgroundOpacity, expect: { chatVisualPhase: "waiting", panelBackgroundOpacity: backgroundOpacity, auroraAnimation: "none", chatBloomAnimation: "none" }, ...(backgroundOpacity === 0 ? { max: { auroraOpacity: 0 } } : { min: { auroraOpacity: .1 } }) })),

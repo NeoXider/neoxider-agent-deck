@@ -10,6 +10,7 @@ const DEFAULT_PREFERENCES = Object.freeze({
   // The widget leans on motion to say what it is doing - a flowing goal rail, a breathing
   // pause glyph, a pulsing tool group. Anyone who wants it plain can switch the lot off.
   motionEffects: true,
+  appearance: { theme: "aurora", motion: "fluid" },
   // Avatar mode starts collapsed to the circle. Widening it to a 400 px status card on
   // every turn is what made the orb cover a slab of the screen the user never asked for,
   // so the panel is now opened by the user and this restores the old behaviour opt-in.
@@ -98,6 +99,10 @@ function normalizePreferences(raw = {}) {
     glowIntensity: boundedNumber(source.glowIntensity, DEFAULT_PREFERENCES.glowIntensity, 0, 1),
     showThinking: source.showThinking !== false,
     motionEffects: source.motionEffects !== false,
+    appearance: {
+      theme: ["aurora", "graphite", "midnight"].includes(source.appearance?.theme) ? source.appearance.theme : "aurora",
+      motion: ["fluid", "subtle"].includes(source.appearance?.motion) ? source.appearance.motion : "fluid",
+    },
     compactAutoExpand: source.compactAutoExpand === true,
     size: ["compact", "standard", "large"].includes(source.size) ? source.size : DEFAULT_PREFERENCES.size,
     windowLayer,

@@ -428,6 +428,14 @@ function registerIpcHandlers({
     schedulePreferenceSave();
     return preferences.motionEffects;
   });
+  handle("set-appearance", (_event, value) => {
+    if (!["aurora", "graphite", "midnight"].includes(value?.theme)
+      || !["fluid", "subtle"].includes(value?.motion)) throw new TypeError("Invalid appearance");
+    const preferences = getPreferences();
+    preferences.appearance = { theme: value.theme, motion: value.motion };
+    schedulePreferenceSave();
+    return preferences.appearance;
+  });
   handle("set-compact-auto-expand", (_event, value) => {
     const preferences = getPreferences();
     preferences.compactAutoExpand = Boolean(value);
@@ -487,6 +495,7 @@ function registerIpcHandlers({
       glowIntensity: preferences.glowIntensity,
       showThinking: preferences.showThinking !== false,
       motionEffects: preferences.motionEffects !== false,
+      appearance: preferences.appearance,
       compactAutoExpand: preferences.compactAutoExpand === true,
       size: preferences.size,
       windowMode: getWindowMode(),
