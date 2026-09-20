@@ -51,3 +51,25 @@ body[data-motion="subtle"] .widget-shell::before,body[data-motion="subtle"] .ses
 body[data-motion="subtle"] .settings-page { animation:none; }
 body.motion-off .settings-page { animation:none; }
 @media(prefers-reduced-motion:reduce) { .settings-page { animation:none; } }
+
+/* A session activity signal independent of decorative glow and the selected theme.
+   Mask only the rim; the overlay never covers text or intercepts a pointer. */
+@property --chat-border-angle { syntax:"<angle>"; inherits:false; initial-value:0deg; }
+.chat-activity-border {
+  position:absolute; inset:0; z-index:3; border-radius:inherit; padding:2px;
+  pointer-events:none; opacity:0;
+  background:conic-gradient(from var(--chat-border-angle),transparent 0deg,
+    var(--chat-light-primary) 65deg,var(--chat-light-secondary) 130deg,
+    transparent 180deg,var(--chat-light-secondary) 245deg,var(--chat-light-primary) 310deg,transparent 360deg);
+  mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  mask-composite:exclude;
+  transition:opacity 240ms ease;
+  animation:none;
+}
+body.mode-full:is([data-chat-state="waiting"],[data-chat-state="thinking"],[data-chat-state="writing"],[data-chat-state="tool"]) .widget-shell:has(#chatPanel.active) > .chat-activity-border {
+  opacity:.9; animation:chat-border-orbit 5s linear infinite;
+}
+@keyframes chat-border-orbit { to { --chat-border-angle:360deg; } }
+/* Keep the status colour without rotation when motion is disabled. */
+body.motion-off .chat-activity-border { animation:none !important; transition:none !important; }
+@media(prefers-reduced-motion:reduce) { .chat-activity-border { animation:none !important; transition:none !important; } }

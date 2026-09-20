@@ -40,6 +40,48 @@ app.whenReady().then(async () => {
   assert.equal(result.keyboard, true);
   assert.equal(result.contained, true);
   assert.match(result.status, /Could not save/);
+  const border = await win.webContents.executeJavaScript(`(async () => {
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const rim = document.querySelector('.chat-activity-border');
+    const chat = document.querySelector('#chatPanel');
+    document.querySelector('#settingsPanel').classList.remove('open');
+    document.body.classList.remove('pre-native-visible');
+    const checks = [];
+    for (const theme of ['aurora', 'graphite', 'midnight']) {
+      document.body.dataset.design = theme;
+      for (const phase of ['waiting', 'thinking', 'writing', 'tool', 'idle', 'done', 'error', 'offline']) {
+        document.body.dataset.chatState = phase;
+        await wait(270);
+        const style = getComputedStyle(rim);
+        checks.push({ theme, phase, visible: Number(style.opacity) > .8, animated: style.animationName === 'chat-border-orbit' });
+      }
+    }
+    document.body.dataset.chatState = 'thinking';
+    await wait(300);
+    const first = getComputedStyle(rim).getPropertyValue('--chat-border-angle');
+    await wait(140);
+    const rotates = first !== getComputedStyle(rim).getPropertyValue('--chat-border-angle');
+    chat.classList.remove('active'); await wait(450);
+    const agentsHidden = Number(getComputedStyle(rim).opacity) < .01;
+    chat.classList.add('active'); document.body.classList.add('motion-off'); await wait(40);
+    const motionOff = getComputedStyle(rim).animationName === 'none';
+    document.body.classList.remove('motion-off'); document.body.dataset.design = 'graphite';
+    await wait(300);
+    return { checks, rotates, agentsHidden, motionOff, pointer: getComputedStyle(rim).pointerEvents, mask: getComputedStyle(rim).maskComposite };
+  })()`);
+  for (const check of border.checks) {
+    const active = ['waiting', 'thinking', 'writing', 'tool'].includes(check.phase);
+    assert.equal(check.visible, active, JSON.stringify(check));
+    assert.equal(check.animated, active, JSON.stringify(check));
+  }
+  assert.equal(border.rotates, true);
+  assert.equal(border.agentsHidden, true);
+  assert.equal(border.motionOff, true);
+  assert.equal(border.pointer, 'none');
+  assert.ok(border.mask.split(',').every(value => value.trim() === 'exclude'));
+  fs.mkdirSync(path.join(__dirname, '../tmp'), { recursive: true });
+  fs.writeFileSync(path.join(__dirname, '../tmp/activity-border.png'), (await win.webContents.capturePage()).toPNG());
+  console.log('PASS activity border: 24 theme/state combinations, rotation, stop, Agents visibility and motion preference');
   console.log(JSON.stringify(result));
   clearTimeout(deadline);
   app.exit(0);
