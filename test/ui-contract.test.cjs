@@ -909,7 +909,8 @@ test("a rejected send keeps its reason until the user acts on it", () => {
   const switchEnd = switchStart + nextFunction;
   assert.ok(switchStart > 0 && switchEnd > switchStart && renderer.slice(switchStart, switchEnd).includes("clearComposerError();"));
   // A reason cut off mid-sentence is no reason, but it must not push the composer away.
-  assert.match(css, /\.composer-error small \{[^}]*-webkit-line-clamp:2/);
+  assert.match(css, /\.composer-error \{[^}]*flex:none/);
+  assert.match(css, /\.composer-error small \{[^}]*max-height:64px;[^}]*overflow:auto/);
   assert.doesNotMatch(css, /\.composer-error small \{[^}]*white-space:nowrap/);
   assert.match(visualSmoke, /composerErrorVisible: true, composerErrorText: "The current model does not support images/);
   assert.match(visualSmoke, /composerErrorAboveComposer: true/);

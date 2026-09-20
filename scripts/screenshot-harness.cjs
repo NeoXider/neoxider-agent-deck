@@ -329,6 +329,14 @@ function attachScreenshotHarness({
             })(),
             composerErrorText: document.querySelector('#composerErrorText')?.textContent || '',
             composerErrorDismissable: Boolean(document.querySelector('#composerError:not([hidden]) #composerErrorDismiss')),
+            composerErrorUnclipped: (() => {
+              const box = document.querySelector('#composerError:not([hidden])');
+              const detail = box?.querySelector('small');
+              if (!box || !detail) return false;
+              const rect = box.getBoundingClientRect();
+              const text = detail.getBoundingClientRect();
+              return rect.height >= box.scrollHeight && text.top >= rect.top && text.bottom <= rect.bottom;
+            })(),
             // The failure has to outlive the activity block beside it: that block is
             // rewritten by the dashboard poll, and this one must not be.
             composerErrorAboveComposer: (() => {

@@ -1983,7 +1983,7 @@ function filteredCommands(query = "") {
 
 function commandGuidance(commandName) {
   switch (String(commandName || "").toLowerCase()) {
-    case "goal": return "create <objective> · show · edit <text> · pause · resume · clear";
+    case "goal": return "<objective> · edit <text> · pause · resume · clear; /goal to view";
     case "compact": return "summarize the current context now";
     case "plan": return "on · off";
     case "permission": return "Full access is locked for widget sessions";
@@ -6151,13 +6151,14 @@ $("#chatForm").addEventListener("submit", async (event) => {
   renderCommandHint();
   try {
     const slashMatch = /^\/(\S+)/.exec(text);
-    if (slashMatch && state.commandsLoadedSessionId !== targetSessionId) await loadCommands();
+    if (slashMatch && (state.commandsLoadedSessionId !== targetSessionId
+      || !state.commandCatalog.some((command) => command.name.toLowerCase() === slashMatch[1].toLowerCase()))) await loadCommands();
     const commandEntry = slashMatch
       ? state.commandCatalog.find((command) => command.name.toLowerCase() === slashMatch[1].toLowerCase())
       : null;
     if (slashMatch && !commandEntry) {
       throw new Error(state.commandCatalog.length
-        ? `Unknown Harness command: /${slashMatch[1]}`
+        ? `/${slashMatch[1]} is unavailable in this session's agent preset. Check the preset's command plugins in Harness.`
         : "Harness commands are unavailable. Try again when Harness is online.");
     }
     // A skill is not a host command. Harness's own composer inserts "/name" and sends it as

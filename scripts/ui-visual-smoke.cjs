@@ -62,6 +62,7 @@ const cases = [
   { name: "activity-meta", tab: "chat", fixture: "activity-meta", expect: { activityCardVisible: true, activityElapsedWellFormed: true, activityElapsedMinutes: 21, activityElapsedRunning: true, activityBackgroundCount: "2", activityMetaWithinCard: true } },
   // A rejected send keeps its reason on screen while the turn beside it goes on running.
   { name: "send-rejected", tab: "chat", fixture: "send-rejected", expect: { composerErrorVisible: true, composerErrorText: "The current model does not support images; switch to a model with vision support.", composerErrorDismissable: true, composerErrorAboveComposer: true, activityCardVisible: true, attachmentChips: 1 } },
+  { name: "send-rejected-compact", width: 360, height: 360, tab: "chat", fixture: "send-rejected", expect: { composerErrorVisible: true, composerErrorUnclipped: true, composerErrorText: "The current model does not support images; switch to a model with vision support.", composerErrorDismissable: true, composerErrorAboveComposer: true, activityCardVisible: true, attachmentChips: 1 } },
   // A queued background job is regularly longer than its one-line row; opening it shows the
   // command whole, in the dock, without reaching into the conversation or the composer.
   { name: "queued-long", tab: "chat", fixture: "queued-long", expect: { queueRows: 2, queueRowsExpanded: 1, queueExpandedNotClipped: true, queueExpandedFontPx: 9, queueDockAboveComposer: true } },
