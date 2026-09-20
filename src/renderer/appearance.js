@@ -25,6 +25,8 @@
       <button type="button" data-theme-choice="midnight"><span class="theme-swatch swatch-midnight" aria-hidden="true"></span><b>Midnight</b><small>Deep blue</small></button>
     </div>
     <div class="setting-block"><span>Movement</span><div class="layer-switch" role="group" aria-label="Movement"><button type="button" data-motion-choice="fluid">Fluid</button><button type="button" data-motion-choice="subtle">Subtle</button></div></div>
+    <label class="toggle-setting"><span><span>Input activity border</span><small>Animated colours around the message field while working</small></span><input id="inputBorderToggle" data-border-choice="inputBorder" type="checkbox" checked /></label>
+    <label class="toggle-setting"><span><span>Window activity border</span><small>The same activity colours around the whole widget</small></span><input id="windowBorderToggle" data-border-choice="windowBorder" type="checkbox" /></label>
     <small id="appearanceStatus" class="setting-hint" role="status">Changes are previewed immediately and saved.</small>`;
   for (const id of ['motionEffectsToggle', 'glowRange', 'backgroundOpacityRange', 'opacityRange']) {
     const row = general.querySelector(`#${id}`)?.closest('label');
@@ -49,7 +51,7 @@
     const current = buttons.indexOf(document.activeElement);
     selectTab(event.key === 'Home' ? 0 : event.key === 'End' ? 1 : 1 - Math.max(0, current), true);
   });
-  let confirmed = { theme: 'aurora', motion: 'fluid' };
+  let confirmed = { theme: 'aurora', motion: 'fluid', inputBorder: true, windowBorder: false };
   let current = { ...confirmed };
   let saving = Promise.resolve();
   let revision = 0;
@@ -57,16 +59,18 @@
     current = {
       theme: ['aurora', 'graphite', 'midnight'].includes(value?.theme) ? value.theme : 'aurora',
       motion: value?.motion === 'subtle' ? 'subtle' : 'fluid',
+      inputBorder: value?.inputBorder !== false,
+      windowBorder: value?.windowBorder === true,
     };
     document.body.dataset.design = current.theme;
     document.body.dataset.motion = current.motion;
+    document.body.dataset.inputBorder = String(current.inputBorder);
+    document.body.dataset.windowBorder = String(current.windowBorder);
+    design.querySelectorAll('[data-border-choice]').forEach(input => { input.checked = current[input.dataset.borderChoice]; });
     design.querySelectorAll('[data-theme-choice]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.themeChoice === current.theme)));
     design.querySelectorAll('[data-motion-choice]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.motionChoice === current.motion)));
   }
-  design.addEventListener('click', event => {
-    const choice = event.target.closest('[data-theme-choice], [data-motion-choice]');
-    if (!choice) return;
-    const next = { ...current, ...(choice.dataset.themeChoice ? { theme: choice.dataset.themeChoice } : { motion: choice.dataset.motionChoice }) };
+  function save(next) {
     const ticket = ++revision;
     apply(next);
     const status = document.getElementById('appearanceStatus');
@@ -83,6 +87,14 @@
         }
       }
     });
+  }
+  design.addEventListener('click', event => {
+    const choice = event.target.closest('[data-theme-choice], [data-motion-choice]');
+    if (choice) save({ ...current, ...(choice.dataset.themeChoice ? { theme: choice.dataset.themeChoice } : { motion: choice.dataset.motionChoice }) });
+  });
+  design.addEventListener('change', event => {
+    const key = event.target.dataset.borderChoice;
+    if (key) save({ ...current, [key]: event.target.checked });
   });
   window.deckAppearance = { apply(value) { apply(value); confirmed = { ...current }; }, selectTab };
   apply(confirmed);

@@ -42,7 +42,12 @@ app.whenReady().then(async () => {
   assert.match(result.status, /Could not save/);
   const border = await win.webContents.executeJavaScript(`(async () => {
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-    const rim = document.querySelector('.chat-activity-border');
+    const rim = document.querySelector('#chatForm > .chat-activity-border');
+    const windowRim = document.querySelector('.window-activity-border');
+    const composer = document.querySelector('#chatForm');
+    const bounds = rim.getBoundingClientRect();
+    const inputBounds = composer.getBoundingClientRect();
+    const inputOnly = rim.parentElement === composer && Math.abs(bounds.width - inputBounds.width) <= 2 && Math.abs(bounds.height - inputBounds.height) <= 2;
     const chat = document.querySelector('#chatPanel');
     document.querySelector('#settingsPanel').classList.remove('open');
     document.body.classList.remove('pre-native-visible');
@@ -58,6 +63,18 @@ app.whenReady().then(async () => {
     }
     document.body.dataset.chatState = 'thinking';
     await wait(300);
+    const defaultWindowOff = Number(getComputedStyle(windowRim).opacity) < .01;
+    window.failSave = false;
+    document.querySelector('#windowBorderToggle').click();
+    await wait(450);
+    const bothOn = Number(getComputedStyle(windowRim).opacity) > .8 && Number(getComputedStyle(rim).opacity) > .8;
+    document.querySelector('#inputBorderToggle').click();
+    await wait(450);
+    const windowOnly = Number(getComputedStyle(windowRim).opacity) > .8 && Number(getComputedStyle(rim).opacity) < .01;
+    const savedBorders = window.saves.at(-1).inputBorder === false && window.saves.at(-1).windowBorder === true;
+    document.querySelector('#inputBorderToggle').click();
+    document.querySelector('#windowBorderToggle').click();
+    await wait(450);
     const first = getComputedStyle(rim).getPropertyValue('--chat-border-angle');
     await wait(140);
     const rotates = first !== getComputedStyle(rim).getPropertyValue('--chat-border-angle');
@@ -67,7 +84,7 @@ app.whenReady().then(async () => {
     const motionOff = getComputedStyle(rim).animationName === 'none';
     document.body.classList.remove('motion-off'); document.body.dataset.design = 'graphite';
     await wait(300);
-    return { checks, rotates, agentsHidden, motionOff, pointer: getComputedStyle(rim).pointerEvents, mask: getComputedStyle(rim).maskComposite };
+    return { checks, rotates, agentsHidden, motionOff, inputOnly, defaultWindowOff, bothOn, windowOnly, savedBorders, pointer: getComputedStyle(rim).pointerEvents, mask: getComputedStyle(rim).maskComposite };
   })()`);
   for (const check of border.checks) {
     const active = ['waiting', 'thinking', 'writing', 'tool'].includes(check.phase);
@@ -75,6 +92,8 @@ app.whenReady().then(async () => {
     assert.equal(check.animated, active, JSON.stringify(check));
   }
   assert.equal(border.rotates, true);
+  assert.equal(border.inputOnly, true);
+  for (const key of ['defaultWindowOff', 'bothOn', 'windowOnly', 'savedBorders']) assert.equal(border[key], true, key);
   assert.equal(border.agentsHidden, true);
   assert.equal(border.motionOff, true);
   assert.equal(border.pointer, 'none');

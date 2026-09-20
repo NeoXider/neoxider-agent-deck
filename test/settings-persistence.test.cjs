@@ -13,10 +13,19 @@ const { normalizeHotkeyBindings } = require("../src/hotkey-manager.cjs");
 
 test("appearance survives restart and invalid choices fall back independently", () => {
   withTemporaryStore(({ filePath, store }) => {
-    store.save({ ...store.load(), appearance: { theme: "midnight", motion: "subtle" } });
-    assert.deepEqual(createSettingsStore({ filePath }).load().appearance, { theme: "midnight", motion: "subtle" });
+    store.save({ ...store.load(), appearance: { theme: "midnight", motion: "subtle", inputBorder: true, windowBorder: false } });
+    assert.deepEqual(createSettingsStore({ filePath }).load().appearance, { theme: "midnight", motion: "subtle", inputBorder: true, windowBorder: false });
   });
-  assert.deepEqual(normalizePreferences({ appearance: { theme: "unknown", motion: "subtle" } }).appearance, { theme: "aurora", motion: "subtle" });
+  assert.deepEqual(normalizePreferences({ appearance: { theme: "unknown", motion: "subtle" } }).appearance, { theme: "aurora", motion: "subtle", inputBorder: true, windowBorder: false });
+});
+
+test("activity border choices survive restart independently", () => {
+  withTemporaryStore(({ filePath, store }) => {
+    store.save({ ...store.load(), appearance: { theme: "graphite", motion: "fluid", inputBorder: false, windowBorder: true } });
+    assert.deepEqual(createSettingsStore({ filePath }).load().appearance, { theme: "graphite", motion: "fluid", inputBorder: false, windowBorder: true });
+  });
+  assert.equal(normalizePreferences({ appearance: { theme: "graphite" } }).appearance.inputBorder, true);
+  assert.equal(normalizePreferences({ appearance: { theme: "graphite" } }).appearance.windowBorder, false);
 });
 
 function withTemporaryStore(run) {
@@ -83,7 +92,7 @@ const completePreferences = {
   glowIntensity: 0.41,
   showThinking: false,
   motionEffects: true,
-  appearance: { theme: "aurora", motion: "fluid" },
+  appearance: { theme: "aurora", motion: "fluid", inputBorder: true, windowBorder: false },
   compactAutoExpand: true,
   size: "large",
   windowLayer: "game",
@@ -404,7 +413,7 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     // Absent from an older file, so the defaults apply rather than the old behaviour being
     // silently carried forward: effects on, avatar collapsed.
     motionEffects: true,
-  appearance: { theme: "aurora", motion: "fluid" },
+  appearance: { theme: "aurora", motion: "fluid", inputBorder: true, windowBorder: false },
     compactAutoExpand: false,
     size: "compact",
     windowLayer: "normal",

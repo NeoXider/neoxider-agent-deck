@@ -39,7 +39,7 @@ body[data-design="midnight"] #sendButton { background:linear-gradient(130deg,#a8
 button:not(.edge-mode):not(.orb-mode) { transition-timing-function:var(--ease-deck); }
 button:not(.edge-mode):not(.orb-mode):active { transform:scale(.97); transition-duration:100ms; }
 .composer-action:active,.icon-button:active,.composer-stop:active,.composer #sendButton:active { transform:scale(.96); }
-.composer { transition:border-color var(--motion-control) ease,box-shadow var(--motion-panel) ease; }
+.composer { position:relative; isolation:isolate; transition:border-color var(--motion-control) ease,box-shadow var(--motion-panel) ease; }
 .activity-card { flex:none; }
 .activity-card > summary { transition:min-height var(--motion-control) var(--ease-deck),padding var(--motion-control) var(--ease-deck); }
 .activity-card,.todo-dock,.queue-dock,.command-menu,.command-hint-bar,.composer-error,.goal-dock,.offline-banner { transition-timing-function:var(--ease-deck); }
@@ -66,7 +66,8 @@ body.motion-off .settings-page { animation:none; }
   transition:opacity 240ms ease;
   animation:none;
 }
-body.mode-full:is([data-chat-state="waiting"],[data-chat-state="thinking"],[data-chat-state="writing"],[data-chat-state="tool"]) .widget-shell:has(#chatPanel.active) > .chat-activity-border {
+body.mode-full:not([data-input-border="false"]):is([data-chat-state="waiting"],[data-chat-state="thinking"],[data-chat-state="writing"],[data-chat-state="tool"]) #chatPanel.active .composer > .chat-activity-border,
+body.mode-full[data-window-border="true"]:is([data-chat-state="waiting"],[data-chat-state="thinking"],[data-chat-state="writing"],[data-chat-state="tool"]) .widget-shell:has(#chatPanel.active) > .window-activity-border {
   opacity:.9; animation:chat-border-orbit 5s linear infinite;
 }
 @keyframes chat-border-orbit { to { --chat-border-angle:360deg; } }

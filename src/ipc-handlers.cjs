@@ -432,7 +432,7 @@ function registerIpcHandlers({
     if (!["aurora", "graphite", "midnight"].includes(value?.theme)
       || !["fluid", "subtle"].includes(value?.motion)) throw new TypeError("Invalid appearance");
     const preferences = getPreferences();
-    preferences.appearance = { theme: value.theme, motion: value.motion };
+    preferences.appearance = { theme: value.theme, motion: value.motion, inputBorder: value.inputBorder !== false, windowBorder: value.windowBorder === true };
     schedulePreferenceSave();
     return preferences.appearance;
   });

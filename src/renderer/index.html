@@ -51,7 +51,7 @@
       <defs><linearGradient id="context-ring-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#49e7c6"/><stop offset="1" stop-color="#8b79ff"/></linearGradient></defs>
     </svg>
     <main class="widget-shell">
-      <div class="chat-activity-border" aria-hidden="true"></div>
+      <div class="chat-activity-border window-activity-border" aria-hidden="true"></div>
       <header class="titlebar">
         <div class="brand no-drag">
           <button id="avatarButton" class="avatar-button" type="button" title="Collapse to avatar" aria-label="Collapse to avatar">
@@ -187,6 +187,7 @@
         </div>
 
         <form id="chatForm" class="composer no-drag">
+          <div class="chat-activity-border" aria-hidden="true"></div>
           <div class="composer-view-stack">
             <button id="focusChatButton" class="composer-action focus-chat-button" type="button" title="Focus chat" aria-label="Focus chat" aria-pressed="false"><svg class="ui-icon focus-enter"><use href="#icon-focus"/></svg><svg class="ui-icon focus-exit"><use href="#icon-focus-exit"/></svg></button>
             <div id="contextMeter" class="context-meter" role="progressbar" aria-label="Context usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="Context usage unavailable, 0%" title="Context usage unavailable">

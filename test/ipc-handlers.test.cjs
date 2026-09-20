@@ -27,8 +27,8 @@ test("appearance IPC validates both choices before persisting", async () => {
   let saves = 0;
   const { ipcMain, window } = register({ getPreferences: () => preferences, schedulePreferenceSave: () => saves++ });
   const event = { sender: window.webContents };
-  await ipcMain.invoke("set-appearance", event, { theme: "graphite", motion: "subtle" });
-  assert.deepEqual(preferences.appearance, { theme: "graphite", motion: "subtle" });
+  await ipcMain.invoke("set-appearance", event, { theme: "graphite", motion: "subtle", inputBorder: true, windowBorder: false });
+  assert.deepEqual(preferences.appearance, { theme: "graphite", motion: "subtle", inputBorder: true, windowBorder: false });
   for (const invalid of [null, {}, { theme: "graphite", motion: "bad" }, { theme: "bad", motion: "fluid" }]) {
     await assert.rejects(async () => ipcMain.invoke("set-appearance", event, invalid), /Invalid appearance/);
   }
