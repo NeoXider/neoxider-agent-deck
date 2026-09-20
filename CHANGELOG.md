@@ -5,6 +5,17 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - 2026-09-20
+
+### Added
+
+- **Device approval for Wi-Fi access.** An opt-in endpoint on port 3099 lets phones request access with a matching code and an Allow/Deny dialog on the computer. Upstream credentials stay inside Deck; disabling access or restarting Deck revokes device sessions.
+
+### Fixed
+
+- **Authenticated desktop opening.** Tray and hotkey actions preserve the same-origin Harness launch URL instead of opening an unauthenticated root page.
+- **Full-context compaction counts.** Dividers include retained context and cached prompt tokens using a provider usage anchor. Incomplete history explicitly labels fragment-only estimates rather than presenting the summary as the entire remaining context.
+
 ## [0.9.4] - 2026-09-20
 
 ### Fixed

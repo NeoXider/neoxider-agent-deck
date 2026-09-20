@@ -81,6 +81,7 @@ const completePreferences = {
   compactSide: "left",
   lastSelectedSessionId: "last-opened-chat",
   harnessLaunchUrl: "http://127.0.0.1:3080/?token=persisted",
+  deviceAccessEnabled: true,
   hotkeys: normalizeHotkeyBindings({ captureRegion: { enabled: true, accelerator: "Control+Shift+R" } }),
   windowState: {
     version: 2,
@@ -401,6 +402,7 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     hotkeys: normalizeHotkeyBindings(),
     lastSelectedSessionId: null,
     harnessLaunchUrl: "",
+    deviceAccessEnabled: false,
     windowState: { version: 2, mode: "full", full: null, orb: null, edge: null },
   });
 });

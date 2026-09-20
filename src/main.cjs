@@ -5,6 +5,7 @@ const { HarnessApi } = require("./harness-api.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createAutoStartController } = require("./auto-start.cjs");
 const { createHarnessLauncher } = require("./harness-launcher.cjs");
+const { createDesktopAccess, desktopHarnessUrl } = require("./desktop-access.cjs");
 const { createGameLayerKeeper } = require("./game-layer-keeper.cjs");
 const { createGameBarController, createSharedDashboardReader } = require("./gamebar-controller.cjs");
 const { createCompactHitTracker } = require("./compact-hit-tracker.cjs");
@@ -100,6 +101,7 @@ const openExternalUrl = createExternalLinkOpener({ openExternal: (url) => shell.
 
 let windowRef;
 let tray;
+let desktopAccess;
 let windowMode = "full";
 let fullBounds;
 let preferences = DEFAULT_PREFERENCES;
@@ -162,6 +164,7 @@ function cleanupApplication() {
   attachmentRegistry.clear();
   updateOrchestrator?.stop();
   tray?.destroy();
+  desktopAccess?.dispose();
   tray = null;
 }
 
@@ -750,7 +753,7 @@ app.whenReady().then(() => {
         applyWindowMode("full");
         sendToRenderer("hotkey-action", "newSession");
       },
-      openHarness: () => shell.openExternal(HARNESS_URL),
+      openHarness: () => shell.openExternal(desktopHarnessUrl(HARNESS_URL, harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl)),
       captureDisplay: () => captureScreenshotFromHotkey("display"),
       captureRegion: () => captureScreenshotFromHotkey("region"),
     },
@@ -788,17 +791,12 @@ app.whenReady().then(() => {
   if (!ISOLATED_SMOKE_MODE) {
     muxClient.connect();
     remoteMux.start();
-    const iconPath = path.join(__dirname, "renderer", "assets", "neoxider-github.png");
-    const icon = nativeImage.createFromPath(iconPath).resize({ width: 32, height: 32 });
-    tray = new Tray(icon);
-    tray.setToolTip(PRODUCT_NAME);
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: "Show widget", click: () => applyWindowMode("full") },
-      { label: "Open Harness", click: () => shell.openExternal(HARNESS_URL) },
-      { type: "separator" },
-      { label: "Quit", click: () => quitCoordinator.requestQuit("tray") },
-    ]));
-    tray.on("double-click", () => applyWindowMode(windowMode === "full" ? "edge" : "full"));
+    desktopAccess = createDesktopAccess({ app, dialog, shell, Menu, Tray, nativeImage, productName: PRODUCT_NAME,
+      getPreferences: () => preferences, savePreferences, harnessUrl: HARNESS_URL,
+      getLaunchUrl: () => harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl || "",
+      showWidget: () => applyWindowMode("full"), toggleWidget: () => applyWindowMode(windowMode === "full" ? "edge" : "full"),
+      requestQuit: () => quitCoordinator.requestQuit("tray") });
+    tray = desktopAccess.tray;
   }
 });
 

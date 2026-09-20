@@ -11,6 +11,6 @@ test("application cleanup stages current preferences with one final no-retry sav
 });
 
 test("tray Quit and before-quit share the idempotent cleanup coordinator", () => {
-  assert.match(mainSource, /label: "Quit", click: \(\) => quitCoordinator\.requestQuit\("tray"\)/);
+  assert.match(mainSource, /requestQuit: \(\) => quitCoordinator\.requestQuit\("tray"\)/);
   assert.match(mainSource, /app\.on\("before-quit", \(\) => \{ imageEncoder\.shutdown\(\); quitCoordinator\.beforeQuit\(\); \}\);/);
 });
