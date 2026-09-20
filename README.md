@@ -320,6 +320,8 @@ The renderer is sandboxed with `contextIsolation` enabled and Node.js integratio
 
 Reduce MCP schema overhead with one lazy tool: [NeoXider MCP Hub](https://github.com/NeoXider/neoxider-mcp-hub).
 
+For long-running scripts in DSH, the optional [background code integration](integrations/dsh-background-code/README.md) releases the agent after 1.5 seconds and delivers completion through native background jobs, including after a final answer.
+
 ## Roadmap
 
 Screen capture, configurable global hotkeys, and the three-session pet switcher ship in 0.5.0; clipboard file/image paste ships in 0.6.4. Remaining overlay diagnostics, per-game profiles, and quiet-notification work is tracked in [TODO.md](TODO.md).
