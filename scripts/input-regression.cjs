@@ -101,7 +101,7 @@ function registerStubs() {
     }
     return payload;
   });
-  ipcMain.handle("get-preferences", () => ({ showThinking: showThinkingPreference, lastSelectedSessionId: lastSelectedSessionPreference }));
+  ipcMain.handle("get-preferences", () => ({ showThinking: showThinkingPreference, lastSelectedSessionId: lastSelectedSessionPreference, appearance: { theme: "graphite", motion: "subtle", inputBorder: true, windowBorder: false } }));
   ipcMain.handle("set-last-selected-session", (_event, sessionId) => {
     persistedSessionIds.push(sessionId);
     lastSelectedSessionPreference = sessionId;
@@ -206,6 +206,8 @@ async function main() {
   await wait(1200);
 
   const failures = [];
+  const restoredAppearance = await contents.executeJavaScript(`({ theme: document.body.dataset.design, motion: document.body.dataset.motion })`);
+  if (restoredAppearance.theme !== 'graphite' || restoredAppearance.motion !== 'subtle') failures.push(`saved appearance was overwritten during startup: ${JSON.stringify(restoredAppearance)}`);
 
   // --- 0. first entry begins only after the native show acknowledgement ---
   //

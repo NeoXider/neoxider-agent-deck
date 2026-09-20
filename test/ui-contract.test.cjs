@@ -1027,6 +1027,10 @@ test("command execution stays visible in full and compact modes until it settles
   assert.match(css, /\.bubble\.command \{[^}]+max-height:140px;[^}]+overflow:auto/);
 });
 
+test("appearance initializes before app preference hydration", () => {
+  assert.ok(html.indexOf('src="appearance.js"') < html.indexOf('src="app.js"'));
+});
+
 test("session switching lives in Agents without a duplicate chat picker", () => {
   assert.doesNotMatch(html, /id="sessionButton"|id="sessionMenu"|id="sessionOptions"/);
   assert.match(renderer, /const activate = \(\) => selectSession\(card.dataset.sessionId, true\)/);

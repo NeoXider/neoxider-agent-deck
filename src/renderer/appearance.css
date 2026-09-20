@@ -56,11 +56,18 @@ body.motion-off .settings-page { animation:none; }
    Mask only the rim; the overlay never covers text or intercepts a pointer. */
 @property --chat-border-angle { syntax:"<angle>"; inherits:false; initial-value:0deg; }
 .chat-activity-border {
-  position:absolute; inset:0; z-index:3; border-radius:inherit; padding:2px;
+  position:absolute; inset:0; z-index:3; border-radius:inherit; padding:1px;
   pointer-events:none; opacity:0;
-  background:conic-gradient(from var(--chat-border-angle),transparent 0deg,
-    var(--chat-light-primary) 65deg,var(--chat-light-secondary) 130deg,
-    transparent 180deg,var(--chat-light-secondary) 245deg,var(--chat-light-primary) 310deg,transparent 360deg);
+  background:conic-gradient(from var(--chat-border-angle),
+    color-mix(in srgb,var(--chat-light-primary) 12%,transparent) 0deg,
+    color-mix(in srgb,var(--chat-light-secondary) 45%,transparent) 55deg,
+    var(--chat-light-primary) 100deg,
+    color-mix(in srgb,var(--chat-light-secondary) 45%,transparent) 145deg,
+    color-mix(in srgb,var(--chat-light-primary) 12%,transparent) 180deg,
+    color-mix(in srgb,var(--chat-light-primary) 45%,transparent) 235deg,
+    var(--chat-light-secondary) 280deg,
+    color-mix(in srgb,var(--chat-light-primary) 45%,transparent) 325deg,
+    color-mix(in srgb,var(--chat-light-primary) 12%,transparent) 360deg);
   mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
   mask-composite:exclude;
   transition:opacity 240ms ease;
@@ -68,7 +75,7 @@ body.motion-off .settings-page { animation:none; }
 }
 body.mode-full:not([data-input-border="false"]):is([data-chat-state="waiting"],[data-chat-state="thinking"],[data-chat-state="writing"],[data-chat-state="tool"]) #chatPanel.active .composer > .chat-activity-border,
 body.mode-full[data-window-border="true"]:is([data-chat-state="waiting"],[data-chat-state="thinking"],[data-chat-state="writing"],[data-chat-state="tool"]) .widget-shell:has(#chatPanel.active) > .window-activity-border {
-  opacity:.9; animation:chat-border-orbit 5s linear infinite;
+  opacity:.9; animation:chat-border-orbit 8s linear infinite;
 }
 @keyframes chat-border-orbit { to { --chat-border-angle:360deg; } }
 /* Keep the status colour without rotation when motion is disabled. */
