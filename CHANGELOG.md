@@ -5,6 +5,22 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.6] - 2026-09-20
+
+### Added
+
+- **Appearance settings.** Aurora, Graphite and Midnight designs with saved live previews, Fluid/Subtle motion and grouped transparency and glow controls.
+
+### Changed
+
+- **Simpler chat toolbar.** Session switching lives in Agents; the duplicate dropdown is removed, leaving more room for model setup.
+- **Smoother feedback.** Softer presses, consistent panel easing and a sliding settings selector; activity cards no longer collapse into a clipped strip.
+
+### Fixed
+
+- **Readable send errors.** Error details wrap and scroll without being squeezed away; command hints match the Harness goal syntax.
+- **Device access recovery.** Pending pairing requests can resume and desktop approval is visible; safe browser landing navigation no longer fails origin validation.
+
 ## [0.9.5] - 2026-09-20
 
 ### Added

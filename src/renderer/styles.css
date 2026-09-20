@@ -260,7 +260,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .focus-chat .titlebar, .focus-chat .offline-banner, .focus-chat #agentsPanel, .focus-chat .chat-heading, .focus-chat .activity-card, .focus-chat .settings-panel { display:none !important; }
 .focus-chat #chatPanel { display:flex !important; }
 .focus-chat .composer { margin-top:7px; }
-.chat-heading { display:grid; grid-template-columns:minmax(0,1.1fr) 40px 40px minmax(126px,.9fr); gap:7px; align-items:start; width:100%; }
+.chat-heading { display:grid; grid-template-columns:40px 40px minmax(0,1fr); gap:7px; align-items:start; width:100%; }
 .picker { position:relative; min-width:0; }
 .picker-button { width:100%; min-width:0; height:var(--control); display:flex; align-items:center; gap:8px; padding:0 10px; border:1px solid var(--line); border-radius:11px; background:#151b26; color:#dce2eb; cursor:pointer; text-align:left; }
 .picker-button:hover, .picker.open .picker-button { border-color:var(--line-bright); background:#18202c; }
@@ -1002,7 +1002,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
   .title { font-size:14px; }
   .icon-button { width:34px; height:34px; }
   .tabs { width:66px; height:32px; }
-  .chat-heading { grid-template-columns:minmax(0,1fr) 34px 34px minmax(108px,.82fr); gap:5px; }
+  .chat-heading { grid-template-columns:34px 34px minmax(0,1fr); gap:5px; }
   .context-meter { width:28px; height:17px; }
   .context-meter svg { width:15px; height:15px; }
   .control-grid { gap:5px; padding:0 6px 6px; }

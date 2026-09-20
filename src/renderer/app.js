@@ -80,7 +80,6 @@ const state = {
   sessionSelectionGeneration: 0,
   preferencesReadyPromise: null,
   sessionListSignature: "",
-  sessionSelectSignature: "",
   collapsedSessionGroupKeys: new Set(),
   contextSignature: "",
   modeSignature: "",
@@ -1526,9 +1525,8 @@ function toggleSessionGroup(groupKey) {
   if (state.collapsedSessionGroupKeys.has(groupKey)) state.collapsedSessionGroupKeys.delete(groupKey);
   else state.collapsedSessionGroupKeys.add(groupKey);
   state.sessionListSignature = "";
-  state.sessionSelectSignature = "";
   renderSessions();
-  renderSessionSelect();
+  renderSessionToolbar();
 }
 
 function createSessionGroup(group, { picker = false } = {}) {
@@ -1597,40 +1595,6 @@ function canPatchSessionGroups(root, groups, { picker = false } = {}) {
   });
 }
 
-function updatePickerSessionOption(option, session) {
-  const pressure = contextPressure(session);
-  const agentState = sessionAgentState(session);
-  const selected = session.sessionId === state.selectedSessionId;
-  option.classList.toggle("selected", selected);
-  option.classList.remove("state-idle", "state-working", "state-error");
-  option.classList.add(`state-${agentState}`);
-  option.setAttribute("aria-selected", String(selected));
-  option.title = session.cwd || session.title || "New session";
-  option.querySelector("span").textContent = session.title || "New session";
-  let meta = option.querySelector("small");
-  if (!meta) {
-    meta = document.createElement("small");
-    option.append(meta);
-  }
-  meta.textContent = agentState === "working"
-    ? "working"
-    : agentState === "error"
-      ? "error"
-      : pressure
-        ? `idle · ${Math.round(pressure.percent)}%`
-        : "idle";
-  let elapsed = option.querySelector(".session-time");
-  if (!elapsed) {
-    elapsed = document.createElement("small");
-    elapsed.className = "session-time";
-    meta.after(elapsed);
-  }
-  applySessionTime(elapsed, session);
-  const mark = option.querySelector(".picker-check");
-  mark.replaceChildren();
-  if (selected) mark.append(createIcon("check"));
-}
-
 function renderSessions() {
   const root = $("#sessions");
   const groups = groupedSessions();
@@ -1672,65 +1636,14 @@ function renderSessions() {
   return true;
 }
 
-function renderSessionSelect() {
-  const sessions = state.dashboard?.sessions || [];
-  const selected = sessions.find((session) => session.sessionId === state.selectedSessionId);
-  const groups = groupedSessions();
-  const root = $("#sessionOptions");
-  const signature = JSON.stringify([
-    state.selectedSessionId,
-    [...state.collapsedSessionGroupKeys].sort(),
-    ...groups.map((group) => [group.key, group.label, group.path, ...group.sessions.map((session) => {
-      const pressure = contextPressure(session);
-      return [session.sessionId, session.title || "", sessionAgentState(session), pressure ? Math.round(pressure.percent) : null];
-    })]),
-  ]);
-  if (signature === state.sessionSelectSignature && root.childElementCount) return false;
-  state.sessionSelectSignature = signature;
-  $("#openSessionButton").disabled = !state.selectedSessionId;
-  $("#openSessionButton").title = selected
+function renderSessionToolbar() {
+  const selected = state.dashboard?.sessions?.find(session => session.sessionId === state.selectedSessionId);
+  const button = $("#openSessionButton");
+  if (button.disabled !== !state.selectedSessionId) button.disabled = !state.selectedSessionId;
+  const title = selected
     ? `Open ${selected.title || "current session"} in DeepSeek Harness`
-    : "Select a session to open it in DeepSeek Harness";
-  $("#sessionButtonText").textContent = selected?.title || "New session";
-  const currentNewOption = root.firstElementChild;
-  if (currentNewOption?.dataset.optionKey === "__new__" && canPatchSessionGroups(root, groups, { picker: true })) {
-    sessionGroupElements(root).forEach((wrapper, groupIndex) => {
-      const group = groups[groupIndex];
-      updateSessionGroup(wrapper, group, { picker: true });
-      [...wrapper.querySelector(".session-group-items").children].forEach((option, sessionIndex) => updatePickerSessionOption(option, group.sessions[sessionIndex]));
-    });
-    return true;
-  }
-  root.replaceChildren();
-  root.append(pickerOption("New ungrouped session", {
-    meta: "new",
-    key: "__new__",
-    onSelect: async () => {
-      closePickers();
-      await createNewSession({ workspaceId: null });
-    },
-  }));
-  for (const group of groups) {
-    const { wrapper, body } = createSessionGroup(group, { picker: true });
-    for (const session of group.sessions) {
-      const pressure = contextPressure(session);
-      const option = pickerOption(session.title || "New session", {
-        selected: session.sessionId === state.selectedSessionId,
-        meta: sessionAgentState(session),
-        title: session.cwd || session.title,
-        key: session.sessionId,
-        onSelect: async () => {
-          closePickers();
-          await selectSession(session.sessionId);
-        },
-      });
-      updatePickerSessionOption(option, session);
-      body.append(option);
-    }
-    root.append(wrapper);
-  }
-  scheduleSessionTimers();
-  return true;
+    : "Select a session in Agents to open it in DeepSeek Harness";
+  if (button.title !== title) button.title = title;
 }
 
 function modelSelectionValue(selection) {
@@ -2835,7 +2748,6 @@ async function selectSession(sessionId, openChat = false) {
   const selectedGroup = groupedSessions(state.selectedSessionId).find((group) => group.sessions.some((session) => session.sessionId === state.selectedSessionId));
   if (selectedGroup && state.collapsedSessionGroupKeys.delete(selectedGroup.key)) {
     state.sessionListSignature = "";
-    state.sessionSelectSignature = "";
   }
   syncGameBarSelection();
   if (state.windowMode === "full") acknowledgeSessionError(state.selectedSessionId);
@@ -2874,7 +2786,7 @@ async function selectSession(sessionId, openChat = false) {
   state.commandsLoadedSessionId = null;
   state.selectedWorkspaceId = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId)?.workspaceId || null;
   renderSessions();
-  renderSessionSelect();
+  renderSessionToolbar();
   renderContext();
   renderWorkspaces();
   renderTodos();
@@ -4748,7 +4660,7 @@ function updateLiveSessionState(sessionId, running, activity = null, stateName =
   }
   if (render) {
     renderSessions();
-    renderSessionSelect();
+    renderSessionToolbar();
   }
 }
 
@@ -4763,7 +4675,7 @@ let livePaintFrame = null;
 function paintLiveState() {
   livePaintFrame = null;
   renderSessions();
-  renderSessionSelect();
+  renderSessionToolbar();
   const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
   const stream = state.liveStreamsBySession.get(state.selectedSessionId);
   const activity = session?.activity || (stream?.active ? stream.activity : null);
@@ -5307,7 +5219,7 @@ async function performRefresh() {
     renderActivityMeta();
     renderGoal();
     renderSessions();
-    renderSessionSelect();
+    renderSessionToolbar();
     renderContext();
     renderWorkspaces();
     renderTodos();
@@ -6023,7 +5935,6 @@ document.querySelectorAll(".tab").forEach((button) => {
     next.focus();
   });
 });
-$("#sessionButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#modelButton").addEventListener("click", (event) => {
   event.stopPropagation();
   togglePicker(event.currentTarget);
@@ -6749,7 +6660,7 @@ if (screenshotFixture) {
       state.dashboard = { harness: true, sessions: [] };
       state.selectedSessionId = null;
       renderSessions();
-      renderSessionSelect();
+      renderSessionToolbar();
       renderContext();
       renderMessages([]);
     } else if (["edge-idle", "edge-hover"].includes(screenshotFixture)) {
@@ -6771,7 +6682,7 @@ if (screenshotFixture) {
       setAvatar("offline");
       syncCompactStatus();
       renderSessions();
-      renderSessionSelect();
+      renderSessionToolbar();
       renderContext();
       renderMessages([]);
       if (screenshotFixture === "offline-agents") setTab("agents");
@@ -6818,15 +6729,13 @@ if (screenshotFixture) {
       state.collapsedSessionGroupKeys.clear();
       if (screenshotFixture === "workspace-groups") state.collapsedSessionGroupKeys.add("workspace:workspace-neoxider");
       state.sessionListSignature = "";
-      state.sessionSelectSignature = "";
       renderSessions();
-      renderSessionSelect();
+      renderSessionToolbar();
       if (screenshotFixture === "workspace-groups-chat") {
         clearTimeout(state.transientActivityTimer);
         setActivity(null);
         setAvatar("idle", "ready");
         renderMessages([{ role: "assistant", text: "Choose a session or start one inside a Harness workspace." }]);
-        togglePicker($("#sessionButton"));
       } else {
         setTab("agents");
       }
@@ -6834,7 +6743,7 @@ if (screenshotFixture) {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-small", title: "Compact chat", running: false, projections: { values: { contextPressure: { projectedTokens: 4200, contextWindow: 65536 } } }, subagents: [] }] };
       state.selectedSessionId = "demo-small";
-      renderSessionSelect();
+      renderSessionToolbar();
       renderContext();
       renderMessages([{ role: "assistant", text: "Ready for the next task." }]);
       const input = $("#messageInput");
@@ -6846,7 +6755,7 @@ if (screenshotFixture) {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-chat", title: "Release verification", running: false, projections: { values: { contextPressure: { projectedTokens: 55296, contextWindow: 131072 } } }, subagents: [] }] };
       state.selectedSessionId = "demo-chat";
-      renderSessionSelect();
+      renderSessionToolbar();
       $("#controlsSummary").textContent = "LM Studio · Qwen 3.5 9B · Medium";
       renderContext();
       renderMessages([
@@ -6899,7 +6808,7 @@ if (screenshotFixture) {
         { name: "permission", description: "Switch the permission preset", input: { hint: "<preset>" } },
         { name: "plan", description: "Enter or leave plan mode", input: { hint: "[off|message]" } },
       ];
-      renderSessionSelect();
+      renderSessionToolbar();
       renderContext();
       $("#messageInput").value = "/";
       if (screenshotFixture === "focus-commands") setFocusMode(true);
@@ -6922,7 +6831,7 @@ if (screenshotFixture) {
         { id: "crowded-queue-2", placement: "queued", text: "Summarize the compact result.", preview: "Summarize the compact result." },
       ]);
       state.pendingAttachments = [{ kind: "file", name: "compact-evidence.txt", path: "C:\\fixture\\compact-evidence.txt" }];
-      renderSessionSelect();
+      renderSessionToolbar();
       renderContext();
       renderTodos();
       renderQueuedPrompts();
@@ -6942,7 +6851,7 @@ if (screenshotFixture) {
       ] } }, subagents: [] }] };
       state.selectedSessionId = "demo-todo";
       state.todoExpandedSessionIds.add("demo-todo");
-      renderSessionSelect();
+      renderSessionToolbar();
       renderTodos();
       renderMessages([{ role: "assistant", text: "The current plan stays compact above the conversation." }]);
     } else if (screenshotFixture === "goal-result") {
@@ -7047,7 +6956,7 @@ if (screenshotFixture) {
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-loading", title: "Loading session", running: false, projections: { values: {} }, subagents: [] }] };
       state.selectedSessionId = "demo-loading";
       state.historyPendingSessionId = "demo-loading";
-      renderSessionSelect();
+      renderSessionToolbar();
       renderMessages([]);
     } else if (screenshotFixture === "toast") {
       setTab("chat");
@@ -7100,7 +7009,7 @@ if (screenshotFixture) {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-easing", title: "Easing", running: false, projections: { values: {} }, subagents: [] }] };
       state.selectedSessionId = "demo-easing";
-      renderSessionSelect();
+      renderSessionToolbar();
       renderMessages(Array.from({ length: 16 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", text: `Message ${index + 1}: the log is long enough to scroll and is following its end.` })));
       const trace = [];
       window.__stripTrace = trace;

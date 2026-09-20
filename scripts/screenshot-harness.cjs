@@ -390,6 +390,7 @@ function attachScreenshotHarness({
             agentError: document.querySelectorAll('.session-card.state-error').length,
             sessionGroups: document.querySelectorAll('#sessions > .session-group').length,
             sessionPickerGroups: document.querySelectorAll('#sessionOptions > .picker-session-group').length,
+            chatSessionPickerAbsent: !document.querySelector('#sessionButton, #sessionMenu, #sessionOptions'),
             agentCollapsedSessionGroups: document.querySelectorAll('#sessions > .session-group.collapsed').length,
             pickerCollapsedSessionGroups: document.querySelectorAll('#sessionOptions > .picker-session-group.collapsed').length,
             agentSessionGroupAddButtons: document.querySelectorAll('#sessions .session-group-add').length,

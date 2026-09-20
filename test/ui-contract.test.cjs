@@ -1027,14 +1027,9 @@ test("command execution stays visible in full and compact modes until it settles
   assert.match(css, /\.bubble\.command \{[^}]+max-height:140px;[^}]+overflow:auto/);
 });
 
-test("session picker uses the same idle, working, and error state as the Agents list", () => {
-  const css = readSource("src", "renderer", "styles.css");
-  assert.match(renderer, /function updatePickerSessionOption[\s\S]+const agentState = sessionAgentState\(session\)/);
-  assert.match(renderer, /option\.classList\.add\(`state-\$\{agentState\}`\)/);
-  assert.match(renderer, /agentState === "error"[\s\S]+\? "error"/);
-  const pickerRender = renderer.slice(renderer.indexOf("function renderSessionSelect"), renderer.indexOf("function modelSelectionValue"));
-  assert.match(pickerRender, /sessionAgentState\(session\)/);
-  assert.match(css, /\.picker-session-group \.picker-option\.state-error small/);
+test("session switching lives in Agents without a duplicate chat picker", () => {
+  assert.doesNotMatch(html, /id="sessionButton"|id="sessionMenu"|id="sessionOptions"/);
+  assert.match(renderer, /const activate = \(\) => selectSession\(card.dataset.sessionId, true\)/);
 });
 
 test("a transient workspace picker refresh preserves the last successful projection", () => {
@@ -1060,11 +1055,11 @@ test("completed reasoning is omitted and live activity remains a collapsed card"
   assert.doesNotMatch(harnessApi, /Last reasoning/);
 });
 
-test("view switch lives in the titlebar and session plus setup share one toolbar", () => {
+test("view switch lives in the titlebar and chat actions share one toolbar", () => {
   const titlebar = html.slice(html.indexOf('<header class="titlebar'), html.indexOf("</header>") + 9);
   assert.match(titlebar, /<nav class="tabs/);
   const toolbar = html.slice(html.indexOf('<div class="chat-heading'), html.indexOf('<details id="activityCard"'));
-  assert.match(toolbar, /id="sessionButton"/);
+  assert.match(toolbar, /id="newSessionButton"/);
   assert.match(toolbar, /id="agentControls"/);
 });
 
@@ -1564,7 +1559,7 @@ test("the session list shows how long each agent has been working", () => {
   assert.match(renderer, /if \(node\.dataset\.runningSince !== since\) node\.dataset\.runningSince = since;/);
   // The ticking value must stay out of the render signature, or the list rebuilds every
   // second; and the interval must stop when nothing is running.
-  const signature = renderer.slice(renderer.indexOf("function renderSessions"), renderer.indexOf("function renderSessionSelect"));
+  const signature = renderer.slice(renderer.indexOf("function renderSessions"), renderer.indexOf("function renderSessionToolbar"));
   assert.doesNotMatch(signature, /runningSince|lastRunMs/);
   assert.match(renderer, /\} else if \(!live && state\.sessionTimerTick\) \{\s*clearInterval\(state\.sessionTimerTick\);/);
 });
@@ -1614,7 +1609,7 @@ test("background tasks are a count of what is running, not a roster size", () =>
   assert.doesNotMatch(renderer, /subagent\$\{childCount === 1 \? "" : "s"\}/, "the old sentence is gone");
   // The count has to reach the render signature, or a task starting or finishing would not
   // repaint the list.
-  const signature = renderer.slice(renderer.indexOf("function renderSessions"), renderer.indexOf("function renderSessionSelect"));
+  const signature = renderer.slice(renderer.indexOf("function renderSessions"), renderer.indexOf("function renderSessionToolbar"));
   assert.match(signature, /activeBackgroundTasks\(session\)/);
   // Written into the <b>, never onto the wrapper, which also holds the icon.
   assert.match(renderer, /const value = node\.querySelector\("b"\);/);

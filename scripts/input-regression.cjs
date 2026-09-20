@@ -453,19 +453,17 @@ async function main() {
     const scrollPreserved = list.scrollTop === scrollTop;
     list.style.height = "";
     setTab("chat");
-    document.querySelector("#sessionButton").click();
-    const option = document.querySelector("#sessionOptions .picker-option:last-child");
-    option.focus();
-    const focusedBefore = document.activeElement === option;
+    setTab("agents");
+    card.focus();
+    const focusedBefore = document.activeElement === card;
     changing.projections.values.contextPressure.projectedTokens = 1200;
-    renderSessionSelect();
+    renderSessions();
     const result = {
       sameCard,
-      sameOption: option === document.querySelector("#sessionOptions .picker-option:last-child"),
-      optionFocused: focusedBefore && document.activeElement === option,
+      cardFocused: focusedBefore && document.activeElement === card,
       scrollPreserved,
     };
-    document.querySelector("#sessionButton").click();
+    setTab("chat");
     return result;
   })()`);
   if (!Object.values(stableRender).every(Boolean)) {
@@ -1733,7 +1731,7 @@ async function main() {
     firstCommands: [...document.querySelectorAll("#commandMenu .command-name")].slice(0, 4).map((item) => item.textContent),
   })`);
   const goalPayload = commandPayloads.at(-1);
-  if (!slashStart.hint.includes("create <objective>") || sentPayloads.length !== sentBeforeSlash || commandPayloads.length !== commandsBeforeSlash + 1
+  if (!slashStart.hint.includes("<objective>") || sentPayloads.length !== sentBeforeSlash || commandPayloads.length !== commandsBeforeSlash + 1
       || goalPayload?.line !== "/GoAl create ship it" || goalPayload?.images?.[0]?.name !== "goal.png"
       || slashResult.attachments !== 1 || slashResult.attachmentPaths.join() !== "C:\\keep.txt" || !slashResult.goalCard.includes("Ship it safely")
       || slashResult.firstCommands.join() !== "/goal,/compact,/plan,/permission") {
@@ -1768,7 +1766,7 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 80));
     return { value: input.value, activity: document.querySelector("#composerError")?.textContent || "" };
   })()`);
-  if (sentPayloads.length !== sentBeforeUnknown || commandPayloads.length !== commandsBeforeUnknown || unknownSlash.value !== "/NotACommand" || !/Unknown Harness command/i.test(unknownSlash.activity)) {
+  if (sentPayloads.length !== sentBeforeUnknown || commandPayloads.length !== commandsBeforeUnknown || unknownSlash.value !== "/NotACommand" || !/unavailable in this session/i.test(unknownSlash.activity)) {
     failures.push(`unknown slash command leaked to the model prompt path: ${JSON.stringify(unknownSlash)}`);
   }
   deferredSessionRequests.commands.delete("slash-session");
@@ -1998,7 +1996,7 @@ async function main() {
     failures.push(`online startup did not load the saved chat: ${JSON.stringify(onlineRestored)}`);
   }
   const savesBeforeClick = persistedSessionIds.length;
-  await contents.executeJavaScript(`document.querySelector('#sessionOptions [data-option-key="restore-running"]').click()`);
+  await contents.executeJavaScript(`setTab('agents'); document.querySelector('#sessions [data-session-id="restore-running"]').click()`);
   await within((async () => {
     while (lastSelectedSessionPreference !== "restore-running" || !(await restoredSnapshot()).text.includes("Restored clicked transcript")) await wait(10);
   })(), "Clicked chat persistence and history");
@@ -2016,7 +2014,7 @@ async function main() {
   if (startedRestored.selected !== "restore-running" || startedRestored.offline || !startedRestored.text.includes("Restored clicked transcript")) {
     failures.push(`starting Harness did not restore the clicked chat transcript: ${JSON.stringify(startedRestored)}`);
   }
-  if (failures.length === failuresBeforeRestoration) console.log("PASS saved chat loads online, picker selection persists once, and offline reload restores history after Start Harness");
+  if (failures.length === failuresBeforeRestoration) console.log("PASS saved chat loads online, Agents selection persists once, and offline reload restores history after Start Harness");
 
   for (const failure of failures) console.error(`FAIL ${failure}`);
   if (failures.length === 0) console.log("PASS stable rendering, bounded live-stream paints, named live tool cards, last-intent modes, compact drag, exact-session open, and inline quick reply behave correctly");
