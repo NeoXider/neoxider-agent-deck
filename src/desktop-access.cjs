@@ -1,6 +1,7 @@
 const path = require("node:path");
 const { networkInterfaces } = require("node:os");
 const { createDeviceAccessServer } = require("./device-access.cjs");
+const { createDeviceApproval } = require("./device-approval.cjs");
 
 function desktopHarnessUrl(harnessUrl, launchUrl) {
   const base = new URL(harnessUrl);
@@ -18,9 +19,9 @@ function lanAddresses(interfaces = networkInterfaces()) {
     .map((item) => item.address))].sort((a, b) => Number(b.startsWith("192.168.")) - Number(a.startsWith("192.168.")));
 }
 
-function createDesktopAccess({ app, dialog, shell, Menu, Tray, nativeImage, productName,
+function createDesktopAccess({ app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, productName,
   getPreferences, savePreferences, getLaunchUrl, harnessUrl, showWidget, toggleWidget, requestQuit,
-  createServer = createDeviceAccessServer, addresses = lanAddresses(), port = 3099 }) {
+  createServer = createDeviceAccessServer, createApproval = createDeviceApproval, addresses = lanAddresses(), port = 3099 }) {
   const icon = nativeImage.createFromPath(path.join(__dirname, "renderer", "assets", "neoxider-github.png")).resize({ width: 32, height: 32 });
   const tray = new Tray(icon);
   tray.setToolTip(productName);
@@ -28,20 +29,20 @@ function createDesktopAccess({ app, dialog, shell, Menu, Tray, nativeImage, prod
   let starting = false;
   let disposed = false;
   let generation = 0;
+  const approval = createApproval({ BrowserWindow });
   const openHarness = () => shell.openExternal(desktopHarnessUrl(harnessUrl, getLaunchUrl()));
-  async function approveDevice({ address, userAgent, code }) {
-    const result = await dialog.showMessageBox({
-      type: "question", title: "Agent Deck — доступ устройства",
-      message: "Разрешить этому устройству доступ к DeepSeek Harness?",
-      detail: `Код: ${code}\nАдрес: ${address}\nБраузер: ${String(userAgent || "Unknown").slice(0, 180)}\n\nСверь код на телефоне. Доступ позволит читать чаты и запускать действия агента на этом компьютере.`,
-      buttons: ["Отклонить", "Разрешить"], defaultId: 0, cancelId: 0, noLink: true,
-    });
-    return !disposed && result.response === 1;
+  async function approveDevice(details) {
+    if (disposed) return false;
+    const result = approval.request(details);
+    menu();
+    try { return (await result) === true && !disposed; }
+    finally { if (!disposed) menu(); }
   }
   function menu() {
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: "Show widget", click: showWidget },
       { label: "Open Harness", click: openHarness },
+      ...(approval.pending ? [{ label: "Подтвердить вход устройства…", click: approval.show }] : []),
       { label: "Device access on Wi-Fi", type: "checkbox", checked: Boolean(server), enabled: !starting,
         click: (item) => setEnabled(item.checked) },
       ...(server ? [{ label: "Open device sign-in", click: () => shell.openExternal(`http://127.0.0.1:${port}/`) },
@@ -51,6 +52,7 @@ function createDesktopAccess({ app, dialog, shell, Menu, Tray, nativeImage, prod
   }
   async function setEnabled(enabled, persist = true) {
     const run = ++generation;
+    approval.close();
     if (persist) { getPreferences().deviceAccessEnabled = Boolean(enabled); savePreferences(); }
     if (server) { await server.close(); server = null; }
     if (!enabled || disposed) { if (!disposed) menu(); return; }
@@ -71,7 +73,7 @@ function createDesktopAccess({ app, dialog, shell, Menu, Tray, nativeImage, prod
   tray.on("double-click", toggleWidget);
   menu();
   const ready = getPreferences().deviceAccessEnabled ? setEnabled(true, false) : Promise.resolve();
-  return { tray, ready, openHarness, setEnabled, dispose() { disposed = true; generation++; return server?.close(); } };
+  return { tray, ready, openHarness, setEnabled, dispose() { disposed = true; generation++; approval.close(); return server?.close(); } };
 }
 
 module.exports = { createDesktopAccess, desktopHarnessUrl, lanAddresses };

@@ -25,7 +25,7 @@ function createDeviceAccessServer({ upstreamUrl = 'http://127.0.0.1:3080',
   let minting;
   let closed = false;
   function sweep() {
-    for (const [id, item] of pending) if (item.expires <= now()) pending.delete(id);
+    for (const [id, item] of pending) if (item.expires <= now()) { item.controller.abort(); pending.delete(id); }
     for (const [id, expires] of sessions) if (expires <= now()) sessions.delete(id);
     for (const [id, item] of rates) if (item.until <= now()) rates.delete(id);
     for (const [socket, expires] of authenticatedSockets) if (expires <= now()) socket.destroy();
@@ -155,17 +155,20 @@ function createDeviceAccessServer({ upstreamUrl = 'http://127.0.0.1:3080',
     if (path === '/_deck/pair' && req.method === 'POST') {
       req.resume();
       if (!valid(req, true)) return reply(res, 403, { error: 'Origin required' });
+      const existing = pending.get(cookies(req)[PENDING]);
+      if (existing && existing.status !== 'denied') return reply(res, 202, { code: existing.code, status: existing.status });
+      if (existing) pending.delete(cookies(req)[PENDING]);
       const address = req.socket.remoteAddress;
       const rate = rates.get(address) || { count: 0, until: now() + 60000 };
       if (rate.count >= 3 || pending.size >= 1 || approving || sessions.size >= 1000 || rates.size >= 1000) return reply(res, 429, { error: 'Другой запрос ожидает ответа или достигнут лимит. Попробуйте позже.' });
       rate.count++; rates.set(address, rate);
       const id = random(), code = String(randomInt(100000, 1000000));
-      const record = { status: 'pending', code, expires: now() + pendingTtlMs };
+      const record = { status: 'pending', code, expires: now() + pendingTtlMs, controller: new AbortController() };
       pending.set(id, record);
       reply(res, 202, { code, status: 'pending' }, { 'set-cookie': cookie(PENDING, id, pendingTtlMs) });
       record.begin = () => {
         approving = true;
-        Promise.resolve().then(() => approveDevice?.({ address, userAgent: String(req.headers['user-agent'] || '').slice(0, 300), code })).then(approved => {
+        Promise.resolve().then(() => approveDevice?.({ address, userAgent: String(req.headers['user-agent'] || '').slice(0, 300), code, signal: record.controller.signal })).then(approved => {
           if (!closed && pending.get(id) === record && record.expires > now()) record.status = approved === true ? 'approved' : 'denied';
         }).catch(() => { record.status = 'denied'; }).finally(() => { approving = false; });
       };
@@ -235,7 +238,7 @@ function createDeviceAccessServer({ upstreamUrl = 'http://127.0.0.1:3080',
       server.listen(port, host, () => { server.off('error', fail); resolve(server.address()); });
     }),
     close: () => new Promise(resolve => {
-      closed = true; pending.clear(); sessions.clear(); upstreamCookie = '';
+      closed = true; for (const item of pending.values()) item.controller.abort(); pending.clear(); sessions.clear(); upstreamCookie = '';
       clearInterval(cleanupTimer);
       for (const socket of sockets) socket.destroy();
       server.close(() => resolve());

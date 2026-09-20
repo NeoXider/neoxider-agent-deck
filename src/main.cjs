@@ -791,7 +791,7 @@ app.whenReady().then(() => {
   if (!ISOLATED_SMOKE_MODE) {
     muxClient.connect();
     remoteMux.start();
-    desktopAccess = createDesktopAccess({ app, dialog, shell, Menu, Tray, nativeImage, productName: PRODUCT_NAME,
+    desktopAccess = createDesktopAccess({ app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, productName: PRODUCT_NAME,
       getPreferences: () => preferences, savePreferences, harnessUrl: HARNESS_URL,
       getLaunchUrl: () => harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl || "",
       showWidget: () => applyWindowMode("full"), toggleWidget: () => applyWindowMode(windowMode === "full" ? "edge" : "full"),

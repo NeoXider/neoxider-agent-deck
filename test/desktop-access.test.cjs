@@ -32,6 +32,7 @@ function fixture({ enabled = false } = {}) {
     getPreferences: () => prefs, savePreferences: () => saved++,
     getLaunchUrl: () => "http://127.0.0.1:3080/?token=sample", harnessUrl: "http://127.0.0.1:3080",
     showWidget() {}, toggleWidget() {}, requestQuit() { quits++; }, addresses: ["192.168.1.115"],
+    createApproval: () => ({ request: async details => { dialogs.push(details); return false; }, close() {}, show() {}, pending: false }),
     createServer(options) {
       const server = { options, starts: 0, closes: 0, async start() { this.starts++; }, async close() { this.closes++; } };
       servers.push(server); return server;
@@ -52,8 +53,7 @@ test("device access is opt-in, exposes the phone address, and stops when disable
   assert.deepEqual(f.servers[0].options.allowedHosts, ["localhost", "127.0.0.1", "192.168.1.115"]);
   assert.ok(f.controller.tray.menu.some((item) => item.label === "Phone: http://192.168.1.115:3099"));
   assert.equal(await f.servers[0].options.approveDevice({ address: "192.168.1.20", userAgent: "Phone", code: "123456" }), false);
-  assert.match(f.dialogs[0].detail, /123456/);
-  assert.equal(f.dialogs[0].defaultId, 0);
+  assert.equal(f.dialogs[0].code, "123456");
   await f.controller.setEnabled(false);
   assert.equal(f.servers[0].closes, 1);
   assert.equal(f.prefs.deviceAccessEnabled, false);

@@ -68,6 +68,20 @@ test('a reset on an unauthenticated upgrade cannot escape the socket error handl
   assert.equal((await f.request('/')).status, 200);
 });
 
+test('reloading the sign-in page resumes the same request without stacking confirmations', async t => {
+  let calls = 0;
+  const f = await fixture(t, { approveDevice: () => { calls++; return new Promise(() => {}); } });
+  const pair = await f.pair();
+  for (let i = 0; i < 5; i++) {
+    const resumed = await f.request('/_deck/pair', { method: 'POST', cookie: pair.pendingCookie });
+    assert.equal(resumed.status, 202);
+    assert.equal((await resumed.json()).code, pair.body.code);
+    await f.request('/_deck/status', { cookie: pair.pendingCookie });
+  }
+  assert.equal(calls, 1);
+  assert.equal((await f.request('/_deck/pair', { method: 'POST' })).status, 429);
+});
+
 test('device access requires explicit approval and never exposes upstream credentials', async t => {
   let details;
   const f = await fixture(t, { approveDevice: async value => { details = value; return true; } });
