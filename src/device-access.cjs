@@ -1,21 +1,23 @@
 const http = require('node:http');
 const https = require('node:https');
-const { randomBytes, randomInt } = require('node:crypto');
+const { createHash, randomBytes, randomInt } = require('node:crypto');
 
 const SESSION = 'deck_device';
 const PENDING = 'deck_pair';
 const DAY = 86400000;
 const random = () => randomBytes(32).toString('hex');
+const digest = token => createHash('sha256').update(String(token || '')).digest('hex');
 
 function createDeviceAccessServer({ upstreamUrl = 'http://127.0.0.1:3080',
   getLaunchUrl, approveDevice, host = '127.0.0.1', port = 3099,
   allowedHosts = [], pendingTtlMs = 120000, sessionTtlMs = 30 * DAY,
-  now = Date.now, headerTimeoutMs = 15000 } = {}) {
+  now = Date.now, headerTimeoutMs = 15000, loadTrustedDevices = () => [], saveTrustedDevices = () => {} } = {}) {
   const upstream = new URL(upstreamUrl);
   if (!['http:', 'https:'].includes(upstream.protocol) || upstream.username || upstream.password) throw new Error('Invalid upstream');
   const transport = upstream.protocol === 'https:' ? https : http;
   const hosts = new Set(['localhost', '127.0.0.1', '[::1]', ...allowedHosts].map(x => String(x).toLowerCase()));
-  const sessions = new Map();
+  const sessions = new Map((loadTrustedDevices() || []).map(item => [item.digest, item.expiresAt])
+    .filter(([id, expires]) => /^[a-f0-9]{64}$/.test(id) && Number.isFinite(expires) && expires > now()).slice(-1000));
   const pending = new Map();
   const rates = new Map();
   const sockets = new Set();
@@ -24,9 +26,15 @@ function createDeviceAccessServer({ upstreamUrl = 'http://127.0.0.1:3080',
   let upstreamCookie = '';
   let minting;
   let closed = false;
+  function persistSessions() {
+    try { saveTrustedDevices([...sessions].map(([id, expiresAt]) => ({ digest: id, expiresAt }))); return true; }
+    catch { return false; }
+  }
   function sweep() {
     for (const [id, item] of pending) if (item.expires <= now()) { item.controller.abort(); pending.delete(id); }
-    for (const [id, expires] of sessions) if (expires <= now()) sessions.delete(id);
+    let changed = false;
+    for (const [id, expires] of sessions) if (expires <= now()) { sessions.delete(id); changed = true; }
+    if (changed) persistSessions();
     for (const [id, item] of rates) if (item.until <= now()) rates.delete(id);
     for (const [socket, expires] of authenticatedSockets) if (expires <= now()) socket.destroy();
   }
@@ -56,7 +64,8 @@ function createDeviceAccessServer({ upstreamUrl = 'http://127.0.0.1:3080',
       return true;
     } catch { return false; }
   }
-  function authenticated(req) { return (sessions.get(cookies(req)[SESSION]) || 0) > now(); }
+  function sessionExpiry(req) { return sessions.get(digest(cookies(req)[SESSION])) || 0; }
+  function authenticated(req) { return sessionExpiry(req) > now(); }
   function reply(res, code, value, headers = {}) {
     res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
       'x-content-type-options': 'nosniff', ...headers });
@@ -148,7 +157,7 @@ function createDeviceAccessServer({ upstreamUrl = 'http://127.0.0.1:3080',
   }
   function loginPage(res) {
     const nonce = random();
-    reply(res, 200, `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Вход в DSH</title><style nonce="${nonce}">body{font:18px system-ui;background:#151827;color:#eef3ff;max-width:440px;margin:12vh auto;padding:24px}button{font:inherit;padding:14px;border-radius:12px;cursor:pointer}#code{font-size:36px;letter-spacing:6px}</style><h1>Подключиться к DSH</h1><p>Разрешите вход на компьютере. Сверьте код на обоих устройствах.</p><p>Браузер запоминается до 30 дней, пока Deck работает. После перезапуска Deck или отключения доступа потребуется новое подтверждение.</p><div id="code"></div><p id="status"></p><button id="connect">Запросить доступ</button><script nonce="${nonce}">const b=document.getElementById('connect'),s=document.getElementById('status');b.onclick=async()=>{b.disabled=true;try{let r=await fetch('/_deck/pair',{method:'POST'}),v=await r.json();if(!r.ok)throw Error(v.error);document.getElementById('code').textContent=v.code;s.textContent='Ожидаем подтверждения на компьютере…';let timer=setInterval(async()=>{try{let r=await fetch('/_deck/status'),v=await r.json();if(v.status==='approved'){clearInterval(timer);location.replace('/')}else if(v.status!=='pending'){clearInterval(timer);s.textContent='Доступ отклонён или запрос истёк. Попробуйте снова.';b.disabled=false}}catch{clearInterval(timer);s.textContent='Соединение потеряно';b.disabled=false}},1000)}catch(e){s.textContent=e.message;b.disabled=false}};</script></html>`, {
+    reply(res, 200, `<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Вход в DSH</title><style nonce="${nonce}">body{font:18px system-ui;background:#151827;color:#eef3ff;max-width:440px;margin:12vh auto;padding:24px}button{font:inherit;padding:14px;border-radius:12px;cursor:pointer}#code{font-size:36px;letter-spacing:6px}</style><h1>Подключиться к DSH</h1><p>Разрешите вход на компьютере. Сверьте код на обоих устройствах.</p><p>Браузер запоминается до 30 дней, включая перезапуски Deck. Отключение доступа отзывает разрешение.</p><div id="code"></div><p id="status"></p><button id="connect">Запросить доступ</button><script nonce="${nonce}">const b=document.getElementById('connect'),s=document.getElementById('status');b.onclick=async()=>{b.disabled=true;try{let r=await fetch('/_deck/pair',{method:'POST'}),v=await r.json();if(!r.ok)throw Error(v.error);document.getElementById('code').textContent=v.code;s.textContent='Ожидаем подтверждения на компьютере…';let timer=setInterval(async()=>{try{let r=await fetch('/_deck/status'),v=await r.json();if(v.status==='approved'){clearInterval(timer);location.replace('/')}else if(v.status!=='pending'){clearInterval(timer);s.textContent='Доступ отклонён или запрос истёк. Попробуйте снова.';b.disabled=false}}catch{clearInterval(timer);s.textContent='Соединение потеряно';b.disabled=false}},1000)}catch(e){s.textContent=e.message;b.disabled=false}};</script></html>`, {
       'content-type': 'text/html; charset=utf-8', 'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`, 'referrer-policy': 'no-referrer' });
   }
   const server = http.createServer((req, res) => {
@@ -185,7 +194,8 @@ function createDeviceAccessServer({ upstreamUrl = 'http://127.0.0.1:3080',
       if (record.begin) { const begin = record.begin; delete record.begin; begin(); }
       if (record.status === 'approved') {
         pending.delete(id);
-        const session = random(); sessions.set(session, now() + sessionTtlMs);
+        const session = random(), sessionDigest = digest(session);sessions.set(sessionDigest, now() + sessionTtlMs);
+        if (!persistSessions()) { sessions.delete(sessionDigest); return reply(res, 503, { status: 'unavailable' }); }
         return reply(res, 200, { status: 'approved' }, { 'set-cookie': [cookie(SESSION, session, sessionTtlMs), cookie(PENDING, '', 0)] });
       }
       if (record.status === 'denied') pending.delete(id);
@@ -215,7 +225,7 @@ function createDeviceAccessServer({ upstreamUrl = 'http://127.0.0.1:3080',
       const outgoing = transport.request(upstream, { method: 'GET', path, headers: requestHeaders(req, secret, true) });
       boundHeaderWait(outgoing);
       outgoing.on('upgrade', (incoming, target, upstreamHead) => {
-        authenticatedSockets.set(socket, sessions.get(cookies(req)[SESSION]) || 0);
+        authenticatedSockets.set(socket, sessionExpiry(req));
         socket.once('close', () => authenticatedSockets.delete(socket));
         sockets.add(target); target.on('close', () => sockets.delete(target));
         const headers = responseHeaders(incoming.headers, true);
@@ -242,11 +252,12 @@ function createDeviceAccessServer({ upstreamUrl = 'http://127.0.0.1:3080',
       server.listen(port, host, () => { server.off('error', fail); resolve(server.address()); });
     }),
     close: () => new Promise(resolve => {
-      closed = true; for (const item of pending.values()) item.controller.abort(); pending.clear(); sessions.clear(); upstreamCookie = '';
+      closed = true; for (const item of pending.values()) item.controller.abort(); pending.clear(); upstreamCookie = '';
       clearInterval(cleanupTimer);
       for (const socket of sockets) socket.destroy();
       server.close(() => resolve());
     }),
+    revokeAll() { sessions.clear(); persistSessions(); for (const socket of authenticatedSockets.keys()) socket.destroy(); },
   };
 }
 

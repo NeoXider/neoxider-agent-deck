@@ -15,11 +15,12 @@ test("phone addresses exclude public, internal and link-local interfaces", () =>
   ["192.168.1.115", "10.0.1.2", "172.31.1.2"]);
 });
 
-function fixture({ enabled = false } = {}) {
+function fixture({ enabled = false, clearTrust } = {}) {
   const prefs = { deviceAccessEnabled: enabled };
   const opened = [], dialogs = [], servers = [];
   let saved = 0;
   let quits = 0;
+  let trustClears = 0;
   class Tray {
     setToolTip() {}
     setContextMenu(menu) { this.menu = menu; }
@@ -30,6 +31,7 @@ function fixture({ enabled = false } = {}) {
     shell: { openExternal: (url) => opened.push(url) }, Menu: { buildFromTemplate: (items) => items }, Tray,
     nativeImage: { createFromPath: () => ({ resize: () => ({}) }) }, productName: "Deck",
     getPreferences: () => prefs, savePreferences: () => saved++,
+    trustStore: { load: () => [], save: records => records, clear: () => { trustClears++; return clearTrust?.(); } },
     getLaunchUrl: () => "http://127.0.0.1:3080/?token=sample", harnessUrl: "http://127.0.0.1:3080",
     showWidget() {}, toggleWidget() {}, requestQuit() { quits++; }, addresses: ["192.168.1.115"],
     createApproval: () => ({ request: async details => { dialogs.push(details); return false; }, close() {}, show() {}, pending: false }),
@@ -38,7 +40,7 @@ function fixture({ enabled = false } = {}) {
       servers.push(server); return server;
     },
   });
-  return { controller, prefs, opened, dialogs, servers, saved: () => saved, quits: () => quits };
+  return { controller, prefs, opened, dialogs, servers, saved: () => saved, quits: () => quits, trustClears: () => trustClears };
 }
 
 test("device access is opt-in, exposes the phone address, and stops when disabled", async () => {
@@ -57,10 +59,25 @@ test("device access is opt-in, exposes the phone address, and stops when disable
   await f.controller.setEnabled(false);
   assert.equal(f.servers[0].closes, 1);
   assert.equal(f.prefs.deviceAccessEnabled, false);
+  assert.equal(f.trustClears(), 1);
   assert.equal(f.saved(), 2);
   f.controller.tray.menu.find((item) => item.label === "Quit").click();
   assert.equal(f.quits(), 1);
   await f.controller.dispose();
+});
+
+test("disable closes LAN before revocation and reports a trust-file deletion failure", async () => {
+  const order = [];
+  const f = fixture({ clearTrust: () => { order.push("clear"); throw Object.assign(new Error("locked"), { code: "EPERM" }); } });
+  await f.controller.setEnabled(true);
+  const close = f.servers[0].close.bind(f.servers[0]);
+  f.servers[0].close = async () => { order.push("close"); return close(); };
+  await f.controller.setEnabled(false);
+  assert.deepEqual(order, ["close", "clear"]);
+  assert.equal(f.prefs.deviceAccessEnabled, false);
+  assert.equal(f.servers[0].closes, 1);
+  assert.equal(f.dialogs.at(-1).message, "Доступ устройств отключён, но разрешения не удалены");
+  assert.match(f.dialogs.at(-1).detail, /EPERM/);
 });
 
 test("saved opt-in starts on launch and shutdown closes access", async () => {

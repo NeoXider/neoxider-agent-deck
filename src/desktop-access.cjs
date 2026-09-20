@@ -21,7 +21,7 @@ function lanAddresses(interfaces = networkInterfaces()) {
 
 function createDesktopAccess({ app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, productName,
   getPreferences, savePreferences, getLaunchUrl, harnessUrl, showWidget, toggleWidget, requestQuit,
-  createServer = createDeviceAccessServer, createApproval = createDeviceApproval, addresses = lanAddresses(), port = 3099 }) {
+  trustStore, createServer = createDeviceAccessServer, createApproval = createDeviceApproval, addresses = lanAddresses(), port = 3099 }) {
   const icon = nativeImage.createFromPath(path.join(__dirname, "renderer", "assets", "neoxider-github.png")).resize({ width: 32, height: 32 });
   const tray = new Tray(icon);
   tray.setToolTip(productName);
@@ -55,11 +55,19 @@ function createDesktopAccess({ app, BrowserWindow, dialog, shell, Menu, Tray, na
     approval.close();
     if (persist) { getPreferences().deviceAccessEnabled = Boolean(enabled); savePreferences(); }
     if (server) { await server.close(); server = null; }
+    if (!enabled && persist) {
+      try { trustStore?.clear(); }
+      catch (error) {
+        if (!disposed) await dialog.showMessageBox({ type: "error", title: "Agent Deck",
+          message: "Доступ устройств отключён, но разрешения не удалены", detail: `Не удалось удалить сохранённые разрешения: ${error.code || error.message || "ошибка записи"}. До повторного включения доступ остаётся закрыт.` });
+      }
+    }
     if (!enabled || disposed) { if (!disposed) menu(); return; }
     starting = true;
     menu();
     const candidate = createServer({ upstreamUrl: harnessUrl, getLaunchUrl, approveDevice,
-      host: "0.0.0.0", port, allowedHosts: ["localhost", "127.0.0.1", ...addresses] });
+      host: "0.0.0.0", port, allowedHosts: ["localhost", "127.0.0.1", ...addresses],
+      loadTrustedDevices: () => trustStore?.load() || [], saveTrustedDevices: records => trustStore?.save(records) });
     try {
       await candidate.start();
       if (disposed || run !== generation) await candidate.close();

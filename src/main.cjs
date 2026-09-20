@@ -6,6 +6,7 @@ const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createAutoStartController } = require("./auto-start.cjs");
 const { createHarnessLauncher } = require("./harness-launcher.cjs");
 const { createDesktopAccess, desktopHarnessUrl } = require("./desktop-access.cjs");
+const { createDeviceTrustStore } = require("./device-trust-store.cjs");
 const { createGameLayerKeeper } = require("./game-layer-keeper.cjs");
 const { createGameBarController, createSharedDashboardReader } = require("./gamebar-controller.cjs");
 const { createCompactHitTracker } = require("./compact-hit-tracker.cjs");
@@ -793,6 +794,7 @@ app.whenReady().then(() => {
     remoteMux.start();
     desktopAccess = createDesktopAccess({ app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, productName: PRODUCT_NAME,
       getPreferences: () => preferences, savePreferences, harnessUrl: HARNESS_URL,
+      trustStore: createDeviceTrustStore({ filePath: path.join(app.getPath("userData"), "trusted-devices.json") }),
       getLaunchUrl: () => harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl || "",
       showWidget: () => applyWindowMode("full"), toggleWidget: () => applyWindowMode(windowMode === "full" ? "edge" : "full"),
       requestQuit: () => quitCoordinator.requestQuit("tray") });

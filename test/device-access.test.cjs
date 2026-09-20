@@ -121,6 +121,38 @@ test('device access requires explicit approval and never exposes upstream creden
   assert.equal(f.requests[0].headers.origin, f.upstreamUrl);
 });
 
+test('approved device tokens survive a server restart while only their hashes are persisted', async t => {
+  let trusted = [];
+  const persistence = {
+    loadTrustedDevices: () => trusted,
+    saveTrustedDevices: records => { trusted = structuredClone(records); },
+  };
+  const first = await fixture(t, persistence);
+  const cookie = await first.approve();
+  const token = cookie.split('=')[1];
+  assert.equal(trusted.length, 1);
+  assert.match(trusted[0].digest, /^[a-f0-9]{64}$/);
+  assert.ok(!JSON.stringify(trusted).includes(token));
+  await first.app.close();
+
+  const second = createDeviceAccessServer({ upstreamUrl: first.upstreamUrl,
+    getLaunchUrl: () => `${first.upstreamUrl}/?token=private-launch`, port: 0, approveDevice: async () => true,
+    ...persistence });
+  await second.start();
+  t.after(() => second.close());
+  const origin = `http://127.0.0.1:${second.server.address().port}`;
+  const response = await fetch(origin + '/api/session', { headers: { origin, cookie } });
+  assert.equal(response.status, 200);
+});
+
+test('a failed trust-store write never issues a usable device token', async t => {
+  const f = await fixture(t, { saveTrustedDevices: () => { throw new Error('disk unavailable'); } });
+  const { pendingCookie } = await f.pair();
+  const response = await f.request('/_deck/status', { cookie: pendingCookie });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get('set-cookie'), null);
+});
+
 test('denial, expiration and late approval cannot grant access', async t => {
   let time = 10000, complete;
   const f = await fixture(t, { now: () => time, pendingTtlMs: 1000,
