@@ -6,6 +6,33 @@ const {
   UNTRUSTED_SENDER_CODE,
 } = require("../src/ipc-handlers.cjs");
 const { createAttachmentRegistry } = require("../src/attachment-registry.cjs");
+const { HarnessApi } = require("../src/harness-api.cjs");
+
+for (const remote of [true, false]) {
+  test(`queued edit survives the real IPC-to-API path (${remote ? "remote" : "legacy"})`, async () => {
+    const api = new HarnessApi("http://127.0.0.1:3080", fetch, { historyWorker: false });
+    const calls = [];
+    const call = async (method, payload) => { calls.push({ method, payload }); return { ok: true }; };
+    api.ensureRemote = async () => remote ? { call } : null;
+    api.rpc = call;
+    const { ipcMain, window } = register({ api });
+    const event = { sender: window.webContents };
+    const text = "Исправленный текст\nсо второй строкой";
+    await ipcMain.invoke("update-queue", event, {
+      sessionId: "edit-session", itemId: "queued-item", action: { kind: "edit", text: ` ${text} ` },
+    });
+    const payload = remote ? calls[0].payload.request : calls[0].payload;
+    assert.equal(payload.sessionId, "edit-session");
+    assert.equal(payload.itemId, "queued-item");
+    assert.deepEqual(payload.action, remote
+      ? { kind: "edit", content: [{ type: "text", text }] }
+      : { kind: "edit", text });
+    await assert.rejects(() => ipcMain.invoke("update-queue", event, {
+      sessionId: "edit-session", itemId: "queued-item", action: { kind: "edit", text: "  " },
+    }), /Queued message is empty/);
+    assert.equal(calls.length, 1);
+  });
+}
 
 // A fake ipcMain that records what was registered and lets a test invoke a channel with
 // any sender it likes, which is the whole point: the guard has to run before the handler.

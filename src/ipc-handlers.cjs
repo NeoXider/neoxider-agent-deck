@@ -287,9 +287,9 @@ function registerIpcHandlers({
     const kind = String(payload?.action?.kind || "");
     if (!sessionId || !itemId || !["remove", "steer", "edit"].includes(kind)) throw new Error("Invalid queue action");
     const action = kind === "edit"
-      ? { kind, content: [{ type: "text", text: String(payload?.action?.text || "").trim() }] }
+      ? { kind, text: String(payload?.action?.text || "").trim() }
       : { kind };
-    if (kind === "edit" && !action.content[0].text) throw new Error("Queued message is empty");
+    if (kind === "edit" && !action.text) throw new Error("Queued message is empty");
     return api.updateQueue(sessionId, itemId, action);
   });
   // Browser entry point, token included when the owned Harness launch printed
