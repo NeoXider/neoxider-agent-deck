@@ -67,7 +67,9 @@ body.motion-off .settings-page { animation:none; }
     color-mix(in srgb,var(--chat-light-primary) 45%,transparent) 235deg,
     var(--chat-light-secondary) 280deg,
     color-mix(in srgb,var(--chat-light-primary) 45%,transparent) 325deg,
-    color-mix(in srgb,var(--chat-light-primary) 12%,transparent) 360deg);
+    color-mix(in srgb,var(--chat-light-primary) 12%,transparent) 360deg),
+    linear-gradient(var(--chat-border-base),var(--chat-border-base));
+  --chat-border-base:color-mix(in srgb,var(--chat-light-primary) 55%,var(--chat-light-secondary));
   mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
   mask-composite:exclude;
   transition:opacity 240ms ease;
@@ -125,7 +127,7 @@ body.motion-off .theme-picker .design-themes { animation:none; }
 .goal-dock:not([open]) > summary { height:14px; }
 .goal-dock:not([open]) .goal-strip-action { height:14px; }
 .goal-dock:not([open]) .goal-strip-action .ui-icon { width:12px; height:12px; }
-.goal-dock:not([open]) .goal-track { height:3px; }
+.goal-dock:not([open]) .goal-track { height:5px; }
 .widget-shell:has(.goal-dock:not([open]):not([hidden])) { padding-bottom:4px; }
 
 /* A continuous base rim keeps the animated highlight from leaving dark gaps. */
@@ -136,7 +138,7 @@ body.mode-full[data-window-border="true"]:is([data-chat-state="waiting"],[data-c
 .swatch-none { display:grid; place-items:center; font-size:26px; color:var(--muted); background:var(--surface); }
 .swatch-none::after { display:none; }
 /* Shared radius for rectangular surfaces; circles and progress rails retain their shape. */
-:root { --deck-radius:16px; }
+:root { --deck-radius:26px; }
 body.mode-full :where(.widget-shell,.composer,.settings-panel,.picker-button,.picker-menu,.theme-picker,.background-preview,.bubble,.activity-card,.session-card,.design-themes button,.profile-editor input,.profile-editor button,#designProfileChoice,#sendButton,.icon-button,.ghost-button,.layer-switch,.settings-tabs) { border-radius:var(--deck-radius); }
 body.mode-full .chat-activity-border { border-radius:inherit; }
 .swatch-cave { background:url('assets/backgrounds/cave.webp') center / cover; }
@@ -175,7 +177,7 @@ body[data-design="cave"] #sendButton { background:linear-gradient(145deg,#72e5ef
 .reasoning-dots i[data-selected="true"] { visibility:hidden; }
 @media (max-width:380px) { .chat-heading { grid-template-columns:34px 34px minmax(0,1fr) auto; gap:5px; } #reasoningButtonText { max-width:60px; } .reasoning-picker > .picker-button { height:38px; padding:0 6px; } }
 /* Capsule composer: inset controls follow the outer curve without nested boxes. */
-body.mode-full #chatForm.composer { border-radius:26px; padding:5px 6px; column-gap:4px; }
+body.mode-full #chatForm.composer { border-radius:var(--deck-radius); padding:5px 6px; column-gap:4px; }
 body.mode-full .composer #sendButton { border-radius:50%; }
 body.mode-full .composer .composer-stop { border-radius:50%; width:30px; height:30px; align-self:center; }
 body.mode-full .composer :is(.composer-view-stack,.composer-utility-stack) { align-self:center; }
@@ -184,5 +186,7 @@ body.mode-full .composer-utility-stack .composer-action { border-color:transpare
 body.mode-full .composer-view-stack .focus-chat-button:hover,
 body.mode-full .composer-utility-stack .composer-action:hover { background:var(--surface-strong); color:var(--text); }
 body.mode-full .composer textarea { padding-left:6px; }
-body.mode-full .widget-shell { border-radius:22px; }
+body.mode-full .widget-shell { border-radius:var(--deck-radius); }
+body.mode-full #chatPanel :is(.bubble,.tool-group,.tool-call,.activity-card,.todo-dock,.queue-dock) { border-radius:var(--deck-radius); }
+body.mode-full #chatPanel :is(.tool-group,.tool-call) > summary { border-radius:inherit; }
 @media (max-height:420px) { body.mode-full.chat-crowded #chatForm.composer { padding-top:4px; padding-bottom:4px; } }
