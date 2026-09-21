@@ -258,3 +258,21 @@ body.mode-full .composer-utility-stack .composer-action { width:17px; height:17p
 .mode-full .collapse-handle { display:block; }
 .collapse-handle::before { content:""; display:block; width:26px; height:3px; margin:auto; border-radius:99px; background:var(--muted); opacity:.5; transition:width .18s ease,opacity .18s ease,background .18s ease; }
 .collapse-handle:hover::before,.collapse-handle:focus-visible::before { width:36px; opacity:1; background:var(--mint); }
+/* A dark model surface with moving light confined to its perimeter. */
+@property --effort-chip-angle { syntax:"<angle>"; inherits:false; initial-value:0deg; }
+#reasoningButton { background:color-mix(in srgb,var(--bg) 95%,var(--mint)); border-color:var(--line); box-shadow:inset 0 1px #ffffff06; }
+#reasoningModelName { font-weight:600; }
+#reasoningButtonText { padding:3px 7px; border-radius:99px; background:color-mix(in srgb,var(--mint) 9%,transparent); color:var(--mint); max-width:110px; }
+#reasoningButton[data-intensity="deep"]::before,
+#reasoningButton[data-intensity="peak"]::before { inset:0; padding:1px; border-radius:inherit; background:conic-gradient(from var(--effort-chip-angle),transparent 0deg,var(--reasoning-secondary) 65deg,var(--reasoning-accent) 115deg,transparent 170deg,transparent 210deg,var(--reasoning-accent) 285deg,transparent 350deg); mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0); mask-composite:exclude; transform:none; opacity:.9; animation:effort-chip-orbit 7s linear infinite; }
+#reasoningButton[data-intensity="peak"]::before { animation-duration:3.2s; opacity:1; padding:1.2px; }
+#reasoningButton[data-intensity="peak"] { box-shadow:inset 0 0 14px color-mix(in srgb,var(--mint) 5%,transparent),0 0 7px color-mix(in srgb,var(--mint) 10%,transparent); }
+#reasoningButton[data-intensity="peak"]::after { opacity:.4; }
+@keyframes effort-chip-orbit { to { --effort-chip-angle:360deg; } }
+/* Four layer choices are independent cards, not a two-row segmented pill. */
+#windowLayerSwitch { border:0; border-radius:0; background:transparent; padding:0; gap:6px; }
+#windowLayerSwitch button { min-width:0; height:38px; padding:6px 8px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--muted); font-size:10px; font-weight:600; box-shadow:none; }
+#windowLayerSwitch button:hover:not(:disabled) { color:var(--text); background:var(--surface-strong); }
+#windowLayerSwitch button[aria-pressed="true"] { color:var(--text); border-color:color-mix(in srgb,var(--mint) 55%,transparent); background:color-mix(in srgb,var(--mint) 12%,transparent); }
+.settings-tabs::before { border-radius:999px; }
+.settings-tabs button { border-radius:999px; }

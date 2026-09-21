@@ -5,13 +5,19 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.9] - 2026-09-21
+## [0.9.10] - 2026-09-21
 
 ### Added
 
 - A combined model and reasoning chip with model selection, discrete effort slider, theme colours and distinct animated treatments for the two highest supported levels.
 - **Private overlay**, a fourth Windows layer that stays above ordinary windows and requests capture exclusion. Unsupported capture methods and exclusive fullscreen are not guaranteed.
 - Pixel checks for continuous activity borders and native Windows capture-protection checks.
+- A full-chat collapse handle and clearer screen capture controls.
+
+### Fixed
+
+- The always-on-top heartbeat preserves Private overlay instead of silently clearing Windows capture exclusion. Confirmed with OBS display capture.
+- Centred circular composer buttons and consistent layer-setting cards.
 
 ### Changed
 

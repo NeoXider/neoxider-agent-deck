@@ -1,8 +1,8 @@
 <h1 align="center">NeoXider Agent Deck</h1>
 <p align="center"><strong>Your agents, within reach.</strong><br>A desktop chat, a live session board, a small companion, or just a glowing hinge.</p>
 <p align="center">
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.9.9-49e7c6" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.9.9-8b79ff" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.9.10-49e7c6" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.9.10-8b79ff" /></a>
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
 </p>
 <p align="center"><a href="https://github.com/NeoXider/neoxider-agent-deck/releases/latest"><strong>Download</strong></a> · <a href="#get-started">Get started</a> · <a href="CHANGELOG.md">What's new</a> · <a href="SECURITY.md">Security</a></p>
@@ -28,7 +28,7 @@ These are screenshots of the current UI using demonstration sessions. Avatar and
 
 ## Get started
 
-1. Download the installer or `NeoXider-Agent-Deck-0.9.9-windows-x64-portable.exe` from [Releases](https://github.com/NeoXider/neoxider-agent-deck/releases/latest).
+1. Download the installer or `NeoXider-Agent-Deck-0.9.10-windows-x64-portable.exe` from [Releases](https://github.com/NeoXider/neoxider-agent-deck/releases/latest).
 2. Start Harness Web at `http://127.0.0.1:3080`, or use **Start** in Deck's offline banner.
 3. If authentication is required, use **Connect** and paste the `dsh web:` launch URL once. Choose a session and start chatting.
 
@@ -76,7 +76,7 @@ npm ci
 npm start
 ```
 
-Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 0.9.9 includes unified effort controls, themed motion and the Windows private overlay.
+Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 0.9.10 includes unified effort controls, themed motion and the Windows private overlay.
 
 ## Verify and build
 
@@ -90,7 +90,7 @@ npm audit --audit-level=high
 npm run build
 ```
 
-The tests cover session contracts, streaming, attachments, window geometry and compact layouts. Release CI builds Windows, Intel/Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-0.9.9-windows-x64-portable.exe`.
+The tests cover session contracts, streaming, attachments, window geometry and compact layouts. Release CI builds Windows, Intel/Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-0.9.10-windows-x64-portable.exe`.
 
 ## Trust and integration
 

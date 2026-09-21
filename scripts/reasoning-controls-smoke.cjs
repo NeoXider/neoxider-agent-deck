@@ -53,7 +53,7 @@ app.whenReady().then(async () => {
   assert.match(result.reset, /Auto/);
   for (const item of result.motion) {
     const expected = ['none','reasoning-prism','reasoning-prism'][item.index];
-    assert.equal(item.fill,expected); assert.equal(item.badge,expected);
+    assert.equal(item.fill,expected); assert.equal(item.badge,item.index ? "effort-chip-orbit" : "none");
     if(item.index) assert.equal(item.duration,item.index===1?'4.8s':'1.8s');
     if(item.theme==='cyberpunk') assert.equal(item.accent,'#fcee09');
   }

@@ -685,6 +685,7 @@ app.whenReady().then(() => {
   gameLayerKeeper = createGameLayerKeeper({
     getWindow: () => windowRef,
     isEnabled: () => ["game", "private"].includes(preferences.windowLayer),
+    getLayer: () => preferences.windowLayer,
     getMode: () => windowMode,
     capabilities: PLATFORM_CAPABILITIES,
   });

@@ -13,6 +13,7 @@ function createGameLayerKeeper({
   getWindow,
   isEnabled,
   getMode = () => "full",
+  getLayer = () => "game",
   capabilities,
   heartbeatMs = 1250,
   burstDelays = DEFAULT_BURST_DELAYS,
@@ -36,7 +37,7 @@ function createGameLayerKeeper({
     const windowRef = getWindow();
     if (!isEnabled() || !canRaiseWindow(windowRef)) return false;
     applyPlatformWindowLayer(windowRef, {
-      layer: "game",
+      layer: getLayer(),
       mode: getMode(),
       capabilities,
     });

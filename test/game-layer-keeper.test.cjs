@@ -186,3 +186,22 @@ test("window eligibility is conservative when optional Electron state APIs are a
   assert.equal(canRaiseWindow({ isDestroyed: () => true }), false);
   assert.equal(canRaiseWindow(null), false);
 });
+
+test("private overlay capture protection survives heartbeat, blur and restore reassertions", () => {
+  const windowRef = fakeWindow(); const timers = fakeTimers(); const protectedStates = [];
+  windowRef.setContentProtection = value => protectedStates.push(value);
+  let layer = "private";
+  const keeper = createKeeper(windowRef, {value:true}, timers, {
+    getLayer: () => layer,
+    capabilities: { layerLevels:true,gameLayer:true,captureExclusion:true,visibleOnFullScreen:false },
+  });
+  keeper.attach();
+  for (let cycle=0;cycle<5;cycle++) {
+    for(const timer of timers.intervals.values()) timer.callback();
+    windowRef.emit('blur'); windowRef.emit('restore'); timers.runTimeouts();
+  }
+  assert.ok(protectedStates.length > 20);
+  assert.ok(protectedStates.every(value => value === true));
+  layer = "game"; keeper.reassert(); assert.equal(protectedStates.at(-1),false);
+  keeper.stop();
+});
