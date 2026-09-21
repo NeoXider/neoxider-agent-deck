@@ -16,6 +16,7 @@ const {
   boundedHistoryCacheEntries,
   boundedHistoryEntries,
   historyRevision,
+  hydrateHistoryImages,
   messagesFromHistory,
   positiveInteger,
   readableToolValue,
@@ -432,7 +433,12 @@ class HarnessApi {
       else unsequenced.push(entry);
     }
     const events = [...sequenced.entries()].sort(([left], [right]) => left - right).map(([, entry]) => entry).concat(unsequenced);
-    const boundedEvents = boundedHistoryEntries(events);
+    const hydratedEvents = await hydrateHistoryImages(events, async (attachmentId) => {
+      const value = remote ? await remote.call("session/attachment", { request: { sessionId, attachmentId } }, 10000)
+        : await this.rpc("session.attachment", { sessionId, attachmentId }, 10000);
+      return value?.data;
+    });
+    const boundedEvents = boundedHistoryEntries(hydratedEvents);
     const revision = historyRevision(boundedEvents);
     const cacheBound = boundedHistoryCacheEntries(boundedEvents, { maxEvents: this.historyCacheEventLimit, maxBytes: this.historyCacheBytesLimit });
     const sourceComplete = !page.hasMore || Boolean(overlapsCache && cachedHistory?.complete);
@@ -479,10 +485,19 @@ class HarnessApi {
   async models(sessionId) {
     const remote = await this.ensureRemote();
     if (remote) {
-      // The remote catalog is host-wide and has no per-session selection, so the
-      // default stands in for current; the renderer's picker shape matches already.
-      const value = await remote.call("session/modelCatalog", {}, 20000);
-      return { current: value.default || null, routable: true, groups: value.groups || [], failures: value.failures || [] };
+      // The catalog is host-wide, but current comes from this session's durable projection.
+      const [value, snapshot] = await Promise.all([
+        remote.call("session/modelCatalog", {}, 20000),
+        sessionId ? this.remoteChannelFirstFrame(remote, "session/follow", {
+          request: { address: { kind: "session", sessionId }, maxMessages: 1 },
+        }).catch(() => null) : null,
+      ]);
+      const projection = snapshot?.projections?.values?.modelSelection;
+      return {
+        current: projection?.next || projection?.lastUsed || value.default || null, routable: true,
+        routableProviders: Array.isArray(value.routableProviders) ? value.routableProviders : [],
+        groups: Array.isArray(value.groups) ? value.groups : [], failures: Array.isArray(value.failures) ? value.failures : [],
+      };
     }
     if (sessionId) return this.rpc("session.models", { sessionId }, 20000);
     const value = await this.rpc("llm.models", {}, 20000);
@@ -532,7 +547,14 @@ class HarnessApi {
   async updateQueue(sessionId, itemId, action) {
     const remote = await this.ensureRemote();
     if (remote) return remote.call("session/updateQueue", { request: { sessionId, itemId, action: adaptQueueAction(action) } }, 10000);
-    return this.rpc("session.updateQueue", { sessionId, itemId, action }, 10000);
+    const { originalContent: _originalContent, ...legacyAction } = action || {};
+    return this.rpc("session.updateQueue", { sessionId, itemId, action: legacyAction }, 10000);
+  }
+
+  async readAttachment(sessionId, attachmentId) {
+    const remote = await this.ensureRemote();
+    return remote ? remote.call("session/attachment", { request: { sessionId, attachmentId } }, 10000)
+      : this.rpc("session.attachment", { sessionId, attachmentId }, 10000);
   }
 
   async commands(sessionId) {

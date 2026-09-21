@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld("widget", {
   send: (payload) => ipcRenderer.invoke("send", payload),
   cancel: (sessionId) => ipcRenderer.invoke("cancel", sessionId),
   getQueue: (sessionId) => ipcRenderer.invoke("get-queue", sessionId),
+  readAttachment: (payload) => ipcRenderer.invoke("read-attachment", payload),
   updateQueue: (payload) => ipcRenderer.invoke("update-queue", payload),
   openHarness: () => ipcRenderer.invoke("open-harness"),
   openHarnessSession: (sessionId) => ipcRenderer.invoke("open-harness-session", sessionId),

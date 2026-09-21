@@ -905,6 +905,98 @@ test("a remote snapshot without a cursor is served instead of dead-ending pagina
   assert.deepEqual(paged.messages.map((message) => message.text), ["line 1", "line 3", "line 4"]);
 });
 
+test("remote models keep the full host catalog and use the addressed session selection", async () => {
+  const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+  const groups = [
+    { id: "local", name: "Local", models: [{ id: "large", name: "Large" }] },
+    { id: "cloud", name: "Cloud", models: [{ id: "fast", name: "Fast" }] },
+  ];
+  const calls = [];
+  let hostDefault = { provider: "local", model: "large" };
+  const selections = {
+    "widget-session": { provider: "local", model: "large", reasoningEffort: "high" },
+    "dsh-session": { provider: "cloud", model: "fast" },
+  };
+  const remote = {
+    call: async (endpoint, args) => {
+      calls.push([endpoint, args]);
+      assert.equal(endpoint, "session/modelCatalog");
+      return {
+        default: hostDefault,
+        routableProviders: ["local", "cloud"],
+        groups,
+        failures: [{ id: "offline", name: "Offline", message: "unavailable" }],
+      };
+    },
+    openChannel: async ({ endpoint, args, onFrame }) => {
+      calls.push([endpoint, args]);
+      const current = selections[args.request.address.sessionId];
+      queueMicrotask(() => onFrame({
+        type: "snapshot",
+        records: [],
+        projections: {
+          asOfSeq: 9,
+          values: {
+            modelSelection: {
+              lastUsed: { provider: "cloud", model: "fast" },
+              next: current,
+            },
+          },
+        },
+      }));
+      return { close() {}, closed: new Promise(() => {}) };
+    },
+  };
+  api.ensureRemote = async () => remote;
+
+  const catalog = await api.models("widget-session");
+
+  assert.deepEqual(catalog.current, { provider: "local", model: "large", reasoningEffort: "high" });
+  assert.deepEqual(catalog.groups, groups, "all host groups and models reach the picker");
+  assert.deepEqual(catalog.routableProviders, ["local", "cloud"]);
+  assert.deepEqual(catalog.failures, [{ id: "offline", name: "Offline", message: "unavailable" }]);
+  assert.deepEqual(calls.map(([endpoint]) => endpoint).sort(), ["session/follow", "session/modelCatalog"]);
+  assert.deepEqual(calls.find(([endpoint]) => endpoint === "session/follow")[1], {
+    request: { address: { kind: "session", sessionId: "widget-session" }, maxMessages: 1 },
+  });
+
+  hostDefault = selections["dsh-session"];
+  assert.deepEqual((await api.models("widget-session")).current, selections["widget-session"],
+    "another DSH session changing the host default cannot retarget the widget session");
+  assert.deepEqual((await api.models("dsh-session")).current, selections["dsh-session"]);
+});
+
+test("remote models use the host default only before a session has a durable selection", async () => {
+  const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+  const fallback = { provider: "cloud", model: "default" };
+  const remote = {
+    call: async () => ({ default: fallback, groups: [], failures: [] }),
+    openChannel: async ({ onFrame }) => {
+      queueMicrotask(() => onFrame({
+        type: "snapshot", records: [],
+        projections: { asOfSeq: -1, values: { modelSelection: { lastUsed: null, next: null } } },
+      }));
+      return { close() {}, closed: new Promise(() => {}) };
+    },
+  };
+  api.ensureRemote = async () => remote;
+
+  assert.deepEqual((await api.models("new-session")).current, fallback);
+});
+
+test("remote model catalog still loads when the session projection is temporarily unavailable", async () => {
+  const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+  const fallback = { provider: "cloud", model: "default" };
+  api.ensureRemote = async () => ({
+    call: async () => ({ default: fallback, groups: [{ id: "cloud", models: [{ id: "default" }] }] }),
+    openChannel: async () => { throw new Error("session is being resumed"); },
+  });
+
+  const catalog = await api.models("cold-session");
+  assert.deepEqual(catalog.current, fallback);
+  assert.equal(catalog.groups[0].models[0].id, "default");
+});
+
 // sessionStateCache and fullAccessSessions used to keep one entry for every session the
 // widget had ever seen, for the life of the process.
 test("retainSessions evicts per-session state for sessions no longer listed", () => {

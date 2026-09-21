@@ -1,4 +1,4 @@
-const { queueItemView } = require("./queue-view.cjs");
+const { QUEUE_CONTENT, queueItemView } = require("./queue-view.cjs");
 
 const QUEUE_PLACEMENTS = new Set(["queued", "steering"]);
 const TODO_STATUSES = new Set(["pending", "in_progress", "completed"]);
@@ -12,9 +12,55 @@ function textFromContent(content) {
     .slice(0, 4000);
 }
 
-function createStreamPublisher({ queueSnapshots, backgroundJobs = new Map(), send }) {
+function createStreamPublisher({ queueSnapshots, backgroundJobs = new Map(), send, readAttachment = null }) {
   if (!(queueSnapshots instanceof Map)) throw new TypeError("queueSnapshots must be a Map");
   if (typeof send !== "function") throw new TypeError("send must be a function");
+  const previewCache = new Map();
+
+  async function hydrateQueuePreviews(sessionId, snapshot) {
+    if (typeof readAttachment !== "function") return;
+    let remaining = 1024 * 1024;
+    const wanted = [];
+    for (const item of snapshot.items) for (const attachment of item.attachments || []) {
+      if (attachment.kind !== "image" || attachment.data || !attachment.attachmentId || wanted.some((entry) => entry.id === attachment.attachmentId)) continue;
+      wanted.push({ id: attachment.attachmentId, mediaType: attachment.mediaType });
+    }
+    const dataById = new Map();
+    await Promise.all(wanted.slice(0, 12).map(async ({ id, mediaType }) => {
+      try {
+        const cacheKey = `${sessionId}\0${id}`;
+        let pending = previewCache.get(cacheKey);
+        if (!pending) {
+          pending = Promise.resolve(readAttachment(sessionId, id)).then((value) => {
+            const data = String(value?.data || "");
+            const bytes = Buffer.byteLength(data, "base64");
+            return value?.attachment?.mediaType === mediaType && data.length % 4 === 0
+              && /^[a-zA-Z0-9+/]*={0,2}$/.test(data) && bytes > 0 && bytes <= 1024 * 1024
+              ? { data, mediaType } : null;
+          }, () => null);
+          previewCache.set(cacheKey, pending);
+          if (previewCache.size > 32) previewCache.delete(previewCache.keys().next().value);
+        }
+        const value = await pending;
+        const bytes = value ? Buffer.byteLength(value.data, "base64") : 0;
+        if (value?.mediaType === mediaType && bytes <= remaining) {
+          remaining -= bytes; dataById.set(id, value.data);
+        }
+      } catch {}
+    }));
+    if (!dataById.size || queueSnapshots.get(sessionId) !== snapshot) return;
+    const items = snapshot.items.map((item) => {
+      const next = { ...item, attachments: item.attachments.map((attachment) => {
+        const data = dataById.get(attachment.attachmentId);
+        return data ? { ...attachment, data } : attachment;
+      }) };
+      Object.defineProperty(next, QUEUE_CONTENT, { value: item[QUEUE_CONTENT], enumerable: false });
+      return next;
+    });
+    const hydrated = { revision: snapshot.revision + 1, items };
+    queueSnapshots.set(sessionId, hydrated);
+    send("queue-update", { sessionId, ...hydrated });
+  }
 
   function publishQueue(sessionId, items) {
     const key = String(sessionId || "");
@@ -27,6 +73,7 @@ function createStreamPublisher({ queueSnapshots, backgroundJobs = new Map(), sen
     const snapshot = { revision, items: safeItems };
     queueSnapshots.set(key, snapshot);
     send("queue-update", { sessionId: key, ...snapshot });
+    void hydrateQueuePreviews(key, snapshot);
     return snapshot;
   }
 

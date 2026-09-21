@@ -5,6 +5,11 @@ const assert = require('node:assert/strict');
 app.disableHardwareAcceleration();
 app.whenReady().then(async () => {
   for (const [channel, value] of Object.entries({ 'get-preferences': {}, 'app-info': { version: 'test' }, 'get-update-state': {}, 'set-compact-status': {}, 'set-last-selected-session': null, history: { messages: [] } })) ipcMain.handle(channel, () => value);
+  let catalogReads = 0;
+  ipcMain.handle('models', () => {
+    catalogReads += 1;
+    return { current: { provider: 'local', model: 'test' }, groups: [{ id: 'local', models: [{ id: 'test', name: 'Test model', reasoning: { defaultEffort: 'medium', efforts: [{ id: 'off', name: 'Off' }, { id: 'medium', name: 'Medium' }, { id: 'high', name: 'High' }] } }] }] };
+  });
   const win = new BrowserWindow({ show: false, width: 360, height: 640, webPreferences: { preload: path.join(__dirname, '../src/preload.cjs'), sandbox: true, contextIsolation: true, offscreen: true, backgroundThrottling: false } });
   await win.loadFile(path.join(__dirname, '../src/renderer/index.html'), { query: { screenshotFixture: 'chat', screenshotStatic: '1' } });
   await new Promise(resolve => setTimeout(resolve, 1200));
@@ -47,6 +52,7 @@ app.whenReady().then(async () => {
     closePickers(); document.querySelector('#agentControls').open = false; button.click();
     return { modelPickerOpened, motion, resetOpen, stable, preview, remainedOpen, calls, visible: rect.width > 0 && rect.height > 0, sameRow: Math.abs(rect.top - modelRect.top) < 2, fits: menuRect.left >= 0 && menuRect.right <= innerWidth, reset: button.textContent.trim() };
   })()`);
+  assert.ok(catalogReads > 0, "Opening model selection refreshes the catalog");
   assert.equal(result.stable, true); assert.equal(result.preview, 'High'); assert.equal(result.remainedOpen, true);
   assert.equal(result.calls[0].reasoningEffort, 'high'); assert.equal(result.calls[1].reasoningEffort, undefined);
   for (const key of ['visible', 'sameRow', 'fits', 'resetOpen', 'modelPickerOpened']) assert.equal(result[key], true, key);

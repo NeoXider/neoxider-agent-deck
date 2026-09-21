@@ -5,6 +5,16 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Queue edits preserve image and file attachments, including messages with no caption.
+- Sent and queued attachment cards show durable files and image previews, with an image viewer and on-demand original loading.
+- Queue preview refreshes preserve unsaved editor text, caret and focus.
+- Model selection uses the addressed session instead of the host-wide default, and opening the picker refreshes the full catalog.
+- Reasoning particles twinkle in place instead of moving back and forth.
+
 ## [0.9.11] - 2026-09-21
 
 ### Changed

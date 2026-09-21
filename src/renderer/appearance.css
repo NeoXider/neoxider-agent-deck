@@ -205,7 +205,7 @@ body[data-design="cyberpunk"] #reasoningMenu { --reasoning-secondary:#867400; ba
 .reasoning-picker.open [data-intensity="peak"] .reasoning-fill::after { animation:reasoning-sparks 1.8s ease-in-out infinite alternate; }
 @keyframes reasoning-tide { from { transform:translateX(-12%); } to { transform:translateX(12%); } }
 @keyframes reasoning-prism { from { transform:translateX(-15%); } to { transform:translateX(15%); } }
-@keyframes reasoning-sparks { from { transform:translateX(-7%); opacity:.35; } to { transform:translateX(7%); opacity:.85; } }
+@keyframes reasoning-sparks { from { opacity:.25; } to { opacity:.65; } }
 body.motion-off .reasoning-fill::before,body.motion-off .reasoning-fill::after { animation:none !important; }
 @media(prefers-reduced-motion:reduce) { .reasoning-fill::before,.reasoning-fill::after { animation:none !important; } }
 
@@ -302,3 +302,14 @@ body.mode-full .composer-utility-stack .composer-action { width:17px; height:17p
 #backgroundFile { display:block; box-sizing:border-box; padding:5px; border:1px solid #ffffff14; border-radius:10px; background:#ffffff03; color:var(--muted); font:inherit; cursor:pointer; }
 #backgroundFile::file-selector-button { margin-right:9px; padding:8px 10px; border:0; border-radius:6px; background:#ffffff10; color:var(--text); font:inherit; cursor:pointer; }
 #backgroundFile::file-selector-button:hover { background:#ffffff1c; }
+.queue-row.has-attachments { flex-wrap:wrap; height:auto !important; }
+.queue-row > .message-attachments { flex:0 0 100%; justify-content:flex-start; padding-left:15px; }
+.message-attachment[role="button"] { cursor:zoom-in; }
+.message-attachment[data-attachment-kind="image"] { height:48px; }
+.message-attachment[data-attachment-kind="image"] .message-attachment-preview { width:54px; height:42px; }
+.message-attachment-name { font-size:9px; }
+.message-image-dialog { position:fixed; width:calc(100% - 24px); max-width:900px; max-height:calc(100% - 24px); padding:34px 10px 10px; border:1px solid var(--line); border-radius:16px; background:var(--bg); color:var(--text); overflow:auto; }
+.message-image-dialog::backdrop { background:#000b; }
+.message-image-dialog > img { display:block; width:100%; max-height:calc(100vh - 110px); object-fit:contain; }
+.message-image-dialog > div { padding-top:8px; font-size:11px; overflow-wrap:anywhere; }
+.message-image-close { position:absolute; top:6px; right:6px; width:26px; height:26px; display:grid; place-items:center; padding:0; border:0; border-radius:50%; background:var(--surface-strong); color:var(--text); }

@@ -368,7 +368,10 @@ function togglePicker(button) {
   picker.classList.toggle("open", open);
   button.setAttribute("aria-expanded", String(open));
   picker.querySelector(".picker-menu")?.setAttribute("aria-hidden", String(!open));
-  if (open) positionPickerMenu(picker);
+  if (open) {
+    positionPickerMenu(picker);
+    if (button.id === "modelButton") void loadModels({ force: true });
+  }
 }
 
 function positionPickerMenu(picker) {
@@ -2177,7 +2180,7 @@ function renderQueuedPrompts() {
     state.queueBusySessionId,
     state.queueExpandedId,
     state.queueExpandedSessionId,
-    ...items.map((item) => [item.id, item.text, item.preview, item.attachmentCount, Boolean(item.optimistic)]),
+    ...items.map((item) => [item.id, item.text, item.preview, item.attachmentCount, (item.attachments || []).map(a => [a.name, a.kind, a.attachmentId, a.data?.length || 0]), Boolean(item.optimistic)]),
   ]);
   if (signature === state.queueSignature) return false;
   state.queueSignature = signature;
@@ -2186,6 +2189,11 @@ function renderQueuedPrompts() {
     || (state.queueEditingSessionId === state.selectedSessionId && state.queueEditingId === item.id));
   root.classList.toggle("opened", opened);
   root.setAttribute("aria-label", `${items.length} queued message${items.length === 1 ? "" : "s"}`);
+  const oldEditor = listRoot.querySelector(".queue-edit-input");
+  const draft = oldEditor && oldEditor.dataset.sessionId === state.selectedSessionId ? {
+    id: oldEditor.closest(".queue-row")?.dataset.queueId, value: oldEditor.value,
+    start: oldEditor.selectionStart, end: oldEditor.selectionEnd, focused: document.activeElement === oldEditor,
+  } : null;
   listRoot.replaceChildren();
   for (const [index, item] of items.entries()) {
     const row = document.createElement("div");
@@ -2210,7 +2218,9 @@ function renderQueuedPrompts() {
       const input = document.createElement("textarea");
       input.className = "queue-edit-input";
       input.rows = 1;
-      input.value = item.text || "";
+      const previousDraft = draft?.id === item.id ? draft : null;
+      input.dataset.sessionId = state.selectedSessionId;
+      input.value = previousDraft ? previousDraft.value : item.text || "";
       input.setAttribute("aria-label", "Edit queued message");
       const grow = () => {
         input.style.height = "auto";
@@ -2218,7 +2228,7 @@ function renderQueuedPrompts() {
       };
       const save = () => {
         const text = input.value.trim();
-        if (text) updateQueuedPrompt(item, { kind: "edit", text });
+        if (text || item.attachmentCount) updateQueuedPrompt(item, { kind: "edit", text });
       };
       input.addEventListener("input", grow);
       input.addEventListener("keydown", (event) => {
@@ -2231,7 +2241,12 @@ function renderQueuedPrompts() {
         queueActionButton("close", "Cancel editing", "", () => { state.queueEditingId = null; state.queueEditingSessionId = null; renderQueuedPrompts(); }, busy),
       );
       row.append(input, actions);
-      requestAnimationFrame(() => { input.focus(); input.select(); });
+      requestAnimationFrame(() => {
+        if (!input.isConnected || (previousDraft && !previousDraft.focused)) return;
+        input.focus();
+        if (previousDraft) input.setSelectionRange(previousDraft.start, previousDraft.end);
+        else input.select();
+      });
     } else {
       const preview = document.createElement("span");
       preview.className = "queue-preview";
@@ -2256,12 +2271,14 @@ function renderQueuedPrompts() {
         ));
       }
       actions.append(
-        queueActionButton("edit", "Edit queued message", "", () => { state.queueEditingId = item.id; state.queueEditingSessionId = state.selectedSessionId; renderQueuedPrompts(); }, busy || item.optimistic || item.text === null),
+        queueActionButton("edit", "Edit queued message", "", () => { state.queueEditingId = item.id; state.queueEditingSessionId = state.selectedSessionId; renderQueuedPrompts(); }, busy || item.optimistic),
         queueActionButton("trash", "Delete queued message", "danger", () => updateQueuedPrompt(item, { kind: "remove" }), busy || item.optimistic),
         queueActionButton("send", "Send now", "steer", () => updateQueuedPrompt(item, { kind: "steer" }), busy || item.optimistic),
       );
       row.append(preview, actions);
     }
+    const attachments = createMessageAttachmentStrip(item.attachments);
+    if (attachments) { row.classList.add("has-attachments"); row.append(attachments); }
     listRoot.append(row);
   }
   return true;
@@ -2285,7 +2302,7 @@ function beginSteeredTurn(sessionId, item) {
   setAvatar("working", "sending now");
 }
 
-function trackQueuedPrompt(sessionId, { text, attachmentCount = 0 }, expectedSnapshotRevision = queueSnapshotRevision(sessionId)) {
+function trackQueuedPrompt(sessionId, { text, attachmentCount = 0, attachments = [] }, expectedSnapshotRevision = queueSnapshotRevision(sessionId)) {
   if (!sessionId) return;
   if (queueSnapshotRevision(sessionId) !== expectedSnapshotRevision) return false;
   const items = queuedPromptsFor(sessionId);
@@ -2294,6 +2311,7 @@ function trackQueuedPrompt(sessionId, { text, attachmentCount = 0 }, expectedSna
     text: text || null,
     preview: text || `${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`,
     attachmentCount,
+    attachments,
     acceptedAt: Date.now(),
     optimistic: true,
   }]);
@@ -2625,6 +2643,7 @@ function renderAttachments() {
       image.alt = "";
       image.draggable = false;
       preview.append(image);
+
     } else {
       preview.append(createIcon(displayKind === "file" ? "file" : "image"));
     }
@@ -4266,6 +4285,39 @@ function rememberTranscriptRowHeights(root, messageCount) {
   }
 }
 
+function openMessageImage(source, name) {
+  const existing = document.querySelector(".message-image-dialog");
+  if (existing) { existing.close(); existing.remove(); }
+  const dialog = document.createElement("dialog");
+  dialog.className = "message-image-dialog";
+  dialog.setAttribute("aria-label", name);
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "message-image-close";
+  close.setAttribute("aria-label", "Close image preview");
+  close.append(createIcon("close"));
+  const image = document.createElement("img");
+  image.src = source;
+  image.alt = name;
+  const caption = document.createElement("div");
+  caption.textContent = name;
+  const previousFocus = document.activeElement;
+  const dismiss = () => {
+    dialog.close();
+    dialog.remove();
+    requestAnimationFrame(() => { if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true }); });
+  };
+  close.addEventListener("click", dismiss);
+  dialog.addEventListener("keydown", event => {
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dismiss(); }
+  });
+  dialog.addEventListener("click", event => { if (event.target === dialog) dismiss(); });
+  dialog.addEventListener("close", () => { if (dialog.isConnected) dismiss(); }, { once: true });
+  dialog.append(close, image, caption);
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
 function createMessageAttachmentStrip(attachments) {
   const values = (Array.isArray(attachments) ? attachments : []).slice(0, 12);
   if (!values.length) return null;
@@ -4293,8 +4345,32 @@ function createMessageAttachmentStrip(attachments) {
       image.draggable = false;
       image.decoding = "async";
       preview.append(image);
+
     } else {
       preview.append(createIcon(displayKind === "file" ? "file" : "image"));
+    }
+    if (displayKind === "image" && (preview.querySelector("img") || attachment.attachmentId)) {
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.setAttribute("aria-label", `View ${attachment.name || "image"}`);
+      const sessionId = state.selectedSessionId;
+      let loading = false;
+      const open = async () => {
+        if (loading) return;
+        loading = true;
+        item.setAttribute("aria-busy", "true");
+        try {
+          let source = preview.querySelector("img")?.src;
+          if (!source) {
+            const original = await window.widget.readAttachment({ sessionId, attachmentId: attachment.attachmentId });
+            source = `data:${original.mediaType};base64,${original.data}`;
+          }
+          if (item.isConnected && state.selectedSessionId === sessionId) openMessageImage(source, attachment.name || "Image");
+        } catch (error) { showToast(error?.message || "Could not load image", "image"); }
+        finally { loading = false; item.removeAttribute("aria-busy"); }
+      };
+      item.addEventListener("click", open);
+      item.addEventListener("keydown", event => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); void open(); } });
     }
     const name = document.createElement("span");
     name.className = "message-attachment-name";
@@ -6195,7 +6271,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
       rememberSentMessage(result.sessionId, text);
       syncChatVisualState();
       clearComposerError();
-      if (queueingBehindTurn) trackQueuedPrompt(result.sessionId, { text, attachmentCount }, queueRevisionAtSubmit);
+      if (queueingBehindTurn) trackQueuedPrompt(result.sessionId, { text, attachmentCount, attachments: submittedAttachments }, queueRevisionAtSubmit);
       const submittedPaths = new Set(submittedAttachments.map((attachment) => attachment.path));
       state.pendingAttachments = state.pendingAttachments.filter((attachment) => !submittedPaths.has(attachment.path));
       renderAttachments();

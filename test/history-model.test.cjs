@@ -16,14 +16,27 @@ const {
   toolMessagesFromHistory,
   toolResultFromBlocks,
   userContentFromBlocks,
+  hydrateHistoryImages,
 } = require("../src/history-model.cjs");
 
-test("adaptQueueAction wraps edit text into content blocks", () => {
-  const action = { kind: "edit", text: "hello", path: "a.txt" };
+test("adaptQueueAction replaces text while preserving queued attachment blocks", () => {
+  const image = { type: "image", attachment: { attachmentId: "image-1", mediaType: "image/png", bytes: 4 } };
+  const file = { type: "file", attachment: { attachmentId: "file-1", name: "notes.txt", bytes: 8 } };
+  const action = { kind: "edit", text: "hello", path: "a.txt", originalContent: [{ type: "text", text: "old" }, image, file] };
   const result = adaptQueueAction(action);
-  assert.deepEqual(result.content, [{ type: "text", text: "hello" }]);
+  assert.deepEqual(result.content, [{ type: "text", text: "hello" }, image, file]);
   assert.equal(result.text, undefined);
+  assert.equal(result.originalContent, undefined);
   assert.equal(result.path, "a.txt");
+});
+
+test("adaptQueueAction keeps path reference lines when editing visible text", () => {
+  const result = adaptQueueAction({
+    kind: "edit",
+    text: "new caption",
+    originalContent: [{ type: "text", text: "old caption\n\n@C:\\docs\\notes.txt" }],
+  });
+  assert.deepEqual(result.content, [{ type: "text", text: "new caption\n\n@C:\\docs\\notes.txt" }]);
 });
 
 test("adaptQueueAction passes non-edit actions through", () => {
@@ -55,6 +68,17 @@ test("userContentFromBlocks extracts images and file references", () => {
   assert.equal(result.attachments.length, 2);
   assert.equal(result.attachments[0].kind, "image");
   assert.equal(result.attachments[1].kind, "reference");
+});
+
+test("userContentFromBlocks extracts durable image and file attachment references", () => {
+  const result = userContentFromBlocks([
+    { type: "image", attachment: { attachmentId: "i1", mediaType: "image/png", name: "shot.png", bytes: 4 }, data: "AAAA" },
+    { type: "file", attachment: { attachmentId: "f1", name: "clip.mp4", bytes: 8 } },
+  ]);
+  assert.deepEqual(result.attachments, [
+    { kind: "image", mediaType: "image/png", name: "shot.png", attachmentId: "i1", data: "AAAA" },
+    { kind: "reference", previewKind: "video", name: "clip.mp4" },
+  ]);
 });
 
 test("readableToolValue stringifies values", () => {
@@ -93,6 +117,16 @@ test("boundedHistoryEntries strips image data over budget", () => {
   const bounded = boundedHistoryEntries(entries, 100);
   assert.equal(bounded[0].event.data.content[0].data, undefined);
   assert.equal(bounded[1].event.data.content[0].text, "hello");
+});
+
+test("durable history image references are hydrated within the preview budget", async () => {
+  const entries = [{ event: { data: { content: [{ type: "image", attachment: {
+    attachmentId: "durable-1", mediaType: "image/png", name: "shot.png", bytes: 1,
+  } }] } } }];
+  const hydrated = await hydrateHistoryImages(entries, async (id) => (id === "durable-1" ? "AA==" : ""));
+  const bounded = boundedHistoryEntries(hydrated);
+  assert.equal(bounded[0].event.data.content[0].data, "AA==");
+  assert.equal(entries[0].event.data.content[0].data, undefined);
 });
 
 test("boundedHistoryCacheEntries limits events by count and bytes", () => {

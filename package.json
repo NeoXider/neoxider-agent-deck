@@ -36,6 +36,7 @@
     "test:input": "electron scripts/input-regression.cjs",
     "test:large-chat": "electron scripts/large-chat-smoke.cjs",
     "test:motion": "electron scripts/disclosure-motion-smoke.cjs",
+    "test:queued-attachments": "electron scripts/queued-attachments-smoke.cjs",
     "test:attachments-live": "electron scripts/attachment-preview-smoke.cjs",
     "test:platforms": "node scripts/platform-matrix.cjs",
     "bench:encoding": "node scripts/encoding-block-bench.cjs",

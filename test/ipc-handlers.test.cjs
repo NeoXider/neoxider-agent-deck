@@ -7,6 +7,7 @@ const {
 } = require("../src/ipc-handlers.cjs");
 const { createAttachmentRegistry } = require("../src/attachment-registry.cjs");
 const { HarnessApi } = require("../src/harness-api.cjs");
+const { queueItemView } = require("../src/queue-view.cjs");
 
 for (const remote of [true, false]) {
   test(`queued edit survives the real IPC-to-API path (${remote ? "remote" : "legacy"})`, async () => {
@@ -15,7 +16,9 @@ for (const remote of [true, false]) {
     const call = async (method, payload) => { calls.push({ method, payload }); return { ok: true }; };
     api.ensureRemote = async () => remote ? { call } : null;
     api.rpc = call;
-    const { ipcMain, window } = register({ api });
+    const item = queueItemView({ id: "queued-item", message: { content: [{ type: "text", text: "original" }] } });
+    const queueSnapshots = new Map([["edit-session", { revision: 1, items: [item] }]]);
+    const { ipcMain, window } = register({ api, queueSnapshots });
     const event = { sender: window.webContents };
     const text = "Исправленный текст\nсо второй строкой";
     await ipcMain.invoke("update-queue", event, {
@@ -145,6 +148,26 @@ test("history skips unchanged message transfer only when the caller has the curr
   assert.equal(repeated.unchanged, true);
   const stale = await ipcMain.invoke("history", event, "s1", { revision: "v0" });
   assert.equal(stale.messages[0].text, "**hello**");
+});
+
+test("durable attachment reads validate the Harness response before exposing it", async () => {
+  const api = { readAttachment: async () => ({ attachment: { mediaType: "image/png", name: "shot.png" }, data: "AA==" }) };
+  const { ipcMain, window } = register({ api });
+  const event = { sender: window.webContents };
+  assert.deepEqual(await ipcMain.invoke("read-attachment", event, { sessionId: "s1", attachmentId: "a1" }), {
+    data: "AA==", mediaType: "image/png", name: "shot.png",
+  });
+  api.readAttachment = async () => ({ attachment: { mediaType: "text/html" }, data: "AA==" });
+  await assert.rejects(() => ipcMain.invoke("read-attachment", event, { sessionId: "s1", attachmentId: "a1" }), /invalid image/);
+});
+
+test("an attachment-only path reference can save an empty caption", async () => {
+  const calls = [];
+  const api = { updateQueue: async (...args) => calls.push(args) };
+  const item = queueItemView({ id: "q1", message: { content: [{ type: "text", text: "@C:\\docs\\notes.txt" }] } });
+  const { ipcMain, window } = register({ api, queueSnapshots: new Map([["s1", { revision: 1, items: [item] }]]) });
+  await ipcMain.invoke("update-queue", { sender: window.webContents }, { sessionId: "s1", itemId: "q1", action: { kind: "edit", text: "" } });
+  assert.equal(calls.length, 1);
 });
 
 test("last opened session is saved once, returned in preferences, and validated", async () => {

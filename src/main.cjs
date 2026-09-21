@@ -299,7 +299,10 @@ async function cleanupSentCaptureFiles(attachments) {
     }
   }));
 }
-const { publishLiveEvent, publishQueue, publishJobs } = createStreamPublisher({ queueSnapshots, backgroundJobs: api.backgroundJobs, send: sendToRenderer });
+const { publishLiveEvent, publishQueue, publishJobs } = createStreamPublisher({
+  queueSnapshots, backgroundJobs: api.backgroundJobs, send: sendToRenderer,
+  readAttachment: (sessionId, attachmentId) => api.readAttachment(sessionId, attachmentId),
+});
 
 const muxClient = createMuxClient({
   harnessUrl: HARNESS_URL,

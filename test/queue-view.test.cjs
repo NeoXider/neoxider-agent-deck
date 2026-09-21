@@ -16,13 +16,13 @@ test("a plain text item is editable and previewed on one line", () => {
   assert.equal(view.preview, "first line second line");
 });
 
-test("an item carrying an attachment is not editable", () => {
+test("an item carrying an attachment remains editable and exposes attachment metadata", () => {
   const view = queueItemView({
     id: "q2",
-    message: { content: [{ type: "text", text: "look" }, { type: "image", source: {} }] },
+    message: { content: [{ type: "text", text: "look" }, { type: "image", attachment: { attachmentId: "a", mediaType: "image/png", name: "shot.png", bytes: 1 } }] },
   });
-  // Editing would silently drop the non-text block, so the renderer must not offer it.
-  assert.equal(view.text, null);
+  assert.equal(view.text, "look");
+  assert.equal(view.attachments[0].name, "shot.png");
   assert.equal(view.preview, "look");
 });
 
@@ -41,7 +41,7 @@ test("a long preview is truncated", () => {
 });
 
 test("malformed input never throws and falls back to the message id", () => {
-  assert.deepEqual(queueItemView(undefined), { id: "", placement: "queued", text: null, preview: "Queued message" });
+  assert.deepEqual(queueItemView(undefined), { id: "", placement: "queued", text: "", attachments: [], attachmentCount: 0, preview: "Queued message" });
   assert.equal(queueItemView({ message: { id: "m1", content: "not an array" } }).id, "m1");
   assert.equal(queueItemView({ id: "q7", placement: "running", message: {} }).placement, "running");
 });
@@ -56,7 +56,7 @@ test("a queued file reference is previewed by name and edited by path", () => {
     message: { content: [{ type: "text", text: "Review this\n\n@C:\\Users\\User\\AppData\\Local\\Temp\\long\\path\\report.pdf" }] },
   });
   assert.equal(view.preview, "Review this @report.pdf");
-  assert.match(view.text, /@C:\\Users\\User\\AppData\\Local\\Temp\\long\\path\\report\.pdf$/, "editing must keep the real path");
+  assert.equal(view.text, "Review this", "the editor hides the internal file reference");
 });
 
 test("every reference in a message is shortened, on either path separator", () => {
@@ -68,12 +68,13 @@ test("every reference in a message is shortened, on either path separator", () =
   assert.equal(shortenReferences("no references here"), "no references here");
 });
 
-test("an attachment-only queued message says so and refuses in-place editing", () => {
+test("an attachment-only queued message says so and remains editable", () => {
   const view = queueItemView({
     id: "q2",
     placement: "queued",
     message: { content: [{ type: "image", mediaType: "image/png", data: "AA==", name: "shot.png" }] },
   });
-  assert.equal(view.text, null, "editing it as text would silently drop the image");
+  assert.equal(view.text, "");
+  assert.equal(view.attachments[0].name, "shot.png");
   assert.equal(view.preview, "1 attachment");
 });

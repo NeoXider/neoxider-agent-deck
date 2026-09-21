@@ -85,6 +85,8 @@ jobs:
         run: npm run test:stability
       - if: matrix.uiSmoke
         run: npm run test:motion
+      - if: matrix.uiSmoke
+        run: npm run test:queued-attachments
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: matrix.uiSmoke
         with:

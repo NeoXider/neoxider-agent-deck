@@ -23,6 +23,7 @@ const { normalizeBackground, normalizeDesignProfiles } = require("./appearance-s
 // harness already paid for that lesson once (see scripts/screenshot-harness.cjs).
 const { harnessSessionUrl } = require("./harness-url.cjs");
 const { isSameHarnessOrigin, normalizeHarnessLaunchUrl } = require("./harness-transport.cjs");
+const { QUEUE_CONTENT } = require("./queue-view.cjs");
 const { renderMarkdownBatch, renderMarkdownAsync } = require("./markdown-service.cjs");
 const { applyPlatformOpacity } = require("./platform-capabilities.cjs");
 
@@ -282,15 +283,34 @@ function registerIpcHandlers({
   });
   handle("cancel", async (_event, sessionId) => api.cancel(sessionId));
   handle("get-queue", (_event, sessionId) => queueSnapshots.get(String(sessionId || "")) || { revision: 0, items: [] });
+  handle("read-attachment", async (_event, payload) => {
+    const sessionId = requireSessionId(payload?.sessionId);
+    const attachmentId = String(payload?.attachmentId || "").trim();
+    if (!attachmentId || attachmentId.length > 256) throw new Error("A valid attachment id is required");
+    const value = await api.readAttachment(sessionId, attachmentId);
+    const mediaType = String(value?.attachment?.mediaType || "").toLowerCase();
+    const data = String(value?.data || "");
+    const bytes = Buffer.byteLength(data, "base64");
+    if (!new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]).has(mediaType)
+        || !data || data.length % 4 || !/^[a-zA-Z0-9+/]*={0,2}$/.test(data) || bytes < 1 || bytes > 8 * 1024 * 1024) {
+      throw new Error("Harness returned an invalid image attachment");
+    }
+    return { data, mediaType, name: String(value?.attachment?.name || "image").slice(0, 120) };
+  });
   handle("update-queue", async (_event, payload) => {
     const sessionId = String(payload?.sessionId || "");
     const itemId = String(payload?.itemId || "");
     const kind = String(payload?.action?.kind || "");
     if (!sessionId || !itemId || !["remove", "steer", "edit"].includes(kind)) throw new Error("Invalid queue action");
+    const queuedItem = queueSnapshots.get(sessionId)?.items?.find((item) => item.id === itemId);
+    const originalContent = queuedItem?.[QUEUE_CONTENT];
+    if (kind === "edit" && !Array.isArray(originalContent)) throw new Error("Queued message changed; refresh and try again");
     const action = kind === "edit"
-      ? { kind, text: String(payload?.action?.text || "").trim() }
+      ? { kind, text: String(payload?.action?.text || "").trim(), originalContent }
       : { kind };
-    if (kind === "edit" && !action.text) throw new Error("Queued message is empty");
+    if (kind === "edit" && !action.text && !(queuedItem?.attachmentCount > 0)) {
+      throw new Error("Queued message is empty");
+    }
     return api.updateQueue(sessionId, itemId, action);
   });
   // Browser entry point, token included when the owned Harness launch printed

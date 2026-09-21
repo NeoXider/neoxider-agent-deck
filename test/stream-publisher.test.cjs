@@ -31,6 +31,52 @@ test("queue snapshots preserve queued and steering placements with monotonic rev
   assert.deepEqual(sent.map((entry) => entry.value.revision), [1, 2]);
 });
 
+test("durable queued images receive cached bounded previews", async () => {
+  const snapshots = new Map();
+  const sent = [];
+  let reads = 0;
+  const publisher = createStreamPublisher({
+    queueSnapshots: snapshots,
+    send: (_channel, value) => sent.push(value),
+    readAttachment: async () => { reads += 1; return { attachment: { mediaType: "image/png" }, data: "AA==" }; },
+  });
+  const raw = [{ id: "q", placement: "queued", message: { content: [{ type: "image", attachment: {
+    attachmentId: "a1", mediaType: "image/png", name: "shot.png", bytes: 1,
+  } }] } }];
+  publisher.publishQueue("s1", raw);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(snapshots.get("s1").items[0].attachments[0].data, "AA==");
+  publisher.publishQueue("s1", raw);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reads, 1);
+});
+
+test("queue preview cache is session scoped and retains no oversized response", async () => {
+  const snapshots = new Map();
+  const reads = [];
+  const publisher = createStreamPublisher({
+    queueSnapshots: snapshots,
+    send: () => {},
+    readAttachment: async (sessionId) => {
+      reads.push(sessionId);
+      return sessionId === "large"
+        ? { attachment: { mediaType: "image/png" }, data: Buffer.alloc(1024 * 1024 + 1).toString("base64") }
+        : { attachment: { mediaType: "image/png" }, data: sessionId === "a" ? "AA==" : "AQ==" };
+    },
+  });
+  const raw = [{ id: "q", placement: "queued", message: { content: [{ type: "image", attachment: {
+    attachmentId: "same-id", mediaType: "image/png", name: "shot.png", bytes: 1,
+  } }] } }];
+  publisher.publishQueue("a", raw); publisher.publishQueue("b", raw); publisher.publishQueue("large", raw);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(snapshots.get("a").items[0].attachments[0].data, "AA==");
+  assert.equal(snapshots.get("b").items[0].attachments[0].data, "AQ==");
+  assert.equal(snapshots.get("large").items[0].attachments[0].data, undefined);
+  publisher.publishQueue("large", raw);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(reads, ["a", "b", "large"], "the small negative sentinel avoids retaining or re-fetching oversized bytes");
+});
+
 test("live publisher bounds TODOs and exposes the durable steering handoff", () => {
   const sent = [];
   const { publishLiveEvent } = createStreamPublisher({ queueSnapshots: new Map(), send: (channel, value) => sent.push({ channel, value }) });

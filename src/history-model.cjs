@@ -13,8 +13,15 @@ const HISTORY_VIDEO_EXTENSIONS = new Set(["mp4", "mov", "m4v", "webm", "mkv", "a
 // The remote generation takes content blocks where the legacy one took plain text.
 function adaptQueueAction(action) {
   if (!action || typeof action !== "object" || action.kind !== "edit") return action;
-  const { text, ...rest } = action;
-  return { ...rest, content: [{ type: "text", text }] };
+  const { text, originalContent, ...rest } = action;
+  const blocks = Array.isArray(originalContent) ? originalContent : [];
+  const preserved = blocks.filter((block) => block?.type !== "text");
+  const referenceLines = blocks.flatMap((block) => block?.type === "text" && typeof block.text === "string"
+    ? block.text.split("\n").filter((line) => /^@(?:[a-zA-Z]:[\\/]|\\\\|\/).+/.test(line.trim()))
+    : []);
+  const nextText = [String(text || "").trim(), ...referenceLines].filter(Boolean).join("\n\n");
+  const content = nextText ? [{ type: "text", text: nextText }, ...preserved] : preserved;
+  return { ...rest, content };
 }
 
 function historyImageBytes(data) {
@@ -37,7 +44,7 @@ function boundedHistoryEntries(entries, maxPreviewBytes = HISTORY_PREVIEW_BYTES_
     let changed = false;
     const nextContent = content.map((block) => {
       if (block?.type !== "image" || typeof block.data !== "string") return block;
-      const bytes = HISTORY_IMAGE_TYPES.has(String(block.mediaType || "").toLowerCase())
+      const bytes = HISTORY_IMAGE_TYPES.has(String(block.mediaType || block.attachment?.mediaType || "").toLowerCase())
         ? historyImageBytes(block.data)
         : -1;
       if (bytes > 0 && bytes <= remaining) {
@@ -57,6 +64,34 @@ function boundedHistoryEntries(entries, maxPreviewBytes = HISTORY_PREVIEW_BYTES_
     };
   }
   return bounded;
+}
+
+async function hydrateHistoryImages(entries, readAttachment, maxPreviewBytes = HISTORY_PREVIEW_BYTES_BUDGET) {
+  let remaining = Math.max(0, Number(maxPreviewBytes) || 0);
+  const wanted = new Map();
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    for (const block of entries[index]?.event?.data?.content || []) {
+      const ref = block?.type === "image" ? block.attachment : null;
+      const id = String(ref?.attachmentId || "");
+      const bytes = Number(ref?.bytes || 0);
+      if (!id || block.data || wanted.has(id) || wanted.size >= 12 || !Number.isSafeInteger(bytes) || bytes < 1 || bytes > remaining) continue;
+      wanted.set(id, null); remaining -= bytes;
+    }
+  }
+  await Promise.all([...wanted.keys()].map(async (id) => {
+    try { const data = await readAttachment(id); if (historyImageBytes(data) > 0) wanted.set(id, data); } catch {}
+  }));
+  return entries.map((entry) => {
+    const content = entry?.event?.data?.content;
+    if (!Array.isArray(content)) return entry;
+    let changed = false;
+    const next = content.map((block) => {
+      const data = wanted.get(String(block?.attachment?.attachmentId || ""));
+      if (!data || block.data) return block;
+      changed = true; return { ...block, data };
+    });
+    return changed ? { ...entry, event: { ...entry.event, data: { ...entry.event.data, content: next } } } : entry;
+  });
 }
 
 function positiveInteger(value, fallback) { return Number.isSafeInteger(value) && value > 0 ? value : fallback; }
@@ -116,16 +151,22 @@ function shortAttachmentName(value, fallback = "attachment") {
 function userContentFromBlocks(blocks) {
   const attachments = [];
   for (const block of Array.isArray(blocks) ? blocks : []) {
-    const mediaType = String(block?.mediaType || "").toLowerCase();
+    const reference = block?.attachment && typeof block.attachment === "object" ? block.attachment : null;
+    const mediaType = String(block?.mediaType || reference?.mediaType || "").toLowerCase();
     const data = typeof block?.data === "string" ? block.data : "";
     if (block?.type === "image" && HISTORY_IMAGE_TYPES.has(mediaType)) {
       const attachment = {
         kind: "image",
         mediaType,
-        name: shortAttachmentName(block.name, "image"),
+        name: shortAttachmentName(block.name || reference?.name, "image"),
       };
+      if (reference?.attachmentId) attachment.attachmentId = String(reference.attachmentId).slice(0, 256);
       if (historyImageBytes(data) > 0) attachment.data = data;
       attachments.push(attachment);
+    } else if (block?.type === "file" && reference) {
+      const name = shortAttachmentName(reference.name, "file");
+      const extension = name.includes(".") ? name.split(".").at(-1).toLowerCase() : "";
+      attachments.push({ kind: "reference", previewKind: HISTORY_VIDEO_EXTENSIONS.has(extension) ? "video" : "file", name });
     }
   }
   const lines = textFromBlocks(blocks).split("\n");
@@ -368,6 +409,8 @@ module.exports = {
   boundedHistoryCacheEntries,
   boundedHistoryEntries,
   historyRevision,
+  historyImageBytes,
+  hydrateHistoryImages,
   messagesFromHistory,
   positiveInteger,
   readableToolValue,

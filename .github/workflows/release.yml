@@ -85,6 +85,8 @@ jobs:
       - if: matrix.interactionSmoke
         run: npm run test:motion
       - if: matrix.interactionSmoke
+        run: npm run test:queued-attachments
+      - if: matrix.interactionSmoke
         run: npm run test:ui
       - run: npm run ${{ matrix.script }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
