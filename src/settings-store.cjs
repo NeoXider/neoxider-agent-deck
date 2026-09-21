@@ -86,7 +86,7 @@ function normalizePreferences(raw = {}) {
   const legacyLayer = Object.prototype.hasOwnProperty.call(source, "alwaysOnTop")
     ? (source.alwaysOnTop ? "above" : "normal")
     : DEFAULT_PREFERENCES.windowLayer;
-  const windowLayer = ["normal", "above", "game"].includes(source.windowLayer) ? source.windowLayer : legacyLayer;
+  const windowLayer = ["normal", "above", "game", "private"].includes(source.windowLayer) ? source.windowLayer : legacyLayer;
   const windowStateSource = source.windowState && typeof source.windowState === "object" ? source.windowState : {};
   let hotkeys;
   try {

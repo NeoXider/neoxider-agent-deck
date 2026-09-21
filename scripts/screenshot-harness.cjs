@@ -579,14 +579,14 @@ function attachScreenshotHarness({
               const composer = document.querySelector('.composer')?.getBoundingClientRect();
               return Boolean(menu && composer && menu.bottom <= composer.top - 1);
             })(),
-            closedModelLabel: document.querySelector('#controlsPrimary')?.textContent || '',
+            closedModelLabel: document.querySelector('#reasoningModelName')?.textContent || '',
             closedModelVisible: (() => {
-              const label = document.querySelector('#controlsPrimary')?.getBoundingClientRect();
-              const summary = document.querySelector('#agentControls > summary')?.getBoundingClientRect();
+              const label = document.querySelector('#reasoningModelName')?.getBoundingClientRect();
+              const summary = document.querySelector('#reasoningButton')?.getBoundingClientRect();
               return Boolean(label && summary && label.width > 0 && label.left >= summary.left && label.right <= summary.right);
             })(),
             closedModelUnclipped: (() => {
-              const label = document.querySelector('#controlsPrimary');
+              const label = document.querySelector('#reasoningModelName');
               return Boolean(label && label.clientWidth > 0 && label.scrollWidth <= label.clientWidth + 1);
             })(),
             modelPickerActions: document.querySelectorAll('.model-picker-actions button').length,

@@ -52,9 +52,9 @@ app.whenReady().then(async () => {
   for (const key of ['visible', 'sameRow', 'fits', 'resetOpen', 'modelPickerOpened']) assert.equal(result[key], true, key);
   assert.match(result.reset, /Auto/);
   for (const item of result.motion) {
-    const expected = ['none','reasoning-tide','reasoning-prism'][item.index];
+    const expected = ['none','reasoning-prism','reasoning-prism'][item.index];
     assert.equal(item.fill,expected); assert.equal(item.badge,expected);
-    if(item.index) assert.equal(item.duration,item.index===1?'6s':'2.4s');
+    if(item.index) assert.equal(item.duration,item.index===1?'4.8s':'1.8s');
     if(item.theme==='cyberpunk') assert.equal(item.accent,'#fcee09');
   }
   fs.mkdirSync(path.join(__dirname, '../tmp/ui-smoke'), { recursive: true });

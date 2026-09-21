@@ -283,6 +283,7 @@ const preferenceMutations = [
   ["avatar auto expand", (value) => ({ ...value, compactAutoExpand: false })],
   ["size", (value) => ({ ...value, size: "compact" })],
   ["window layer", (value) => ({ ...value, windowLayer: "normal" })],
+  ["private overlay", (value) => ({ ...value, windowLayer: "private" })],
   ["compact side", (value) => ({ ...value, compactSide: "right" })],
   // normalizeHotkeyBindings, not normalizePreferences: the expectation still has to be
   // built independently of the store's own preference normalizer.

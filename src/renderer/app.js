@@ -5935,6 +5935,10 @@ function applyPlatformCapabilities(capabilities) {
   opacityStatus.hidden = !presentation.opacityHint;
   if (!presentation.opacityAvailable) $("#opacityValue").textContent = "Unavailable";
 
+  const privateButton = $('#windowLayerSwitch [data-layer="private"]');
+  privateButton.disabled = state.platformCapabilities.captureExclusion !== true;
+  privateButton.setAttribute("aria-disabled", String(privateButton.disabled));
+  privateButton.title = privateButton.disabled ? "Capture exclusion is available on Windows" : "Keep Deck above apps and hide it from supported screen captures (Windows 10 2004 or newer). Some capture methods may ignore this.";
   const gameButton = $('#windowLayerSwitch [data-layer="game"]');
   gameButton.disabled = !presentation.gameLayerAvailable;
   gameButton.setAttribute("aria-disabled", String(!presentation.gameLayerAvailable));
@@ -6472,6 +6476,7 @@ $("#subagentsButton").addEventListener("click", () => {
   if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId);
 });
 $("#dockButton").addEventListener("click", () => setWindowMode("edge"));
+$("#collapseHandle").addEventListener("click", () => setWindowMode(state.platformPresentation?.edgeAvailable === false ? "orb" : "edge"));
 $("#orbRestore").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
 $("#orbHistoryButton").addEventListener("click", toggleCompactHistory);
 $("#orbStatusCard").addEventListener("click", () => openCompactSession().catch(showError));

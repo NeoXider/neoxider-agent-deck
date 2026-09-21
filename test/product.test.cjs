@@ -163,10 +163,11 @@ test("release documentation uses the current window-layer label and previews eve
   }
   assert.match(readme, /every ordinary window covers the widget/);
   assert.match(readme, /\*\*Always on top\+\*\*/);
-  for (const preview of ["Full", "Focus Mini", "Orb", "Edge", "Minimum 360 px"]) {
+  for (const preview of ["Chat", "Sessions", "Avatar", "Hinge"]) {
     assert.match(readme, new RegExp(`<strong>${preview}<\\/strong>`));
   }
-  for (const screenshot of ["chat.png", "focus-chat.png", "recent-sessions-orb.png", "edge-mode.png", "small-chat-360.png"]) {
+  assert.equal((readme.match(/src="docs\/screenshots\//g) || []).length, 4);
+  for (const screenshot of ["chat.png", "sessions.png", "avatar.png", "hinge.png"]) {
     assert.match(readme, new RegExp(`docs/screenshots/${screenshot.replace(".", "\\.")}`));
   }
 });

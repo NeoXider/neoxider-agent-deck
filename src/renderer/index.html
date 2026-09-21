@@ -45,12 +45,15 @@
       <symbol id="icon-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m5 18 5-5 3 3 2-2 4 4"/></symbol>
       <symbol id="icon-focus" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5"/></symbol>
       <symbol id="icon-focus-exit" viewBox="0 0 24 24"><path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5"/></symbol>
+      <symbol id="icon-camera" viewBox="0 0 24 24"><path d="M4 7h3l2-3h6l2 3h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="4"/></symbol>
+      <symbol id="icon-display" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
       <symbol id="icon-capture" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><circle cx="12" cy="12" r="3"/></symbol>
       <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></symbol>
       <symbol id="icon-reuse" viewBox="0 0 24 24"><path d="M5 8h11a4 4 0 0 1 0 8H9"/><path d="m11.5 12.5-3 3.5 3 3.5"/></symbol>
       <defs><linearGradient id="context-ring-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#49e7c6"/><stop offset="1" stop-color="#8b79ff"/></linearGradient></defs>
     </svg>
     <main class="widget-shell">
+      <button id="collapseHandle" class="collapse-handle no-drag" type="button" aria-label="Collapse to Hinge" title="Collapse to Hinge"></button>
       <div class="chat-activity-border window-activity-border" aria-hidden="true"></div>
       <header class="titlebar">
         <div class="brand no-drag">
@@ -72,10 +75,10 @@
         </nav>
         <div class="window-actions no-drag">
           <div class="picker capture-picker">
-            <button id="captureButton" class="icon-button picker-button" type="button" title="Capture screen" aria-label="Capture screen" aria-haspopup="menu" aria-controls="captureMenu" aria-expanded="false"><svg class="ui-icon"><use href="#icon-capture"/></svg></button>
+            <button id="captureButton" class="icon-button picker-button" type="button" title="Capture screen" aria-label="Capture screen" aria-haspopup="menu" aria-controls="captureMenu" aria-expanded="false"><svg class="ui-icon"><use href="#icon-camera"/></svg></button>
             <div id="captureMenu" class="picker-menu capture-menu" role="menu" aria-hidden="true">
               <button data-capture="region" type="button" role="menuitem"><svg class="ui-icon"><use href="#icon-capture"/></svg><span><b>Capture region</b><small id="captureRegionHint">Select an area</small></span></button>
-              <button data-capture="display" type="button" role="menuitem"><svg class="ui-icon"><use href="#icon-image"/></svg><span><b>Capture display</b><small id="captureDisplayHint">Current monitor</small></span></button>
+              <button data-capture="display" type="button" role="menuitem"><svg class="ui-icon"><use href="#icon-display"/></svg><span><b>Capture display</b><small id="captureDisplayHint">Current monitor</small></span></button>
             </div>
           </div>
           <button id="settingsButton" class="icon-button" type="button" title="Settings" aria-label="Settings" aria-haspopup="dialog" aria-controls="settingsPanel" aria-expanded="false"><svg class="ui-icon"><use href="#icon-settings"/></svg></button>
@@ -238,7 +241,7 @@
 
       <section id="settingsPanel" class="settings-panel no-drag" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" aria-hidden="true" inert>
         <div class="settings-head"><b id="settingsTitle">Settings</b><button id="closeSettings" class="icon-button" type="button" title="Close settings" aria-label="Close settings"><svg class="ui-icon"><use href="#icon-close"/></svg></button></div>
-        <div class="setting-block layer-setting"><span>Window layer</span><div id="windowLayerSwitch" class="layer-switch" role="group" aria-label="Window layer"><button data-layer="normal" type="button" title="Desktop layer — every normal app window covers the widget" aria-pressed="false">Desktop</button><button data-layer="above" type="button" title="Stay above ordinary windows" aria-pressed="true">Above</button><button data-layer="game" type="button" title="Enhanced always-on-top mode. Does not guarantee visibility over exclusive fullscreen games." aria-pressed="false">Always on top+</button></div><small id="platformStatus" class="setting-hint" role="status" aria-live="polite" hidden></small></div>
+        <div class="setting-block layer-setting"><span>Window layer</span><div id="windowLayerSwitch" class="layer-switch" role="group" aria-label="Window layer"><button data-layer="normal" type="button" title="Desktop layer — every normal app window covers the widget" aria-pressed="false">Desktop</button><button data-layer="above" type="button" title="Stay above ordinary windows" aria-pressed="true">Above</button><button data-layer="game" type="button" title="Enhanced always-on-top mode. Does not guarantee visibility over exclusive fullscreen games." aria-pressed="false">Always on top+</button><button data-layer="private" type="button" title="Stay above windows and exclude Deck from supported Windows screen captures" aria-pressed="false">Private overlay</button></div><small id="platformStatus" class="setting-hint" role="status" aria-live="polite" hidden></small></div>
         <label class="autostart-setting"><span><span id="autoStartLabel">Start at login</span><small id="autoStartStatus" role="status" aria-live="polite">Checking…</small></span><input id="autoStartToggle" type="checkbox" disabled /></label>
         <label id="opacitySetting" class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /><small id="opacityStatus" class="setting-hint" role="status" hidden></small></label>
         <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>

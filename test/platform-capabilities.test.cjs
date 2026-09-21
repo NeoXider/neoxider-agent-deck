@@ -82,3 +82,22 @@ test("Linux opacity is reported as a non-native fallback", () => {
   assert.deepEqual(applyPlatformOpacity(windowRef, 0.8, capabilities), { opacity: 0.8, native: false });
   assert.equal(windowRef.calls.length, 0);
 });
+
+test("private overlay enables Windows capture exclusion in every mode and clears it when leaving", () => {
+  const capabilities = detectPlatformCapabilities({ platform: "win32", env: {} });
+  for (const mode of ["full", "orb", "edge"]) {
+    const windowRef = fakeWindow(); const protectedStates = [];
+    windowRef.setContentProtection = value => protectedStates.push(value);
+    assert.equal(applyPlatformWindowLayer(windowRef, { layer: "private", mode, capabilities }), "private");
+    assert.deepEqual(windowRef.calls[0], ["top", true, "screen-saver"]);
+    assert.equal(applyPlatformWindowLayer(windowRef, { layer: "above", mode, capabilities }), "above");
+    assert.deepEqual(protectedStates, [true, false]);
+  }
+});
+test("private overlay is unavailable on platforms without supported capture exclusion", () => {
+  for (const platform of ["linux", "darwin"]) {
+    const capabilities = detectPlatformCapabilities({ platform, env: {} });
+    assert.equal(capabilities.captureExclusion, false);
+    assert.equal(normalizeWindowLayer("private", capabilities), "above");
+  }
+});
