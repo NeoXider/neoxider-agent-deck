@@ -11,7 +11,7 @@
   tabs.className = 'settings-tabs';
   tabs.setAttribute('role', 'tablist');
   tabs.setAttribute('aria-label', 'Settings sections');
-  tabs.innerHTML = '<button id="settings-tab-general" role="tab" aria-controls="settings-general" aria-selected="true" type="button">General</button><button id="settings-tab-design" role="tab" aria-controls="settings-design" aria-selected="false" tabindex="-1" type="button">Appearance</button>';
+  tabs.innerHTML = '<button id="settings-tab-general" role="tab" aria-controls="settings-general" aria-selected="true" type="button">General</button><button id="settings-tab-design" role="tab" aria-controls="settings-design" aria-selected="false" tabindex="-1" type="button">Appearance</button><button id="settings-tab-keys" role="tab" aria-controls="settings-keys" aria-selected="false" tabindex="-1" type="button">Shortcuts</button>';
   const design = document.createElement('div');
   design.id = 'settings-design';
   design.className = 'settings-page';
@@ -19,11 +19,17 @@
   design.setAttribute('role', 'tabpanel');
   design.setAttribute('aria-labelledby', 'settings-tab-design');
   design.innerHTML = `<p class="design-intro">Make Deck feel like yours.</p>
-    <div class="design-themes" role="group" aria-label="Design">
+    <details class="theme-picker"><summary>Theme <b id="themeChoiceLabel">Aurora</b><span aria-hidden="true">⌄</span></summary><div class="design-themes" role="group" aria-label="Theme previews">
       <button type="button" data-theme-choice="aurora"><span class="theme-swatch swatch-aurora" aria-hidden="true"></span><b>Aurora</b><small>Soft light</small></button>
       <button type="button" data-theme-choice="graphite"><span class="theme-swatch swatch-graphite" aria-hidden="true"></span><b>Graphite</b><small>Quiet & matte</small></button>
       <button type="button" data-theme-choice="midnight"><span class="theme-swatch swatch-midnight" aria-hidden="true"></span><b>Midnight</b><small>Deep blue</small></button>
-    </div>
+      <button type="button" data-theme-choice="cyberpunk"><span class="theme-swatch swatch-cyberpunk" aria-hidden="true"></span><b>Cyberpunk</b><small>Neon city</small></button>
+    </div></details>
+    <label class="setting-block">My profiles<select id="designProfileChoice"><option value="">Choose saved profile…</option></select></label>
+    <div class="profile-editor"><input id="designProfileName" aria-label="Profile name" maxlength="40" placeholder="Profile name" /><button id="saveDesignProfile" type="button">Save</button><button id="deleteDesignProfile" type="button">Delete</button></div>
+    <label class="setting-block">Background<select id="backgroundChoice"><option value="none">No image</option><option value="cave">Anime cave</option><option value="forest">Night forest</option><option value="cyberpunk">Cyberpunk city</option><option value="custom">Custom image</option></select></label>
+    <label class="setting-block">Image opacity <output id="imageOpacityValue">42%</output><input id="imageOpacityRange" type="range" min="0" max="100" value="42" /></label>
+    <label class="setting-block">Choose your image<input id="backgroundFile" type="file" accept="image/png,image/jpeg,image/webp" /><small>PNG, JPEG or WebP, up to 2 MB</small></label>
     <div class="setting-block"><span>Movement</span><div class="layer-switch" role="group" aria-label="Movement"><button type="button" data-motion-choice="fluid">Fluid</button><button type="button" data-motion-choice="subtle">Subtle</button></div></div>
     <label class="toggle-setting"><span><span>Input activity border</span><small>Animated colours around the message field while working</small></span><input id="inputBorderToggle" data-border-choice="inputBorder" type="checkbox" checked /></label>
     <label class="toggle-setting"><span><span>Window activity border</span><small>The same activity colours around the whole widget</small></span><input id="windowBorderToggle" data-border-choice="windowBorder" type="checkbox" /></label>
@@ -32,7 +38,15 @@
     const row = general.querySelector(`#${id}`)?.closest('label');
     if (row) design.insertBefore(row, design.lastElementChild);
   }
-  panel.append(tabs, general, design);
+  const keys = document.createElement('div');
+  keys.id = 'settings-keys'; keys.className = 'settings-page'; keys.hidden = true;
+  keys.setAttribute('role', 'tabpanel'); keys.setAttribute('aria-labelledby', 'settings-tab-keys');
+  const hotkeys = general.querySelector('#hotkeySettings');
+  hotkeys.open = true; keys.append(hotkeys);
+  panel.append(tabs, general, design, keys);
+  const backdrop = document.createElement('img');
+  backdrop.className = 'deck-backdrop'; backdrop.alt = ''; backdrop.hidden = true;
+  document.querySelector('.widget-shell').prepend(backdrop);
   const buttons = [...tabs.querySelectorAll('button')];
   function selectTab(index, focus = false) {
     buttons.forEach((button, i) => {
@@ -41,6 +55,8 @@
     });
     general.hidden = index !== 0;
     design.hidden = index !== 1;
+    keys.hidden = index !== 2;
+    tabs.style.setProperty('--tab-index', String(index));
     panel.scrollTop = 0;
     if (focus) buttons[index].focus();
   }
@@ -49,20 +65,38 @@
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     const current = buttons.indexOf(document.activeElement);
-    selectTab(event.key === 'Home' ? 0 : event.key === 'End' ? 1 : 1 - Math.max(0, current), true);
+    selectTab(event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (Math.max(0, current) + (event.key === 'ArrowRight' ? 1 : 2)) % 3, true);
   });
-  let confirmed = { theme: 'aurora', motion: 'fluid', inputBorder: true, windowBorder: false };
+  let confirmed = { theme: 'aurora', motion: 'fluid', inputBorder: true, windowBorder: false, background: 'none', customBackground: '', imageOpacity: .42, profiles: [] };
   let current = { ...confirmed };
   let saving = Promise.resolve();
   let revision = 0;
   function apply(value) {
     current = {
-      theme: ['aurora', 'graphite', 'midnight'].includes(value?.theme) ? value.theme : 'aurora',
+      theme: ['aurora', 'graphite', 'midnight', 'cyberpunk'].includes(value?.theme) ? value.theme : 'aurora',
       motion: value?.motion === 'subtle' ? 'subtle' : 'fluid',
       inputBorder: value?.inputBorder !== false,
       windowBorder: value?.windowBorder === true,
+      imageOpacity: typeof value?.imageOpacity === 'number' && Number.isFinite(value.imageOpacity) ? Math.max(0, Math.min(1, value.imageOpacity)) : .42,
+      profiles: Array.isArray(value?.profiles) ? value.profiles.slice(0, 8) : [],
+      background: ['none', 'cave', 'forest', 'cyberpunk', 'custom'].includes(value?.background) ? value.background : 'none',
+      customBackground: /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value?.customBackground || '') && value.customBackground.length <= 2800000 ? value.customBackground : '',
     };
     document.body.dataset.design = current.theme;
+    design.querySelector('#themeChoiceLabel').textContent = current.theme[0].toUpperCase() + current.theme.slice(1);
+    backdrop.style.opacity = String(current.imageOpacity);
+    design.querySelector('#imageOpacityRange').value = Math.round(current.imageOpacity * 100);
+    design.querySelector('#imageOpacityValue').textContent = `${Math.round(current.imageOpacity * 100)}%`;
+    const profiles = design.querySelector('#designProfileChoice');
+    const selectedProfile = profiles.value;
+    profiles.replaceChildren(new Option('Choose saved profile…', ''));
+    for (const profile of current.profiles) profiles.add(new Option(profile.name, profile.name));
+    profiles.value = selectedProfile;
+    const image = current.background === 'custom' ? current.customBackground : current.background === 'none' ? '' : `assets/backgrounds/${current.background}.webp`;
+    if (image) { if (backdrop.getAttribute('src') !== image) backdrop.src = image; } else backdrop.removeAttribute('src');
+    backdrop.hidden = !image;
+    document.body.dataset.background = image ? current.background : 'none';
+    design.querySelector('#backgroundChoice').value = current.background;
     document.body.dataset.motion = current.motion;
     document.body.dataset.inputBorder = String(current.inputBorder);
     document.body.dataset.windowBorder = String(current.windowBorder);
@@ -89,10 +123,53 @@
     });
   }
   design.addEventListener('click', event => {
+    if (event.target.id === 'saveDesignProfile') {
+      const name = design.querySelector('#designProfileName').value.trim();
+      const status = document.getElementById('appearanceStatus');
+      if (!name) { status.textContent = 'Enter a profile name.'; return; }
+      const { profiles, ...snapshot } = current;
+      const next = [...profiles.filter(item => item.name !== name), { name, ...snapshot }];
+      if (next.length > 8 || next.reduce((size, item) => size + (item.customBackground?.length || 0), 0) > 12000000) {
+        status.textContent = 'Profile storage is full. Delete a profile first.'; return;
+      }
+      save({ ...current, profiles: next });
+      design.querySelector('#designProfileChoice').value = name;
+    }
+    if (event.target.id === 'deleteDesignProfile') {
+      const name = design.querySelector('#designProfileChoice').value;
+      if (name) save({ ...current, profiles: current.profiles.filter(item => item.name !== name) });
+    }
     const choice = event.target.closest('[data-theme-choice], [data-motion-choice]');
-    if (choice) save({ ...current, ...(choice.dataset.themeChoice ? { theme: choice.dataset.themeChoice } : { motion: choice.dataset.motionChoice }) });
+    if (choice?.dataset.themeChoice) design.querySelector('.theme-picker').open = false;
+    if (choice) save({ ...current, ...(choice.dataset.themeChoice ? { theme: choice.dataset.themeChoice, ...(choice.dataset.themeChoice === 'cyberpunk' ? { background: 'cyberpunk' } : {}) } : { motion: choice.dataset.motionChoice }) });
   });
-  design.addEventListener('change', event => {
+  design.addEventListener('input', event => {
+    if (event.target.id !== 'imageOpacityRange') return;
+    current.imageOpacity = Number(event.target.value) / 100;
+    backdrop.style.opacity = String(current.imageOpacity);
+    design.querySelector('#imageOpacityValue').textContent = `${event.target.value}%`;
+  });
+  design.addEventListener('change', async event => {
+    if (event.target.id === 'imageOpacityRange') save({ ...current, imageOpacity: Number(event.target.value) / 100 });
+    if (event.target.id === 'designProfileChoice') {
+      const profile = current.profiles.find(item => item.name === event.target.value);
+      if (profile) {
+        design.querySelector('#designProfileName').value = profile.name;
+        save({ ...current, ...profile, profiles: current.profiles });
+      }
+    }
+    if (event.target.id === 'backgroundChoice') save({ ...current, background: event.target.value });
+    if (event.target.id === 'backgroundFile') {
+      const file = event.target.files[0]; if (!file) return;
+      const status = document.getElementById('appearanceStatus');
+      if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 2 * 1024 * 1024) {
+        status.textContent = 'Choose PNG, JPEG or WebP up to 2 MB.'; event.target.value = ''; return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => save({ ...current, background: 'custom', customBackground: reader.result });
+      reader.onerror = () => { status.textContent = 'Could not read this image.'; };
+      reader.readAsDataURL(file);
+    }
     const key = event.target.dataset.borderChoice;
     if (key) save({ ...current, [key]: event.target.checked });
   });

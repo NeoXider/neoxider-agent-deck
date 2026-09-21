@@ -327,9 +327,8 @@ async function cleanupSentCaptureFiles(attachments) {
     }
   }));
 }
-const { publishLiveEvent, publishQueue } = createStreamPublisher({ queueSnapshots, send: sendToRenderer });
+const { publishLiveEvent, publishQueue, publishJobs } = createStreamPublisher({ queueSnapshots, backgroundJobs: api.backgroundJobs, send: sendToRenderer });
 
-// Reconnect and silence handling live in mux-client.cjs.
 const muxClient = createMuxClient({
   harnessUrl: HARNESS_URL,
   // Only a legacy Harness speaks this socket; a gated one can never authenticate it.
@@ -342,6 +341,7 @@ const muxClient = createMuxClient({
 });
 
 remoteMux = createRemoteMuxClient({
+  onJobs: publishJobs,
   getTransport: () => api.ensureRemote(),
   onQueue: publishQueue,
   onLiveEvent: publishLiveEvent,

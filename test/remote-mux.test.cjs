@@ -37,6 +37,21 @@ function fakeSleep() {
 
 async function tick() { await new Promise((r) => setTimeout(r, 20)); }
 
+test("job snapshots replace live state and reconnect clears removed sessions", async () => {
+  const transport = createFakeTransport();
+  const updates = [];
+  const mux = createRemoteMuxClient({ getTransport: () => transport, onJobs: (id, jobs) => updates.push([id, jobs]) });
+  mux.start();
+  await tick();
+  try {
+    const channel = transport.channels[0];
+    channel.onFrame({ type: "baseline", value: { jobs: { s1: [{ status: "running" }] } } });
+    channel.onFrame({ type: "jobs", sessionId: "s1", jobs: [{ status: "completed" }] });
+    channel.onFrame({ type: "baseline", value: { jobs: {} } });
+    assert.deepEqual(updates, [["s1", [{ status: "running" }]], ["s1", [{ status: "completed" }]], ["s1", []]]);
+  } finally { mux.stop(); }
+});
+
 test("control channel publishes baseline queues via onQueue", async () => {
   const transport = createFakeTransport();
   const queues = [];

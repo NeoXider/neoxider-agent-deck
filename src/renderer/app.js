@@ -95,6 +95,7 @@ const state = {
   queueEditingSessionId: null,
   queueExpandedId: null,
   queueExpandedSessionId: null,
+  backgroundJobsBySession: new Map(),
   queueBusyId: null,
   queueBusySessionId: null,
   queueBusyKind: null,
@@ -761,6 +762,10 @@ function syncChatVisualState() {
 
 function setAvatar(mode, label) {
   if (state.harnessOffline) { mode = "offline"; label = ""; }
+  const backgroundCount = state.backgroundJobsBySession.get(state.selectedSessionId) || 0;
+  if (!state.harnessOffline && backgroundCount && ["idle", "done"].includes(mode)) {
+    mode = "waiting"; label = `Waiting · ${backgroundCount} background`;
+  }
   if (mode !== "done") clearCompletionSignal();
   const text = label === "" ? "" : (label || AVATAR_LABELS[mode] || "ready");
   // The poll re-asserts the same state every 2.5s. Rewriting className, the image src and
@@ -4569,7 +4574,7 @@ async function refreshHistory({ priority = false } = {}) {
     if (chatVisual) {
       const historySession = state.dashboard?.sessions?.find((session) => session.sessionId === sessionId);
       chatVisual.notePoll(sessionId, {
-        running: Boolean(historySession?.running) || selectedLiveStreamIsActive(sessionId),
+        running: Boolean(view.activity?.active || historySession?.running) || selectedLiveStreamIsActive(sessionId),
         runningSince: historySession?.runningSince,
         activityKind: commandFeedbackFor(sessionId)?.activity?.kind
           || (selectedLiveStreamIsActive(sessionId) ? state.liveStreamsBySession.get(sessionId)?.activity?.kind || "waiting" : null)
@@ -4700,6 +4705,17 @@ async function handleLiveEvent(payload) {
   const sessionId = payload?.sessionId;
   const event = payload?.event;
   if (!sessionId || !event?.type) return;
+  if (event.type === "session/jobs") {
+    const count = Math.max(0, Number(event.data?.count) || 0);
+    state.backgroundJobsBySession.set(sessionId, count);
+    chatVisual?.noteJobs(sessionId, count);
+    if (sessionId === state.selectedSessionId) {
+      syncChatVisualState();
+      const busy = state.dashboard?.sessions?.find(item => item.sessionId === sessionId)?.running || selectedLiveStreamIsActive(sessionId);
+      if (!busy) setAvatar(count ? "waiting" : "idle", count ? `Waiting · ${count} background` : "ready");
+    }
+    return;
+  }
   let stream = state.liveStreamsBySession.get(sessionId) || { text: "", reasoning: "", lastSeq: 0 };
   if (Number(event.seq) && Number(event.seq) <= Number(stream.lastSeq)) return;
   if (Number(event.seq)) stream.lastSeq = Number(event.seq);
@@ -5176,6 +5192,9 @@ async function performRefresh() {
     }
     const selectedSession = dashboard.sessions?.find((session) => session.sessionId === state.selectedSessionId);
     const selectedRunning = Boolean(selectedSession?.running);
+    const backgroundCount = selectedSession?.backgroundJobCount || 0;
+    state.backgroundJobsBySession.set(state.selectedSessionId, backgroundCount);
+    chatVisual?.noteJobs(state.selectedSessionId, backgroundCount);
     const commandFeedback = commandFeedbackFor(state.selectedSessionId);
     const selectedStream = state.liveStreamsBySession.get(state.selectedSessionId);
     // A dropped turn/end frame used to leave the stream active forever, and an
@@ -5213,6 +5232,10 @@ async function performRefresh() {
     else if (dashboard.sessions?.some((session) => session.running) && state.windowMode === "full") {
       if (state.currentActivity?.active) setActivity(null);
       if (["working", "waiting"].includes(state.avatarMode)) setAvatar("idle");
+    }
+    else if (backgroundCount > 0) {
+      setActivity({ active: false, kind: "background", label: "Waiting for background tasks", text: `${backgroundCount} task(s) still running` });
+      setAvatar("waiting", `Waiting · ${backgroundCount} background`);
     }
     else if ((wasOffline && state.avatarMode === "error" && !state.compactErrorUnread) || !["done", "error"].includes(state.avatarMode)) setAvatar("idle");
     syncSelectedAgentMode();
@@ -7035,14 +7058,14 @@ if (screenshotFixture) {
       $("#messages").scrollTop = 0;
       state.unseenMessages = 1;
       updateScrollLatestButton();
-    } else if (["glow-settings", "design-settings", "design-graphite", "design-midnight"].includes(screenshotFixture)) {
+    } else if (["glow-settings", "design-settings", "design-graphite", "design-midnight", "design-cyberpunk"].includes(screenshotFixture)) {
       setTab("chat");
       applyGlowIntensity(0.82);
       setActivity({ active: true, kind: "writing", label: "Writing", text: "Composing the answer in the mini-chat…" });
       setSettingsOpen(true, { restoreFocus: false });
       if (screenshotFixture !== "glow-settings") requestAnimationFrame(() => {
         window.deckAppearance?.selectTab(1);
-        window.deckAppearance?.apply({ theme: screenshotFixture.replace("design-", ""), motion: "fluid" });
+        window.deckAppearance?.apply({ theme: screenshotFixture.replace("design-", ""), motion: "fluid", background: screenshotFixture === "design-cyberpunk" ? "cyberpunk" : "none" });
       });
     } else if (["update-ready", "managed-update-available"].includes(screenshotFixture)) {
       setTab("chat");
@@ -7050,6 +7073,18 @@ if (screenshotFixture) {
         ? { status: "ready", currentVersion: "0.9.1", latestVersion: "0.9.2", installMode: "portable-replace", progress: 100 }
         : { status: "available", currentVersion: "0.6.8", latestVersion: "0.6.9", installMode: "managed", progress: 0 });
       setSettingsOpen(true, { restoreFocus: false });
+    } else if (["wallpaper-cave", "wallpaper-cyberpunk", "background-wait"].includes(screenshotFixture)) {
+      setTab("chat");
+      state.selectedSessionId = "demo-wallpaper";
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-wallpaper", running: false, title: "Design preview" }] };
+      window.deckAppearance?.apply({ theme: screenshotFixture === "wallpaper-cyberpunk" ? "cyberpunk" : "midnight", motion: "fluid", background: screenshotFixture === "wallpaper-cyberpunk" ? "cyberpunk" : "cave" });
+      renderMessages([{ role: "user", text: "Check the background tasks." }, { role: "assistant", text: "The report is ready. I am waiting for the remaining background task." }]);
+      chatVisual?.select(state.selectedSessionId);
+      chatVisual?.noteCompletion(state.selectedSessionId, "done");
+      chatVisual?.noteJobs(state.selectedSessionId, 1);
+      state.backgroundJobsBySession.set(state.selectedSessionId, 1);
+      setAvatar("waiting", "Waiting · 1 background");
+      syncChatVisualState();
     } else if (screenshotFixture === "hotkey-settings") {
       setTab("chat");
       renderHotkeys({
@@ -7063,6 +7098,7 @@ if (screenshotFixture) {
         captureRegion: { enabled: true, accelerator: "CommandOrControl+Alt+Shift+S" },
       });
       setSettingsOpen(true, { restoreFocus: false });
+      window.deckAppearance?.selectTab(2);
       $("#hotkeySettings").open = true;
     } else if (screenshotFixture === "capture-menu") {
       setTab("chat");

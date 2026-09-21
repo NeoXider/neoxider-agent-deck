@@ -32,6 +32,7 @@ class HarnessApi {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.fetch = fetchImpl;
     this.sessionStateCache = new Map();
+    this.backgroundJobs = new Map();
     this.now = typeof options.now === "function" ? options.now : Date.now;
     this.subagentRefreshMs = positiveInteger(options.subagentRefreshMs, 10000);
     this.historyCache = new Map();
@@ -379,6 +380,7 @@ class HarnessApi {
         ...session,
         ...(workspaceBySessionId.has(session.sessionId) ? { workspaceId: workspaceBySessionId.get(session.sessionId) } : {}),
         running: effectiveRunning,
+        backgroundJobCount: this.backgroundJobs.get(session.sessionId) || 0,
         title: titleFromSession(session),
         subagents,
         degraded,

@@ -2,6 +2,18 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createStreamPublisher, textFromContent } = require("../src/stream-publisher.cjs");
 
+test("job counts track only active work and clear when all jobs settle", () => {
+  const backgroundJobs = new Map();
+  const sent = [];
+  const publisher = createStreamPublisher({ queueSnapshots: new Map(), backgroundJobs, send: (...args) => sent.push(args) });
+  publisher.publishJobs("s1", [{ status: "running" }, { status: "stopping" }, { status: "completed" }, { status: "failed" }]);
+  assert.equal(backgroundJobs.get("s1"), 2);
+  assert.equal(sent[0][1].event.data.count, 2);
+  publisher.publishJobs("s1", []);
+  assert.equal(backgroundJobs.has("s1"), false);
+  assert.equal(sent[1][1].event.data.count, 0);
+});
+
 test("queue snapshots preserve queued and steering placements with monotonic revisions", () => {
   const snapshots = new Map();
   const sent = [];

@@ -1,3 +1,4 @@
+const { normalizeBackground, normalizeDesignProfiles } = require("./appearance-settings.cjs");
 // Every IPC channel the renderer can reach, and the single guard that protects all of
 // them.
 //
@@ -429,10 +430,10 @@ function registerIpcHandlers({
     return preferences.motionEffects;
   });
   handle("set-appearance", (_event, value) => {
-    if (!["aurora", "graphite", "midnight"].includes(value?.theme)
+    if (!["aurora", "graphite", "midnight", "cyberpunk"].includes(value?.theme)
       || !["fluid", "subtle"].includes(value?.motion)) throw new TypeError("Invalid appearance");
     const preferences = getPreferences();
-    preferences.appearance = { theme: value.theme, motion: value.motion, inputBorder: value.inputBorder !== false, windowBorder: value.windowBorder === true };
+    preferences.appearance = { theme: value.theme, motion: value.motion, inputBorder: value.inputBorder !== false, windowBorder: value.windowBorder === true, ...normalizeBackground(value), profiles: normalizeDesignProfiles(value?.profiles) };
     schedulePreferenceSave();
     return preferences.appearance;
   });

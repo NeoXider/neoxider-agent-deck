@@ -4,7 +4,7 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.chatVisualState = api;
 }(typeof globalThis === "object" ? globalThis : this, () => {
-  const PHASES = ["idle", "waiting", "thinking", "writing", "tool", "done", "error", "offline"];
+  const PHASES = ["idle", "background", "waiting", "thinking", "writing", "tool", "done", "error", "offline"];
   const PHASE_SET = new Set(PHASES);
   const ACTIVE_PHASES = new Set(["waiting", "thinking", "writing", "tool"]);
   // Server/history activity kinds map onto glow phases; composer-local kinds
@@ -43,6 +43,7 @@
   function createChatVisualState() {
     const phasesBySession = new Map();
     const outcomesAt = new Map();
+    const jobsBySession = new Map();
     const pendingBySession = new Set();
     let pendingCreate = false;
     let selectedId = null;
@@ -77,10 +78,12 @@
         const phase = currentPhase(selectedId);
         return ACTIVE_PHASES.has(phase) ? phase : "waiting";
       }
-      return currentPhase(selectedId);
+      const phase = currentPhase(selectedId);
+      return !ACTIVE_PHASES.has(phase) && phase !== "error" && jobsBySession.get(selectedId) > 0 ? "background" : phase;
     }
 
     return {
+      noteJobs(id, count) { if (count > 0) jobsBySession.set(id, count); else jobsBySession.delete(id); },
       setOffline(value) { offline = Boolean(value); },
       select(id) {
         selectedId = id || null;

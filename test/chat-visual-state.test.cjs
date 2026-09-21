@@ -10,6 +10,23 @@ function fixture(id = "selected") {
   return { visual, body, phase };
 }
 
+test("background jobs wait after completion, yield to model work and clear independently", () => {
+  const { visual, phase } = fixture();
+  visual.noteJobs("other", 3);
+  assert.equal(phase(), "idle");
+  visual.noteJobs("selected", 1);
+  assert.equal(phase(), "background");
+  visual.noteStream("selected", "tool");
+  assert.equal(phase(), "tool");
+  visual.noteCompletion("selected", "done");
+  assert.equal(phase(), "background");
+  visual.noteJobs("selected", 0);
+  assert.equal(phase(), "done");
+  visual.noteJobs("selected", 1);
+  visual.setOffline(true);
+  assert.equal(phase(), "offline");
+});
+
 test("waiting covers API delay and live phases are selected-session scoped", () => {
   const { visual, phase } = fixture();
   visual.noteSendStart("selected");

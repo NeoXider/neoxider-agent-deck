@@ -12,7 +12,7 @@ function textFromContent(content) {
     .slice(0, 4000);
 }
 
-function createStreamPublisher({ queueSnapshots, send }) {
+function createStreamPublisher({ queueSnapshots, backgroundJobs = new Map(), send }) {
   if (!(queueSnapshots instanceof Map)) throw new TypeError("queueSnapshots must be a Map");
   if (typeof send !== "function") throw new TypeError("send must be a function");
 
@@ -80,7 +80,12 @@ function createStreamPublisher({ queueSnapshots, send }) {
     return true;
   }
 
-  return { publishLiveEvent, publishQueue };
+  function publishJobs(sessionId, jobs) {
+    const count = (Array.isArray(jobs) ? jobs : []).filter(job => job?.status === "running" || job?.status === "stopping").length;
+    if (count) backgroundJobs.set(sessionId, count); else backgroundJobs.delete(sessionId);
+    send("live-event", { sessionId, event: { type: "session/jobs", data: { count } } });
+  }
+  return { publishLiveEvent, publishQueue, publishJobs };
 }
 
 module.exports = { createStreamPublisher, textFromContent };

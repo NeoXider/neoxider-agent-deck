@@ -1,0 +1,54 @@
+const { app, BrowserWindow } = require('electron');
+const path = require('node:path');
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+
+app.disableHardwareAcceleration();
+app.whenReady().then(async () => {
+  const win = new BrowserWindow({ show: false, width: 420, height: 720, webPreferences: { sandbox: true, contextIsolation: true, offscreen: true, backgroundThrottling: false } });
+  // Exercise the actual appearance UI without starting the chat client or touching user settings.
+  win.webContents.session.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (request, done) => done({ cancel: new URL(request.url).pathname.endsWith('/app.js') }));
+  await win.loadFile(path.join(__dirname, '../src/renderer/index.html'));
+  const result = await win.webContents.executeJavaScript(`(async () => {
+    document.body.classList.remove('pre-native-visible');
+    const saved = [];
+    window.widget = { setAppearance: async value => { saved.push(JSON.parse(JSON.stringify(value))); return value; } };
+    const $ = value => document.querySelector(value);
+    const change = (id, value) => { $(id).value = value; $(id).dispatchEvent(new Event('change', { bubbles: true })); };
+    $('#settingsPanel').classList.add('open'); $('#settingsPanel').inert = false; $('#settingsPanel').setAttribute('aria-hidden', 'false');
+    window.deckAppearance.selectTab(1);
+    $('.theme-picker').open = true;
+    $('[data-theme-choice="cyberpunk"]').click();
+    change('#backgroundChoice', 'cave');
+    $('#imageOpacityRange').value = '67';
+    $('#imageOpacityRange').dispatchEvent(new Event('input', { bubbles: true }));
+    change('#imageOpacityRange', '67');
+    $('#designProfileName').value = 'My cave'; $('#saveDesignProfile').click();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    change('#backgroundChoice', 'none');
+    $('[data-theme-choice="graphite"]').click();
+    change('#designProfileChoice', 'My cave');
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const restored = { theme: document.body.dataset.design, background: document.body.dataset.background, opacity: $('.deck-backdrop').style.opacity };
+    window.deckAppearance.apply(saved.at(-1));
+    window.deckAppearance.selectTab(2);
+    const shortcuts = !$('#settings-keys').hidden && $('#settings-keys #hotkeySettings').open;
+    $('#settings-tab-keys').focus();
+    $('.settings-tabs').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    const wraps = !$('#settings-general').hidden;
+    window.deckAppearance.selectTab(1);
+    $('.theme-picker').open = true;
+    await $('.deck-backdrop').decode();
+    await new Promise(resolve => setTimeout(resolve, 400));
+    return { restored, shortcuts, wraps, profiles: saved.at(-1).profiles, hiddenWorkspace: getComputedStyle($('.workspace-control')).display === 'none', imageLoaded: $('.deck-backdrop').naturalWidth > 0 };
+  })()`);
+  assert.deepEqual(result.restored, { theme: 'cyberpunk', background: 'cave', opacity: '0.67' });
+  assert.equal(result.profiles[0].name, 'My cave');
+  for (const key of ['shortcuts', 'wraps', 'hiddenWorkspace', 'imageLoaded']) assert.equal(result[key], true, key);
+  const directory = path.join(__dirname, '../tmp/ui-smoke');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, 'appearance-profiles.png'), (await win.webContents.capturePage()).toPNG());
+  console.log('Appearance controls: previews, profiles, opacity, shortcuts and workspace visibility passed.');
+  win.destroy();
+  app.exit(0);
+}).catch(error => { console.error(error); app.exit(1); });

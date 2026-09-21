@@ -8,12 +8,13 @@ const REMOTE_MUX_RECONNECT_MAX = 30000;
 
 function defaultSleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-function createRemoteMuxClient({ getTransport, onQueue = () => {}, onLiveEvent = () => {}, sleep = defaultSleep } = {}) {
+function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () => {}, onLiveEvent = () => {}, sleep = defaultSleep } = {}) {
   if (typeof getTransport !== "function") throw new TypeError("getTransport must be a function");
   let stopped = false;
   let controlRunning = false;
   let controlHandle = null;
   const follows = new Map();
+  const jobSessions = new Set();
 
   // The transport is async because the generation probe may still be settling, and it
   // is null until the harness proves itself to be on the remote generation.
@@ -38,9 +39,18 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onLiveEvent =
           handle = await withChannel("session/control", {}, (value) => {
             if (!value || typeof value !== "object") return;
             if (value.type === "baseline" && value.value) {
+              const jobs = value.value.jobs || {};
+              for (const id of jobSessions) if (!(id in jobs)) onJobs(id, []);
+              jobSessions.clear();
+              for (const [id, items] of Object.entries(jobs)) {
+                jobSessions.add(id); onJobs(id, Array.isArray(items) ? items : []);
+              }
               for (const [sessionId, items] of Object.entries(value.value.queues || {})) {
                 onQueue(sessionId, Array.isArray(items) ? items : []);
               }
+            } else if (value.type === "jobs" && value.sessionId) {
+              jobSessions.add(value.sessionId);
+              onJobs(value.sessionId, Array.isArray(value.jobs) ? value.jobs : []);
             } else if (value.type === "queue" && value.sessionId) {
               onQueue(value.sessionId, Array.isArray(value.items) ? value.items : []);
             }

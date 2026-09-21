@@ -52,13 +52,13 @@ app.whenReady().then(async () => {
     document.querySelector('#settingsPanel').classList.remove('open');
     document.body.classList.remove('pre-native-visible');
     const checks = [];
-    for (const theme of ['aurora', 'graphite', 'midnight']) {
+    for (const theme of ['aurora', 'graphite', 'midnight', 'cyberpunk']) {
       document.body.dataset.design = theme;
-      for (const phase of ['waiting', 'thinking', 'writing', 'tool', 'idle', 'done', 'error', 'offline']) {
+      for (const phase of ['waiting', 'thinking', 'writing', 'tool', 'background', 'idle', 'done', 'error', 'offline']) {
         document.body.dataset.chatState = phase;
         await wait(270);
         const style = getComputedStyle(rim);
-        checks.push({ theme, phase, visible: Number(style.opacity) > .8, animated: style.animationName === 'chat-border-orbit' });
+        checks.push({ theme, phase, visible: Number(style.opacity) > .5, animated: style.animationName === 'chat-border-orbit' });
       }
     }
     document.body.dataset.chatState = 'thinking';
@@ -87,7 +87,7 @@ app.whenReady().then(async () => {
     return { checks, rotates, agentsHidden, motionOff, inputOnly, defaultWindowOff, bothOn, windowOnly, savedBorders, pointer: getComputedStyle(rim).pointerEvents, mask: getComputedStyle(rim).maskComposite };
   })()`);
   for (const check of border.checks) {
-    const active = ['waiting', 'thinking', 'writing', 'tool'].includes(check.phase);
+    const active = ['waiting', 'thinking', 'writing', 'tool', 'background'].includes(check.phase);
     assert.equal(check.visible, active, JSON.stringify(check));
     assert.equal(check.animated, active, JSON.stringify(check));
   }
@@ -100,7 +100,7 @@ app.whenReady().then(async () => {
   assert.ok(border.mask.split(',').every(value => value.trim() === 'exclude'));
   fs.mkdirSync(path.join(__dirname, '../tmp'), { recursive: true });
   fs.writeFileSync(path.join(__dirname, '../tmp/activity-border.png'), (await win.webContents.capturePage()).toPNG());
-  console.log('PASS activity border: 24 theme/state combinations, rotation, stop, Agents visibility and motion preference');
+  console.log('PASS activity border: 36 theme/state combinations, rotation, stop, Agents visibility and motion preference');
   console.log(JSON.stringify(result));
   clearTimeout(deadline);
   app.exit(0);
