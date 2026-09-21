@@ -1687,7 +1687,10 @@ function renderReasoning() {
   const selectedEffort = efforts.find((effort) => effort.id === selectedId);
   const autoLabel = model?.reasoning?.defaultEffort ? `Auto · ${model.reasoning.defaultEffort}` : "Auto";
   $("#reasoningButtonText").textContent = selectedEffort?.name || selectedEffort?.id || autoLabel;
-  $("#reasoningButton").disabled = efforts.length === 0;
+  $("#reasoningButton").disabled = false;
+  $("#reasoningModelName").textContent = model?.name || model?.id || "Choose model";
+  const currentEffortIndex = efforts.findIndex(effort => effort.id === (selectedId || model?.reasoning?.defaultEffort));
+  $("#reasoningButton").dataset.intensity = efforts.length >= 3 && currentEffortIndex === efforts.length - 1 ? "peak" : efforts.length >= 3 && currentEffortIndex === efforts.length - 2 ? "deep" : "normal";
   const root = $("#reasoningOptions");
   const signature = JSON.stringify([effectiveModelSelection()?.provider, model?.id, model?.name, efforts, selectedId, autoLabel]);
   if (root.dataset.signature === signature) return;
@@ -1695,7 +1698,12 @@ function renderReasoning() {
   root.replaceChildren();
   const heading = document.createElement("div");
   heading.className = "reasoning-heading";
-  const copy = document.createElement("div");
+  const copy = document.createElement("button");
+  copy.type = "button"; copy.className = "reasoning-model"; copy.title = "Choose model";
+  copy.addEventListener("click", event => {
+    event.stopPropagation(); closePickers(); $("#agentControls").open = true;
+    togglePicker($("#modelButton")); $("#modelSearch").focus();
+  });
   const title = document.createElement("strong");
   const subtitle = document.createElement("small");
   subtitle.textContent = model?.name || model?.id || "Model";
@@ -1720,7 +1728,8 @@ function renderReasoning() {
     const label = effort?.name || effort?.id || "Auto";
     title.textContent = automatic ? autoLabel : label;
     range.setAttribute("aria-valuetext", automatic ? autoLabel : label);
-    range.style.setProperty("--effort-fill", `calc(14px + (100% - 28px) * ${efforts.length > 1 ? Number(range.value) / (efforts.length - 1) : 0})`);
+    track.dataset.intensity = efforts.length >= 3 && Number(range.value) === efforts.length - 1 ? "peak" : efforts.length >= 3 && Number(range.value) === efforts.length - 2 ? "deep" : "normal";
+    track.style.setProperty("--effort-fill", `calc(14px + (100% - 28px) * ${efforts.length > 1 ? Number(range.value) / (efforts.length - 1) : 0})`);
     dots.querySelectorAll("i").forEach((dot, index) => {
       dot.dataset.filled = String(index < Number(range.value));
       dot.dataset.selected = String(index === Number(range.value));
@@ -1742,7 +1751,11 @@ function renderReasoning() {
   const track = document.createElement("div"); track.className = "reasoning-track";
   const dots = document.createElement("div"); dots.className = "reasoning-dots"; dots.setAttribute("aria-hidden", "true");
   for (const effort of efforts) { const dot = document.createElement("i"); dot.title = effort.name || effort.id; dots.append(dot); }
-  track.append(dots, range); root.append(heading, track); paint(!selectedId);
+  const fill = document.createElement("div"); fill.className = "reasoning-fill"; fill.setAttribute("aria-hidden", "true");
+  const setup = document.createElement("button"); setup.type = "button"; setup.className = "reasoning-setup"; setup.textContent = "Agent settings";
+  setup.addEventListener("click", event => { event.stopPropagation(); closePickers(); $("#agentControls").open = true; });
+  track.hidden = efforts.length === 0;
+  track.append(fill, range, dots); root.append(heading, track, setup); paint(!selectedId);
 }
 
 function modelDisplay(selection) {
@@ -1791,6 +1804,7 @@ function updateControlsSummary() {
   else if (["error", "ready"].includes(state.modelLoadState) && !modelCount()) shortModel = "No model";
   const effort = $("#reasoningButtonText")?.textContent || "Auto";
   $("#controlsPrimary").textContent = shortModel;
+  $("#reasoningModelName").textContent = shortModel;
   $("#controlsSummary").textContent = `${shortModel} · ${effort}`;
   const summary = $("#agentControls > summary");
   const fullLabel = `${modelDisplay(selection)} · ${effort}`;
