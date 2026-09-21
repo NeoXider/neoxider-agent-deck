@@ -1702,10 +1702,13 @@ function renderReasoning() {
   const reset = document.createElement("button");
   reset.type = "button";
   reset.className = "reasoning-reset";
-  reset.textContent = "↺";
+  reset.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 5v5h-5M20 10a8 8 0 1 0 .2 4"/></svg>';
   reset.title = "Reset to Auto";
   reset.setAttribute("aria-label", "Reset reasoning to Auto");
-  copy.append(title, subtitle); heading.append(copy, reset);
+  const emblem = document.createElement("span");
+  emblem.className = "reasoning-emblem";
+  emblem.innerHTML = '<svg class="ui-icon" aria-hidden="true"><use href="#icon-reasoning"/></svg>';
+  copy.append(title, subtitle); heading.append(emblem, copy, reset);
   const range = document.createElement("input");
   range.type = "range"; range.min = "0"; range.max = String(Math.max(0, efforts.length - 1)); range.step = "1";
   range.className = "reasoning-slider";
@@ -1717,7 +1720,11 @@ function renderReasoning() {
     const label = effort?.name || effort?.id || "Auto";
     title.textContent = automatic ? autoLabel : label;
     range.setAttribute("aria-valuetext", automatic ? autoLabel : label);
-    range.style.setProperty("--effort-fill", `${efforts.length > 1 ? Number(range.value) / (efforts.length - 1) * 100 : 0}%`);
+    range.style.setProperty("--effort-fill", `calc(14px + (100% - 28px) * ${efforts.length > 1 ? Number(range.value) / (efforts.length - 1) : 0})`);
+    dots.querySelectorAll("i").forEach((dot, index) => {
+      dot.dataset.filled = String(index < Number(range.value));
+      dot.dataset.selected = String(index === Number(range.value));
+    });
   };
   const choose = async id => {
     const base = effectiveModelSelection();

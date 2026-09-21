@@ -154,20 +154,25 @@ body[data-design="cave"] #sendButton { background:linear-gradient(145deg,#72e5ef
 .reasoning-picker > .picker-button { height:40px; padding:0 9px; gap:5px; }
 .reasoning-picker > .picker-button .picker-chevron { display:none; }
 #reasoningButtonText { max-width:85px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-#reasoningMenu { width:280px; min-width:0; padding:14px; }
+#reasoningMenu { --reasoning-accent:#438aff; width:260px; min-width:0; padding:12px; border-radius:20px; background:#26282c; border-color:#ffffff18; box-shadow:0 10px 28px #0003; }
 #reasoningOptions { display:block; overflow:visible; }
-.reasoning-heading { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.reasoning-heading { display:flex; align-items:center; gap:8px; margin-bottom:14px; }
 .reasoning-heading > div { flex:1; min-width:0; text-align:center; }
-.reasoning-heading strong { display:block; color:var(--mint); font-size:15px; }
-.reasoning-heading small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.65; margin-top:4px; }
-.reasoning-reset { background:transparent; border:0; color:inherit; opacity:.7; font-size:24px; width:30px; height:30px; cursor:pointer; }
-.reasoning-reset:hover { opacity:1; }
-.reasoning-track { position:relative; height:32px; }
-.reasoning-slider { appearance:none; position:absolute; inset:0; width:100%; height:32px; margin:0; border-radius:99px; cursor:pointer; background:linear-gradient(90deg,var(--mint) var(--effort-fill),rgba(255,255,255,.13) var(--effort-fill)); }
-.reasoning-slider::-webkit-slider-thumb { appearance:none; width:30px; height:30px; border-radius:50%; background:#fff; box-shadow:0 1px 5px #0005; }
-.reasoning-slider:focus-visible { outline:2px solid var(--mint); outline-offset:4px; }
+.reasoning-heading strong { display:block; color:var(--reasoning-accent); font-size:13px; font-weight:600; line-height:18px; }
+.reasoning-heading small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#b7b8bc; font-size:11px; line-height:16px; margin-top:1px; }
+.reasoning-emblem,.reasoning-reset { flex:none; width:24px; height:24px; display:grid; place-items:center; color:#a0a2a9; }
+.reasoning-emblem .ui-icon { width:17px; height:17px; }
+.reasoning-reset { padding:3px; border:0; border-radius:50%; background:transparent; cursor:pointer; transition:background .15s,color .15s; }
+.reasoning-reset svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+.reasoning-reset:hover { color:#fff; background:#ffffff0d; }
+.reasoning-track { position:relative; height:28px; }
+.reasoning-slider { appearance:none; position:absolute; inset:0; width:100%; height:28px; margin:0; border-radius:99px; cursor:pointer; background:linear-gradient(90deg,var(--reasoning-accent) var(--effort-fill),#414348 var(--effort-fill)); box-shadow:inset 0 0 0 1px #ffffff08; }
+.reasoning-slider::-webkit-slider-thumb { appearance:none; width:28px; height:28px; border:1px solid #d9dce3; border-radius:50%; background:#fff; box-shadow:0 1px 3px #0003; }
+.reasoning-slider:focus-visible { outline:2px solid var(--reasoning-accent); outline-offset:4px; }
 .reasoning-dots { position:absolute; inset:0 14px; display:flex; justify-content:space-between; align-items:center; pointer-events:none; z-index:1; }
-.reasoning-dots i { width:4px; height:4px; border-radius:50%; background:currentColor; opacity:.35; }
+.reasoning-dots i { flex:none; width:4px; height:4px; border-radius:50%; background:#989ba3; }
+.reasoning-dots i[data-filled="true"] { background:#eaf2ff; }
+.reasoning-dots i[data-selected="true"] { visibility:hidden; }
 @media (max-width:380px) { .chat-heading { grid-template-columns:34px 34px minmax(0,1fr) auto; gap:5px; } #reasoningButtonText { max-width:60px; } .reasoning-picker > .picker-button { height:38px; padding:0 6px; } }
 /* Capsule composer: inset controls follow the outer curve without nested boxes. */
 body.mode-full #chatForm.composer { border-radius:26px; padding:5px 6px; column-gap:4px; }
