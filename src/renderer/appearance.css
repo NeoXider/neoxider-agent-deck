@@ -276,3 +276,29 @@ body.mode-full .composer-utility-stack .composer-action { width:17px; height:17p
 #windowLayerSwitch button[aria-pressed="true"] { color:var(--text); border-color:color-mix(in srgb,var(--mint) 55%,transparent); background:color-mix(in srgb,var(--mint) 12%,transparent); }
 .settings-tabs::before { border-radius:999px; }
 .settings-tabs button { border-radius:999px; }
+/* Image choices use restrained gallery cards so the artwork stays legible. */
+#settings-design .theme-picker { border:1px solid #ffffff14; border-radius:14px; background:#ffffff03; }
+#settings-design .theme-picker > summary { min-height:44px; padding:10px 12px; font-size:11px; }
+#settings-design .theme-picker > summary b { color:var(--muted); font-size:10px; font-weight:500; }
+.theme-chevron { flex:none; width:16px; height:16px; color:var(--muted); transition:transform var(--motion-control) var(--ease-deck); }
+.theme-picker[open] > summary .theme-chevron { transform:rotate(180deg); }
+#settings-design .design-themes { gap:8px; padding:0 10px 10px; }
+#settings-design .design-themes button { position:relative; padding:5px; border:1px solid #ffffff12; border-radius:10px; background:#ffffff04; box-shadow:none; }
+#settings-design .design-themes button:hover { border-color:#ffffff40; background:#ffffff08; }
+#settings-design .design-themes button[aria-pressed="true"] { border-color:var(--mint); background:color-mix(in srgb,var(--mint) 5%,transparent); }
+#settings-design .design-themes button[aria-pressed="true"]::after { content:"✓"; position:absolute; top:9px; right:9px; display:grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--mint); color:#10151b; font-size:11px; font-weight:700; box-shadow:0 1px 5px #0006; }
+#settings-design .theme-swatch { border:0; border-radius:6px; }
+#settings-design .background-picker .theme-swatch { height:auto; aspect-ratio:16/9; }
+#settings-design .design-themes b { margin:7px 4px 3px; font-size:10px; font-weight:500; color:var(--text); }
+#settings-design .design-themes small { margin:0 4px 3px; }
+#settings-design .swatch-none { font-size:22px; background:#ffffff05; }
+#settings-design .background-preview { border:1px solid #ffffff14; border-radius:12px; background:#ffffff03; }
+#settings-design .background-preview img { height:96px; }
+#settings-design .background-preview figcaption { padding:7px 10px; font-size:10px; }
+#settings-design > .setting-block { display:block; }
+#settings-design .layer-switch { margin-top:8px; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; padding:4px; border:1px solid #ffffff14; border-radius:12px; background:#ffffff03; }
+#settings-design .layer-switch button { height:32px; border-radius:8px; font-size:10px; font-weight:500; }
+#settings-design .layer-switch button[aria-pressed="true"] { color:var(--text); background:color-mix(in srgb,var(--mint) 12%,#ffffff04); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--mint) 25%,transparent); }
+#backgroundFile { display:block; box-sizing:border-box; padding:5px; border:1px solid #ffffff14; border-radius:10px; background:#ffffff03; color:var(--muted); font:inherit; cursor:pointer; }
+#backgroundFile::file-selector-button { margin-right:9px; padding:8px 10px; border:0; border-radius:6px; background:#ffffff10; color:var(--text); font:inherit; cursor:pointer; }
+#backgroundFile::file-selector-button:hover { background:#ffffff1c; }

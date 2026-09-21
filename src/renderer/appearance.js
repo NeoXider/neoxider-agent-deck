@@ -19,7 +19,7 @@
   design.setAttribute('role', 'tabpanel');
   design.setAttribute('aria-labelledby', 'settings-tab-design');
   design.innerHTML = `<p class="design-intro">Make Deck feel like yours.</p>
-    <details class="theme-picker"><summary>Theme <b id="themeChoiceLabel">Aurora</b><span aria-hidden="true">⌄</span></summary><div class="design-themes" role="group" aria-label="Theme previews">
+    <details class="theme-picker"><summary>Theme <b id="themeChoiceLabel">Aurora</b><svg class="ui-icon theme-chevron" aria-hidden="true"><use href="#icon-chevron"/></svg></summary><div class="design-themes" role="group" aria-label="Theme previews">
       <button type="button" data-theme-choice="aurora"><span class="theme-swatch swatch-aurora" aria-hidden="true"></span><b>Aurora</b><small>Soft light</small></button>
       <button type="button" data-theme-choice="graphite"><span class="theme-swatch swatch-graphite" aria-hidden="true"></span><b>Graphite</b><small>Quiet & matte</small></button>
       <button type="button" data-theme-choice="midnight"><span class="theme-swatch swatch-midnight" aria-hidden="true"></span><b>Midnight</b><small>Deep blue</small></button>
@@ -29,7 +29,7 @@
     <label class="setting-block">My profiles<select id="designProfileChoice"><option value="">Choose saved profile…</option></select></label>
     <div class="profile-editor"><input id="designProfileName" aria-label="Profile name" maxlength="40" placeholder="Profile name" /><button id="saveDesignProfile" type="button">Save</button><button id="deleteDesignProfile" type="button">Delete</button></div>
     <label class="toggle-setting"><span>Override theme background</span><input id="overrideBackground" type="checkbox" /></label>
-    <details class="background-picker theme-picker"><summary>Background <b id="backgroundChoiceLabel">No image</b><span aria-hidden="true">⌄</span></summary><div class="design-themes" role="group" aria-label="Background previews">
+    <details class="background-picker theme-picker"><summary>Background <b id="backgroundChoiceLabel">No image</b><svg class="ui-icon theme-chevron" aria-hidden="true"><use href="#icon-chevron"/></svg></summary><div class="design-themes" role="group" aria-label="Background previews">
       <button type="button" data-background-choice="none"><span class="theme-swatch swatch-none" aria-hidden="true">∅</span><b>No image</b></button>
       <button type="button" data-background-choice="cave"><img class="theme-swatch" src="assets/backgrounds/cave.webp" alt="" /><b>Anime cave</b></button>
       <button type="button" data-background-choice="forest"><img class="theme-swatch" src="assets/backgrounds/forest.webp" alt="" /><b>Night forest</b></button>

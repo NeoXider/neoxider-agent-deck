@@ -56,6 +56,17 @@ app.whenReady().then(async () => {
   const directory = path.join(__dirname, '../tmp/ui-smoke');
   fs.mkdirSync(directory, { recursive: true });
   fs.writeFileSync(path.join(directory, 'appearance-profiles.png'), (await win.webContents.capturePage()).toPNG());
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.theme-picker').open = false;
+    const picker = document.querySelector('.background-picker');
+    picker.open = true;
+    picker.scrollIntoView({ block: 'start' });
+  })()`);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  fs.writeFileSync(path.join(directory, 'appearance-backgrounds.png'), (await win.webContents.capturePage()).toPNG());
+  await win.webContents.executeJavaScript(`document.querySelector('#backgroundFile').scrollIntoView({ block: 'center' })`);
+  await new Promise(resolve => setTimeout(resolve, 300));
+  fs.writeFileSync(path.join(directory, 'appearance-movement.png'), (await win.webContents.capturePage()).toPNG());
   console.log('Appearance controls: previews, profiles, opacity, shortcuts and workspace visibility passed.');
   win.destroy();
   app.exit(0);
