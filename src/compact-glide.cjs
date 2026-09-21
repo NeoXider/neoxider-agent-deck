@@ -43,12 +43,12 @@ function createCompactGlide({
 
   // A new drag, a mode change or a second release must not fight a flight in progress.
   // The pending completion still runs, so the window always ends up exactly placed.
-  function stop() {
+  function stop(complete = true) {
     if (timer !== null) cancel(timer);
     timer = null;
     const done = finish;
     finish = null;
-    done?.();
+    if (complete) done?.();
   }
 
   function glide(from, to, onDone = () => {}) {

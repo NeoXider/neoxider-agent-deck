@@ -5,6 +5,23 @@ All notable changes to NeoXider Agent Deck are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.7] - 2026-09-21
+
+### Added
+
+- Always-visible reasoning control beside model setup, with a discrete supported-level slider and Auto reset.
+- Instant screenshot-and-send shortcut (Ctrl+Alt+Shift+Enter), excluding Deck and preserving the draft, window mode and foreground focus.
+- Cave and Cyberpunk themes, expandable background previews, background override, independent image opacity (30% default), saved design profiles and a separate Shortcuts tab.
+- Background-task waiting indication and renderer performance regression checks with retained-heap and allocation sampling.
+
+### Fixed
+
+- Composer resizing no longer collapses the visible input on every keystroke; one reusable offscreen measurement field avoids transcript relayout and coalesces rapid input.
+- Interrupted compact-window glides no longer snap to obsolete targets; avatar positions use actual window height during pending status expansion, and pointer release cannot finish a drag twice.
+- Theme and background preview panels stay expanded while selecting; saved profile options are not rebuilt on every settings update.
+- Compact goal footer, consistent rounded controls and a continuous active border beneath the animated highlight.
+- Queued message edits retain their text through IPC.
+
 ## [0.9.6] - 2026-09-20
 
 ### Added

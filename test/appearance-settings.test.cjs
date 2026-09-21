@@ -29,7 +29,7 @@ test('cyberpunk and custom image survive disk save/reload, including disabling t
   const filePath = path.join(directory, 'settings.json');
   try {
     const appearance = { theme: 'cyberpunk', motion: 'fluid', inputBorder: true, windowBorder: false,
-      background: 'custom', customBackground: 'data:image/png;base64,AAAA', imageOpacity: .42, profiles: [] };
+      background: 'custom', customBackground: 'data:image/png;base64,AAAA', imageOpacity: .30, overrideBackground: false, profiles: [] };
     createSettingsStore({ filePath }).save(normalizePreferences({ appearance }));
     assert.deepEqual(createSettingsStore({ filePath }).load().appearance, appearance);
     appearance.background = 'none';

@@ -7,6 +7,7 @@ const HOTKEY_ACTIONS = Object.freeze([
   "openHarness",
   "captureDisplay",
   "captureRegion",
+  "captureDisplaySend",
 ]);
 
 const DEFAULT_HOTKEYS = Object.freeze({
@@ -17,6 +18,7 @@ const DEFAULT_HOTKEYS = Object.freeze({
   newSession: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+N" }),
   openHarness: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+H" }),
   captureDisplay: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+D" }),
+  captureDisplaySend: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+Enter" }),
   captureRegion: Object.freeze({ enabled: true, accelerator: "CommandOrControl+Alt+Shift+S" }),
 });
 

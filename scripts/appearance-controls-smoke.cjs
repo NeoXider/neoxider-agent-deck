@@ -18,7 +18,15 @@ app.whenReady().then(async () => {
     $('#settingsPanel').classList.add('open'); $('#settingsPanel').inert = false; $('#settingsPanel').setAttribute('aria-hidden', 'false');
     window.deckAppearance.selectTab(1);
     $('.theme-picker').open = true;
+    $('[data-theme-choice="cave"]').click();
+    const linked = document.body.dataset.background === 'cave' && document.body.dataset.design === 'cave';
+    const menuStayedOpen = $('.theme-picker').open;
+    $('#overrideBackground').checked = true; $('#overrideBackground').dispatchEvent(new Event('change', { bubbles: true }));
     $('[data-theme-choice="cyberpunk"]').click();
+    const overridden = document.body.dataset.background === 'cave';
+    $('#overrideBackground').checked = false; $('#overrideBackground').dispatchEvent(new Event('change', { bubbles: true }));
+    const relinked = document.body.dataset.background === 'cyberpunk';
+
     change('#backgroundChoice', 'cave');
     $('#imageOpacityRange').value = '67';
     $('#imageOpacityRange').dispatchEvent(new Event('input', { bubbles: true }));
@@ -40,11 +48,11 @@ app.whenReady().then(async () => {
     $('.theme-picker').open = true;
     await $('.deck-backdrop').decode();
     await new Promise(resolve => setTimeout(resolve, 400));
-    return { restored, shortcuts, wraps, profiles: saved.at(-1).profiles, hiddenWorkspace: getComputedStyle($('.workspace-control')).display === 'none', imageLoaded: $('.deck-backdrop').naturalWidth > 0 };
+    return { linked, overridden, relinked, menuStayedOpen, restored, shortcuts, wraps, profiles: saved.at(-1).profiles, hiddenWorkspace: getComputedStyle($('.workspace-control')).display === 'none', imageLoaded: $('.deck-backdrop').naturalWidth > 0 };
   })()`);
   assert.deepEqual(result.restored, { theme: 'cyberpunk', background: 'cave', opacity: '0.67' });
   assert.equal(result.profiles[0].name, 'My cave');
-  for (const key of ['shortcuts', 'wraps', 'hiddenWorkspace', 'imageLoaded']) assert.equal(result[key], true, key);
+  for (const key of ['linked', 'overridden', 'relinked', 'menuStayedOpen', 'shortcuts', 'wraps', 'hiddenWorkspace', 'imageLoaded']) assert.equal(result[key], true, key);
   const directory = path.join(__dirname, '../tmp/ui-smoke');
   fs.mkdirSync(directory, { recursive: true });
   fs.writeFileSync(path.join(directory, 'appearance-profiles.png'), (await win.webContents.capturePage()).toPNG());

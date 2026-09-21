@@ -720,7 +720,7 @@ test("the goal is a hairline strip under the composer that opens into queue-styl
   assert.match(renderer, /summary\.title = paused \?/);
   assert.match(renderer, /\$\("#goalTrackFill"\)\.style\.width = `\$\{Math\.round\(progress \* 100\)\}%`/);
   assert.match(css, /\.goal-dock-phase\.paused/);
-  assert.match(visualSmoke, /goalDockOpen: false, goalPhase: "active", goalDockBelowComposer: true, goalStripPinnedToBottom: true, goalStripHeight: 18, goalStripTextFree: true/);
+  assert.match(visualSmoke, /goalDockOpen: false, goalPhase: "active", goalDockBelowComposer: true, goalStripPinnedToBottom: true, goalStripHeight: 14, goalStripTextFree: true/);
   assert.match(visualSmoke, /goalActionCount: 2, goalPauseAction: "Pause the goal"/);
   assert.match(visualSmoke, /goalPhase: "paused", goalPauseAction: "Resume the goal", goalStripPauseGlyph: "#icon-play"/);
 });
@@ -1114,15 +1114,15 @@ test("interactive controls, view transitions, compact modes, and send have reduc
   assert.match(renderer, /behavior: reduceMotion \? "auto" : "smooth"/);
 });
 
-test("screen capture is a visible header action and only prepares reviewed chat attachments", () => {
+test("ordinary screen capture prepares reviewed chat attachments", () => {
   const preload = readSource("src", "preload.cjs");
   assert.match(html, /id="captureButton"/);
   assert.match(html, /data-capture="region"/);
   assert.match(html, /data-capture="display"/);
   assert.match(preload, /captureScreenshot: \(kind\) => ipcRenderer\.invoke\("capture-screenshot", kind\)/);
   assert.match(ipc, /handle\("capture-screenshot"/);
-  assert.match(main, /screenshotCaptureGate\.run/);
-  assert.match(main, /await screenshotService\.removeCapture\(result\.path\)/);
+  assert.match(main, /gate: screenshotCaptureGate/);
+  assert.match(readFileSync(path.join(__dirname, "../src/chat-capture.cjs"), "utf8"), /await service\.removeCapture\(result\.path\)/);
   assert.match(ipc, /await cleanupSentCaptureFiles\(attachments\)/);
   assert.match(renderer, /addAttachments\(result\.prepared\)/);
   assert.match(renderer, /Screenshot attached above the message field\. Review it before sending\./);
@@ -1859,7 +1859,7 @@ test("the release snap flies to the edge, with the side applied first", () => {
   assert.ok(sideAt < glideAt, "the side goes before the flight");
   assert.doesNotMatch(snap, /setPlatformBounds\(windowRef, \{ x: snapped\.x/, "no single-frame teleport");
   // A new drag must not fight a flight in progress.
-  assert.match(main, /setCompactDragOrigin: \(value\) => \{ if \(value\) compactGlide\.stop\(\); compactDragOrigin = value; \}/);
+  assert.match(main, /setCompactDragOrigin: \(value\) => \{ if \(value\) compactGlide\.stop\(false\); compactDragOrigin = value; \}/);
 });
 
 test("mode transitions keep their fade across the IPC and honour the motion switch", () => {

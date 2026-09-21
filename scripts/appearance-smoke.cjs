@@ -52,7 +52,7 @@ app.whenReady().then(async () => {
     document.querySelector('#settingsPanel').classList.remove('open');
     document.body.classList.remove('pre-native-visible');
     const checks = [];
-    for (const theme of ['aurora', 'graphite', 'midnight', 'cyberpunk']) {
+    for (const theme of ['aurora', 'graphite', 'midnight', 'cyberpunk', 'cave']) {
       document.body.dataset.design = theme;
       for (const phase of ['waiting', 'thinking', 'writing', 'tool', 'background', 'idle', 'done', 'error', 'offline']) {
         document.body.dataset.chatState = phase;
@@ -100,7 +100,7 @@ app.whenReady().then(async () => {
   assert.ok(border.mask.split(',').every(value => value.trim() === 'exclude'));
   fs.mkdirSync(path.join(__dirname, '../tmp'), { recursive: true });
   fs.writeFileSync(path.join(__dirname, '../tmp/activity-border.png'), (await win.webContents.capturePage()).toPNG());
-  console.log('PASS activity border: 36 theme/state combinations, rotation, stop, Agents visibility and motion preference');
+  console.log('PASS activity border: 45 theme/state combinations, rotation, stop, Agents visibility and motion preference');
   console.log(JSON.stringify(result));
   clearTimeout(deadline);
   app.exit(0);

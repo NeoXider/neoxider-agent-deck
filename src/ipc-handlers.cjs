@@ -430,7 +430,7 @@ function registerIpcHandlers({
     return preferences.motionEffects;
   });
   handle("set-appearance", (_event, value) => {
-    if (!["aurora", "graphite", "midnight", "cyberpunk"].includes(value?.theme)
+    if (!["aurora", "graphite", "midnight", "cyberpunk", "cave"].includes(value?.theme)
       || !["fluid", "subtle"].includes(value?.motion)) throw new TypeError("Invalid appearance");
     const preferences = getPreferences();
     preferences.appearance = { theme: value.theme, motion: value.motion, inputBorder: value.inputBorder !== false, windowBorder: value.windowBorder === true, ...normalizeBackground(value), profiles: normalizeDesignProfiles(value?.profiles) };

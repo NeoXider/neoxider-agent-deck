@@ -10,8 +10,8 @@
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%7C%2011-49e7c6" />
   <img alt="Electron" src="https://img.shields.io/badge/Electron-44-8b79ff" />
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.9.6-8b79ff" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.9.6-49e7c6" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.9.7-8b79ff" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.9.7-49e7c6" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -306,7 +306,7 @@ npm run tool-smoke
 npm run build
 ```
 
-The portable executable is written to `release/NeoXider-Agent-Deck-0.9.6-windows-x64-portable.exe`.
+The portable executable is written to `release/NeoXider-Agent-Deck-0.9.7-windows-x64-portable.exe`.
 
 The test suite verifies the official Harness event shapes, ephemeral reasoning, safe Markdown, tool grouping/correlation, single-instance behavior hooks, compact-window geometry, and UI contracts. `test:ui` launches Electron in deterministic desktop and minimum-size scenarios and rejects clipped or overflowing layouts. `feature-smoke` verifies workspace-aware session creation, live command discovery/execution and reasoning-capable model discovery. `chat-smoke` creates a real Harness session and expects an `OK` reply from the configured LM Studio route. `tool-smoke` additionally requires that model to execute a real Harness tool and checks the widget's correlated tool card.
 
@@ -328,7 +328,7 @@ Screen capture, configurable global hotkeys, and the three-session pet switcher 
 
 ## Changelog
 
-Every release is documented in [CHANGELOG.md](CHANGELOG.md). Source version 0.9.6 adds device approval for Wi-Fi access, fixes authenticated opening from the tray and hotkey, and shows full-context compaction estimates when history supports them.
+Every release is documented in [CHANGELOG.md](CHANGELOG.md). Source version 0.9.7 adds device approval for Wi-Fi access, fixes authenticated opening from the tray and hotkey, and shows full-context compaction estimates when history supports them.
 
 ## Platform support
 
@@ -355,3 +355,11 @@ Enable **Device access on Wi-Fi** in the Agent Deck tray menu, then open the **P
 Device access is off by default. Keep Deck running; restarting it or disabling access revokes approved devices, and cookies expire after at most 30 days. Port 3080 remains the original Harness endpoint. **Open Harness** on the computer uses the saved authenticated launch URL. A missing/stale launch URL must be recovered through the normal Harness launcher, not by disabling authentication.
 
 The phone endpoint uses HTTP on the trusted local network. If Windows Firewall blocks it, allow inbound TCP 3099 for the actual Agent Deck executable only from the local subnet. Do not forward this port to the internet. Network addresses are sampled when Deck starts; restart it after an address change. This feature does not change Chrome's debugger notification.
+
+### Quick reasoning and screen sharing
+
+Reasoning effort is always available beside the model setup button. Its compact slider uses the selected model's supported levels; the reset button restores Auto.
+
+**Ctrl+Alt+Shift+Enter** captures the monitor under the pointer and immediately sends it to the selected chat. Deck hides during capture and returns without taking focus. This shortcut does not send or clear the composer draft. Change or disable it in **Settings → Shortcuts**. The existing display/region shortcuts still attach images for review.
+
+In **Settings → Design**, expand theme and background preview cards. Cave and Cyberpunk include matching backgrounds by default; enable **Override theme background** to mix them. Image opacity defaults to 30%, separately from panel transparency. Save combinations as named profiles.

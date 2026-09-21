@@ -83,3 +83,16 @@ test("a window that can no longer be moved ends the flight without completing it
   assert.equal(done, 0);
   assert.equal(glide.active, false);
 });
+
+test("a new grab cancels a flight without teleporting to its obsolete target", () => {
+  const clock = manualClock();
+  let position = { x: 900, y: 300 };
+  let done = 0;
+  const glide = createCompactGlide({ setPosition: (x, y) => { position = { x, y }; }, schedule: clock.schedule, cancel: clock.cancel });
+  glide.glide(position, { x: 12, y: 360 }, () => { position = { x: 12, y: 360 }; done++; });
+  const grabbed = { ...position };
+  glide.stop(false);
+  clock.runAll();
+  assert.deepEqual(position, grabbed);
+  assert.equal(done, 0);
+});

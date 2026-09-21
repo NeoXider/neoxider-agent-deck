@@ -121,12 +121,6 @@
                 <div id="modelOptions" class="picker-options model-options" role="listbox" aria-label="Models"></div>
               </div>
             </div>
-            <div class="picker reasoning-picker">
-              <button id="reasoningButton" class="picker-button" type="button" aria-haspopup="listbox" aria-controls="reasoningMenu" aria-expanded="false" title="Reasoning effort">
-                <svg class="ui-icon"><use href="#icon-reasoning"/></svg><span id="reasoningButtonText">Auto</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
-              </button>
-              <div id="reasoningMenu" class="picker-menu align-right" role="listbox"><div id="reasoningOptions" class="picker-options"></div></div>
-            </div>
             <div class="workspace-control" hidden>
               <div class="picker workspace-picker">
                 <button id="workspaceButton" class="picker-button" type="button" aria-haspopup="listbox" aria-controls="workspaceMenu" aria-expanded="false" title="Workspace for a new session">
@@ -142,6 +136,12 @@
             </div>
             </div>
           </details>
+            <div class="picker reasoning-picker">
+              <button id="reasoningButton" class="picker-button" type="button" aria-haspopup="dialog" aria-controls="reasoningMenu" aria-expanded="false" title="Reasoning effort">
+                <svg class="ui-icon"><use href="#icon-reasoning"/></svg><span id="reasoningButtonText">Auto</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
+              </button>
+              <div id="reasoningMenu" class="picker-menu align-right" role="dialog" aria-label="Reasoning effort"><div id="reasoningOptions" class="picker-options"></div></div>
+            </div>
         </div>
 
         <button id="subagentsButton" class="subagents-button no-drag" type="button" hidden><svg class="ui-icon"><use href="#icon-agents"/></svg><span></span></button>
@@ -266,6 +266,7 @@
             <div class="hotkey-row"><label for="hotkey-newSession">New session</label><input id="hotkey-newSession" data-hotkey-action="newSession" type="text" readonly /><input data-hotkey-enabled="newSession" type="checkbox" aria-label="Enable New session shortcut" /></div>
             <div class="hotkey-row"><label for="hotkey-openHarness">Open Harness</label><input id="hotkey-openHarness" data-hotkey-action="openHarness" type="text" readonly /><input data-hotkey-enabled="openHarness" type="checkbox" aria-label="Enable Open Harness shortcut" /></div>
             <div class="hotkey-row"><label for="hotkey-captureDisplay">Capture display</label><input id="hotkey-captureDisplay" data-hotkey-action="captureDisplay" type="text" readonly /><input data-hotkey-enabled="captureDisplay" type="checkbox" aria-label="Enable Capture display shortcut" /></div>
+            <div class="hotkey-row"><label for="hotkey-captureDisplaySend">Capture screen and send</label><input id="hotkey-captureDisplaySend" data-hotkey-action="captureDisplaySend" type="text" readonly /><input data-hotkey-enabled="captureDisplaySend" type="checkbox" aria-label="Enable Capture screen and send shortcut" /></div>
             <div class="hotkey-row"><label for="hotkey-captureRegion">Capture region</label><input id="hotkey-captureRegion" data-hotkey-action="captureRegion" type="text" readonly /><input data-hotkey-enabled="captureRegion" type="checkbox" aria-label="Enable Capture region shortcut" /></div>
           </div>
           <div class="hotkey-footer"><small id="hotkeyStatus" role="status" aria-live="polite">Ready</small><button id="resetHotkeysButton" type="button">Reset defaults</button></div>

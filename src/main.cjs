@@ -131,7 +131,6 @@ let compactDragTrace = [];
 // so Full reopens at a stale position for the rest of the session; a stranded compact one
 // keeps the orb from ever resizing again and leaves its transparent window eating clicks.
 function releaseDragOrigins() { compactDragOrigin = null; fullDragOrigin = null; compactGlide.stop(); }
-// The release snap flies to the edge over a few frames; see compact-glide.cjs.
 const compactGlide = createCompactGlide({ setPosition: (x, y) => (windowRef && !windowRef.isDestroyed() ? (windowRef.setPosition(x, y, false), true) : false) });
 const queueSnapshots = new Map();
 let rendererRecovery;
@@ -248,38 +247,11 @@ function screenshotDisplayPoint() {
   return { x: bounds.x + Math.round(bounds.width / 2), y: bounds.y + Math.round(bounds.height / 2) };
 }
 
-async function captureScreenshotForChat(kind) {
-  if (!screenshotService || !["display", "region"].includes(kind)) {
-    return { ok: false, canceled: false, reason: "screenshot-service-unavailable" };
-  }
-  return screenshotCaptureGate.run(async () => {
-    const previousMode = windowMode;
-    let restoredToFull = false;
-    if (windowRef && !windowRef.isDestroyed()) windowRef.hide();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    try {
-      const result = kind === "display"
-        ? await screenshotService.captureDisplay({ point: screenshotDisplayPoint() })
-        : await screenshotService.captureRegion();
-      if (!result.ok) return result;
-      let prepared;
-      try {
-        prepared = await prepareFiles([result.path]);
-      } finally {
-        try {
-          await screenshotService.removeCapture(result.path);
-        } catch (error) {
-          console.warn("Failed to remove prepared screenshot", error);
-        }
-      }
-      applyWindowMode("full");
-      restoredToFull = true;
-      return { ...result, prepared };
-    } finally {
-      if (!restoredToFull && windowRef && !windowRef.isDestroyed()) {
-        applyWindowMode(previousMode, { captureCurrent: false, persist: false });
-      }
-    }
+function captureScreenshotForChat(kind) {
+  return require("./chat-capture.cjs").captureForChat(kind, {
+    service: screenshotService, gate: screenshotCaptureGate, window: windowRef,
+    mode: windowMode, displayPoint: screenshotDisplayPoint, cursorPoint: () => screen.getCursorScreenPoint(),
+    prepareFiles, applyWindowMode,
   });
 }
 
@@ -349,8 +321,8 @@ remoteMux = createRemoteMuxClient({
 
 function captureWindowBounds(mode, bounds, side = preferences.compactSide, setLastMode = true) {
   const previousMode = preferences.windowState.mode;
-  const canonicalBounds = mode === "orb" && compactStatus.expanded
-    ? resizeCompactAnchor(bounds, ORB_EXPANDED_HEIGHT, ORB_SIZE)
+  const canonicalBounds = mode === "orb"
+    ? resizeCompactAnchor(bounds, bounds.height, ORB_SIZE)
     : bounds;
   const windowState = captureModeBounds(preferences.windowState, mode, canonicalBounds, side);
   if (!setLastMode) windowState.mode = previousMode;
@@ -418,7 +390,7 @@ function moveEdgeWindowToPointer(origin, pointer) {
   if (!PLATFORM_CAPABILITIES.programmaticPosition) return origin?.bounds || origin;
   const display = screen.getDisplayNearestPoint({ x: Math.round(pointer.x), y: Math.round(pointer.y) }).workArea;
   const placed = edgeDragPlacement(origin, pointer, display, preferences.compactSide);
-  windowRef.setPosition(placed.x, placed.y, false);
+  if (windowRef.getBounds().x !== placed.x || windowRef.getBounds().y !== placed.y) windowRef.setPosition(placed.x, placed.y, false);
   if (placed.side !== preferences.compactSide) {
     preferences.compactSide = placed.side;
     sendToRenderer("compact-side", placed.side);
@@ -454,6 +426,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   // A drag interrupted by a mode change never delivers its pointerup: the element that
   // started it is display:none by then. See releaseDragOrigins for what a stranded one costs.
   if (nextMode !== windowMode) releaseDragOrigins();
+  compactGlide.stop();
   if (captureCurrent) captureWindowBounds(windowMode, windowRef.getBounds());
   windowMode = nextMode;
   preferences.windowState.mode = nextMode;
@@ -645,7 +618,7 @@ function registerWidgetIpc() {
     getCompactStatus: () => compactStatus,
     setCompactStatus: (value) => { compactStatus = value; },
     getCompactDragOrigin: () => compactDragOrigin,
-    setCompactDragOrigin: (value) => { if (value) compactGlide.stop(); compactDragOrigin = value; },
+    setCompactDragOrigin: (value) => { if (value) compactGlide.stop(false); compactDragOrigin = value; },
     getFullDragOrigin: () => fullDragOrigin,
     setFullDragOrigin: (value) => { fullDragOrigin = value; },
     getCompactStatusResizePending: () => compactStatusResizePending,
@@ -757,6 +730,7 @@ app.whenReady().then(() => {
       openHarness: () => shell.openExternal(desktopHarnessUrl(HARNESS_URL, harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl)),
       captureDisplay: () => captureScreenshotFromHotkey("display"),
       captureRegion: () => captureScreenshotFromHotkey("region"),
+      captureDisplaySend: () => sendToRenderer("hotkey-action", "captureDisplaySend"),
     },
     onError: (error) => {
       hotkeyRegistrationError = hotkeyErrorView(error);

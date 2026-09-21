@@ -268,7 +268,16 @@ function restoreMessageInputViewport(input, snapshot) {
   input.scrollLeft = snapshot.scrollLeft;
 }
 
+let composerMeasureInput = null;
 function resizeMessageInput({ immediate = false } = {}) {
+  // Coalesce typing/paste bursts before any layout reads, not after measuring.
+  if (!immediate) {
+    if (!messageInputResizeFrame) messageInputResizeFrame = requestAnimationFrame(() => {
+      messageInputResizeFrame = null;
+      resizeMessageInput({ immediate: true });
+    });
+    return;
+  }
   const input = $("#messageInput");
   if (!input) return;
   const messageLayout = captureMessageLayoutSnapshot();
@@ -277,7 +286,20 @@ function resizeMessageInput({ immediate = false } = {}) {
   const lineHeight = Number.parseFloat(style.lineHeight) || 15;
   const viewportMaximum = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.floor(window.innerHeight * COMPOSER_INPUT_MAX_VIEWPORT_RATIO));
   const maximumHeight = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.floor(viewportMaximum / lineHeight) * lineHeight);
-  const previousHeight = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.round(input.getBoundingClientRect().height));
+  // Measure in an isolated textarea: collapsing the visible composer used to
+  // reflow every transcript row twice for each keystroke.
+  if (!composerMeasureInput) {
+    composerMeasureInput = document.createElement("textarea");
+    composerMeasureInput.tabIndex = -1;
+    composerMeasureInput.setAttribute("aria-hidden", "true");
+    composerMeasureInput.style.cssText = "position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none;contain:strict;box-sizing:border-box;height:0;min-height:0;max-height:none;resize:none;";
+    document.body.append(composerMeasureInput);
+  }
+  const measure = composerMeasureInput;
+  for (const key of ["font", "lineHeight", "letterSpacing", "padding", "borderWidth", "borderStyle", "whiteSpace", "wordBreak", "overflowWrap", "tabSize"]) measure.style[key] = style[key];
+  measure.style.width = `${input.getBoundingClientRect().width}px`;
+  measure.style.overflowY = "hidden";
+  measure.value = input.value;
   const snapshot = {
     selectionStart: input.selectionStart,
     selectionEnd: input.selectionEnd,
@@ -289,31 +311,22 @@ function resizeMessageInput({ immediate = false } = {}) {
       && input.selectionEnd === input.value.length
       && input.scrollTop + input.clientHeight >= input.scrollHeight - 2,
   };
-  input.style.height = "0px";
-  const contentHeight = input.scrollHeight;
+  measure.style.height = "0px";
+  const contentHeight = measure.scrollHeight;
   const isScrollable = contentHeight > maximumHeight;
   input.classList.toggle("is-scrollable", isScrollable);
   input.style.setProperty("--composer-input-max-height", `${maximumHeight}px`);
-  const normalizedContentHeight = input.scrollHeight;
+  measure.style.overflowY = isScrollable ? "scroll" : "hidden";
+  const normalizedContentHeight = measure.scrollHeight;
   const targetHeight = input.value.length
     ? Math.min(maximumHeight, Math.max(COMPOSER_INPUT_MIN_HEIGHT, normalizedContentHeight))
     : COMPOSER_INPUT_MIN_HEIGHT;
   $("#chatForm")?.classList.toggle("composer-multiline", targetHeight > COMPOSER_INPUT_MIN_HEIGHT);
-  if (immediate) {
-    input.style.height = `${targetHeight}px`;
-    restoreMessageInputViewport(input, snapshot);
-    restoreMessageLayoutSnapshot(messageLayout);
-    messageInputResizeFrame = null;
-    return;
-  }
-  input.style.height = `${previousHeight}px`;
+  const height = `${targetHeight}px`;
+  if (input.style.height !== height) input.style.height = height;
   restoreMessageInputViewport(input, snapshot);
-  messageInputResizeFrame = requestAnimationFrame(() => {
-    input.style.height = `${targetHeight}px`;
-    restoreMessageInputViewport(input, snapshot);
-    restoreMessageLayoutSnapshot(messageLayout);
-    messageInputResizeFrame = null;
-  });
+  restoreMessageLayoutSnapshot(messageLayout);
+  messageInputResizeFrame = null;
 }
 
 function resizeCommandMenu() {
@@ -1279,9 +1292,10 @@ async function endCompactDrag(event) {
   if (!compactDrag || compactDrag.pointerId !== event.pointerId) return;
   const moved = compactDrag.moved;
   const nativeStarted = compactDrag.nativeStarted;
-  if (nativeStarted) compactDrag.target.releasePointerCapture?.(event.pointerId);
+  const target = compactDrag.target;
   if (nativeStarted) flushCompactDragMove();
-  compactDrag = null;
+  compactDrag = null; // lostpointercapture may fire synchronously when capture is released.
+  if (nativeStarted) target.releasePointerCapture?.(event.pointerId);
   // The click event fires synchronously right after pointerup, long before this IPC
   // round trip resolves. Arming the guard after the await let every drag release
   // fall through to the click handler and restore the full widget.
@@ -1670,41 +1684,58 @@ function renderReasoning() {
   const model = selectedModelDefinition();
   const efforts = model?.reasoning?.efforts || [];
   const selectedId = effectiveModelSelection()?.reasoningEffort || "";
-  const autoLabel = model?.reasoning?.defaultEffort ? `Auto · ${model.reasoning.defaultEffort}` : "Auto";
   const selectedEffort = efforts.find((effort) => effort.id === selectedId);
+  const autoLabel = model?.reasoning?.defaultEffort ? `Auto · ${model.reasoning.defaultEffort}` : "Auto";
   $("#reasoningButtonText").textContent = selectedEffort?.name || selectedEffort?.id || autoLabel;
   $("#reasoningButton").disabled = efforts.length === 0;
   const root = $("#reasoningOptions");
+  const signature = JSON.stringify([effectiveModelSelection()?.provider, model?.id, model?.name, efforts, selectedId, autoLabel]);
+  if (root.dataset.signature === signature) return;
+  root.dataset.signature = signature;
   root.replaceChildren();
-  root.append(pickerOption(autoLabel, {
-    selected: !selectedId,
-    onSelect: async () => {
-      const base = effectiveModelSelection();
-      if (base) {
-        state.automaticModelRoute = false;
-        state.pendingSelection = { provider: base.provider, model: base.model };
-      }
-      closePickers();
-      renderReasoning();
-      updateControlsSummary();
-      await applyModelSelection();
-    },
-  }));
-  for (const effort of efforts) {
-    root.append(pickerOption(effort.name || effort.id, {
-      selected: effort.id === selectedId,
-      onSelect: async () => {
-        const base = effectiveModelSelection();
-        if (!base) return;
-        state.automaticModelRoute = false;
-        state.pendingSelection = { provider: base.provider, model: base.model, reasoningEffort: effort.id };
-        closePickers();
-        renderReasoning();
-        updateControlsSummary();
-        await applyModelSelection();
-      },
-    }));
-  }
+  const heading = document.createElement("div");
+  heading.className = "reasoning-heading";
+  const copy = document.createElement("div");
+  const title = document.createElement("strong");
+  const subtitle = document.createElement("small");
+  subtitle.textContent = model?.name || model?.id || "Model";
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.className = "reasoning-reset";
+  reset.textContent = "↺";
+  reset.title = "Reset to Auto";
+  reset.setAttribute("aria-label", "Reset reasoning to Auto");
+  copy.append(title, subtitle); heading.append(copy, reset);
+  const range = document.createElement("input");
+  range.type = "range"; range.min = "0"; range.max = String(Math.max(0, efforts.length - 1)); range.step = "1";
+  range.className = "reasoning-slider";
+  range.setAttribute("aria-label", "Reasoning effort");
+  range.disabled = efforts.length < 2;
+  range.value = String(Math.max(0, efforts.findIndex(effort => effort.id === (selectedId || model?.reasoning?.defaultEffort))));
+  const paint = (automatic = false) => {
+    const effort = efforts[Number(range.value)];
+    const label = effort?.name || effort?.id || "Auto";
+    title.textContent = automatic ? autoLabel : label;
+    range.setAttribute("aria-valuetext", automatic ? autoLabel : label);
+    range.style.setProperty("--effort-fill", `${efforts.length > 1 ? Number(range.value) / (efforts.length - 1) * 100 : 0}%`);
+  };
+  const choose = async id => {
+    const base = effectiveModelSelection();
+    if (!base) return;
+    state.automaticModelRoute = false;
+    state.pendingSelection = { provider: base.provider, model: base.model, ...(id ? { reasoningEffort: id } : {}) };
+    const sliderFocused = document.activeElement === range;
+    renderReasoning(); updateControlsSummary();
+    if (sliderFocused) root.querySelector("input")?.focus();
+    try { await applyModelSelection(); } catch (error) { showToast(error.message || "Could not change reasoning effort"); }
+  };
+  range.addEventListener("input", () => paint());
+  range.addEventListener("change", () => { void choose(efforts[Number(range.value)]?.id); });
+  reset.addEventListener("click", event => { event.stopPropagation(); void choose(""); });
+  const track = document.createElement("div"); track.className = "reasoning-track";
+  const dots = document.createElement("div"); dots.className = "reasoning-dots"; dots.setAttribute("aria-hidden", "true");
+  for (const effort of efforts) { const dot = document.createElement("i"); dot.title = effort.name || effort.id; dots.append(dot); }
+  track.append(dots, range); root.append(heading, track); paint(!selectedId);
 }
 
 function modelDisplay(selection) {
@@ -5610,6 +5641,22 @@ async function pickAttachments() {
   }
 }
 
+let screenshotSendInFlight = false;
+async function captureAndSendScreenshot() {
+  if (screenshotSendInFlight) return;
+  const sessionId = state.selectedSessionId;
+  if (!sessionId) { showToast("Select a chat before sending a screenshot", "alert"); return; }
+  screenshotSendInFlight = true;
+  try {
+    const result = await window.widget.captureScreenshot("display-send");
+    if (result?.canceled) return;
+    if (!result?.ok || !result.prepared?.attachments?.length) throw new Error(result?.error || "Screenshot capture failed");
+    await window.widget.send({ sessionId, text: "", attachments: result.prepared.attachments, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    showToast("Screenshot sent", "check");
+  } catch (error) { showComposerError(error, "Screenshot not sent"); }
+  finally { screenshotSendInFlight = false; }
+}
+
 function handleScreenshotResult(result) {
   if (result?.canceled) {
     if (state.currentActivity?.kind === "capture") setActivity(null);
@@ -6619,6 +6666,7 @@ window.widget.onLiveEvent((payload) => { handleLiveEvent(payload).catch(showErro
 window.widget.onHotkeyAction((action) => {
   if (action === "newSession") createNewSession();
   else if (action === "toggleFocusChat") setFocusMode(!state.focusMode);
+  else if (action === "captureDisplaySend") void captureAndSendScreenshot();
 });
 window.widget.onHotkeyError((error) => setHotkeyStatus(error?.message || "Shortcut failed", true));
 window.widget.onScreenshotCaptured((result) => {
@@ -7058,7 +7106,7 @@ if (screenshotFixture) {
       $("#messages").scrollTop = 0;
       state.unseenMessages = 1;
       updateScrollLatestButton();
-    } else if (["glow-settings", "design-settings", "design-graphite", "design-midnight", "design-cyberpunk"].includes(screenshotFixture)) {
+    } else if (["glow-settings", "design-settings", "design-graphite", "design-midnight", "design-cyberpunk", "design-cave"].includes(screenshotFixture)) {
       setTab("chat");
       applyGlowIntensity(0.82);
       setActivity({ active: true, kind: "writing", label: "Writing", text: "Composing the answer in the mini-chat…" });

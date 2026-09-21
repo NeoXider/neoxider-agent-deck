@@ -101,3 +101,17 @@ test("expanded orb keeps the visible pet anchored and round-trips canonical left
     assert.equal(restored.side, side);
   }
 });
+
+test("pending compact expansion cannot shift saved avatar position on repeated captures", () => {
+  const vm = require("node:vm");
+  const source = require("node:fs").readFileSync(require("node:path").join(__dirname, "../src/main.cjs"), "utf8");
+  const body = source.slice(source.indexOf("function captureWindowBounds("), source.indexOf("function captureFullBounds("));
+  const context = vm.createContext({ preferences: { compactSide: "right", windowState: captureModeBounds(null, "orb", { x: 1700, y: 500, width: 172, height: 128 }, "right") }, compactStatus: { expanded: true }, resizeCompactAnchor, captureModeBounds, ORB_SIZE: 128 });
+  vm.runInContext(body, context);
+  for (let cycle = 0; cycle < 50; cycle++) {
+    vm.runInContext('captureWindowBounds("orb", { x:1700, y:500, width:400, height:128 })', context);
+    assert.equal(context.preferences.windowState.orb.y, 500);
+    vm.runInContext('captureWindowBounds("orb", { x:1700, y:485, width:460, height:158 })', context);
+    assert.equal(context.preferences.windowState.orb.y, 500);
+  }
+});
