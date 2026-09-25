@@ -2,7 +2,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawn, execFile } = require("node:child_process");
 
-const HARNESS_NPX_ARGS = Object.freeze(["--yes", "@deepseek-ai/dsh@latest", "web", "--no-open"]);
+// Pinned, not @latest: the latest tag currently trails at 0.1.5-rc.3 while the
+// integration targets 0.1.7-rc.2 (see integrations/dsh-background-code). Bump
+// deliberately with a compatibility recheck, never silently.
+const HARNESS_NPX_PACKAGE = "@deepseek-ai/dsh@0.1.7-rc.2";
+const HARNESS_NPX_ARGS = Object.freeze(["--yes", HARNESS_NPX_PACKAGE, "web", "--no-open"]);
 const HARNESS_DIRECT_ARGS = Object.freeze(["web", "--no-open"]);
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 // Image names a Harness listener legitimately runs under. A restart only kills a port
@@ -556,6 +560,7 @@ function createHarnessLauncher({
 module.exports = {
   HARNESS_DIRECT_ARGS,
   HARNESS_NPX_ARGS,
+  HARNESS_NPX_PACKAGE,
   createHarnessLauncher,
   defaultProbeReady,
   extractLaunchBrowserUrl,
