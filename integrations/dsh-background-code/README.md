@@ -1,6 +1,6 @@
 # Background code for DSH
 
-Local integration for DSH 0.1.6-alpha.1. It connects the existing `run_code`
+Local integration for DSH 0.1.7-rc.2 (backward compatible with 0.1.6-alpha.1). It connects the existing `run_code`
 transport to DSH's native job registry without replacing sandbox policy,
 approval, nested tool dispatch, or the code interpreter.
 

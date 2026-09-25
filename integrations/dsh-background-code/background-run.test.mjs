@@ -98,6 +98,28 @@ test("slow execution survives outer abort after handoff and injects contexts", a
   assert.deepEqual(state.conclusions, []);
 });
 
+test("handoff targets the registry session id and rides the payload on result", async () => {
+  const state = fixture();
+  state.exec.agent.id = "sess-1";
+  const jobs = new FakeJobs();
+  // DSH 0.1.7+ resolves the start owner through the agent registry by
+  // session id and reads a finished job's payload from `result`.
+  jobs.resolveOwner = (session) => session;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const response = await runBackgroundCode({
+    args: {}, exec: state.exec, jobs, yieldMs: 1,
+    execute: async () => { await gate; return { logs: [], result: { answer: 1 } }; },
+  });
+  assert.equal(response.result.status, "running");
+  assert.equal(jobs.records.get("code-1").spec.owner, "sess-1");
+  release();
+  const outcome = await jobs.records.get("code-1").hooks.done;
+  assert.equal(outcome.status, "completed");
+  assert.equal(outcome.result, outcome.output);
+  assert.match(outcome.result, /"answer":1/);
+});
+
 test("foreground abort kills the job and rejects clearly", async () => {
   const state = fixture();
   const jobs = new FakeJobs();

@@ -118,9 +118,14 @@ export async function runBackgroundCode({
   const done = execution.then(
     (value) => {
       settled = { status: "completed", value };
+      // DSH 0.1.7+ delivers a finished job's payload through `result` (read
+      // once via job_output) and ignores `output`; older releases do the
+      // opposite. Carrying both keeps one producer working on either.
+      const output = retainHeadAndTail(serializeOutput(value), outputLimitBytes);
       return {
         status: "completed",
-        output: retainHeadAndTail(serializeOutput(value), outputLimitBytes),
+        output,
+        result: output,
       };
     },
     (reason) => {
@@ -156,12 +161,17 @@ export async function runBackgroundCode({
     throw settled.error;
   }
 
+  // DSH 0.1.7 resolves the start owner through the agent registry by
+  // session id; older releases consume the agent instance itself.
+  const ownerRef = typeof jobs.resolveOwner === "function" && typeof owner?.id === "string"
+    ? owner.id
+    : owner;
   let id;
   try {
     id = jobs.start({
       kind: "code",
       label: "run_code",
-      owner,
+      owner: ownerRef,
       outputLimitBytes,
       run() {
         return {
