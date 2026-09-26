@@ -118,7 +118,8 @@
               <button id="modelButton" class="picker-button" type="button" aria-haspopup="dialog" aria-controls="modelMenu" aria-expanded="false" title="Model">
                 <svg class="ui-icon"><use href="#icon-model"/></svg><span class="model-button-copy"><small>MODEL</small><b id="modelButtonText">Loading providers…</b></span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
               </button>
-              <div id="modelMenu" class="picker-menu model-menu" role="dialog" aria-label="Model picker">
+              <div id="modelMenu" class="picker-menu model-menu" role="dialog" aria-label="Model picker" popover="manual">
+                <div class="model-menu-heading"><strong>Choose model</strong><button id="modelCloseButton" type="button" aria-label="Close model picker">×</button></div>
                 <label class="picker-search"><svg class="ui-icon"><use href="#icon-model"/></svg><input id="modelSearch" type="search" placeholder="Search models or providers" aria-label="Search models or providers" autocomplete="off" /></label>
                 <div id="modelStatus" aria-live="polite"></div>
                 <div id="modelOptions" class="picker-options model-options" role="listbox" aria-label="Models"></div>
@@ -140,8 +141,9 @@
             </div>
           </details>
             <div class="picker reasoning-picker">
-              <button id="reasoningButton" class="picker-button" type="button" aria-haspopup="dialog" aria-controls="reasoningMenu" aria-expanded="false" title="Model and reasoning effort">
-                <span id="reasoningModelName">Model</span><span id="reasoningButtonText">Auto</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
+              <button id="modelQuickButton" class="model-quick-button" type="button" aria-haspopup="dialog" aria-controls="modelMenu" aria-expanded="false" title="Choose model"><span id="reasoningModelName">Model</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg></button>
+              <button id="reasoningButton" class="picker-button" type="button" aria-haspopup="dialog" aria-controls="reasoningMenu" aria-expanded="false" title="Reasoning effort">
+                <span id="reasoningButtonText">Auto</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
               </button>
               <div id="reasoningMenu" class="picker-menu align-right" role="dialog" aria-label="Reasoning effort"><div id="reasoningOptions" class="picker-options"></div></div>
             </div>

@@ -48,9 +48,9 @@ const cases = [
   { name: "managed-update-available", tab: "chat", fixture: "managed-update-available", width: 420, height: 640, expect: { settingsOpen: true, updateStatus: "v0.6.9 is available", updateBadgeVisible: true, updateInstallVisible: false, headerUpdateVisible: false } },
   { name: "hotkey-settings", tab: "chat", fixture: "hotkey-settings", width: 420, height: 640, expect: { settingsOpen: true, hotkeySettingsOpen: true, hotkeyRows: 9 } },
   { name: "capture-menu", tab: "chat", fixture: "capture-menu", expect: { captureMenuOpen: true, captureRows: 2 } },
-  { name: "model", tab: "chat", fixture: "model", expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B" }, layout: { modelVisibleRows: 6 } },
-  { name: "model-360", tab: "chat", fixture: "model", width: 360, height: 360, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false, compactModelOverlay: true, selectedModelVisible: true, modelComposerUnobscured: true }, min: { visibleModelRows: 3 }, layout: { compactModelVisibleRows: 6 } },
-  { name: "model-380", tab: "chat", fixture: "model", width: 380, height: 400, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false, compactModelOverlay: true, selectedModelVisible: true, modelComposerUnobscured: true }, min: { visibleModelRows: 3 }, layout: { compactModelVisibleRows: 6 } },
+  { name: "model", tab: "chat", fixture: "model", expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B" }, layout: { modelSheet: true } },
+  { name: "model-360", tab: "chat", fixture: "model", width: 360, height: 360, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false, compactModelOverlay: true, selectedModelVisible: true }, min: { visibleModelRows: 3 }, layout: { modelSheet: true } },
+  { name: "model-380", tab: "chat", fixture: "model", width: 380, height: 400, expect: { modelControlLabel: "MODEL", modelControlText: "LM Studio · Qwen 3.5 9B", titlebarOverlap: false, compactModelOverlay: true, selectedModelVisible: true }, min: { visibleModelRows: 3 }, layout: { modelSheet: true } },
   { name: "model-closed", tab: "chat", fixture: "model-closed", expect: { closedModelLabel: "Qwen 3.5 9B", closedModelVisible: true, closedModelUnclipped: true } },
   { name: "compact-model-closed", tab: "chat", fixture: "model-closed", width: 360, height: 500, expect: { closedModelLabel: "Qwen 3.5 9B", closedModelVisible: true, closedModelUnclipped: true } },
   { name: "model-empty", tab: "chat", fixture: "model-empty", expect: { modelControlLabel: "MODEL", modelControlText: "No models loaded", modelPickerActions: 2 } },
@@ -198,12 +198,12 @@ function findBox(audit, selector) {
 }
 
 function assertSnappedLayout(testCase, audit) {
-  if (testCase.layout?.compactModelVisibleRows) {
+  if (testCase.layout?.modelSheet) {
     const menu = findBox(audit, ".picker.open .picker-menu");
-    const composer = findBox(audit, ".composer");
-    const expectedHeight = 47 + testCase.layout.compactModelVisibleRows * 30;
-    if (!menu || Math.abs(menu.height - expectedHeight) > 1) throw new Error(`${testCase.name} expected a ${expectedHeight}px compact model sheet, got ${JSON.stringify(menu)}`);
-    if (!composer || menu.bottom > composer.top - 1) throw new Error(`${testCase.name} compact model sheet overlaps the composer: ${JSON.stringify({ menu, composer })}`);
+    // A temporary top-layer sheet can cover the composer, but not leave the viewport.
+    if (!menu || menu.height < 186 || menu.height > 381 || menu.left < 0 || menu.top < 0 || menu.right > audit.viewport.width + 1 || menu.bottom > audit.viewport.height + 1) {
+      throw new Error(`${testCase.name} expected a readable, viewport-bounded model sheet, got ${JSON.stringify(menu)}`);
+    }
   }
   if (testCase.layout?.composerFullLines) {
     const expectedHeight = testCase.layout.composerFullLines * 15;
@@ -217,17 +217,6 @@ function assertSnappedLayout(testCase, audit) {
     const expectedHeight = (compactViewport ? 36 : 46) + testCase.layout.commandVisibleRows * (compactViewport ? 34 : 44);
     if (!menu || Math.abs(menu.height - expectedHeight) > 1) {
       throw new Error(`${testCase.name} expected a ${expectedHeight}px command menu ending on ${testCase.layout.commandVisibleRows} full rows, got ${JSON.stringify(menu)}`);
-    }
-  }
-  if (testCase.layout?.modelVisibleRows) {
-    const menu = findBox(audit, ".picker.open .picker-menu");
-    const composer = findBox(audit, ".composer");
-    const expectedHeight = 57 + testCase.layout.modelVisibleRows * 36;
-    if (!menu || Math.abs(menu.height - expectedHeight) > 1) {
-      throw new Error(`${testCase.name} expected a ${expectedHeight}px model picker ending on ${testCase.layout.modelVisibleRows} full rows, got ${JSON.stringify(menu)}`);
-    }
-    if (!composer || menu.bottom > composer.top - 1) {
-      throw new Error(`${testCase.name} model picker overlaps the composer: ${JSON.stringify({ menu, composer })}`);
     }
   }
 }

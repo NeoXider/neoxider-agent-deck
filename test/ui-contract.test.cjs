@@ -158,14 +158,13 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(renderer, /Models unavailable/);
   assert.match(renderer, /function retryModels/);
   assert.match(renderer, /function positionPickerMenu/);
-  assert.match(renderer, /MODEL_PICKER_COMPACT_MAX_VIEWPORT_HEIGHT = 400/);
-  assert.match(renderer, /picker\.classList\.toggle\("compact-overlay", compactOverlay\)/);
+  assert.match(html, /id="modelMenu"[^>]+popover="manual"/);
+  assert.match(html, /id="modelQuickButton"[^>]+aria-controls="modelMenu"/);
   assert.match(renderer, /requestAnimationFrame\(scrollSelectedModelIntoView\)/);
   assert.match(renderer, /option\.dataset\.modelOption = "true"/);
-  assert.match(renderer, /MODEL_PICKER_ROW_HEIGHT = 36/);
-  assert.match(renderer, /bottomBoundary = Math\.min\(shell\.bottom - PICKER_SURFACE_GAP, composer\.top - PICKER_SURFACE_GAP\)/);
+  assert.match(renderer, /menuHeight = Math\.min\(380, available\)/);
   assert.match(renderer, /--picker-options-height/);
-  assert.match(readSource("src", "renderer", "styles.css"), /\.model-menu \.picker-options:not\(:empty\)[^}]+scroll-snap-type:y mandatory/);
+  assert.match(readSource("src", "renderer", "appearance.css"), /#modelMenu \.picker-options:not\(:empty\)[^}]+scroll-snap-type:none/);
   assert.match(readSource("src", "renderer", "styles.css"), /\.model-picker\.compact-overlay \.model-menu \{[^}]+position:fixed[^}]+top:var\(--model-sheet-top\)[^}]+width:var\(--model-sheet-width\)/);
   assert.match(renderer, /function createModelSetupCard/);
   assert.match(renderer, /Choose model/);

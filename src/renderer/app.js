@@ -217,14 +217,6 @@ const COMMAND_MENU_CHROME_HEIGHT = 46;
 const COMMAND_MENU_ROW_HEIGHT = 44;
 const COMMAND_MENU_MAX_ROWS = 4;
 const CORE_COMMAND_ORDER = new Map(["goal", "compact", "plan", "permission"].map((name, index) => [name, index]));
-const MODEL_PICKER_CHROME_HEIGHT = 57;
-const MODEL_PICKER_ROW_HEIGHT = 36;
-const MODEL_PICKER_MAX_ROWS = 6;
-const MODEL_PICKER_COMPACT_MAX_VIEWPORT_HEIGHT = 400;
-const MODEL_PICKER_COMPACT_CHROME_HEIGHT = 47;
-const MODEL_PICKER_COMPACT_ROW_HEIGHT = 30;
-const PICKER_MENU_OFFSET = 6;
-const PICKER_SURFACE_GAP = 7;
 let messageInputResizeFrame = null;
 let composerPastePreparation = Promise.resolve();
 let composerPasteFailurePending = false;
@@ -356,7 +348,16 @@ function closePickers(except = null, { restoreFocus = false } = {}) {
     const button = picker.querySelector(".picker-button");
     button?.setAttribute("aria-expanded", "false");
     picker.querySelector(".picker-menu")?.setAttribute("aria-hidden", "true");
-    if (restoreFocus || activeInside) button?.focus();
+    const menu = picker.querySelector(".picker-menu");
+    if (menu?.matches(":popover-open")) menu.hidePopover();
+    if (picker.classList.contains("model-picker")) {
+      $("#modelQuickButton").setAttribute("aria-expanded", "false");
+      if (picker.dataset.quickEntry === "true") $("#agentControls").open = false;
+      delete picker.dataset.quickEntry;
+    }
+    if (restoreFocus || activeInside) {
+      (picker.classList.contains("model-picker") ? $("#modelQuickButton") : button)?.focus();
+    }
   });
 }
 
@@ -369,6 +370,9 @@ function togglePicker(button) {
   button.setAttribute("aria-expanded", String(open));
   picker.querySelector(".picker-menu")?.setAttribute("aria-hidden", String(!open));
   if (open) {
+    const menu = picker.querySelector(".picker-menu");
+    if (menu?.hasAttribute("popover")) menu.showPopover();
+    if (button.id === "modelButton") $("#modelQuickButton").setAttribute("aria-expanded", "true");
     positionPickerMenu(picker);
     if (button.id === "modelButton") void loadModels({ force: true });
   }
@@ -382,40 +386,18 @@ function positionPickerMenu(picker) {
   if (menu.classList.contains("model-menu")) {
     const shell = $(".widget-shell").getBoundingClientRect();
     const titlebar = $(".titlebar").getBoundingClientRect();
-    const composer = $(".composer").getBoundingClientRect();
-    const compactOverlay = window.innerHeight <= MODEL_PICKER_COMPACT_MAX_VIEWPORT_HEIGHT;
-    picker.classList.toggle("compact-overlay", compactOverlay);
-    if (compactOverlay) {
-      const top = Math.ceil(titlebar.bottom + 1);
-      const bottom = Math.floor(Math.min(shell.bottom - PICKER_SURFACE_GAP, composer.top - PICKER_MENU_OFFSET));
-      const available = Math.max(0, bottom - top);
-      const visibleRows = Math.max(1, Math.min(MODEL_PICKER_MAX_ROWS, Math.floor((available - MODEL_PICKER_COMPACT_CHROME_HEIGHT) / MODEL_PICKER_COMPACT_ROW_HEIGHT)));
-      const menuHeight = MODEL_PICKER_COMPACT_CHROME_HEIGHT + visibleRows * MODEL_PICKER_COMPACT_ROW_HEIGHT;
-      picker.classList.remove("open-up");
-      menu.style.setProperty("--model-sheet-top", `${top}px`);
-      menu.style.setProperty("--model-sheet-left", `${Math.ceil(titlebar.left)}px`);
-      menu.style.setProperty("--model-sheet-width", `${Math.floor(titlebar.width)}px`);
-      menu.style.setProperty("--picker-max-height", `${menuHeight}px`);
-      menu.style.setProperty("--picker-options-height", `${visibleRows * MODEL_PICKER_COMPACT_ROW_HEIGHT}px`);
-      requestAnimationFrame(scrollSelectedModelIntoView);
-      return;
-    }
-    const topBoundary = shell.top + PICKER_SURFACE_GAP;
-    const bottomBoundary = Math.min(shell.bottom - PICKER_SURFACE_GAP, composer.top - PICKER_SURFACE_GAP);
-    const below = Math.max(0, bottomBoundary - rect.bottom - PICKER_MENU_OFFSET);
-    const above = Math.max(0, rect.top - PICKER_MENU_OFFSET - topBoundary);
-    const rowsFor = (space) => Math.max(0, Math.min(
-      MODEL_PICKER_MAX_ROWS,
-      Math.floor((space - MODEL_PICKER_CHROME_HEIGHT) / MODEL_PICKER_ROW_HEIGHT),
-    ));
-    const belowRows = rowsFor(below);
-    const aboveRows = rowsFor(above);
-    const opensUp = aboveRows > belowRows;
-    const visibleRows = Math.max(1, opensUp ? aboveRows : belowRows);
-    const menuHeight = MODEL_PICKER_CHROME_HEIGHT + visibleRows * MODEL_PICKER_ROW_HEIGHT;
-    picker.classList.toggle("open-up", opensUp);
+    const top = Math.ceil(Math.max(8, titlebar.bottom + 6));
+    const left = Math.max(8, Math.ceil(titlebar.left));
+    const width = Math.max(0, Math.min(Math.floor(titlebar.width), window.innerWidth - left - 8));
+    const available = Math.max(0, Math.min(shell.bottom, window.innerHeight) - top - 12);
+    const menuHeight = Math.min(380, available);
+    picker.classList.add("compact-overlay");
+    picker.classList.remove("open-up");
+    menu.style.setProperty("--model-sheet-top", `${top}px`);
+    menu.style.setProperty("--model-sheet-left", `${left}px`);
+    menu.style.setProperty("--model-sheet-width", `${width}px`);
     menu.style.setProperty("--picker-max-height", `${menuHeight}px`);
-    menu.style.setProperty("--picker-options-height", `${visibleRows * MODEL_PICKER_ROW_HEIGHT}px`);
+    menu.style.setProperty("--picker-options-height", `${Math.max(0, menuHeight - 86)}px`);
     requestAnimationFrame(scrollSelectedModelIntoView);
     return;
   }
@@ -453,7 +435,13 @@ function scrollSelectedModelIntoView() {
   if (!$(".model-picker")?.classList.contains("open")) return;
   const selected = $("#modelOptions .picker-option[data-model-option][aria-selected='true']")
     || $("#modelOptions .picker-option[aria-selected='true']");
-  selected?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  if (selected) {
+    const list = $("#modelOptions");
+    const row = selected.getBoundingClientRect();
+    const bounds = list.getBoundingClientRect();
+    if (row.top < bounds.top) list.scrollTop -= bounds.top - row.top;
+    else if (row.bottom > bounds.bottom) list.scrollTop += row.bottom - bounds.bottom;
+  }
 }
 
 function compactPreviewEntry() {
@@ -1704,8 +1692,7 @@ function renderReasoning() {
   const copy = document.createElement("button");
   copy.type = "button"; copy.className = "reasoning-model"; copy.title = "Choose model";
   copy.addEventListener("click", event => {
-    event.stopPropagation(); closePickers(); $("#agentControls").open = true;
-    togglePicker($("#modelButton")); $("#modelSearch").focus();
+    event.stopPropagation(); openModelPicker({ retry: true });
   });
   const title = document.createElement("strong");
   const subtitle = document.createElement("small");
@@ -1889,7 +1876,7 @@ function renderModelOptions(query = "") {
     empty.textContent = "No matching models";
     root.append(empty);
   }
-  if ($(".model-picker")?.classList.contains("open")) requestAnimationFrame(scrollSelectedModelIntoView);
+  if (!normalized && $(".model-picker")?.classList.contains("open")) requestAnimationFrame(scrollSelectedModelIntoView);
 }
 
 function renderModels() {
@@ -3705,11 +3692,16 @@ function paintLiveAssistant() {
 
 function openModelPicker({ retry = false } = {}) {
   setTab("chat");
+  const wasExpanded = $("#agentControls").open;
   $("#agentControls").open = true;
   const button = $("#modelButton");
   const picker = button.closest(".picker");
+  picker.dataset.quickEntry = String(!wasExpanded);
   closePickers(picker);
   picker.classList.add("open");
+  $("#modelMenu").showPopover();
+  $("#modelMenu").setAttribute("aria-hidden", "false");
+  $("#modelQuickButton").setAttribute("aria-expanded", "true");
   positionPickerMenu(picker);
   button.setAttribute("aria-expanded", "true");
   if (retry) retryModels();
@@ -6112,10 +6104,16 @@ $("#modelButton").addEventListener("click", (event) => {
   if (event.currentTarget.closest(".picker").classList.contains("open")) setTimeout(() => $("#modelSearch").focus(), 0);
 });
 $("#captureButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
+$("#modelQuickButton").addEventListener("click", (event) => {
+  event.stopPropagation();
+  if ($(".model-picker").classList.contains("open")) closePickers();
+  else openModelPicker({ retry: true });
+});
 $$('#captureMenu [data-capture]').forEach((button) => button.addEventListener("click", () => captureScreenshot(button.dataset.capture)));
 $("#reasoningButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#workspaceButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#modelSearch").addEventListener("input", (event) => renderModelOptions(event.target.value));
+$("#modelCloseButton").addEventListener("click", () => closePickers(null, { restoreFocus: true }));
 $("#modelMenu").addEventListener("keydown", (event) => {
   if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && moveModelOptionFocus(event.key)) {
     event.preventDefault();

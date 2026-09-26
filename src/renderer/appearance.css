@@ -247,7 +247,7 @@ body.mode-full .composer-utility-stack .composer-action { width:17px; height:17p
 #reasoningButton[data-intensity="peak"]::after { background:radial-gradient(circle at 8% 24%,#fff 0 1px,transparent 2px),radial-gradient(circle at 17% 72%,#fff9 0 .8px,transparent 1.5px),radial-gradient(circle at 28% 36%,#fff 0 1px,transparent 2px),radial-gradient(circle at 39% 78%,#fff9 0 .7px,transparent 1.5px),radial-gradient(circle at 50% 18%,#fff 0 1px,transparent 2px),radial-gradient(circle at 61% 63%,#fff9 0 .8px,transparent 1.6px),radial-gradient(circle at 72% 28%,#fff 0 1px,transparent 2px),radial-gradient(circle at 82% 74%,#fff9 0 .8px,transparent 1.5px),radial-gradient(circle at 93% 40%,#fff 0 1px,transparent 2px); animation:reasoning-sparks 1.3s ease-in-out infinite alternate; }
 
 .window-actions .icon-button { border-radius:50%; }
-.capture-picker > #captureButton { border-radius:50%; background:var(--surface); border:1px solid var(--line); }
+.capture-picker > #captureButton { width:32px; height:32px; min-height:32px; flex:0 0 32px; padding:0; border-radius:10px; background:transparent; border:1px solid transparent; }
 .capture-picker.open > #captureButton,.capture-picker > #captureButton:hover { color:var(--mint); border-color:color-mix(in srgb,var(--mint) 40%,transparent); background:color-mix(in srgb,var(--mint) 10%,transparent); }
 #captureMenu { width:220px; padding:6px; border-radius:18px; background:color-mix(in srgb,var(--bg) 96%,#1b2230); }
 #captureMenu button { gap:10px; padding:10px 8px; border-radius:12px; }
@@ -313,3 +313,30 @@ body.mode-full .composer-utility-stack .composer-action { width:17px; height:17p
 .message-image-dialog > img { display:block; width:100%; max-height:calc(100vh - 110px); object-fit:contain; }
 .message-image-dialog > div { padding-top:8px; font-size:11px; overflow-wrap:anywhere; }
 .message-image-close { position:absolute; top:6px; right:6px; width:26px; height:26px; display:grid; place-items:center; padding:0; border:0; border-radius:50%; background:var(--surface-strong); color:var(--text); }
+
+/* Model choice and reasoning are separate, immediately accessible controls. */
+.chat-heading > .reasoning-picker { display:flex; gap:4px; min-width:0; }
+.model-quick-button { flex:1; min-width:0; height:40px; display:flex; align-items:center; gap:7px; padding:0 10px; border:1px solid var(--line); border-radius:11px; background:#141b25; color:var(--text); cursor:pointer; text-align:left; font:inherit; font-size:11px; }
+.model-quick-button:hover { border-color:var(--mint); }
+.model-quick-button:focus-visible { outline:2px solid var(--mint); outline-offset:2px; }
+.model-quick-button .picker-chevron { flex:none; }
+.reasoning-picker > #reasoningButton { width:auto; flex:none; max-width:46%; height:40px; border-radius:11px; padding:0 7px; }
+body.mode-full .window-actions .icon-button { width:32px; height:32px; min-height:32px; padding:0; border-radius:10px; flex-shrink:0; }
+.window-actions .capture-picker { display:flex; align-items:center; }
+#captureButton .ui-icon { width:18px; height:18px; flex:none; }
+.agent-controls:has(.model-picker.open) { position:absolute; width:0; height:0; margin:0; padding:0; border:0; }
+.agent-controls:has(.model-picker.open) > summary,
+.agent-controls:has(.model-picker.open) .control-grid > :not(.model-picker),
+.model-picker.open > #modelButton { display:none; }
+.model-picker.compact-overlay #modelMenu { margin:0; right:auto; max-height:min(var(--picker-max-height),calc(100vh - var(--model-sheet-top) - 12px)); background:#111822; border:1px solid #435064; border-radius:14px; padding:8px; color:#edf2f8; }
+#modelMenu .picker-search { height:36px; border-radius:8px; background:#1c2634; }
+.model-menu-heading { display:flex; align-items:center; justify-content:space-between; flex:none; height:30px; padding:0 3px 5px; font-size:12px; }
+#modelCloseButton { display:grid; place-items:center; width:26px; height:26px; border:0; border-radius:6px; background:transparent; color:#c7d3e3; font-size:20px; cursor:pointer; }
+#modelCloseButton:hover { background:#ffffff15; }
+#modelMenu .picker-search input { font-size:12px; }
+#modelMenu .picker-options:not(:empty) { flex:1 1 auto; min-height:0; scroll-snap-type:none; }
+#modelMenu .picker-option { min-height:34px; height:34px; border-radius:7px; }
+#modelMenu .picker-option > span { font-size:12px; }
+#modelMenu .picker-group { height:26px; min-height:26px; background:#111822; color:#97a8bf; }
+#modelMenu .picker-option.selected { background:#233a3a; color:#b4ffeb; }
+@media(max-width:380px) { .model-quick-button,.reasoning-picker > #reasoningButton { height:38px; } }
