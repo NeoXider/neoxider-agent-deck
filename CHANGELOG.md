@@ -7,12 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.12] - 2026-09-28
+
+### Changed
+
+- The model picker uses a compact, continuously scrolling list with clearer selection and more visible choices in short windows.
+- The next-to-highest reasoning effort uses a calmer blue treatment; the highest keeps a vivid purple animation.
+
 ### Fixed
 
 - Queue edits preserve image and file attachments, including messages with no caption.
 - Sent and queued attachment cards show durable files and image previews, with an image viewer and on-demand original loading.
 - Queue preview refreshes preserve unsaved editor text, caret and focus.
 - Model selection uses the addressed session instead of the host-wide default, and opening the picker refreshes the full catalog.
+- Cached models remain selectable while the catalog refreshes or is temporarily unavailable.
+- The selected model name remains visible while the catalog refreshes.
 - Reasoning particles twinkle in place instead of moving back and forth.
 
 ## [0.9.11] - 2026-09-21

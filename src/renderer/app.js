@@ -6998,16 +6998,14 @@ if (screenshotFixture) {
       state.pendingSelection = state.modelCatalog.current;
       renderModels();
       if (screenshotFixture === "model") {
-        $("#agentControls").open = true;
-        togglePicker($("#modelButton"));
+        openModelPicker();
       }
     } else if (screenshotFixture === "model-empty") {
       setTab("chat");
       state.modelCatalog = { current: null, groups: [], failures: [] };
       state.modelLoadState = "ready";
       renderModels();
-      $("#agentControls").open = true;
-      togglePicker($("#modelButton"));
+      openModelPicker();
     } else if (screenshotFixture === "model-error") {
       setTab("chat");
       state.modelCatalog = { current: null, groups: [], failures: ["No models loaded"] };
