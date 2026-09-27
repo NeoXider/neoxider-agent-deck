@@ -328,6 +328,50 @@ test("an already-ready Harness instance is reused when the probe captures the to
   assert.equal(spawnCount, 1, "a probe-only spawn is made to capture the launch token");
 });
 
+test("an owned gated Harness waits for its launch URL before reporting ready", async () => {
+  let child;
+  let clock = 0;
+  const captured = [];
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://localhost:3080",
+    requireBrowserUrl: true,
+    readinessAttempts: 4,
+    readinessInterval: 500,
+    now: () => clock,
+    spawnProcess: () => {
+      child = fakeChild();
+      child.stdout = new EventEmitter();
+      return child;
+    },
+    probeReady: (() => { let calls = 0; return async () => ++calls > 1; })(),
+    delay: async (ms) => {
+      clock += ms;
+      if (clock === 500) child.stdout.emit("data", "dsh web: http://localhost:3080/?token=late\n");
+    },
+    onBrowserUrl: (url) => captured.push(url),
+  });
+
+  assert.equal((await launcher.start()).ok, true);
+  assert.equal(launcher.browserUrl(), "http://localhost:3080/?token=late");
+  assert.deepEqual(captured, ["http://localhost:3080/?token=late"]);
+});
+
+test("a gated Harness with no launch URL never reports a false success", async () => {
+  let clock = 0;
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://localhost:3080",
+    requireBrowserUrl: true,
+    readinessAttempts: 2,
+    readinessInterval: 500,
+    now: () => clock,
+    spawnProcess: () => fakeChild(),
+    probeReady: (() => { let calls = 0; return async () => ++calls > 1; })(),
+    delay: async (ms) => { clock += ms; },
+  });
+
+  await assert.rejects(launcher.start(), /did not print a launch URL/);
+});
+
 test("an already-ready Harness without a captured token asks for its launch URL", async () => {
   const commands = [];
   let spawnCount = 0;

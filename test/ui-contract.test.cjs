@@ -817,7 +817,9 @@ test("a gated Harness offers Connect with its launch URL instead of plain offlin
   assert.match(html, /id="harnessConnectError"/);
   assert.match(renderer, /harnessNeedsAuth: false/);
   assert.match(renderer, /function renderOfflineBanner\(\)/);
-  assert.match(renderer, /Harness is running but needs its launch URL/);
+  assert.match(renderer, /Harness is running, but the widget lost access/);
+  assert.match(renderer, /startButton\.textContent = state\.harnessNeedsAuth \? "Restart" : "Start"/);
+  assert.match(renderer, /if \(state\.harnessNeedsAuth\) \{\s+await restartHarnessFromBanner\(\)/);
   assert.match(renderer, /await window\.widget\.setHarnessLaunchUrl\(value\)/);
   assert.match(renderer, /await window\.widget\.restartHarness\(\)/);
   assert.match(renderer, /result\?\.reason === "token-required"/);

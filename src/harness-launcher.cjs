@@ -257,6 +257,8 @@ function createHarnessLauncher({
   delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   readinessAttempts = 60,
   readinessInterval = 500,
+  requireBrowserUrl = false,
+  onBrowserUrl = () => {},
   now = () => Date.now(),
   // Injected so tests never shell out to netstat/tasklist/taskkill or signal real
   // processes on the host.
@@ -370,7 +372,11 @@ function createHarnessLauncher({
         if (launch.browserUrl) return;
         buffered = `${buffered}${String(chunk)}`.slice(-4096);
         const found = extractCompleteLaunchBrowserUrl(buffered);
-        if (found) { launch.browserUrl = found; capturedBrowserUrl = found; }
+        if (found) {
+          launch.browserUrl = found;
+          capturedBrowserUrl = found;
+          try { onBrowserUrl(found); } catch {}
+        }
       });
     }
     liveLaunches.add(launch);
@@ -417,7 +423,11 @@ function createHarnessLauncher({
     const unsupported = unsupportedTarget();
     if (unsupported) return unsupported;
     if (!forceRestart && await probeReady()) {
-      if (ownedLaunch && !ownedLaunch.exited) { markReady(ownedLaunch); return { ok: true, started: false, alreadyRunning: true }; }
+      if (ownedLaunch && !ownedLaunch.exited) {
+        if (requireBrowserUrl) await waitForBrowserUrl(ownedLaunch, now() + readinessAttempts * readinessInterval);
+        markReady(ownedLaunch);
+        return { ok: true, started: false, alreadyRunning: true };
+      }
       if (now() < tokenRequiredUntil) return { ok: false, started: false, reason: "token-required" };
       // The harness is reachable but we never captured its launch token (foreign
       // or inherited process). Spawn a dsh just to grab the token from its banner
@@ -489,6 +499,7 @@ function createHarnessLauncher({
       if (!launch) launch = spawnOwnedLaunch();
       const ready = await waitUntilReady(() => launch.error, deadline);
       if (!ready) throw new Error("DeepSeek Harness did not become ready before the startup timeout");
+      if (requireBrowserUrl) await waitForBrowserUrl(launch, deadline);
       markReady(launch);
       return { ok: true, started: true, fallback: null, command: launchSpec.displayCommand };
     } catch (error) {
@@ -503,6 +514,14 @@ function createHarnessLauncher({
         if (fallback) return fallback;
       }
       throw error;
+    }
+  }
+
+  async function waitForBrowserUrl(launch, deadline) {
+    while (!launch.browserUrl) {
+      if (launch.error) throw launch.error;
+      if (now() >= deadline) throw new Error("DeepSeek Harness opened its port but did not print a launch URL");
+      await delay(readinessInterval);
     }
   }
 

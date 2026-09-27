@@ -5413,13 +5413,23 @@ function renderOfflineBanner() {
   const connectError = $("#harnessConnectError");
   const connectButton = $("#harnessConnectButton");
   const restartButton = $("#harnessRestartButton");
+  const startButton = $("#startHarnessButton");
   const input = $("#harnessLaunchUrlInput");
   const text = state.harnessStarting
     ? (state.harnessStartingLabel || "Launching Harness")
     : state.harnessNeedsAuth
-      ? "Harness is running but needs its launch URL"
+      ? "Harness is running, but the widget lost access"
       : "Harness is offline";
   if (label && label.textContent !== text) label.textContent = text;
+  // A running gated Harness cannot reveal its process token to a second client.
+  // Make the primary action an explicit restart instead of a Start that can only
+  // repeat the failed token probe. Keep paste-and-connect for live turns.
+  if (startButton && !state.harnessStarting) {
+    startButton.textContent = state.harnessNeedsAuth ? "Restart" : "Start";
+    startButton.title = state.harnessNeedsAuth
+      ? "Stops the running Harness and any active turns, then reconnects"
+      : "Start Harness";
+  }
   if (connectRow) connectRow.hidden = !state.harnessNeedsAuth;
   if (connectError) {
     connectError.hidden = !state.harnessConnectError;
@@ -5435,6 +5445,10 @@ function renderOfflineBanner() {
 
 async function startHarnessFromBanner() {
   if (state.harnessStarting) return;
+  if (state.harnessNeedsAuth) {
+    await restartHarnessFromBanner();
+    return;
+  }
   state.harnessStarting = true;
   state.harnessStartingLabel = "Launching Harness";
   state.harnessConnectError = "";
@@ -5451,7 +5465,6 @@ async function startHarnessFromBanner() {
         state.harnessNeedsAuth = true;
         state.harnessStartingLabel = "";
         renderOfflineBanner();
-        requestAnimationFrame(() => $("#harnessLaunchUrlInput")?.focus());
         return;
       }
       const reason = result?.reason === "remote-url"

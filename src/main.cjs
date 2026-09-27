@@ -684,6 +684,13 @@ app.whenReady().then(() => {
     desktopPath: app.getPath("desktop"),
     workingDirectory: path.join(app.getPath("userData"), "harness-workspace"),
     openPath: (filePath) => shell.openPath(filePath),
+    requireBrowserUrl: true,
+    onBrowserUrl: (url) => {
+      if (preferences.harnessLaunchUrl === url) return;
+      preferences.harnessLaunchUrl = url;
+      savePreferences();
+      dashboardReader.invalidate();
+    },
   });
   gameLayerKeeper = createGameLayerKeeper({
     getWindow: () => windowRef,
