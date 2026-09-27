@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const assert = require('node:assert/strict');
 app.disableHardwareAcceleration();
 app.whenReady().then(async () => {
-  for (const [channel, value] of Object.entries({ 'get-preferences': {}, 'app-info': { version: 'test' }, 'get-update-state': {}, 'set-compact-status': {}, 'set-last-selected-session': null, history: { messages: [] } })) ipcMain.handle(channel, () => value);
+  for (const [channel, value] of Object.entries({ 'get-preferences': {}, 'app-info': { version: 'test' }, 'get-update-state': {}, 'set-compact-status': {}, 'set-last-selected-session': null, history: { messages: [] }, commands: [] })) ipcMain.handle(channel, () => value);
   let catalogReads = 0;
   ipcMain.handle('models', () => {
     catalogReads += 1;
@@ -58,10 +58,10 @@ app.whenReady().then(async () => {
   for (const key of ['visible', 'sameRow', 'fits', 'resetOpen', 'modelPickerOpened']) assert.equal(result[key], true, key);
   assert.match(result.reset, /Auto/);
   for (const item of result.motion) {
-    const expected = ['none','reasoning-prism','reasoning-prism'][item.index];
-    assert.equal(item.fill,expected); assert.equal(item.badge,item.index ? "effort-chip-orbit" : "none");
-    if(item.index) assert.equal(item.duration,item.index===1?'4.8s':'1.8s');
-    if(item.theme==='cyberpunk') assert.equal(item.accent,'#fcee09');
+    assert.equal(item.fill,['none','none','reasoning-prism'][item.index]);
+    assert.equal(item.badge,item.index===2 ? "effort-chip-orbit" : "none");
+    if(item.index===2) assert.equal(item.duration,'1.8s');
+    assert.equal(item.accent,['#538fff','#4786ff','#ae79ff'][item.index]);
   }
   fs.mkdirSync(path.join(__dirname, '../tmp/ui-smoke'), { recursive: true });
   fs.writeFileSync(path.join(__dirname, '../tmp/ui-smoke/reasoning-slider.png'), (await win.webContents.capturePage()).toPNG());

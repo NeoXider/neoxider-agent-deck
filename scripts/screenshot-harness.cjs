@@ -560,6 +560,10 @@ function attachScreenshotHarness({
             sendHeight: Math.round(document.querySelector('#sendButton').getBoundingClientRect().height),
             modelControlLabel: document.querySelector('.model-button-copy small')?.textContent || '',
             modelControlText: document.querySelector('#modelButtonText')?.textContent || '',
+            reasoningButtonIntensity: document.querySelector('#reasoningButton')?.dataset.intensity || '',
+            reasoningTrackIntensity: document.querySelector('.reasoning-track')?.dataset.intensity || '',
+            reasoningMenuIntensity: document.querySelector('#reasoningMenu')?.dataset.intensity || '',
+            reasoningTitle: document.querySelector('.reasoning-heading strong')?.textContent || '',
             compactModelOverlay: document.querySelector('.model-picker')?.classList.contains('compact-overlay') || false,
             visibleModelRows: [...document.querySelectorAll('#modelOptions .picker-option[data-model-option]')].filter((option) => {
               const optionRect = option.getBoundingClientRect();

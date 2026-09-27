@@ -154,6 +154,7 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(html, /class="model-button-copy"><small>MODEL<\/small><b id="modelButtonText">Loading providers…<\/b>/);
   assert.match(html, /id="modelSearch"[^>]+aria-label="Search models or providers"/);
   assert.match(renderer, /modelLoadState === "loading"/);
+  assert.match(renderer, /state\.modelLoadState === "loading" && !modelCount\(catalog\)/);
   assert.match(renderer, /No models loaded/);
   assert.match(renderer, /Models unavailable/);
   assert.match(renderer, /function retryModels/);
@@ -162,10 +163,12 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(html, /id="modelQuickButton"[^>]+aria-controls="modelMenu"/);
   assert.match(renderer, /requestAnimationFrame\(scrollSelectedModelIntoView\)/);
   assert.match(renderer, /option\.dataset\.modelOption = "true"/);
-  assert.match(renderer, /menuHeight = Math\.min\(380, available\)/);
-  assert.match(renderer, /--picker-options-height/);
+  assert.match(renderer, /const anchor = \$\("#modelQuickButton"\)\.getBoundingClientRect\(\)/);
+  assert.match(renderer, /--model-list-max-height/);
   assert.match(readSource("src", "renderer", "appearance.css"), /#modelMenu \.picker-options:not\(:empty\)[^}]+scroll-snap-type:none/);
   assert.match(readSource("src", "renderer", "styles.css"), /\.model-picker\.compact-overlay \.model-menu \{[^}]+position:fixed[^}]+top:var\(--model-sheet-top\)[^}]+width:var\(--model-sheet-width\)/);
+  assert.match(readSource("src", "renderer", "appearance.css"), /\.model-picker\.compact-overlay\.open-up #modelMenu \{[^}]+bottom:var\(--model-sheet-bottom\)/);
+  assert.match(readSource("src", "renderer", "appearance.css"), /#modelMenu \.picker-option \.picker-check \{[^}]+order:3/);
   assert.match(renderer, /function createModelSetupCard/);
   assert.match(renderer, /Choose model/);
   assert.match(renderer, /Retry models/);

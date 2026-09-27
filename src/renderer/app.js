@@ -384,20 +384,26 @@ function positionPickerMenu(picker) {
   if (!button || !menu) return;
   const rect = button.getBoundingClientRect();
   if (menu.classList.contains("model-menu")) {
+    const anchor = $("#modelQuickButton").getBoundingClientRect();
     const shell = $(".widget-shell").getBoundingClientRect();
-    const titlebar = $(".titlebar").getBoundingClientRect();
-    const top = Math.ceil(Math.max(8, titlebar.bottom + 6));
-    const left = Math.max(8, Math.ceil(titlebar.left));
-    const width = Math.max(0, Math.min(Math.floor(titlebar.width), window.innerWidth - left - 8));
-    const available = Math.max(0, Math.min(shell.bottom, window.innerHeight) - top - 12);
-    const menuHeight = Math.min(380, available);
+    const gap = 7;
+    const width = Math.min(320, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(Math.round(anchor.left), window.innerWidth - width - 8));
+    const below = Math.max(0, Math.min(shell.bottom, window.innerHeight) - anchor.bottom - gap - 8);
+    const above = Math.max(0, anchor.top - Math.max(8, shell.top) - gap - 8);
+    const openAbove = below < 210 && above > below;
+    const sheetTop = Math.max(8, $(".titlebar").getBoundingClientRect().bottom + 6);
+    const expandedBelow = Math.max(0, Math.min(shell.bottom, window.innerHeight) - sheetTop - 8);
+    const useTallSheet = !openAbove && below < 280 && expandedBelow > below + 40;
+    const menuHeight = Math.min(360, openAbove ? above : useTallSheet ? expandedBelow : below);
     picker.classList.add("compact-overlay");
-    picker.classList.remove("open-up");
-    menu.style.setProperty("--model-sheet-top", `${top}px`);
+    picker.classList.toggle("open-up", openAbove);
+    menu.style.setProperty("--model-sheet-top", `${Math.round(useTallSheet ? sheetTop : anchor.bottom + gap)}px`);
+    menu.style.setProperty("--model-sheet-bottom", `${Math.round(window.innerHeight - anchor.top + gap)}px`);
     menu.style.setProperty("--model-sheet-left", `${left}px`);
     menu.style.setProperty("--model-sheet-width", `${width}px`);
     menu.style.setProperty("--picker-max-height", `${menuHeight}px`);
-    menu.style.setProperty("--picker-options-height", `${Math.max(0, menuHeight - 86)}px`);
+    menu.style.setProperty("--model-list-max-height", `${Math.max(0, menuHeight - 86)}px`);
     requestAnimationFrame(scrollSelectedModelIntoView);
     return;
   }
@@ -1671,6 +1677,12 @@ function selectedModelDefinition() {
   return group?.models?.find((item) => item.id === selection.model) || null;
 }
 
+function reasoningIntensity(index, count) {
+  if (count < 3 || index < 0) return "normal";
+  if (index === count - 1) return "peak";
+  return index === count - 2 ? "deep" : "normal";
+}
+
 function renderReasoning() {
   const model = selectedModelDefinition();
   const efforts = model?.reasoning?.efforts || [];
@@ -1681,7 +1693,7 @@ function renderReasoning() {
   $("#reasoningButton").disabled = false;
   $("#reasoningModelName").textContent = model?.name || model?.id || "Choose model";
   const currentEffortIndex = efforts.findIndex(effort => effort.id === (selectedId || model?.reasoning?.defaultEffort));
-  $("#reasoningButton").dataset.intensity = efforts.length >= 3 && currentEffortIndex === efforts.length - 1 ? "peak" : efforts.length >= 3 && currentEffortIndex === efforts.length - 2 ? "deep" : "normal";
+  $("#reasoningButton").dataset.intensity = reasoningIntensity(currentEffortIndex, efforts.length);
   const root = $("#reasoningOptions");
   const signature = JSON.stringify([effectiveModelSelection()?.provider, model?.id, model?.name, efforts, selectedId, autoLabel]);
   if (root.dataset.signature === signature) return;
@@ -1718,7 +1730,9 @@ function renderReasoning() {
     const label = effort?.name || effort?.id || "Auto";
     title.textContent = automatic ? autoLabel : label;
     range.setAttribute("aria-valuetext", automatic ? autoLabel : label);
-    track.dataset.intensity = efforts.length >= 3 && Number(range.value) === efforts.length - 1 ? "peak" : efforts.length >= 3 && Number(range.value) === efforts.length - 2 ? "deep" : "normal";
+    const intensity = reasoningIntensity(Number(range.value), efforts.length);
+    track.dataset.intensity = intensity;
+    $("#reasoningMenu").dataset.intensity = intensity;
     track.style.setProperty("--effort-fill", `calc(14px + (100% - 28px) * ${efforts.length > 1 ? Number(range.value) / (efforts.length - 1) : 0})`);
     dots.querySelectorAll("i").forEach((dot, index) => {
       dot.dataset.filled = String(index < Number(range.value));
@@ -1790,7 +1804,7 @@ function updateControlsSummary() {
   const selection = effectiveModelSelection();
   const model = selectedModelDefinition();
   let shortModel = model?.name || model?.id || selection?.model || "Auto";
-  if (state.modelLoadState === "loading") shortModel = "Loading…";
+  if (state.modelLoadState === "loading" && !modelCount()) shortModel = "Loading…";
   else if (["error", "ready"].includes(state.modelLoadState) && !modelCount()) shortModel = "No model";
   const effort = $("#reasoningButtonText")?.textContent || "Auto";
   $("#controlsPrimary").textContent = shortModel;
@@ -1811,15 +1825,23 @@ function renderModelOptions(query = "") {
   const selected = effectiveModelSelection();
   const normalized = query.trim().toLowerCase();
   if (state.modelLoadState === "loading") {
-    appendModelPickerStatus(statusRoot, "loading", "Loading model providers", "Reading the routes exposed by Harness…");
-    return;
+    if (modelCount(catalog)) appendModelPickerStatus(statusRoot, "compact", "Refreshing models", "Showing the last available list.");
+    else {
+      appendModelPickerStatus(statusRoot, "loading", "Loading model providers", "Reading the routes exposed by Harness…");
+      return;
+    }
   }
   if (state.modelLoadState === "error") {
-    appendModelPickerStatus(statusRoot, "error", "Models unavailable", "Check Harness and your provider, then retry.", [
+    if (modelCount(catalog)) appendModelPickerStatus(statusRoot, "compact", "Could not refresh", "Showing saved models.", [
       { label: "Retry", onClick: retryModels },
-      { label: "Open Harness", onClick: () => window.widget.openHarness() },
     ]);
-    if (!modelCount(catalog)) return;
+    else {
+      appendModelPickerStatus(statusRoot, "error", "Models unavailable", "Check Harness and your provider, then retry.", [
+        { label: "Retry", onClick: retryModels },
+        { label: "Open Harness", onClick: () => window.widget.openHarness() },
+      ]);
+      return;
+    }
   }
   if (!modelCount(catalog)) {
     appendModelPickerStatus(statusRoot, "empty", "No models loaded", "Load a model in LM Studio or another Harness provider, then retry.", [
@@ -1883,10 +1905,11 @@ function renderModels() {
   const catalog = state.modelCatalog;
   const selected = effectiveModelSelection();
   let label = modelDisplay(selected);
-  if (state.modelLoadState === "loading") label = "Loading providers…";
+  if (state.modelLoadState === "loading" && !modelCount(catalog)) label = "Loading providers…";
   else if (state.modelLoadState === "error" && !modelCount(catalog)) label = "Models unavailable";
   else if (!modelCount(catalog)) label = "No models loaded";
   $("#modelButtonText").textContent = label;
+  $("#modelQuickButton").title = `Choose model: ${label}`;
   $("#modelButton").title = `Model: ${label}`;
   $("#modelButton").setAttribute("aria-label", `Model: ${label}`);
   renderModelOptions($("#modelSearch").value || "");
@@ -6947,6 +6970,20 @@ if (screenshotFixture) {
         { role: "assistant", text: "All checks passed.", html: "<p><strong>All checks passed.</strong></p><ul><li>No clipped controls</li><li>Markdown and tool calls render correctly</li><li>Compact modes snap to screen edges</li></ul>" },
       ]);
       if (screenshotFixture === "focus-chat") setFocusMode(true);
+    } else if (["reasoning-deep", "reasoning-peak"].includes(screenshotFixture)) {
+      setTab("chat");
+      const reasoningEffort = screenshotFixture === "reasoning-deep" ? "xhigh" : "ultra";
+      state.modelCatalog = {
+        current: { provider: "openai", model: "gpt-6-sol", reasoningEffort },
+        groups: [{ id: "openai", name: "OpenAI", models: [{ id: "gpt-6-sol", name: "GPT-6 Sol", reasoning: {
+          defaultEffort: "medium",
+          efforts: [{ id: "low", name: "Low" }, { id: "medium", name: "Medium" }, { id: "high", name: "High" }, { id: "xhigh", name: "Very high" }, { id: "ultra", name: "Ultra" }],
+        } }] }],
+      };
+      state.modelLoadState = "ready";
+      state.pendingSelection = state.modelCatalog.current;
+      renderModels();
+      togglePicker($("#reasoningButton"));
     } else if (["model", "model-closed"].includes(screenshotFixture)) {
       setTab("chat");
       state.modelCatalog = {
