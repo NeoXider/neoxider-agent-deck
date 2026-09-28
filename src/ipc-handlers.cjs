@@ -419,6 +419,13 @@ function registerIpcHandlers({
     schedulePreferenceSave();
     return preferences.glowIntensity;
   });
+  handle("set-font-scale", (_event, value) => {
+    const preferences = getPreferences();
+    const numeric = Number(value);
+    preferences.fontScale = Number.isFinite(numeric) ? Math.max(0.85, Math.min(1.35, numeric)) : 1;
+    schedulePreferenceSave();
+    return preferences.fontScale;
+  });
   handle("set-background-opacity", (_event, value) => {
     const preferences = getPreferences();
     const numeric = Number(value);
@@ -514,6 +521,7 @@ function registerIpcHandlers({
       opacity: preferences.opacity,
       backgroundOpacity: preferences.backgroundOpacity,
       glowIntensity: preferences.glowIntensity,
+      fontScale: preferences.fontScale,
       showThinking: preferences.showThinking !== false,
       motionEffects: preferences.motionEffects !== false,
       appearance: preferences.appearance,
@@ -682,7 +690,6 @@ function registerIpcHandlers({
     permissionsDenied: denyAllPermissions(session, onPermissionDenied),
   };
 }
-
 module.exports = {
   registerIpcHandlers,
   denyAllPermissions,

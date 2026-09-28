@@ -7,6 +7,7 @@ const DEFAULT_PREFERENCES = Object.freeze({
   opacity: 0.96,
   backgroundOpacity: 0.90,
   glowIntensity: 0.82,
+  fontScale: 1,
   showThinking: true,
   // The widget leans on motion to say what it is doing - a flowing goal rail, a breathing
   // pause glyph, a pulsing tool group. Anyone who wants it plain can switch the lot off.
@@ -98,6 +99,7 @@ function normalizePreferences(raw = {}) {
     opacity: boundedNumber(source.opacity, DEFAULT_PREFERENCES.opacity, 0.65, 1),
     backgroundOpacity: boundedNumber(source.backgroundOpacity, DEFAULT_PREFERENCES.backgroundOpacity, 0, 1),
     glowIntensity: boundedNumber(source.glowIntensity, DEFAULT_PREFERENCES.glowIntensity, 0, 1),
+    fontScale: boundedNumber(source.fontScale, DEFAULT_PREFERENCES.fontScale, 0.85, 1.35),
     showThinking: source.showThinking !== false,
     motionEffects: source.motionEffects !== false,
     appearance: {

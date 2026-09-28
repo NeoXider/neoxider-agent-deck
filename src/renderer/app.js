@@ -72,9 +72,7 @@ const state = {
   compactResizeTimer: null,
   compactHitAreaSignature: "",
   sessionTimerTick: null,
-  // A session is only given up on after a healthy dashboard has failed to mention it twice,
-  // and the id is kept so recovery restores the user's choice instead of guessing.
-  missingSelectionPolls: 0,
+  // Deck's choice is independent of which chat Harness opens in its own browser.
   lastSelectedSessionId: null,
   persistedSessionId: null,
   sessionSelectionGeneration: 0,
@@ -2809,7 +2807,6 @@ function rememberSelectedSession() {
 
 async function selectSession(sessionId, openChat = false) {
   state.sessionSelectionGeneration += 1;
-  state.missingSelectionPolls = 0;
   const previousSessionId = state.selectedSessionId;
   state.selectedSessionId = sessionId || null;
   rememberSelectedSession();
@@ -5283,28 +5280,9 @@ async function performRefresh() {
     if (!dashboard.harness && state.focusMode) setFocusMode(false);
     const dashboardVisibleSessions = visibleSessions(selectedAtRequest);
     const selectionChangedWhileLoading = state.selectedSessionId !== selectedAtRequest;
-    // "The session disappears and the chat empties." One unhealthy poll — a Harness restart,
-    // an 8s RPC timeout, a laptop waking up — answers {harness:false, sessions:[]}. This used
-    // to be treated as authoritative: the selection was dropped, the transcript re-rendered
-    // empty, and the next healthy poll re-selected whatever ran first, so a one-second blip
-    // left the user reading somebody else's conversation.
-    //
-    // Two rules now. A session is only forgotten when a HEALTHY dashboard has failed to
-    // mention it twice running, and the id is remembered so recovery restores the user's
-    // choice instead of guessing.
-    if (!selectionChangedWhileLoading && state.selectedSessionId) {
-      const present = dashboardVisibleSessions.some((session) => session.sessionId === state.selectedSessionId);
-      if (present || !dashboard.harness) {
-        state.missingSelectionPolls = 0;
-      } else {
-        state.missingSelectionPolls += 1;
-        if (state.missingSelectionPolls >= 2) {
-          state.lastSelectedSessionId = state.selectedSessionId;
-          state.selectedSessionId = null;
-          state.missingSelectionPolls = 0;
-        }
-      }
-    }
+    // Harness can temporarily omit a chat while its own active workspace changes.
+    // Never turn that omission into a Deck selection change: only a Deck action may
+    // replace the remembered chat, even across restart and reconnect.
     if (!selectionChangedWhileLoading && !state.selectedSessionId && dashboard.harness && dashboardVisibleSessions.length) {
       const remembered = dashboardVisibleSessions.find((session) => session.sessionId === state.lastSelectedSessionId);
       state.selectedSessionId = (remembered || dashboardVisibleSessions.find((session) => session.running) || dashboardVisibleSessions[0]).sessionId;
@@ -5833,6 +5811,16 @@ function applyGlowIntensity(value) {
   return intensity;
 }
 
+function applyFontScale(value) {
+  const numeric = Number(value);
+  const scale = Number.isFinite(numeric) ? Math.max(0.85, Math.min(1.35, numeric)) : 1;
+  document.documentElement.style.setProperty("--font-scale", String(scale));
+  $("#fontScaleRange").value = String(Math.round(scale * 100));
+  $("#fontScaleValue").textContent = `${Math.round(scale * 100)}%`;
+  resizeMessageInput();
+  return scale;
+}
+
 let confirmedBackgroundOpacity = 0.9;
 let backgroundOpacitySaveSequence = 0;
 function applyBackgroundOpacity(value) {
@@ -6108,6 +6096,7 @@ async function hydratePreferences() {
     $("#opacityRange").value = Math.round(preferences.opacity * 100);
     $("#opacityValue").textContent = `${Math.round(preferences.opacity * 100)}%`;
     applyGlowIntensity(preferences.glowIntensity);
+    applyFontScale(preferences.fontScale);
     confirmedBackgroundOpacity = applyBackgroundOpacity(preferences.backgroundOpacity ?? 0.9);
     applyShowThinking(preferences.showThinking);
     applyMotionEffects(preferences.motionEffects);
@@ -6753,6 +6742,11 @@ $("#opacityRange").addEventListener("input", async (event) => {
 $("#glowRange").addEventListener("input", async (event) => {
   const intensity = applyGlowIntensity(Number(event.target.value) / 100);
   await window.widget.setGlowIntensity(intensity);
+});
+$("#fontScaleRange").addEventListener("input", async (event) => {
+  const scale = applyFontScale(Number(event.target.value) / 100);
+  try { await window.widget.setFontScale(scale); }
+  catch { showToast("Could not save text size", "alert"); }
 });
 $("#backgroundOpacityRange")?.addEventListener("input", async (event) => {
   const sequence = ++backgroundOpacitySaveSequence;

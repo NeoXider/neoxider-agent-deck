@@ -11,7 +11,7 @@ const rememberFunction = renderer.slice(renderer.indexOf("function rememberSelec
 
 function harness() {
   const saved = [];
-  const state = { selectedSessionId: null, lastSelectedSessionId: null, persistedSessionId: null, missingSelectionPolls: 0, sessionSelectionGeneration: 0 };
+  const state = { selectedSessionId: null, lastSelectedSessionId: null, persistedSessionId: null, sessionSelectionGeneration: 0 };
   const context = vm.createContext({ state, window: { widget: { setLastSelectedSession: async (id) => saved.push(id) } }, invalidateSelectedHistoryVersion() {} });
   vm.runInContext(rememberFunction, context);
   return {
@@ -52,16 +52,16 @@ test("offline startup and reconnect retain the saved chat until Harness returns"
   assert.equal(h.state.selectedSessionId, "saved");
 });
 
-test("a deleted chat falls back after two healthy responses and saves the replacement", () => {
+test("Harness switching or omitting a chat never replaces Deck's remembered choice", () => {
   const h = harness();
-  h.hydrate("deleted");
-  h.poll(true, [{ sessionId: "other" }]);
-  assert.equal(h.state.selectedSessionId, "deleted");
-  h.poll(true, [{ sessionId: "other" }]);
-  assert.equal(h.state.selectedSessionId, "other");
-  assert.deepEqual(h.saved, ["other"]);
-  h.poll(true, [{ sessionId: "other" }]);
-  assert.deepEqual(h.saved, ["other"]);
+  h.hydrate("widget-chat");
+  for (let i = 0; i < 10; i++) h.poll(true, [{ sessionId: "harness-chat", running: true }]);
+  assert.equal(h.state.selectedSessionId, "widget-chat");
+  assert.equal(h.state.lastSelectedSessionId, "widget-chat");
+  assert.deepEqual(h.saved, []);
+  h.poll(false, []);
+  h.poll(true, [{ sessionId: "widget-chat" }, { sessionId: "harness-chat", running: true }]);
+  assert.equal(h.state.selectedSessionId, "widget-chat");
 });
 
 test("late preferences and an in-flight poll cannot override a new user choice", () => {

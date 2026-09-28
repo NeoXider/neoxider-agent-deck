@@ -90,6 +90,7 @@ const completePreferences = {
   opacity: 0.73,
   backgroundOpacity: 0.54,
   glowIntensity: 0.41,
+  fontScale: 1.15,
   showThinking: false,
   motionEffects: true,
   appearance: { theme: "aurora", motion: "fluid", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] },
@@ -109,6 +110,16 @@ const completePreferences = {
     edge: { x: 0, y: 780, side: "right" },
   },
 };
+
+test("text size survives restart and is clamped to the supported range", () => {
+  withTemporaryStore(({ filePath, store }) => {
+    store.save({ ...completePreferences, fontScale: 1.25 });
+    assert.equal(createSettingsStore({ filePath }).load().fontScale, 1.25);
+  });
+  assert.equal(normalizePreferences({ fontScale: 0 }).fontScale, 0.85);
+  assert.equal(normalizePreferences({ fontScale: 2 }).fontScale, 1.35);
+  assert.equal(normalizePreferences({ fontScale: "invalid" }).fontScale, 1);
+});
 
 test("all preferences and all mode bounds survive a disk round-trip", () => {
   withTemporaryStore(({ filePath, store }) => {
@@ -410,6 +421,7 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     opacity: 0.75,
     backgroundOpacity: 0.90,
     glowIntensity: 0.25,
+    fontScale: 1,
     showThinking: true,
     // Absent from an older file, so the defaults apply rather than the old behaviour being
     // silently carried forward: effects on, avatar collapsed.

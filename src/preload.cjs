@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld("widget", {
   setOpacity: (value) => ipcRenderer.invoke("set-opacity", value),
   setBackgroundOpacity: (value) => ipcRenderer.invoke("set-background-opacity", value),
   setGlowIntensity: (value) => ipcRenderer.invoke("set-glow-intensity", value),
+  setFontScale: (value) => ipcRenderer.invoke("set-font-scale", value),
   setShowThinking: (value) => ipcRenderer.invoke("set-show-thinking", Boolean(value)),
   setMotionEffects: (value) => ipcRenderer.invoke("set-motion-effects", Boolean(value)),
   setAppearance: (value) => ipcRenderer.invoke("set-appearance", value),

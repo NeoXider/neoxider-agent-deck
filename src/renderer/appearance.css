@@ -365,6 +365,30 @@ body.mode-full .window-actions .icon-button { width:32px; height:32px; min-heigh
 #modelMenu .model-picker-status.compact .model-picker-actions button { min-height:22px; padding:0 7px; }
 @media(max-width:380px) { .reasoning-picker > #reasoningButton { height:38px; } }
 
+/* Scale readable text without enlarging hit targets, icons, or window chrome. */
+:root { --font-scale:1; }
+.bubble { font-size:calc(11px * var(--font-scale)); }
+.reasoning-text,.activity-body { font-size:calc(10px * var(--font-scale)); }
+.composer textarea { font-size:calc(11px * var(--font-scale)); line-height:calc(15px * var(--font-scale)); }
+.session-name { font-size:calc(12px * var(--font-scale)); }
+.session-meta,.session-group-toggle > span { font-size:calc(9px * var(--font-scale)); }
+.tool-body pre,.tool-identity b,.tool-group-identity b { font-size:calc(9px * var(--font-scale)); }
+.command-name,.picker-option > span { font-size:calc(10px * var(--font-scale)); }
+#modelMenu .picker-option > span,#modelMenu .picker-search input { font-size:calc(12px * var(--font-scale)); }
+.command-description,.picker-option small { font-size:calc(8px * var(--font-scale)); }
+#modelMenu .picker-option small { font-size:calc(9px * var(--font-scale)); }
+.capture-menu b,.picker-search input,.picker-group,.model-picker-status b { font-size:calc(10px * var(--font-scale)); }
+.capture-menu small,.model-picker-status small,.session-state { font-size:calc(8px * var(--font-scale)); }
+.offline-banner,.composer-error small,.model-setup-card span { font-size:calc(10px * var(--font-scale)); }
+.offline-banner button,.harness-connect input,.activity-card b,.activity-card small,.goal-objective { font-size:calc(9px * var(--font-scale)); }
+.bubble.command { font-size:calc(9px * var(--font-scale)); }
+.settings-panel label,.setting-block { font-size:calc(11px * var(--font-scale)); }
+.reasoning-picker #reasoningModelName { font-size:calc(10px * var(--font-scale)); }
+.reasoning-picker #reasoningButtonText { font-size:calc(10px * var(--font-scale)); }
+.reasoning-heading strong { font-size:calc(13px * var(--font-scale)); }
+.reasoning-heading small { font-size:calc(11px * var(--font-scale)); }
+.orb-status-card b,.orb-status-card small,.orb-session-open b,.orb-reply-compose textarea { font-size:calc(9px * var(--font-scale)); }
+
 /* Penultimate effort: restrained Codex blue. Final effort: lively Claude-style violet. */
 #reasoningMenu[data-intensity="deep"],body[data-design="cyberpunk"] #reasoningMenu[data-intensity="deep"] { --reasoning-accent:#4786ff; --reasoning-secondary:#8ab8ff; }
 #reasoningMenu[data-intensity="peak"],body[data-design="cyberpunk"] #reasoningMenu[data-intensity="peak"] { --reasoning-accent:#ae79ff; --reasoning-secondary:#5967ee; }

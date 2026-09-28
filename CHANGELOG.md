@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.14] - 2026-09-28
+
+### Added
+
+- Widget settings now include a persistent text-size control from 85% to 135%.
+
+### Fixed
+
+- The widget keeps its own selected chat when the Harness dashboard switches chats or briefly omits the selected session, and restores that chat after reconnecting or restarting.
+
 ## [0.9.13] - 2026-09-28
 
 ### Changed

@@ -302,6 +302,23 @@ test("background opacity persists independently without changing native opacity"
   assert.equal(preferences.glowIntensity, 0.41);
 });
 
+test("widget text size persists independently and stays within 85–135%", async () => {
+  const preferences = { opacity: 0.73, fontScale: 1 };
+  let scheduledSaves = 0;
+  const { ipcMain, window } = register({
+    getPreferences: () => preferences,
+    getScreenshotService: () => ({ capabilities: () => ({}) }),
+    schedulePreferenceSave: () => { scheduledSaves += 1; },
+  });
+  const legitimate = { sender: window.webContents, senderFrame: { parent: null } };
+  for (const [value, expected] of [[1.2, 1.2], [0, 0.85], [2, 1.35], ["invalid", 1]]) {
+    assert.equal(await ipcMain.invoke("set-font-scale", legitimate, value), expected);
+    assert.equal((await ipcMain.invoke("get-preferences", legitimate)).fontScale, expected);
+  }
+  assert.equal(scheduledSaves, 4);
+  assert.equal(preferences.opacity, 0.73);
+});
+
 test("manual update checks use the shared check-and-stage path", async () => {
   let calls = 0;
   const expected = { status: "ready", latestVersion: "1.1.0" };

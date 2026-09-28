@@ -378,6 +378,16 @@ test("activity glow intensity is brighter by default, adjustable, and persisted"
   assert.match(ipc, /set-glow-intensity/);
 });
 
+test("widget text-size slider changes readable text and persists its choice", () => {
+  const appearance = readSource("src", "renderer", "appearance.css");
+  const preload = readSource("src", "preload.cjs");
+  assert.match(html, /id="fontScaleRange"[^>]+type="range"/);
+  assert.match(renderer, /applyFontScale\(preferences\.fontScale\)/);
+  assert.match(renderer, /setFontScale\(scale\)/);
+  assert.match(appearance, /\.bubble \{ font-size:calc\(11px \* var\(--font-scale\)\)/);
+  assert.match(preload, /setFontScale: \(value\) => ipcRenderer\.invoke\("set-font-scale"/);
+});
+
 test("live Think is a persistent optional overlay that cannot move the conversation viewport", () => {
   const preload = readSource("src", "preload.cjs");
   const css = readSource("src", "renderer", "styles.css");
@@ -1525,27 +1535,20 @@ test("re-asserting the same avatar state does not touch the DOM", () => {
   assert.match(body, /if \(!image\.src\.endsWith\(next\)\) image\.src = next;/);
 });
 
-test("a single unhealthy poll cannot take the session and its transcript away", () => {
-  // One failed dashboard read answers {harness:false, sessions:[]}. That used to be treated
-  // as authoritative: the selection was dropped, the chat re-rendered empty, and the next
-  // healthy poll re-selected whichever session happened to be running — so a one-second blip
-  // left the user reading a different conversation.
+test("dashboard polls cannot replace Deck's own selected session", () => {
   const start = renderer.indexOf("const dashboardVisibleSessions");
   const end = renderer.indexOf("if (!selectionChangedWhileLoading && state.selectedSessionId !== selectedAtRequest)");
   assert.ok(start > 0 && end > start, "the selection block moved; re-anchor this test");
   const refresh = renderer.slice(start, end);
-  assert.ok(refresh.length < 2400, `selection block grew to ${refresh.length} chars`);
-  // Forgetting requires a HEALTHY dashboard to miss the session twice.
-  assert.match(refresh, /if \(present \|\| !dashboard\.harness\) \{\s*state\.missingSelectionPolls = 0;/);
-  assert.match(refresh, /state\.missingSelectionPolls \+= 1;/);
-  assert.match(refresh, /if \(state\.missingSelectionPolls >= 2\)/);
+  assert.ok(refresh.length < 1400, `selection block grew to ${refresh.length} chars`);
+  assert.doesNotMatch(refresh, /state\.selectedSessionId = null/);
+  assert.doesNotMatch(refresh, /missingSelectionPolls/);
   // Auto-selection may not run against an offline dashboard at all.
   assert.match(refresh, /!state\.selectedSessionId && dashboard\.harness && dashboardVisibleSessions\.length/);
   // Recovery restores what the user had chosen before guessing.
   assert.match(refresh, /const remembered = dashboardVisibleSessions\.find\(\(session\) => session\.sessionId === state\.lastSelectedSessionId\)/);
   assert.match(refresh, /\(remembered \|\| dashboardVisibleSessions\.find\(\(session\) => session\.running\) \|\| dashboardVisibleSessions\[0\]\)/);
-  // And the id has to be remembered before it is cleared, or there is nothing to restore.
-  assert.ok(refresh.indexOf("state.lastSelectedSessionId = state.selectedSessionId;") < refresh.indexOf("state.selectedSessionId = null;"));
+  assert.match(refresh, /if \(state\.selectedSessionId\) state\.lastSelectedSessionId = state\.selectedSessionId;/);
 });
 
 test("skills appear in the slash menu and are sent as prompts, not host commands", () => {

@@ -32,6 +32,10 @@ function attachScreenshotHarness({
     }
     setTimeout(async () => {
       const auditPath = process.env.WIDGET_UI_AUDIT_PATH;
+      if (process.env.WIDGET_SCREENSHOT_FONT_SCALE) {
+        const scale = Number(process.env.WIDGET_SCREENSHOT_FONT_SCALE);
+        await window.webContents.executeJavaScript(`applyFontScale(${JSON.stringify(scale)})`);
+      }
       if (process.env.WIDGET_SCREENSHOT_CHAT_PHASE) {
         const phase = process.env.WIDGET_SCREENSHOT_CHAT_PHASE;
         if (!["idle", "waiting", "thinking", "writing", "tool", "offline"].includes(phase)) throw new Error("Invalid visual phase");
@@ -85,6 +89,8 @@ function attachScreenshotHarness({
           const tolerance = 1;
           const offenders = boxes.filter((box) => box.left < -tolerance || box.top < -tolerance || box.right > innerWidth + tolerance || box.bottom > innerHeight + tolerance);
           const semantic = {
+            fontScale: Number(getComputedStyle(document.documentElement).getPropertyValue('--font-scale')),
+            bubbleFontPx: parseFloat(getComputedStyle(document.querySelector('.bubble') || document.body).fontSize),
             toolGroups: document.querySelectorAll('.tool-group').length,
             toolCalls: document.querySelectorAll('.tool-call').length,
             historicalReasoning: document.querySelectorAll('.reasoning-bubble').length,
