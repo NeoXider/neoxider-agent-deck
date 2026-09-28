@@ -586,7 +586,7 @@ function attachScreenshotHarness({
             closedModelLabel: document.querySelector('#reasoningModelName')?.textContent || '',
             closedModelVisible: (() => {
               const label = document.querySelector('#reasoningModelName')?.getBoundingClientRect();
-              const summary = document.querySelector('#modelQuickButton')?.getBoundingClientRect();
+              const summary = document.querySelector('#reasoningButton')?.getBoundingClientRect();
               return Boolean(label && summary && label.width > 0 && label.left >= summary.left && label.right <= summary.right);
             })(),
             closedModelUnclipped: (() => {

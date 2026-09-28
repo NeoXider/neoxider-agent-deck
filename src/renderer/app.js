@@ -351,12 +351,12 @@ function closePickers(except = null, { restoreFocus = false } = {}) {
     const menu = picker.querySelector(".picker-menu");
     if (menu?.matches(":popover-open")) menu.hidePopover();
     if (picker.classList.contains("model-picker")) {
-      $("#modelQuickButton").setAttribute("aria-expanded", "false");
+      $("#reasoningButton").setAttribute("aria-expanded", "false");
       if (picker.dataset.quickEntry === "true") $("#agentControls").open = false;
       delete picker.dataset.quickEntry;
     }
     if (restoreFocus || activeInside) {
-      (picker.classList.contains("model-picker") ? $("#modelQuickButton") : button)?.focus();
+      (picker.classList.contains("model-picker") ? $("#reasoningButton") : button)?.focus();
     }
   });
 }
@@ -372,7 +372,7 @@ function togglePicker(button) {
   if (open) {
     const menu = picker.querySelector(".picker-menu");
     if (menu?.hasAttribute("popover")) menu.showPopover();
-    if (button.id === "modelButton") $("#modelQuickButton").setAttribute("aria-expanded", "true");
+    if (button.id === "modelButton") $("#reasoningButton").setAttribute("aria-expanded", "true");
     positionPickerMenu(picker);
     if (button.id === "modelButton") void loadModels({ force: true });
   }
@@ -384,7 +384,7 @@ function positionPickerMenu(picker) {
   if (!button || !menu) return;
   const rect = button.getBoundingClientRect();
   if (menu.classList.contains("model-menu")) {
-    const anchor = $("#modelQuickButton").getBoundingClientRect();
+    const anchor = $("#reasoningButton").getBoundingClientRect();
     const shell = $(".widget-shell").getBoundingClientRect();
     const gap = 7;
     const width = Math.min(320, window.innerWidth - 16);
@@ -1909,7 +1909,7 @@ function renderModels() {
   else if (state.modelLoadState === "error" && !modelCount(catalog)) label = "Models unavailable";
   else if (!modelCount(catalog)) label = "No models loaded";
   $("#modelButtonText").textContent = label;
-  $("#modelQuickButton").title = `Choose model: ${label}`;
+  $("#reasoningButton").title = `Model and reasoning: ${label}`;
   $("#modelButton").title = `Model: ${label}`;
   $("#modelButton").setAttribute("aria-label", `Model: ${label}`);
   renderModelOptions($("#modelSearch").value || "");
@@ -3724,7 +3724,7 @@ function openModelPicker({ retry = false } = {}) {
   picker.classList.add("open");
   $("#modelMenu").showPopover();
   $("#modelMenu").setAttribute("aria-hidden", "false");
-  $("#modelQuickButton").setAttribute("aria-expanded", "true");
+  $("#reasoningButton").setAttribute("aria-expanded", "true");
   positionPickerMenu(picker);
   button.setAttribute("aria-expanded", "true");
   if (retry) retryModels();
@@ -5904,6 +5904,15 @@ function renderHotkeys(bindings = state.hotkeys) {
     const binding = state.hotkeys[toggle.dataset.hotkeyEnabled];
     toggle.checked = binding?.enabled !== false;
   });
+  for (const [action, hint, description] of [
+    ["captureRegion", "#captureRegionHint", "Select an area"],
+    ["captureDisplay", "#captureDisplayHint", "Current monitor"],
+    ["captureDisplaySend", "#captureDisplaySendHint", "Current monitor · send immediately"],
+  ]) {
+    const binding = state.hotkeys[action];
+    const shortcut = binding?.enabled !== false && binding?.accelerator ? hotkeyDisplayName(binding.accelerator) : "";
+    $(hint).textContent = shortcut ? `${description} · ${shortcut}` : description;
+  }
 }
 
 function shortcutFromKeyboardEvent(event) {
@@ -5948,8 +5957,8 @@ async function updateHotkey(action, binding) {
 
 function applyScreenshotCapabilities(capabilities = {}) {
   state.screenshotCapabilities = capabilities;
-  for (const kind of ["region", "display"]) {
-    const support = capabilities[kind] || {};
+  for (const kind of ["region", "display", "display-send"]) {
+    const support = capabilities[kind === "display-send" ? "display" : kind] || {};
     const button = $(`#captureMenu [data-capture="${kind}"]`);
     button.disabled = support.available === false;
     button.title = support.available === false ? support.reason || "Unavailable" : "";
@@ -6140,12 +6149,10 @@ $("#modelButton").addEventListener("click", (event) => {
   if (event.currentTarget.closest(".picker").classList.contains("open")) setTimeout(() => $("#modelSearch").focus(), 0);
 });
 $("#captureButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
-$("#modelQuickButton").addEventListener("click", (event) => {
-  event.stopPropagation();
-  if ($(".model-picker").classList.contains("open")) closePickers();
-  else openModelPicker({ retry: true });
-});
-$$('#captureMenu [data-capture]').forEach((button) => button.addEventListener("click", () => captureScreenshot(button.dataset.capture)));
+$$('#captureMenu [data-capture]').forEach((button) => button.addEventListener("click", () => {
+  if (button.dataset.capture === "display-send") { closePickers(); void captureAndSendScreenshot(); }
+  else void captureScreenshot(button.dataset.capture);
+}));
 $("#reasoningButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#workspaceButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#modelSearch").addEventListener("input", (event) => renderModelOptions(event.target.value));

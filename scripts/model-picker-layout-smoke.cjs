@@ -24,7 +24,7 @@ app.whenReady().then(async () => {
         state.pendingSelection = state.modelCatalog.current;
         renderModels();
         const camera = document.querySelector('#captureButton').getBoundingClientRect();
-        const quick = document.querySelector('#modelQuickButton'); quick.click();
+        const quick = document.querySelector('#reasoningButton'); quick.click(); document.querySelector('.reasoning-model').click();
         await new Promise(r=>setTimeout(r,60));
         const menu = document.querySelector('#modelMenu');
         const rect = menu.getBoundingClientRect();
@@ -35,11 +35,11 @@ app.whenReady().then(async () => {
         snapshot.escapeClosed = !menu.matches(':popover-open');
         snapshot.focusRestored = document.activeElement === quick;
         snapshot.setupCollapsed = !document.querySelector('#agentControls').open;
-        quick.click(); await new Promise(r=>setTimeout(r,30));
+        quick.click(); document.querySelector('.reasoning-model').click(); await new Promise(r=>setTimeout(r,30));
         const search=document.querySelector('#modelSearch'); search.value='Model 19'; search.dispatchEvent(new Event('input',{bubbles:true}));
         const option=document.querySelector('[data-model-option]'); option.click();
         snapshot.selected = state.pendingSelection.model === 'model-19' && !menu.matches(':popover-open');
-        search.value=''; renderModelOptions(); quick.click();
+        search.value=''; renderModelOptions(); quick.click(); document.querySelector('.reasoning-model').click();
         await new Promise(r=>setTimeout(r,60));
         return snapshot;
       })()`);

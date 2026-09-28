@@ -249,7 +249,7 @@ body.mode-full .composer-utility-stack .composer-action { width:17px; height:17p
 .window-actions .icon-button { border-radius:50%; }
 .capture-picker > #captureButton { width:32px; height:32px; min-height:32px; flex:0 0 32px; padding:0; border-radius:10px; background:transparent; border:1px solid transparent; }
 .capture-picker.open > #captureButton,.capture-picker > #captureButton:hover { color:var(--mint); border-color:color-mix(in srgb,var(--mint) 40%,transparent); background:color-mix(in srgb,var(--mint) 10%,transparent); }
-#captureMenu { width:220px; padding:6px; border-radius:18px; background:color-mix(in srgb,var(--bg) 96%,#1b2230); }
+#captureMenu { width:min(270px,calc(100vw - 20px)); padding:6px; border-radius:18px; background:color-mix(in srgb,var(--bg) 96%,#1b2230); }
 #captureMenu button { gap:10px; padding:10px 8px; border-radius:12px; }
 #captureMenu button > .ui-icon { flex:none; width:30px; height:30px; padding:6px; border-radius:10px; background:color-mix(in srgb,var(--mint) 10%,transparent); color:var(--mint); }
 #captureMenu b { font-size:11px; font-weight:600; }
@@ -331,14 +331,11 @@ body.mode-full .composer-utility-stack .composer-action { width:17px; height:17p
 .message-image-dialog > div { padding-top:8px; font-size:11px; overflow-wrap:anywhere; }
 .message-image-close { position:absolute; top:6px; right:6px; width:26px; height:26px; display:grid; place-items:center; padding:0; border:0; border-radius:50%; background:var(--surface-strong); color:var(--text); }
 
-/* Model choice and reasoning are separate, immediately accessible controls. */
-.chat-heading > .reasoning-picker { display:flex; gap:4px; min-width:0; }
-.model-quick-button { flex:1; min-width:0; height:40px; display:flex; align-items:center; gap:7px; padding:0 10px; border:1px solid var(--line); border-radius:11px; background:#141b25; color:var(--text); cursor:pointer; text-align:left; font:inherit; font-size:11px; }
-.model-quick-button { border-color:#ffffff20; background:#292a2e; }
-.model-quick-button:hover,.model-quick-button[aria-expanded="true"] { border-color:#ffffff4a; background:#333438; }
-.model-quick-button:focus-visible { outline:2px solid var(--mint); outline-offset:2px; }
-.model-quick-button .picker-chevron { flex:none; }
-.reasoning-picker > #reasoningButton { width:auto; flex:none; max-width:46%; height:40px; border-radius:11px; padding:0 7px; }
+/* One entry point for model and reasoning, like the compact composer picker. */
+.chat-heading > .reasoning-picker { display:flex; min-width:0; }
+.reasoning-picker > #reasoningButton { width:100%; min-width:0; height:40px; border-radius:11px; padding:0 10px; }
+.reasoning-picker #reasoningModelName { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.reasoning-picker #reasoningButtonText { flex:none; max-width:40%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 body.mode-full .window-actions .icon-button { width:32px; height:32px; min-height:32px; padding:0; border-radius:10px; flex-shrink:0; }
 .window-actions .capture-picker { display:flex; align-items:center; }
 #captureButton .ui-icon { width:18px; height:18px; flex:none; }
@@ -366,4 +363,13 @@ body.mode-full .window-actions .icon-button { width:32px; height:32px; min-heigh
 #modelMenu .model-picker-status.compact small { display:none; }
 #modelMenu .model-picker-status.compact .model-picker-actions { flex:none; margin:0; }
 #modelMenu .model-picker-status.compact .model-picker-actions button { min-height:22px; padding:0 7px; }
-@media(max-width:380px) { .model-quick-button,.reasoning-picker > #reasoningButton { height:38px; } }
+@media(max-width:380px) { .reasoning-picker > #reasoningButton { height:38px; } }
+
+/* Penultimate effort: restrained Codex blue. Final effort: lively Claude-style violet. */
+#reasoningMenu[data-intensity="deep"],body[data-design="cyberpunk"] #reasoningMenu[data-intensity="deep"] { --reasoning-accent:#4786ff; --reasoning-secondary:#8ab8ff; }
+#reasoningMenu[data-intensity="peak"],body[data-design="cyberpunk"] #reasoningMenu[data-intensity="peak"] { --reasoning-accent:#ae79ff; --reasoning-secondary:#5967ee; }
+.reasoning-picker.open .reasoning-track[data-intensity="deep"] .reasoning-fill::before { opacity:.34; background:linear-gradient(100deg,transparent,#c5dcff,#78acff,transparent); animation:reasoning-tide 7s ease-in-out infinite alternate; }
+.reasoning-picker.open .reasoning-track[data-intensity="deep"] .reasoning-fill::after { animation:reasoning-sparks 4s ease-in-out infinite alternate; }
+.reasoning-picker.open .reasoning-track[data-intensity="peak"] .reasoning-fill::before { opacity:.9; animation:reasoning-prism 1.8s ease-in-out infinite alternate; }
+body.motion-off .reasoning-fill::before,body.motion-off .reasoning-fill::after { animation:none !important; }
+@media(prefers-reduced-motion:reduce) { .reasoning-fill::before,.reasoning-fill::after { animation:none !important; } }

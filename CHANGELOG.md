@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.13] - 2026-09-28
+
+### Changed
+
+- Model and reasoning effort share one compact picker instead of two separate buttons.
+- The penultimate effort has a restrained blue animation; the highest keeps a vivid violet animation across themes.
+- Screen capture actions show their configured keyboard shortcuts in the menu.
+
+### Added
+
+- The capture menu can take a full display screenshot and send it immediately to the selected chat.
+
 ## [0.9.12] - 2026-09-28
 
 ### Changed

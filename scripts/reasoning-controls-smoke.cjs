@@ -58,8 +58,9 @@ app.whenReady().then(async () => {
   for (const key of ['visible', 'sameRow', 'fits', 'resetOpen', 'modelPickerOpened']) assert.equal(result[key], true, key);
   assert.match(result.reset, /Auto/);
   for (const item of result.motion) {
-    assert.equal(item.fill,['none','none','reasoning-prism'][item.index]);
+    assert.equal(item.fill,['none','reasoning-tide','reasoning-prism'][item.index]);
     assert.equal(item.badge,item.index===2 ? "effort-chip-orbit" : "none");
+    if(item.index===1) assert.equal(item.duration,'7s');
     if(item.index===2) assert.equal(item.duration,'1.8s');
     assert.equal(item.accent,['#538fff','#4786ff','#ae79ff'][item.index]);
   }

@@ -160,10 +160,11 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(renderer, /function retryModels/);
   assert.match(renderer, /function positionPickerMenu/);
   assert.match(html, /id="modelMenu"[^>]+popover="manual"/);
-  assert.match(html, /id="modelQuickButton"[^>]+aria-controls="modelMenu"/);
+  assert.match(html, /id="reasoningButton"[^>]+aria-controls="reasoningMenu"/);
+  assert.match(html, /id="reasoningModelName"[^>]*>Model<\/span><span id="reasoningButtonText"/);
   assert.match(renderer, /requestAnimationFrame\(scrollSelectedModelIntoView\)/);
   assert.match(renderer, /option\.dataset\.modelOption = "true"/);
-  assert.match(renderer, /const anchor = \$\("#modelQuickButton"\)\.getBoundingClientRect\(\)/);
+  assert.match(renderer, /const anchor = \$\("#reasoningButton"\)\.getBoundingClientRect\(\)/);
   assert.match(renderer, /--model-list-max-height/);
   assert.match(readSource("src", "renderer", "appearance.css"), /#modelMenu \.picker-options:not\(:empty\)[^}]+scroll-snap-type:none/);
   assert.match(readSource("src", "renderer", "styles.css"), /\.model-picker\.compact-overlay \.model-menu \{[^}]+position:fixed[^}]+top:var\(--model-sheet-top\)[^}]+width:var\(--model-sheet-width\)/);
@@ -1123,6 +1124,9 @@ test("ordinary screen capture prepares reviewed chat attachments", () => {
   assert.match(html, /id="captureButton"/);
   assert.match(html, /data-capture="region"/);
   assert.match(html, /data-capture="display"/);
+  assert.match(html, /data-capture="display-send"/);
+  assert.match(renderer, /button\.dataset\.capture === "display-send"/);
+  assert.match(renderer, /captureDisplaySendHint/);
   assert.match(preload, /captureScreenshot: \(kind\) => ipcRenderer\.invoke\("capture-screenshot", kind\)/);
   assert.match(ipc, /handle\("capture-screenshot"/);
   assert.match(main, /gate: screenshotCaptureGate/);
@@ -1135,10 +1139,10 @@ test("ordinary screen capture prepares reviewed chat attachments", () => {
   assert.doesNotMatch(functionBody(renderer, "function handleScreenshotResult"), /requestSubmit\(/);
 });
 
-test("all eight global shortcuts can be rebound, disabled, reset, and persisted", () => {
+test("all global shortcuts can be rebound, disabled, reset, and persisted", () => {
   const preload = readSource("src", "preload.cjs");
   const store = readSource("src", "settings-store.cjs");
-  for (const action of ["showRestore", "toggleFocusChat", "collapseAvatar", "collapseEdge", "newSession", "openHarness", "captureDisplay", "captureRegion"]) {
+  for (const action of ["showRestore", "toggleFocusChat", "collapseAvatar", "collapseEdge", "newSession", "openHarness", "captureDisplay", "captureDisplaySend", "captureRegion"]) {
     assert.match(html, new RegExp(`data-hotkey-action="${action}"`));
     assert.match(html, new RegExp(`data-hotkey-enabled="${action}"`));
   }
