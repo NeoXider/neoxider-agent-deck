@@ -49,7 +49,6 @@ test("visible widget copy stays English", () => {
     "commandsButton",
     "commandMenu",
     "workspaceButton",
-    "modeSwitch",
     "attachButton",
     "attachmentBar",
     "queueDock",
@@ -72,6 +71,13 @@ test("compact layout uses custom pickers, expandable controls, and no useless co
   assert.match(html, /<details id="agentControls"/);
   assert.match(html, /class="picker-menu model-menu"/);
   assert.match(renderer, /localRank/);
+});
+
+test("Agent/Plan switch is hidden while slash plan commands remain available", () => {
+  assert.doesNotMatch(html, /id="modeSwitch"|class="mode-option"/);
+  assert.doesNotMatch(renderer, /setAgentMode\(|renderMode\(|\.mode-option/);
+  assert.match(renderer, /modeFromCommand\(line\)/);
+  assert.match(renderer, /\/plan\(\?:\\s\+\(off\)\)/);
 });
 
 test("composer stacks attachment and commands beside a smaller context ring and Send", () => {

@@ -80,7 +80,6 @@ const state = {
   sessionListSignature: "",
   collapsedSessionGroupKeys: new Set(),
   contextSignature: "",
-  modeSignature: "",
   commandSelectionIndex: 0,
   lastCommandQuery: "",
   commandHintSignature: "",
@@ -470,7 +469,6 @@ function modeFromMessages(messages) {
 
 function syncSelectedAgentMode() {
   state.currentMode = state.agentModesBySessionId.get(state.selectedSessionId) || "agent";
-  renderMode();
 }
 
 function setSessionAgentMode(sessionId, mode) {
@@ -1676,9 +1674,17 @@ function selectedModelDefinition() {
 }
 
 function reasoningIntensity(index, count) {
-  if (count < 3 || index < 0) return "normal";
+  if (count < 2 || index < 0) return "normal";
   if (index === count - 1) return "peak";
   return index === count - 2 ? "deep" : "normal";
+}
+
+function createReasoningStars() {
+  const field = document.createElement("span");
+  field.className = "reasoning-starfield";
+  field.setAttribute("aria-hidden", "true");
+  for (let index = 0; index < 6; index++) field.append(document.createElement("i"));
+  return field;
 }
 
 function renderReasoning() {
@@ -1689,6 +1695,7 @@ function renderReasoning() {
   const autoLabel = model?.reasoning?.defaultEffort ? `Auto · ${model.reasoning.defaultEffort}` : "Auto";
   $("#reasoningButtonText").textContent = selectedEffort?.name || selectedEffort?.id || autoLabel;
   $("#reasoningButton").disabled = false;
+  if (!$("#reasoningButton").querySelector(".reasoning-starfield")) $("#reasoningButton").prepend(createReasoningStars());
   $("#reasoningModelName").textContent = model?.name || model?.id || "Choose model";
   const currentEffortIndex = efforts.findIndex(effort => effort.id === (selectedId || model?.reasoning?.defaultEffort));
   $("#reasoningButton").dataset.intensity = reasoningIntensity(currentEffortIndex, efforts.length);
@@ -1705,6 +1712,9 @@ function renderReasoning() {
     event.stopPropagation(); openModelPicker({ retry: true });
   });
   const title = document.createElement("strong");
+  const prefix = document.createElement("span");
+  prefix.className = "reasoning-prefix";
+  prefix.textContent = "Effort";
   const subtitle = document.createElement("small");
   subtitle.textContent = model?.name || model?.id || "Model";
   const reset = document.createElement("button");
@@ -1716,7 +1726,7 @@ function renderReasoning() {
   const emblem = document.createElement("span");
   emblem.className = "reasoning-emblem";
   emblem.innerHTML = '<svg class="ui-icon" aria-hidden="true"><use href="#icon-reasoning"/></svg>';
-  copy.append(title, subtitle); heading.append(emblem, copy, reset);
+  copy.append(prefix, title, subtitle); heading.append(emblem, copy, reset);
   const range = document.createElement("input");
   range.type = "range"; range.min = "0"; range.max = String(Math.max(0, efforts.length - 1)); range.step = "1";
   range.className = "reasoning-slider";
@@ -1751,13 +1761,16 @@ function renderReasoning() {
   range.addEventListener("change", () => { void choose(efforts[Number(range.value)]?.id); });
   reset.addEventListener("click", event => { event.stopPropagation(); void choose(""); });
   const track = document.createElement("div"); track.className = "reasoning-track";
+  const axis = document.createElement("div"); axis.className = "reasoning-axis";
+  axis.innerHTML = '<span>Faster</span><span>Smarter</span>';
   const dots = document.createElement("div"); dots.className = "reasoning-dots"; dots.setAttribute("aria-hidden", "true");
   for (const effort of efforts) { const dot = document.createElement("i"); dot.title = effort.name || effort.id; dots.append(dot); }
   const fill = document.createElement("div"); fill.className = "reasoning-fill"; fill.setAttribute("aria-hidden", "true");
+  fill.append(createReasoningStars());
   const setup = document.createElement("button"); setup.type = "button"; setup.className = "reasoning-setup"; setup.textContent = "Agent settings";
   setup.addEventListener("click", event => { event.stopPropagation(); closePickers(); $("#agentControls").open = true; });
   track.hidden = efforts.length === 0;
-  track.append(fill, range, dots); root.append(heading, track, setup); paint(!selectedId);
+  track.append(fill, range, dots); root.append(heading, axis, track, setup); paint(!selectedId);
 }
 
 function modelDisplay(selection) {
@@ -5710,29 +5723,6 @@ async function switchWorkspace(workspaceId) {
   }
 }
 
-function renderMode() {
-  if (state.modeSignature === state.currentMode) return false;
-  state.modeSignature = state.currentMode;
-  syncPressed($$(".mode-option"), state.currentMode, "mode");
-  return true;
-}
-
-async function setAgentMode(mode) {
-  const sessionId = state.selectedSessionId;
-  if (!sessionId) return;
-  const previous = state.agentModesBySessionId.get(sessionId) || "agent";
-  setSessionAgentMode(sessionId, mode);
-  try {
-    await executeHarnessCommand(mode === "plan" ? "/plan" : "/plan off", sessionId);
-  } catch (error) {
-    setSessionAgentMode(sessionId, previous);
-    if (sessionId === state.selectedSessionId) {
-      showError(error);
-      setAvatar("error", "mode error");
-    }
-  }
-}
-
 async function pickAttachments() {
   try {
     addAttachments(await window.widget.pickFiles());
@@ -6206,7 +6196,6 @@ $("#addWorkspaceButton").addEventListener("click", async () => {
     setAvatar("error", "workspace error");
   }
 });
-$$('.mode-option').forEach((button) => button.addEventListener("click", () => setAgentMode(button.dataset.mode)));
 $("#attachButton").addEventListener("click", pickAttachments);
 // The plane leaves when the message does: one short flight off the corner and back.
 function launchSendButton() {
@@ -6838,7 +6827,6 @@ renderNotifications();
 renderAttachments();
 renderTodos();
 renderQueuedPrompts();
-renderMode();
 resizeMessageInput({ immediate: true });
 // A hidden widget still has to notice a finished turn, so polling never stops —
 // it just slows down instead of hitting Harness every 2.5s behind a minimized window.
@@ -6971,21 +6959,24 @@ if (screenshotFixture) {
         { role: "assistant", text: "All checks passed.", html: "<p><strong>All checks passed.</strong></p><ul><li>No clipped controls</li><li>Markdown and tool calls render correctly</li><li>Compact modes snap to screen edges</li></ul>" },
       ]);
       if (screenshotFixture === "focus-chat") setFocusMode(true);
-    } else if (["reasoning-deep", "reasoning-peak"].includes(screenshotFixture)) {
+    } else if (["reasoning-deep", "reasoning-peak", "reasoning-qwen-high", "reasoning-qwen-peak", "reasoning-qwen-high-cyberpunk", "reasoning-qwen-peak-cyberpunk"].includes(screenshotFixture)) {
       setTab("chat");
-      const reasoningEffort = screenshotFixture === "reasoning-deep" ? "xhigh" : "ultra";
+      const qwenFixture = screenshotFixture.startsWith("reasoning-qwen");
+      if (screenshotFixture.endsWith("-cyberpunk")) document.body.dataset.design = "cyberpunk";
+      const reasoningEffort = qwenFixture ? (screenshotFixture.includes("-high") ? "high" : "xhigh") : (screenshotFixture === "reasoning-deep" ? "xhigh" : "ultra");
+      const modelId = qwenFixture ? "qwen3.8-27b-heretic-gsq-rco" : "gpt-6-sol";
+      const efforts = qwenFixture
+        ? [{ id: "off", name: "Off" }, { id: "medium", name: "Medium" }, { id: "high", name: "High" }, { id: "xhigh", name: "Xhigh" }]
+        : [{ id: "low", name: "Low" }, { id: "medium", name: "Medium" }, { id: "high", name: "High" }, { id: "xhigh", name: "Very high" }, { id: "ultra", name: "Ultra" }];
       state.modelCatalog = {
-        current: { provider: "openai", model: "gpt-6-sol", reasoningEffort },
-        groups: [{ id: "openai", name: "OpenAI", models: [{ id: "gpt-6-sol", name: "GPT-6 Sol", reasoning: {
-          defaultEffort: "medium",
-          efforts: [{ id: "low", name: "Low" }, { id: "medium", name: "Medium" }, { id: "high", name: "High" }, { id: "xhigh", name: "Very high" }, { id: "ultra", name: "Ultra" }],
-        } }] }],
+        current: { provider: qwenFixture ? "lmstudio" : "openai", model: modelId, reasoningEffort },
+        groups: [{ id: qwenFixture ? "lmstudio" : "openai", name: qwenFixture ? "LM Studio" : "OpenAI", models: [{ id: modelId, name: qwenFixture ? "Qwen 3.8 27B" : "GPT-6 Sol", reasoning: { defaultEffort: "medium", efforts } }] }],
       };
       state.modelLoadState = "ready";
       state.pendingSelection = state.modelCatalog.current;
       renderModels();
       togglePicker($("#reasoningButton"));
-    } else if (["model", "model-closed"].includes(screenshotFixture)) {
+    } else if (["model", "model-closed", "model-controls-open"].includes(screenshotFixture)) {
       setTab("chat");
       state.modelCatalog = {
         current: { provider: "lmstudio", model: "qwen3.5-9b", reasoningEffort: "medium" },
@@ -7000,6 +6991,8 @@ if (screenshotFixture) {
       renderModels();
       if (screenshotFixture === "model") {
         openModelPicker();
+      } else if (screenshotFixture === "model-controls-open") {
+        $("#agentControls").open = true;
       }
     } else if (screenshotFixture === "model-empty") {
       setTab("chat");

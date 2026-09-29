@@ -269,23 +269,7 @@ body.mode-full .composer-utility-stack .composer-action { width:17px; height:17p
 #reasoningButton[data-intensity="peak"] { box-shadow:inset 0 0 14px color-mix(in srgb,var(--mint) 5%,transparent),0 0 7px color-mix(in srgb,var(--mint) 10%,transparent); }
 #reasoningButton[data-intensity="peak"]::after { opacity:.4; }
 @keyframes effort-chip-orbit { to { --effort-chip-angle:360deg; } }
-/* The next-to-highest effort reads like a calm GPT blue; the highest keeps the lively purple prism. */
-#reasoningMenu { --reasoning-accent:#538fff; --reasoning-secondary:#82b3ff; width:min(300px,calc(100vw - 24px)); background:#292a2e; border-color:#ffffff20; }
-#reasoningMenu[data-intensity="deep"] { --reasoning-accent:#4786ff; --reasoning-secondary:#8ab8ff; }
-#reasoningMenu[data-intensity="peak"] { --reasoning-accent:#ae79ff; --reasoning-secondary:#5967ee; }
-#reasoningButton[data-intensity="deep"] { --reasoning-accent:#4786ff; --reasoning-secondary:#8ab8ff; background:#202b43; border-color:#538fff73; box-shadow:inset 0 1px #ffffff0c; }
-#reasoningButton[data-intensity="deep"]::before { background:linear-gradient(90deg,#397cf1,#85b5ff); animation:none; opacity:.65; }
-#reasoningButton[data-intensity="deep"]::after { display:none; }
-#reasoningButton[data-intensity="peak"] { --reasoning-accent:#ae79ff; --reasoning-secondary:#5967ee; background:#271d3b; border-color:#ae79ff8a; box-shadow:inset 0 0 14px #ae79ff18,0 0 12px #ae79ff24; }
-#reasoningButton[data-intensity="peak"]::before { background:conic-gradient(from var(--effort-chip-angle),#5967ee,#b569ff,#e1bdff,#7358e9,#5967ee); animation:effort-chip-orbit 2.8s linear infinite; }
-#reasoningButton[data-intensity="peak"]::after { opacity:.65; }
-#reasoningButton[data-intensity="deep"] #reasoningButtonText { background:#4786ff20; color:#9dc2ff; }
-#reasoningButton[data-intensity="peak"] #reasoningButtonText { background:#ae79ff24; color:#d3b6ff; }
-.reasoning-picker.open .reasoning-track[data-intensity="deep"] .reasoning-fill { background:linear-gradient(90deg,#367cf6,#589bff); }
-.reasoning-picker.open .reasoning-track[data-intensity="deep"] .reasoning-fill::before { opacity:0; animation:none; }
-.reasoning-picker.open .reasoning-track[data-intensity="deep"] .reasoning-fill::after { animation:reasoning-sparks 3.6s ease-in-out infinite alternate; }
-.reasoning-picker.open .reasoning-track[data-intensity="peak"] .reasoning-fill { background:linear-gradient(90deg,#5967ee,#9a5eff,#c793ff); }
-.reasoning-picker.open .reasoning-track[data-intensity="peak"] .reasoning-fill::before { background:linear-gradient(110deg,#5967ee,#be79ff,#e0baff,#865ef1,#5967ee); animation:reasoning-prism 1.8s ease-in-out infinite alternate; }
+#reasoningMenu { width:min(300px,calc(100vw - 24px)); background:#292a2e; border-color:#ffffff20; }
 /* Four layer choices are independent cards, not a two-row segmented pill. */
 #windowLayerSwitch { border:0; border-radius:0; background:transparent; padding:0; gap:6px; }
 #windowLayerSwitch button { min-width:0; height:38px; padding:6px 8px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--muted); font-size:10px; font-weight:600; box-shadow:none; }
@@ -389,11 +373,54 @@ body.mode-full .window-actions .icon-button { width:32px; height:32px; min-heigh
 .reasoning-heading small { font-size:calc(11px * var(--font-scale)); }
 .orb-status-card b,.orb-status-card small,.orb-session-open b,.orb-reply-compose textarea { font-size:calc(9px * var(--font-scale)); }
 
-/* Penultimate effort: restrained Codex blue. Final effort: lively Claude-style violet. */
-#reasoningMenu[data-intensity="deep"],body[data-design="cyberpunk"] #reasoningMenu[data-intensity="deep"] { --reasoning-accent:#4786ff; --reasoning-secondary:#8ab8ff; }
-#reasoningMenu[data-intensity="peak"],body[data-design="cyberpunk"] #reasoningMenu[data-intensity="peak"] { --reasoning-accent:#ae79ff; --reasoning-secondary:#5967ee; }
-.reasoning-picker.open .reasoning-track[data-intensity="deep"] .reasoning-fill::before { opacity:.34; background:linear-gradient(100deg,transparent,#c5dcff,#78acff,transparent); animation:reasoning-tide 7s ease-in-out infinite alternate; }
-.reasoning-picker.open .reasoning-track[data-intensity="deep"] .reasoning-fill::after { animation:reasoning-sparks 4s ease-in-out infinite alternate; }
-.reasoning-picker.open .reasoning-track[data-intensity="peak"] .reasoning-fill::before { opacity:.9; animation:reasoning-prism 1.8s ease-in-out infinite alternate; }
+/* The penultimate effort keeps the lively prism, using the active theme's palette. */
+#reasoningMenu[data-intensity="deep"],body[data-design="cyberpunk"] #reasoningMenu[data-intensity="deep"],#reasoningButton[data-intensity="deep"] { --reasoning-accent:var(--mint); --reasoning-secondary:var(--violet); }
+#reasoningButton[data-intensity="deep"] { background:color-mix(in srgb,var(--bg) 90%,var(--mint)); border-color:color-mix(in srgb,var(--mint) 55%,transparent); box-shadow:inset 0 0 14px color-mix(in srgb,var(--mint) 10%,transparent),0 0 10px color-mix(in srgb,var(--mint) 18%,transparent); }
+#reasoningButton[data-intensity="deep"]::before { animation-duration:3.2s; opacity:1; padding:1.2px; }
+#reasoningButton[data-intensity="deep"]::after { display:none; }
+#reasoningButton[data-intensity="deep"] #reasoningButtonText { background:color-mix(in srgb,var(--mint) 18%,transparent); color:var(--mint); }
+.reasoning-picker.open .reasoning-track[data-intensity="deep"] .reasoning-fill { background:linear-gradient(90deg,var(--reasoning-secondary),var(--reasoning-accent),color-mix(in srgb,var(--reasoning-accent) 60%,white)); }
+.reasoning-picker.open .reasoning-track[data-intensity="deep"] .reasoning-fill::before { opacity:.9; animation:reasoning-prism 1.8s ease-in-out infinite alternate; }
+.reasoning-picker.open .reasoning-track[data-intensity="deep"] .reasoning-fill::after { display:none; animation:none; }
+.reasoning-starfield { display:none; position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+#reasoningButton > .reasoning-starfield { position:absolute; z-index:0; }
+#reasoningButton[data-intensity="deep"] > .reasoning-starfield,
+.reasoning-track[data-intensity="deep"] .reasoning-starfield { display:block; }
+.reasoning-starfield i { position:absolute; top:50%; left:50%; width:10px; height:10px; background:#fff; clip-path:polygon(50% 0%,59% 40%,100% 50%,59% 60%,50% 100%,41% 60%,0% 50%,41% 40%); opacity:.7; transform:translate(-50%,-50%); animation:reasoning-star-twinkle 2.8s ease-in-out infinite; }
+.reasoning-starfield i:nth-child(1) { left:10%; top:37%; width:8px; height:8px; animation-delay:-.2s; }
+.reasoning-starfield i:nth-child(2) { left:25%; top:68%; width:11px; height:11px; animation-delay:-1.5s; animation-duration:3.4s; }
+.reasoning-starfield i:nth-child(3) { left:41%; top:29%; width:9px; height:9px; animation-delay:-2.1s; }
+.reasoning-starfield i:nth-child(4) { left:58%; top:67%; width:12px; height:12px; animation-delay:-.9s; animation-duration:3.1s; }
+.reasoning-starfield i:nth-child(5) { left:76%; top:32%; width:9px; height:9px; animation-delay:-2.6s; }
+.reasoning-starfield i:nth-child(6) { left:91%; top:69%; width:7px; height:7px; animation-delay:-1.1s; animation-duration:3.6s; }
+@keyframes reasoning-star-twinkle { 0%,100% { opacity:.18; transform:translate(-50%,-50%) scale(.55) rotate(-12deg); } 42% { opacity:1; transform:translate(-50%,-50%) scale(1.2) rotate(12deg); } 65% { opacity:.48; transform:translate(-50%,-50%) scale(.8) rotate(22deg); } }
+body.motion-off .reasoning-starfield i { animation:none !important; opacity:.9; transform:translate(-50%,-50%); }
+@media(prefers-reduced-motion:reduce) { .reasoning-starfield i { animation:none !important; opacity:.9; transform:translate(-50%,-50%); } }
+
+/* Highest effort: a restrained Claude-like graphite grid, with motion in both surfaces. */
+#reasoningMenu[data-intensity="peak"],body[data-design="cyberpunk"] #reasoningMenu[data-intensity="peak"],#reasoningButton[data-intensity="peak"] { --reasoning-accent:var(--mint); --reasoning-secondary:var(--violet); }
+#reasoningMenu[data-intensity="peak"] { background:#222222; border:1px solid #ffffff21; border-radius:14px; }
+.reasoning-picker.open #reasoningMenu[data-intensity="peak"] { animation:reasoning-menu-fade .14s ease-out; }
+@keyframes reasoning-menu-fade { from { opacity:0; } to { opacity:1; } }
+#reasoningMenu[data-intensity="peak"] .reasoning-heading { margin-bottom:12px; }
+#reasoningMenu[data-intensity="peak"] .reasoning-emblem { display:none; }
+#reasoningMenu[data-intensity="peak"] .reasoning-model { display:flex; align-items:baseline; gap:6px; padding:0; text-align:left; }
+.reasoning-prefix,.reasoning-axis { display:none; }
+#reasoningMenu[data-intensity="peak"] .reasoning-prefix { display:inline; color:#999; font-size:12px; }
+#reasoningMenu[data-intensity="peak"] .reasoning-heading strong { display:inline; font-size:13px; }
+#reasoningMenu[data-intensity="peak"] .reasoning-heading small { display:none; }
+#reasoningMenu[data-intensity="peak"] .reasoning-axis { display:flex; justify-content:space-between; margin:0 0 7px; color:#999; font-size:11px; }
+#reasoningMenu[data-intensity="peak"] .reasoning-track { height:28px; border-radius:99px; background:#414348; transition:none; }
+#reasoningMenu[data-intensity="peak"] .reasoning-slider { height:28px; border-radius:99px; animation:none; transition:none; }
+#reasoningMenu[data-intensity="peak"] .reasoning-slider::-webkit-slider-thumb { width:28px; height:28px; border:1px solid #d9dce3; border-radius:50%; animation:none; transition:none; transform:none; }
+#reasoningMenu[data-intensity="peak"] .reasoning-dots i { width:4px; height:4px; background:#989ba3; }
+#reasoningMenu[data-intensity="peak"] .reasoning-fill { border-radius:99px 0 0 99px; transition:none; background:linear-gradient(90deg,color-mix(in srgb,var(--reasoning-secondary) 72%,#414348),color-mix(in srgb,var(--reasoning-accent) 70%,var(--reasoning-secondary)),var(--reasoning-accent)); }
+#reasoningMenu[data-intensity="peak"] .reasoning-fill::before { inset:0; opacity:.27; background:linear-gradient(90deg,var(--reasoning-secondary),var(--reasoning-accent)); mask-image:conic-gradient(from 90deg at 50% 50%,#000 0 25%,transparent 0); mask-size:8px 8px; animation:none; }
+#reasoningMenu[data-intensity="peak"] .reasoning-fill::after { inset:0; opacity:.9; background:linear-gradient(90deg,transparent 16%,color-mix(in srgb,var(--reasoning-accent) 58%,white) 45%,#fff 51%,color-mix(in srgb,var(--reasoning-secondary) 62%,white) 57%,transparent 84%) 0 0 / 175% 100%; mask-image:conic-gradient(from 90deg at 50% 50%,#000 0 25%,transparent 0); mask-size:8px 8px; animation:reasoning-pixel-wave 3.1s steps(48,end) infinite; }
+@keyframes reasoning-pixel-wave { from { background-position:-145% 0; } to { background-position:145% 0; } }
+#reasoningButton[data-intensity="peak"] { background:color-mix(in srgb,var(--bg) 96%,var(--reasoning-secondary)); border-color:color-mix(in srgb,var(--reasoning-accent) 58%,transparent); box-shadow:inset 0 0 10px color-mix(in srgb,var(--reasoning-accent) 12%,transparent),0 0 8px color-mix(in srgb,var(--reasoning-accent) 16%,transparent); }
+#reasoningButton[data-intensity="peak"]::before { opacity:.8; background:conic-gradient(from var(--effort-chip-angle),transparent,var(--reasoning-secondary),color-mix(in srgb,var(--reasoning-accent) 65%,white),transparent,var(--reasoning-secondary)); animation:effort-chip-orbit 4s linear infinite; }
+#reasoningButton[data-intensity="peak"]::after { inset:4px 8px; opacity:.48; background:linear-gradient(90deg,transparent 16%,color-mix(in srgb,var(--reasoning-accent) 55%,white) 48%,transparent 82%) 0 0 / 175% 100%; mask-image:conic-gradient(from 90deg at 50% 50%,#000 0 25%,transparent 0); mask-size:8px 8px; animation:reasoning-pixel-wave 3.1s steps(48,end) infinite; }
+#reasoningButton[data-intensity="peak"] #reasoningButtonText { background:color-mix(in srgb,var(--reasoning-accent) 18%,transparent); color:var(--reasoning-accent); }
 body.motion-off .reasoning-fill::before,body.motion-off .reasoning-fill::after { animation:none !important; }
 @media(prefers-reduced-motion:reduce) { .reasoning-fill::before,.reasoning-fill::after { animation:none !important; } }

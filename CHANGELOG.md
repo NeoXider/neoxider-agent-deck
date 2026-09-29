@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.15] - 2026-09-29
+
+### Changed
+
+- The two highest reasoning efforts for each model use theme-aware animations: bright stars for the penultimate effort and a pixel wave for the highest. The slider handle and fill level stay fixed during animation.
+- Agent and Plan buttons no longer duplicate the `/plan` commands in the model controls.
+
+### Fixed
+
+- Updated vulnerable transitive dependencies used by the desktop build.
+
 ## [0.9.14] - 2026-09-28
 
 ### Added

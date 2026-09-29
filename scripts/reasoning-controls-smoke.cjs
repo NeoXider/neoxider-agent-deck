@@ -38,9 +38,27 @@ app.whenReady().then(async () => {
         state.pendingSelection = { provider:'local', model:'test', reasoningEffort:['off','medium','high'][index] }; renderReasoning();
         const fill = getComputedStyle(document.querySelector('.reasoning-fill'), '::before');
         const badge = getComputedStyle(button, '::before');
-        motion.push({ theme,index,fill:fill.animationName,badge:badge.animationName,duration:fill.animationDuration,accent:getComputedStyle(document.querySelector('#reasoningMenu')).getPropertyValue('--reasoning-accent').trim() });
+        motion.push({ theme,index,fill:fill.animationName,badge:badge.animationName,duration:fill.animationDuration,accent:getComputedStyle(document.querySelector('#reasoningMenu')).getPropertyValue('--reasoning-accent').trim(),themeAccent:getComputedStyle(document.body).getPropertyValue('--mint').trim(),pixels:getComputedStyle(document.querySelector('.reasoning-fill'),'::after').animationName,buttonPixels:getComputedStyle(button,'::after').animationName,star:getComputedStyle(document.querySelector('.reasoning-fill .reasoning-starfield i')).animationName,buttonStar:getComputedStyle(button.querySelector('.reasoning-starfield i')).animationName,starShape:getComputedStyle(document.querySelector('.reasoning-fill .reasoning-starfield i')).clipPath });
       }
     }
+    state.pendingSelection = { provider:'local', model:'test', reasoningEffort:'medium' }; renderReasoning();
+    const star = document.querySelector('.reasoning-fill .reasoning-starfield i');
+    const starOpacityBefore = getComputedStyle(star).opacity;
+    await new Promise(resolve => setTimeout(resolve, 220));
+    const starOpacityAfter = getComputedStyle(star).opacity;
+    state.pendingSelection = { provider:'local', model:'test', reasoningEffort:'high' }; renderReasoning();
+    const frozenSlider = document.querySelector('.reasoning-slider');
+    const frozenFill = document.querySelector('.reasoning-fill');
+    const frozenBefore = { value:frozenSlider.value, x:frozenSlider.getBoundingClientRect().x, width:frozenFill.getBoundingClientRect().width };
+    const pixelWaveBefore = getComputedStyle(frozenFill,'::after').backgroundPosition;
+    await new Promise(resolve => setTimeout(resolve, 220));
+    const frozenAfter = { value:frozenSlider.value, x:frozenSlider.getBoundingClientRect().x, width:frozenFill.getBoundingClientRect().width };
+    const pixelWaveAfter = getComputedStyle(frozenFill,'::after').backgroundPosition;
+    const frozenStyles = { sliderAnimation:getComputedStyle(frozenSlider).animationName, thumbAnimation:getComputedStyle(frozenSlider,'::-webkit-slider-thumb').animationName, pixelTransform:getComputedStyle(frozenFill,'::after').transform };
+    const sliderFrozen = JSON.stringify(frozenBefore) === JSON.stringify(frozenAfter)
+      && frozenStyles.sliderAnimation === 'none'
+      && frozenStyles.thumbAnimation === 'none'
+      && frozenStyles.pixelTransform === 'none';
     document.body.dataset.design = defaultTheme || 'aurora';
     state.pendingSelection = { provider:'local',model:'test' }; renderReasoning();
     const rect = button.getBoundingClientRect();
@@ -50,19 +68,24 @@ app.whenReady().then(async () => {
     await new Promise(resolve => setTimeout(resolve, 300));
     const modelPickerOpened = document.querySelector('.model-picker').classList.contains('open') && document.querySelector('#agentControls').open;
     closePickers(); document.querySelector('#agentControls').open = false; button.click();
-    return { modelPickerOpened, motion, resetOpen, stable, preview, remainedOpen, calls, visible: rect.width > 0 && rect.height > 0, sameRow: Math.abs(rect.top - modelRect.top) < 2, fits: menuRect.left >= 0 && menuRect.right <= innerWidth, reset: button.textContent.trim() };
+    return { modelPickerOpened, motion, sliderFrozen, frozenBefore, frozenAfter, frozenStyles, starOpacityBefore, starOpacityAfter, pixelWaveBefore, pixelWaveAfter, twoEfforts: [reasoningIntensity(0,2),reasoningIntensity(1,2)], singleEffort: reasoningIntensity(0,1), resetOpen, stable, preview, remainedOpen, calls, visible: rect.width > 0 && rect.height > 0, sameRow: Math.abs(rect.top - modelRect.top) < 2, fits: menuRect.left >= 0 && menuRect.right <= innerWidth, reset: button.textContent.trim() };
   })()`);
   assert.ok(catalogReads > 0, "Opening model selection refreshes the catalog");
   assert.equal(result.stable, true); assert.equal(result.preview, 'High'); assert.equal(result.remainedOpen, true);
+  assert.deepEqual(result.twoEfforts, ['deep', 'peak']); assert.equal(result.singleEffort, 'normal');
+  assert.notEqual(result.starOpacityBefore, result.starOpacityAfter, 'Sharp stars should twinkle independently');
+  assert.notEqual(result.pixelWaveBefore, result.pixelWaveAfter, 'The pixel wave should move inside a fixed fill');
   assert.equal(result.calls[0].reasoningEffort, 'high'); assert.equal(result.calls[1].reasoningEffort, undefined);
-  for (const key of ['visible', 'sameRow', 'fits', 'resetOpen', 'modelPickerOpened']) assert.equal(result[key], true, key);
+  for (const key of ['visible', 'sameRow', 'fits', 'resetOpen', 'modelPickerOpened', 'sliderFrozen']) assert.equal(result[key], true, `${key}: ${JSON.stringify({ before:result.frozenBefore, after:result.frozenAfter, styles:result.frozenStyles })}`);
   assert.match(result.reset, /Auto/);
   for (const item of result.motion) {
-    assert.equal(item.fill,['none','reasoning-tide','reasoning-prism'][item.index]);
-    assert.equal(item.badge,item.index===2 ? "effort-chip-orbit" : "none");
-    if(item.index===1) assert.equal(item.duration,'7s');
-    if(item.index===2) assert.equal(item.duration,'1.8s');
-    assert.equal(item.accent,['#538fff','#4786ff','#ae79ff'][item.index]);
+    assert.equal(item.fill,['none','reasoning-prism','none'][item.index]);
+    assert.equal(item.badge,item.index===0 ? 'none' : 'effort-chip-orbit');
+    if(item.index===1) assert.equal(item.duration,'1.8s');
+    if(item.index===2) assert.equal(item.duration,'0s');
+    assert.equal(item.accent,item.themeAccent);
+    if(item.index===1) { assert.equal(item.pixels,'none'); assert.equal(item.star,'reasoning-star-twinkle'); assert.equal(item.buttonStar,'reasoning-star-twinkle'); assert.match(item.starShape,/polygon/); }
+    if(item.index===2) { assert.equal(item.pixels,'reasoning-pixel-wave'); assert.equal(item.buttonPixels,'reasoning-pixel-wave'); }
   }
   fs.mkdirSync(path.join(__dirname, '../tmp/ui-smoke'), { recursive: true });
   fs.writeFileSync(path.join(__dirname, '../tmp/ui-smoke/reasoning-slider.png'), (await win.webContents.capturePage()).toPNG());
