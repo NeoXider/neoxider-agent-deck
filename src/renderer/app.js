@@ -1712,9 +1712,6 @@ function renderReasoning() {
     event.stopPropagation(); openModelPicker({ retry: true });
   });
   const title = document.createElement("strong");
-  const prefix = document.createElement("span");
-  prefix.className = "reasoning-prefix";
-  prefix.textContent = "Effort";
   const subtitle = document.createElement("small");
   subtitle.textContent = model?.name || model?.id || "Model";
   const reset = document.createElement("button");
@@ -1726,7 +1723,7 @@ function renderReasoning() {
   const emblem = document.createElement("span");
   emblem.className = "reasoning-emblem";
   emblem.innerHTML = '<svg class="ui-icon" aria-hidden="true"><use href="#icon-reasoning"/></svg>';
-  copy.append(prefix, title, subtitle); heading.append(emblem, copy, reset);
+  copy.append(title, subtitle); heading.append(emblem, copy, reset);
   const range = document.createElement("input");
   range.type = "range"; range.min = "0"; range.max = String(Math.max(0, efforts.length - 1)); range.step = "1";
   range.className = "reasoning-slider";
@@ -1761,8 +1758,6 @@ function renderReasoning() {
   range.addEventListener("change", () => { void choose(efforts[Number(range.value)]?.id); });
   reset.addEventListener("click", event => { event.stopPropagation(); void choose(""); });
   const track = document.createElement("div"); track.className = "reasoning-track";
-  const axis = document.createElement("div"); axis.className = "reasoning-axis";
-  axis.innerHTML = '<span>Faster</span><span>Smarter</span>';
   const dots = document.createElement("div"); dots.className = "reasoning-dots"; dots.setAttribute("aria-hidden", "true");
   for (const effort of efforts) { const dot = document.createElement("i"); dot.title = effort.name || effort.id; dots.append(dot); }
   const fill = document.createElement("div"); fill.className = "reasoning-fill"; fill.setAttribute("aria-hidden", "true");
@@ -1770,7 +1765,7 @@ function renderReasoning() {
   const setup = document.createElement("button"); setup.type = "button"; setup.className = "reasoning-setup"; setup.textContent = "Agent settings";
   setup.addEventListener("click", event => { event.stopPropagation(); closePickers(); $("#agentControls").open = true; });
   track.hidden = efforts.length === 0;
-  track.append(fill, range, dots); root.append(heading, axis, track, setup); paint(!selectedId);
+  track.append(fill, range, dots); root.append(heading, track, setup); paint(!selectedId);
 }
 
 function modelDisplay(selection) {

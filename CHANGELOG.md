@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The reasoning menu looks the same at every effort level; only the animation differs. The penultimate effort gets a calm tide and sheen, the highest a fast two-colour current, a bright sweep and twinkling stars, both in the fill bar and on the model chip.
+
 ## [0.9.15] - 2026-09-29
 
 ### Changed
