@@ -262,7 +262,7 @@ async function main() {
   await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
     query: { screenshotFixture: "update-ready", screenshotStatic: "1" },
   });
-  win.show();
+  win.showInactive();
   win.focus();
   await wait(1200);
   await contents.executeJavaScript('setSettingsOpen(false, { restoreFocus: false }); renderUpdateState({ status: "ready", currentVersion: "0.6.2", latestVersion: "0.6.3", progress: 100, installMode: "portable-replace" })');
@@ -333,7 +333,7 @@ async function main() {
   await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
     query: { screenshotFixture: "orb-recent-three", screenshotStatic: "1" },
   });
-  win.show();
+  win.showInactive();
   win.focus();
   await wait(1200);
   await contents.executeJavaScript(`(() => {
@@ -392,7 +392,7 @@ async function main() {
     query: { screenshotFixture: "chat", screenshotStatic: "1" },
   });
   win.focus();
-  win.show();
+  win.showInactive();
   win.focus();
   await wait(1200);
 
@@ -1275,14 +1275,15 @@ async function main() {
     state.queuedPromptsBySession.set("steer-session", [{ id: "steer-item", text: "new direction" }]);
     await updateQueuedPrompt({ id: "steer-item", text: "new direction" }, { kind: "steer" });
     const interrupted = { live: document.querySelector("#messages .live-assistant")?.textContent || "", steering: document.querySelector("#messages .steering-message")?.textContent || "", activity: state.currentActivity?.kind, stopHidden: document.querySelector("#cancelButton").hidden };
+    await handleLiveEvent({ sessionId: "steer-session", event: { type: "assistant/reset", data: { text: "", reasoning: "" } } });
     await handleLiveEvent({ sessionId: "steer-session", event: { type: "assistant/chunk", seq: 91, data: { chunk: { type: "text-delta", text: "new answer" } } } });
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const next = document.querySelector("#messages .live-assistant")?.textContent || "";
     await handleLiveEvent({ sessionId: "steer-session", event: { type: "turn/end", seq: 92, data: { reason: { kind: "stop" } } } });
     return { interrupted, next, stopHiddenAfterEnd: document.querySelector("#cancelButton").hidden };
   })()`);
-  if (steerPresentation.interrupted.live || !steerPresentation.interrupted.steering.includes("new direction") || steerPresentation.interrupted.activity !== "thinking" || steerPresentation.interrupted.stopHidden || steerPresentation.next.trimEnd() !== "new answer" || !steerPresentation.stopHiddenAfterEnd) {
-    failures.push(`Send now did not interrupt the previous live bubble cleanly: ${JSON.stringify(steerPresentation)}`);
+  if (!steerPresentation.interrupted.live.includes("old unfinished answer") || !steerPresentation.interrupted.steering.includes("new direction") || steerPresentation.interrupted.activity !== "writing" || steerPresentation.interrupted.stopHidden || steerPresentation.next.trimEnd() !== "new answer" || !steerPresentation.stopHiddenAfterEnd) {
+    failures.push(`Send now lost the in-flight response or failed to reset at the next attempt: ${JSON.stringify(steerPresentation)}`);
   }
 
   await within(contents.executeJavaScript(`(async () => {

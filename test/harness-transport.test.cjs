@@ -268,3 +268,17 @@ test("a throwing frame handler does not escape into the socket's event dispatch"
   assert.equal(logged.length, 1);
   assert.match(String(logged[0][0]), /session\/follow frame handler failed/);
 });
+
+test("a socket failure rejects channel opening so callers can reconnect", async (t) => {
+  const sockets = installFakeWebSocket(t);
+  const transport = createRemoteTransport({
+    fetchImpl: async () => response({ status: 303, headers: { "set-cookie": "c=v" } }),
+    getLaunchBrowserUrl: () => "http://127.0.0.1:3080/?token=t",
+  });
+  const opening = transport.openChannel({ endpoint: "session/control" });
+  const rejected = assert.rejects(opening, /failed to open/);
+  while (!sockets.length) await new Promise(resolve => setImmediate(resolve));
+  sockets[0].emit("error");
+  await rejected;
+  assert.equal(sockets[0].closed, true);
+});

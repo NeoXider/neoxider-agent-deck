@@ -905,6 +905,19 @@ test("a remote snapshot without a cursor is served instead of dead-ending pagina
   assert.deepEqual(paged.messages.map((message) => message.text), ["line 1", "line 3", "line 4"]);
 });
 
+test("modern dashboard keeps the host live phase even when history still ends at a prior turn", async () => {
+  const api = new HarnessApi(undefined, legacyFetch);
+  api.listSubagents = async () => ({ entries: [] });
+  api.readHistoryEvents = async () => ({ events: [{ event: { type: "turn/end", data: { reason: { kind: "stop" } } } }] });
+  const session = { sessionId: "modern", running: true, updatedAt: 1 };
+  const active = await api.enrichSession(session, 0, new Map(), "modern", true);
+  assert.equal(active.running, true);
+  assert.equal(active.state, "working");
+  const idle = await api.enrichSession({ ...session, running: false }, 0, new Map(), "modern", true);
+  assert.equal(idle.running, false);
+  assert.equal(idle.activity, null);
+});
+
 test("remote models keep the full host catalog and use the addressed session selection", async () => {
   const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
   const groups = [

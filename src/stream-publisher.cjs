@@ -81,7 +81,9 @@ function createStreamPublisher({ queueSnapshots, backgroundJobs = new Map(), sen
     if (!frame?.sessionId || !frame?.event) return false;
     const event = frame.event;
     let data = {};
-    if (event.type === "assistant/chunk") {
+    if (event.type === "assistant/reset") {
+      data = { text: String(event.data?.text || ""), reasoning: String(event.data?.reasoning || "").slice(-1200) };
+    } else if (event.type === "assistant/chunk") {
       const chunk = event.data?.chunk || {};
       data = { chunk: {
         type: String(chunk.type || ""),

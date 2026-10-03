@@ -1063,7 +1063,7 @@ test("a transient workspace picker refresh preserves the last successful project
   assert.match(loadWorkspaces, /catch \{\s*state\.workspacesLoaded = true/);
 });
 
-test("queue snapshots win send races and steer interrupts the previous live bubble", () => {
+test("queue snapshots win send races and steer preserves the in-flight response", () => {
   assert.match(renderer, /queueSnapshotRevisions/);
   assert.match(renderer, /expectedSnapshotRevision/);
   assert.match(renderer, /queueSnapshotRevision\(sessionId\) !== expectedSnapshotRevision/);
@@ -1071,7 +1071,9 @@ test("queue snapshots win send races and steer interrupts the previous live bubb
   assert.match(renderer, /steeringPromptsBySession/);
   assert.match(renderer, /steering-message/);
   assert.doesNotMatch(renderer, /steeredSessionsAwaitingTurnStart/);
-  assert.match(renderer, /Interrupting the previous response/);
+  const steer = renderer.slice(renderer.indexOf("function beginSteeredTurn"), renderer.indexOf("function trackQueuedPrompt"));
+  assert.doesNotMatch(steer, /liveStreamsBySession\.delete/);
+  assert.match(steer, /next agent step/);
 });
 
 test("completed reasoning is omitted and live activity remains a collapsed card", () => {

@@ -2196,7 +2196,7 @@ function renderQueuedPrompts() {
     state.queueBusySessionId,
     state.queueExpandedId,
     state.queueExpandedSessionId,
-    ...items.map((item) => [item.id, item.text, item.preview, item.attachmentCount, (item.attachments || []).map(a => [a.name, a.kind, a.attachmentId, a.data?.length || 0]), Boolean(item.optimistic)]),
+    ...items.map((item) => [item.id, item.text, item.preview, item.editable, item.attachmentCount, (item.attachments || []).map(a => [a.name, a.kind, a.attachmentId, a.data?.length || 0]), Boolean(item.optimistic)]),
   ]);
   if (signature === state.queueSignature) return false;
   state.queueSignature = signature;
@@ -2287,7 +2287,7 @@ function renderQueuedPrompts() {
         ));
       }
       actions.append(
-        queueActionButton("edit", "Edit queued message", "", () => { state.queueEditingId = item.id; state.queueEditingSessionId = state.selectedSessionId; renderQueuedPrompts(); }, busy || item.optimistic),
+        queueActionButton("edit", item.editable === false ? "To edit the caption, remove and attach this image again" : "Edit queued message", "", () => { state.queueEditingId = item.id; state.queueEditingSessionId = state.selectedSessionId; renderQueuedPrompts(); }, busy || item.optimistic || item.editable === false),
         queueActionButton("trash", "Delete queued message", "danger", () => updateQueuedPrompt(item, { kind: "remove" }), busy || item.optimistic),
         queueActionButton("send", "Send now", "steer", () => updateQueuedPrompt(item, { kind: "steer" }), busy || item.optimistic),
       );
@@ -2301,7 +2301,6 @@ function renderQueuedPrompts() {
 }
 
 function beginSteeredTurn(sessionId, item) {
-  state.liveStreamsBySession.delete(sessionId);
   const steering = state.steeringPromptsBySession.get(sessionId) || [];
   if (item && !steering.some((entry) => entry.id === item.id)) {
     state.steeringPromptsBySession.set(sessionId, [...steering, { ...item, placement: "steering", optimistic: true }]);
@@ -2311,7 +2310,9 @@ function beginSteeredTurn(sessionId, item) {
     cancelAnimationFrame(livePaintFrame);
     livePaintFrame = null;
   }
-  const activity = { active: true, kind: "thinking", label: "Sending now", text: "Interrupting the previous response and starting the selected queued message…" };
+  // DSH steering is next-step injection, not cancellation of an in-flight LLM
+  // response. Keep its text until the host starts a new assistant attempt.
+  const activity = state.liveStreamsBySession.get(sessionId)?.activity || { active: true, kind: "thinking", label: "Sending now", text: "The selected message will be applied at the next agent step…" };
   updateLiveSessionState(sessionId, true, activity, "working", { render: false });
   setActivity(activity);
   renderMessages(state.currentMessages);
@@ -4868,7 +4869,18 @@ async function handleLiveEvent(payload) {
   if (Number(event.seq) && Number(event.seq) <= Number(stream.lastSeq)) return;
   if (Number(event.seq)) stream.lastSeq = Number(event.seq);
   stream.lastEventAt = Date.now();
-  if (["turn/start", "assistant/chunk", "assistant/message", "tool/call", "tool/result", "tool/code-dispatch-start", "tool/code-dispatch", "turn/end", "todo/write"].includes(event.type)) bumpLiveSessionRevision(sessionId);
+  if (["turn/start", "assistant/reset", "assistant/chunk", "assistant/message", "tool/call", "tool/result", "tool/code-dispatch-start", "tool/code-dispatch", "turn/end", "todo/write"].includes(event.type)) bumpLiveSessionRevision(sessionId);
+
+  if (event.type === "assistant/reset") {
+    const text = String(event.data?.text || "");
+    const reasoning = String(event.data?.reasoning || "").slice(-1200);
+    const activity = text ? { active: true, kind: "writing", label: "Writing", text }
+      : { active: true, kind: "thinking", label: "Thinking", text: compactRecentText(reasoning, 110) || "Preparing the next step…" };
+    state.liveStreamsBySession.set(sessionId, { ...stream, text, reasoning, active: true, activity });
+    updateLiveSessionState(sessionId, true, activity, "working", { render: false });
+    scheduleLivePaint();
+    return;
+  }
 
   if (event.type === "todo/write") {
     const todos = normalizedTodos(event.data?.todos);

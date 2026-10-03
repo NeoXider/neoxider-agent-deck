@@ -182,6 +182,7 @@ function createRemoteTransport({ baseUrl = "http://127.0.0.1:3080", fetchImpl = 
         if (resolved || rejected) return;
         rejected = true;
         end(error);
+        reject(error);
       }
 
       const url = new URL("/api/remote.mux", root);
@@ -199,6 +200,7 @@ function createRemoteTransport({ baseUrl = "http://127.0.0.1:3080", fetchImpl = 
       socket.addEventListener("open", () => {
         try {
           socket.send(JSON.stringify({ type: "open", streamId, endpoint, payload: { args } }));
+          clearTimeout(openTimer);
           resolved = true;
           resolve({
             close() {

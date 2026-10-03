@@ -292,7 +292,7 @@ class HarnessApi {
     // made every session on screen disappear at once.
     const enriched = await Promise.all(sessions.map(async (session, index) => {
       try {
-        return await this.enrichSession(session, index, workspaceBySessionId, selectedSessionId);
+        return await this.enrichSession(session, index, workspaceBySessionId, selectedSessionId, Boolean(remote));
       } catch (error) {
         const cachedState = this.sessionStateCache.get(session.sessionId);
         return {
@@ -318,7 +318,7 @@ class HarnessApi {
     };
   }
 
-  async enrichSession(session, index, workspaceBySessionId, selectedSessionId = null) {
+  async enrichSession(session, index, workspaceBySessionId, selectedSessionId = null, remoteGeneration = false) {
     {
       const cachedState = this.sessionStateCache.get(session.sessionId);
       const shouldEnrich = Boolean(session.running || index < 18 || session.sessionId === selectedSessionId);
@@ -350,12 +350,11 @@ class HarnessApi {
       ]);
       const subagents = catalog ? (catalog.entries || []) : (cachedState?.subagents ?? []);
       const events = historyValue?.events || [];
-      // session.list may remain running=true briefly after the turn has ended.
-      // When history is available, only a genuinely open turn is authoritative.
-      const activity = historyValue ? activityFromHistory(events) : null;
-      const effectiveRunning = historyValue
-        ? Boolean(activity?.active)
-        : Boolean(session.running);
+      // Modern DSH reports live phase in session/list; a durable history tail can
+      // still show the previous ended turn while a new request is starting.
+      const historyActivity = historyValue ? activityFromHistory(events) : null;
+      const effectiveRunning = remoteGeneration || !historyValue ? Boolean(session.running) : Boolean(historyActivity?.active);
+      const activity = effectiveRunning ? historyActivity : null;
       const agentState = historyValue
         ? sessionStateFromHistory(events, effectiveRunning)
         : (effectiveRunning ? "working" : cachedState?.state === "error" ? "error" : "idle");

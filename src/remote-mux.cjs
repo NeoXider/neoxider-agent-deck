@@ -1,5 +1,5 @@
 // Live surfaces for the remote Harness generation: one persistent session/control
-// channel carrying queue snapshots for every session, plus per-session
+// channel carrying inbox projections for every session, plus per-session
 // session/follow channels for live events and assistant stream frames. Reconnect
 // and backoff mirror mux-client so a dead socket degrades exactly as it always has.
 
@@ -15,6 +15,24 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
   let controlHandle = null;
   const follows = new Map();
   const jobSessions = new Set();
+  const queueSessions = new Set();
+  const inboxRevisions = new Map();
+
+  function publishInbox(sessionId, inbox, seq = null) {
+    if (!sessionId || !inbox || typeof inbox !== "object") return;
+    if (Number.isFinite(seq) && Number.isFinite(inboxRevisions.get(sessionId))
+        && seq < inboxRevisions.get(sessionId)) return;
+    if (Number.isFinite(seq)) inboxRevisions.set(sessionId, seq);
+    queueSessions.add(sessionId);
+    const items = [
+      ...(Array.isArray(inbox["next-turn"]) ? inbox["next-turn"] : []).map(message => ({ id: message?.id, placement: "queued", message,
+        editable: !(Array.isArray(message?.content) ? message.content : []).some(block => block?.type !== "text") })),
+      ...(Array.isArray(inbox["next-step"]) ? inbox["next-step"] : [])
+        .filter(message => message?.source?.kind === "user")
+        .map(message => ({ id: message.id, placement: "steering", message })),
+    ];
+    onQueue(sessionId, items);
+  }
 
   // The transport is async because the generation probe may still be settling, and it
   // is null until the harness proves itself to be on the remote generation.
@@ -37,21 +55,36 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
         let handle = null;
         try {
           handle = await withChannel("session/control", {}, (value) => {
-            if (!value || typeof value !== "object") return;
+            if (stopped || !value || typeof value !== "object") return;
             if (value.type === "baseline" && value.value) {
+              // Current DSH sends complete projection baselines, not `queues`.
+              // Reset the generation watermark: a restarted server may restore an
+              // older durable position than the last process-local frame we saw.
+              const projections = value.value.projections || {};
+              const queues = value.value.queues || {};
+              for (const id of queueSessions) if (!(id in projections) && !(id in queues)) onQueue(id, []);
+              queueSessions.clear();
+              inboxRevisions.clear();
+              for (const [id, projection] of Object.entries(projections)) {
+                publishInbox(id, projection?.values?.inbox || {}, projection?.asOfSeq);
+              }
               const jobs = value.value.jobs || {};
               for (const id of jobSessions) if (!(id in jobs)) onJobs(id, []);
               jobSessions.clear();
               for (const [id, items] of Object.entries(jobs)) {
                 jobSessions.add(id); onJobs(id, Array.isArray(items) ? items : []);
               }
-              for (const [sessionId, items] of Object.entries(value.value.queues || {})) {
+              for (const [sessionId, items] of Object.entries(queues)) {
+                queueSessions.add(sessionId);
                 onQueue(sessionId, Array.isArray(items) ? items : []);
               }
+            } else if (value.type === "projection" && value.key === "inbox") {
+              publishInbox(value.sessionId, value.value, value.seq);
             } else if (value.type === "jobs" && value.sessionId) {
               jobSessions.add(value.sessionId);
               onJobs(value.sessionId, Array.isArray(value.jobs) ? value.jobs : []);
             } else if (value.type === "queue" && value.sessionId) {
+              queueSessions.add(value.sessionId);
               onQueue(value.sessionId, Array.isArray(value.items) ? value.items : []);
             }
           }, () => stopped);
@@ -89,8 +122,20 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
       let handle = null;
       try {
         handle = await withChannel("session/follow", { request: { address: { kind: "session", sessionId }, assistantStream: true } }, (value) => {
-          if (!value || typeof value !== "object") return;
-          if (value.type === "event" && value.event) {
+          if (abandoned() || !value || typeof value !== "object") return;
+          if (value.type === "snapshot" && value.assistantStream?.activeAttempt) {
+            const records = value.assistantStream.activeAttempt.stream || [];
+            let text = "", reasoning = "";
+            for (const record of records) {
+              if (record.type === "text-chunks") text += (record.texts || []).join("");
+              else if (record.type === "reasoning-chunks") reasoning += (record.texts || []).join("");
+              else if (record.chunk?.type === "text-delta") text += record.chunk.text || "";
+              else if (record.chunk?.type === "reasoning-delta") reasoning += record.chunk.text || "";
+            }
+            onLiveEvent({ sessionId, event: { type: "assistant/reset", data: { text, reasoning } } });
+          } else if (value.type === "assistant-stream" && value.frame?.type === "start") {
+            onLiveEvent({ sessionId, event: { type: "assistant/reset", data: { text: "", reasoning: "" } } });
+          } else if (value.type === "event" && value.event) {
             onLiveEvent({ sessionId, event: value.event });
           } else if (value.type === "assistant-stream" && value.frame?.type === "chunk") {
             // The frame's chunk is the raw model StreamChunk; the publisher

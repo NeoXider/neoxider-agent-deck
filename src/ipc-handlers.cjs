@@ -23,7 +23,7 @@ const { normalizeBackground, normalizeDesignProfiles } = require("./appearance-s
 // harness already paid for that lesson once (see scripts/screenshot-harness.cjs).
 const { harnessSessionUrl } = require("./harness-url.cjs");
 const { isSameHarnessOrigin, normalizeHarnessLaunchUrl } = require("./harness-transport.cjs");
-const { QUEUE_CONTENT } = require("./queue-view.cjs");
+const { QUEUE_CONTENT, editableQueueContent } = require("./queue-view.cjs");
 const { renderMarkdownBatch, renderMarkdownAsync } = require("./markdown-service.cjs");
 const { applyPlatformOpacity } = require("./platform-capabilities.cjs");
 
@@ -303,8 +303,7 @@ function registerIpcHandlers({
     const kind = String(payload?.action?.kind || "");
     if (!sessionId || !itemId || !["remove", "steer", "edit"].includes(kind)) throw new Error("Invalid queue action");
     const queuedItem = queueSnapshots.get(sessionId)?.items?.find((item) => item.id === itemId);
-    const originalContent = queuedItem?.[QUEUE_CONTENT];
-    if (kind === "edit" && !Array.isArray(originalContent)) throw new Error("Queued message changed; refresh and try again");
+    const originalContent = kind === "edit" ? editableQueueContent(queuedItem) : queuedItem?.[QUEUE_CONTENT];
     const action = kind === "edit"
       ? { kind, text: String(payload?.action?.text || "").trim(), originalContent }
       : { kind };

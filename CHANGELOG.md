@@ -7,9 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.16] - 2026-10-03
+
 ### Changed
 
-- The reasoning menu looks the same at every effort level; only the animation differs. The penultimate effort gets a calm tide and sheen, the highest a fast two-colour current, a bright sweep and twinkling stars, both in the fill bar and on the model chip.
+- The reasoning menu and slider keep the same geometry at every effort level. Each model's penultimate effort has sharp twinkling stars, and the highest retains its smooth animated fill with a theme-coloured pixel wave on the model chip. The handle and fill level do not animate.
+- Automatic Harness installation uses DSH 0.2.0-rc.2.
+- Updated Markdown rendering and the desktop build downloader; dependency audit reports no known vulnerabilities.
+
+### Fixed
+
+- Read the modern Harness inbox projections so queued messages have durable identifiers and edit, remove, send-now and reconnect work correctly.
+- Recover the current streamed response when reconnecting and reset its text on each new model attempt instead of combining retries.
+- Preserve an in-flight response during send-now steering, which DSH applies at the next agent step.
+- Reject failed channel opens instead of leaving the widget waiting indefinitely.
+- Use modern Harness live status even when the history tail still ends at the previous turn.
+- Protect queued image attachments from the text-only Harness editor. They can still be sent or removed; changing their caption requires reattaching the image.
+
+### Added
+
+- An opt-in end-to-end Harness acceptance check with a separate home, deterministic model server, real queue/stream/reconnect APIs, and optional compaction verification.
 
 ## [0.9.15] - 2026-09-29
 

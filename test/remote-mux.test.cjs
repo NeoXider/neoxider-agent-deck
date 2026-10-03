@@ -37,6 +37,32 @@ function fakeSleep() {
 
 async function tick() { await new Promise((r) => setTimeout(r, 20)); }
 
+test("DSH inbox projections publish editable messages and survive reconnect", async () => {
+  const transport = createFakeTransport();
+  const queues = [];
+  const mux = createRemoteMuxClient({ getTransport: () => transport, onQueue: (id, items) => queues.push([id, items]) });
+  mux.start();
+  await tick();
+  try {
+    const channel = transport.channels[0];
+    const message = { id: "image-prompt", role: "user", source: { kind: "user" }, content: [{ type: "text", text: "Caption" }, { type: "image", attachment: { attachmentId: "image-1" } }] };
+    channel.onFrame({ type: "baseline", value: { projections: { s1: { asOfSeq: 10, values: { inbox: { "next-turn": [message], "next-step": [] } } } } } });
+    assert.deepEqual(queues.at(-1), ["s1", [{ id: message.id, placement: "queued", message, editable: false }]]);
+    const background = { id: "job", source: { kind: "tool" }, content: [] };
+    channel.onFrame({ type: "projection", sessionId: "s1", key: "inbox", seq: 11, value: { "next-turn": [], "next-step": [message, background] } });
+    assert.deepEqual(queues.at(-1), ["s1", [{ id: message.id, placement: "steering", message }]]);
+    const count = queues.length;
+    channel.onFrame({ type: "projection", sessionId: "s1", key: "inbox", seq: 9, value: { "next-turn": [message] } });
+    assert.equal(queues.length, count, "an older frame cannot resurrect a consumed message");
+    channel.onFrame({ type: "baseline", value: { projections: {} } });
+    assert.deepEqual(queues.at(-1), ["s1", []], "a reconnect clears queues absent from the baseline");
+    channel.onFrame({ type: "baseline", value: { projections: { s1: { asOfSeq: 8, values: { inbox: { "next-turn": [message] } } } } } });
+    assert.equal(queues.at(-1)[1][0].id, message.id, "the new connection owns its watermark");
+    channel.onFrame({ type: "projection", sessionId: "s1", key: "inbox", seq: 12, value: { "next-turn": [], "next-step": [] } });
+    assert.deepEqual(queues.at(-1), ["s1", []]);
+  } finally { mux.stop(); }
+});
+
 test("job snapshots replace live state and reconnect clears removed sessions", async () => {
   const transport = createFakeTransport();
   const updates = [];
@@ -177,6 +203,29 @@ test("assistant-stream chunk frames produce synthesized assistant/chunk events",
   assert.equal(events[0].event.type, "assistant/chunk");
   assert.deepEqual(events[0].event.data.chunk, { text: "hi" });
   mux.stop();
+});
+
+test("reconnecting restores compact stream text and a new attempt clears it", async () => {
+  const transport = createFakeTransport();
+  const events = [];
+  const mux = createRemoteMuxClient({ getTransport: () => transport, onLiveEvent: e => events.push(e) });
+  mux.track("s1");
+  await tick();
+  try {
+    const follow = transport.channels[0];
+    follow.onFrame({ type: "snapshot", assistantStream: { activeAttempt: { stream: [
+      { type: "reasoning-chunks", texts: ["Think", "ing"] },
+      { type: "text-chunks", texts: ["Hello", " world"] },
+      { type: "chunk", chunk: { type: "text-delta", text: "!" } },
+    ] } } });
+    assert.deepEqual(events.at(-1), { sessionId: "s1", event: { type: "assistant/reset", data: { text: "Hello world!", reasoning: "Thinking" } } });
+    follow.onFrame({ type: "assistant-stream", frame: { type: "start", attemptId: "retry" } });
+    assert.equal(events.at(-1).event.data.text, "");
+    mux.untrack("s1");
+    const count = events.length;
+    follow.onFrame({ type: "assistant-stream", frame: { type: "chunk", chunk: { text: "late" } } });
+    assert.equal(events.length, count, "late events cannot repaint an untracked session");
+  } finally { mux.stop(); }
 });
 
 test("null transport opens nothing and leaves state clean", async () => {

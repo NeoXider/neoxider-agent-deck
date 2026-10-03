@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { MAX_PREVIEW_CHARS, queueItemView, shortenReferences } = require("../src/queue-view.cjs");
+const { MAX_PREVIEW_CHARS, QUEUE_CONTENT, editableQueueContent, queueItemView, shortenReferences } = require("../src/queue-view.cjs");
 
 test("a plain text item is editable and previewed on one line", () => {
   const view = queueItemView({
@@ -77,4 +77,14 @@ test("an attachment-only queued message says so and remains editable", () => {
   assert.equal(view.text, "");
   assert.equal(view.attachments[0].name, "shot.png");
   assert.equal(view.preview, "1 attachment");
+});
+
+test("the modern text-only editor restriction survives publication", () => {
+  const view = queueItemView({ id: "image", editable: false, message: { content: [{ type: "image", name: "shot.png" }] } });
+  assert.equal(view.editable, false);
+  assert.equal(view.attachmentCount, 1);
+  assert.throws(() => editableQueueContent(view), /remove and attach/);
+  assert.throws(() => editableQueueContent(undefined), /refresh/);
+  const text = queueItemView({ message: { content: [{ type: "text", text: "caption" }] } });
+  assert.equal(editableQueueContent(text), text[QUEUE_CONTENT]);
 });

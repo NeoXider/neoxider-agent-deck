@@ -41,7 +41,7 @@ app.whenReady().then(async () => {
         motion.push({ theme,index,fill:fill.animationName,badge:badge.animationName,duration:fill.animationDuration,accent:getComputedStyle(document.querySelector('#reasoningMenu')).getPropertyValue('--reasoning-accent').trim(),themeAccent:getComputedStyle(document.body).getPropertyValue('--mint').trim(),pixels:getComputedStyle(document.querySelector('.reasoning-fill'),'::after').animationName,buttonPixels:getComputedStyle(button,'::after').animationName,star:getComputedStyle(document.querySelector('.reasoning-fill .reasoning-starfield i')).animationName,buttonStar:getComputedStyle(button.querySelector('.reasoning-starfield i')).animationName,starsShown:getComputedStyle(document.querySelector('.reasoning-fill .reasoning-starfield')).display==='block',starShape:getComputedStyle(document.querySelector('.reasoning-fill .reasoning-starfield i')).clipPath });
       }
     }
-    state.pendingSelection = { provider:'local', model:'test', reasoningEffort:'high' }; renderReasoning();
+    state.pendingSelection = { provider:'local', model:'test', reasoningEffort:'medium' }; renderReasoning();
     const star = document.querySelector('.reasoning-fill .reasoning-starfield i');
     const starOpacityBefore = getComputedStyle(star).opacity;
     await new Promise(resolve => setTimeout(resolve, 220));
@@ -80,13 +80,13 @@ app.whenReady().then(async () => {
   assert.match(result.reset, /Auto/);
   for (const item of result.motion) {
     assert.equal(item.fill,['none','reasoning-wave-140','reasoning-wave-96'][item.index]);
-    assert.equal(item.badge,item.index===0 ? 'none' : item.fill);
+    assert.equal(item.badge,['none','reasoning-wave-140','reasoning-pixel-wave'][item.index]);
     assert.equal(item.pixels,['none','reasoning-sheen','reasoning-sheen'][item.index]);
     assert.equal(item.buttonPixels,['none','reasoning-sheen','reasoning-sheen'][item.index]);
     assert.equal(item.duration,['0s','4.8s','1.5s'][item.index]);
     assert.equal(item.accent,item.themeAccent);
-    assert.equal(item.starsShown,item.index===2);
-    if(item.index===2) { assert.equal(item.star,'reasoning-star-twinkle'); assert.equal(item.buttonStar,'reasoning-star-twinkle'); assert.match(item.starShape,/polygon/); }
+    assert.equal(item.starsShown,item.index>0);
+    if(item.index===1) { assert.equal(item.star,'reasoning-star-twinkle'); assert.equal(item.buttonStar,'reasoning-star-twinkle'); assert.match(item.starShape,/polygon/); }
   }
   fs.mkdirSync(path.join(__dirname, '../tmp/ui-smoke'), { recursive: true });
   fs.writeFileSync(path.join(__dirname, '../tmp/ui-smoke/reasoning-slider.png'), (await win.webContents.capturePage()).toPNG());

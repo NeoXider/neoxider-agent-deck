@@ -25,6 +25,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm audit --audit-level=high
+      - name: Install the pinned Harness for acceptance
+        if: runner.os == 'Linux'
+        run: npm install --prefix "$RUNNER_TEMP/deck-dsh-runtime" --no-fund --no-audit @deepseek-ai/dsh@0.2.0-rc.2
+      - name: Check the real Harness queue and streaming
+        if: runner.os == 'Linux'
+        run: npm run test:harness -- --entry "$RUNNER_TEMP/deck-dsh-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js"
 
   package:
     strategy:

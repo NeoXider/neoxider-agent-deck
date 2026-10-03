@@ -35,6 +35,7 @@ function queueItemView(item) {
     attachments,
     attachmentCount,
     preview: shortenReferences(String(text || fallback)).replace(/\s+/g, " ").slice(0, MAX_PREVIEW_CHARS),
+    ...(item?.editable === false ? { editable: false } : {}),
   };
   // The original blocks are needed when editing text so durable attachment references
   // survive. A symbol keeps them in the main-process snapshot without exposing them to IPC.
@@ -42,4 +43,10 @@ function queueItemView(item) {
   return view;
 }
 
-module.exports = { MAX_PREVIEW_CHARS, QUEUE_CONTENT, queueItemView, shortenReferences };
+function editableQueueContent(item) {
+  if (!Array.isArray(item?.[QUEUE_CONTENT])) throw new Error("Queued message changed; refresh and try again");
+  if (item.editable === false) throw new Error("Queued images can be sent or removed. To change their caption, remove and attach them again.");
+  return item[QUEUE_CONTENT];
+}
+
+module.exports = { MAX_PREVIEW_CHARS, QUEUE_CONTENT, editableQueueContent, queueItemView, shortenReferences };

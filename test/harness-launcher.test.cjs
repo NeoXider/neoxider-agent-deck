@@ -38,7 +38,7 @@ test("official Harness web command is resolved for each platform", () => {
     displayCommand: "npx",
   });
   assert.deepEqual(resolveHarnessLaunchSpec({ platform: "darwin", env: { SHELL: "/bin/zsh" } }).command, "/bin/zsh");
-  assert.equal(HARNESS_NPX_PACKAGE, "@deepseek-ai/dsh@0.1.7-rc.2");
+  assert.equal(HARNESS_NPX_PACKAGE, "@deepseek-ai/dsh@0.2.0-rc.2");
   assert.deepEqual(HARNESS_NPX_ARGS, ["--yes", HARNESS_NPX_PACKAGE, "web", "--no-open"]);
   assert.deepEqual(resolveHarnessLaunchSpec({
     platform: "linux",

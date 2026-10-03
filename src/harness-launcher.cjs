@@ -2,10 +2,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawn, execFile } = require("node:child_process");
 
-// Pinned, not @latest: the latest tag currently trails at 0.1.5-rc.3 while the
-// integration targets 0.1.7-rc.2 (see integrations/dsh-background-code). Bump
-// deliberately with a compatibility recheck, never silently.
-const HARNESS_NPX_PACKAGE = "@deepseek-ai/dsh@0.1.7-rc.2";
+// Pinned to the runtime covered by the end-to-end compatibility smoke.
+// Bump deliberately with a compatibility recheck, never silently.
+const HARNESS_NPX_PACKAGE = "@deepseek-ai/dsh@0.2.0-rc.2";
 const HARNESS_NPX_ARGS = Object.freeze(["--yes", HARNESS_NPX_PACKAGE, "web", "--no-open"]);
 const HARNESS_DIRECT_ARGS = Object.freeze(["web", "--no-open"]);
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
