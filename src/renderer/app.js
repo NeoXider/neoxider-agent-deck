@@ -16,6 +16,7 @@ const state = {
   historyLoadedRevision: null,
   historyLoadedPreview: null,
   historyLoadErrors: new Map(),
+  continuedCutoffs: new Set(),
   modelsBusy: false,
   modelsLoadPromise: null,
   modelsLoadingSessionId: null,
@@ -3494,6 +3495,33 @@ function createMessageBubble(message, bubble = document.createElement("div")) {
   delete bubble.dataset.liveSeq;
   liveBubbleText.delete(bubble);
   bubble.replaceChildren();
+  if (message.role === "warning" && message.code === "output-token-limit") {
+    const title = document.createElement("strong");
+    title.textContent = message.title || "Output token limit reached";
+    const text = document.createElement("p");
+    text.textContent = message.text;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost-button";
+    button.textContent = "Continue";
+    const sessionId = state.selectedSessionId;
+    const continuationKey = `${sessionId}:${message.seq}`;
+    button.disabled = state.continuedCutoffs.has(continuationKey);
+    if (button.disabled) button.textContent = "Continuation sent";
+    button.addEventListener("click", async () => {
+      if (button.disabled) return;
+      button.disabled = true;
+      try {
+        await window.widget.send({ sessionId, text: "Continue from the interruption without repeating completed work. Produce a substantive answer, not only internal reasoning.", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+        state.continuedCutoffs.add(continuationKey);
+        if (state.continuedCutoffs.size > 128) state.continuedCutoffs.delete(state.continuedCutoffs.values().next().value);
+        button.textContent = "Continuation sent";
+        if (sessionId === state.selectedSessionId) await refresh({ afterCurrent: true });
+      } catch (error) { button.disabled = false; if (sessionId === state.selectedSessionId) showComposerError(error, "Continuation failed"); }
+    });
+    bubble.append(title, text, button);
+    return bubble;
+  }
   if (message.html) bubble.innerHTML = message.html;
   else if (message.text) {
     bubble.classList.add("plain");
@@ -4875,7 +4903,7 @@ async function refreshHistory({ priority = false, force = false } = {}) {
     renderMessages(messages);
     const latest = messages[messages.length - 1];
     if (state.windowMode === "full") {
-      if (latest?.role === "error") setAvatar("error", "model error");
+      if (["error", "warning"].includes(latest?.role)) setAvatar("error", latest.code === "output-token-limit" ? "reply cut off" : "model error");
       else if (view.activity?.active) setAvatar(avatarModeForActivity(view.activity), view.activity.label || "working");
       else if (state.avatarMode === "error" && !state.harnessOffline) setAvatar("idle");
       else if (state.avatarMode !== "done" && !state.harnessOffline) setAvatar("idle");
@@ -5125,7 +5153,8 @@ async function handleLiveEvent(payload) {
 
   if (event.type === "turn/end") {
     const completedStream = stream;
-    const failed = event.data?.reason?.kind === "error";
+    const cutoff = event.data?.reason?.kind === "max-tokens";
+    const failed = event.data?.reason?.kind === "error" || cutoff;
     completedStream.active = false;
     completedStream.activity = null;
     clearLiveTodos(sessionId);
@@ -5134,6 +5163,15 @@ async function handleLiveEvent(payload) {
     if (failed) signalSessionError(session);
     else notifyCompletion(session);
     if (sessionId === state.selectedSessionId) {
+      if (cutoff && !state.currentMessages.some(message => message.seq === event.seq && message.code === "output-token-limit")) {
+        state.currentMessages.push({ role: "warning", code: "output-token-limit", title: "Output token limit reached", seq: event.seq,
+          text: 'The reply was cut off. Earlier output is preserved. Send "continue" to resume, or reduce thinking effort if no final answer was produced.' });
+        renderMessages(state.currentMessages);
+      }
+      if (failed && !cutoff && !state.currentMessages.some(message => message.seq === event.seq && message.role === "error")) {
+        state.currentMessages.push({ role: "error", seq: event.seq, text: event.data.reason.error?.message || "The model ended the turn with an error" });
+        renderMessages(state.currentMessages);
+      }
       setTimeout(async () => {
         // The session may have changed while this waited: an authoritative
         // refresh is only ever for the session on screen, never a late write

@@ -2,6 +2,15 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { createStreamPublisher, textFromContent } = require("../src/stream-publisher.cjs");
 
+test("live endings preserve cutoff kinds and useful error diagnostics", () => {
+  const frames = [];
+  const publisher = createStreamPublisher({ queueSnapshots: new Map(), send: (_channel, frame) => frames.push(frame) });
+  publisher.publishLiveEvent({ sessionId: "s", event: { type: "turn/end", data: { reason: { kind: "max-tokens" } } } });
+  publisher.publishLiveEvent({ sessionId: "s", event: { type: "turn/end", data: { reason: { kind: "error", error: { message: "upstream unavailable" } } } } });
+  assert.equal(frames[0].event.data.reason.kind, "max-tokens");
+  assert.equal(frames[1].event.data.reason.error.message, "upstream unavailable");
+});
+
 test("job counts track only active work and clear when all jobs settle", () => {
   const backgroundJobs = new Map();
   const sent = [];

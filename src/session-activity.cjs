@@ -111,7 +111,7 @@ function sessionStateFromHistory(entries, running = false) {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const event = entries[index]?.event;
     if (event?.type !== "turn/end") continue;
-    return event.data?.reason?.kind === "error" ? "error" : "idle";
+    return ["error", "max-tokens"].includes(event.data?.reason?.kind) ? "error" : "idle";
   }
   return "idle";
 }

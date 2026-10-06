@@ -1180,3 +1180,7 @@ body.screenshot-backdrop-checkerboard { background:conic-gradient(#eef2f7 25%,#2
 #historyLoadErrorText { max-height:100px; overflow:auto; overflow-wrap:anywhere; padding-top:5px; user-select:text; }
 .history-load-actions { display:flex; flex-wrap:wrap; gap:6px; }
 .history-load-actions button { padding:6px 9px; border-radius:9px; font-size:11px; }
+.bubble.warning { align-self:flex-start; border:1px solid rgba(245,190,74,.4); background:rgba(88,64,22,.14); color:var(--text); }
+.bubble.warning strong { color:#f2bf5e; }
+.bubble.warning p { margin:6px 0 9px; }
+.bubble.warning .ghost-button { min-height:28px; padding:5px 10px; font-size:11px; }

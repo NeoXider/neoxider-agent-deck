@@ -1,6 +1,17 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+test("length-limited saved replies retain partial output and a resumable warning", () => {
+  const { messagesFromHistory } = require("../src/history-model.cjs");
+  const messages = messagesFromHistory([
+    { event: { type: "assistant/message", seq: 1, data: { message: { content: [{ type: "text", text: "Partial answer" }] } } } },
+    { event: { type: "turn/end", seq: 2, data: { reason: { kind: "max-tokens" } } } },
+  ]);
+  assert.equal(messages[0].text, "Partial answer");
+  assert.equal(messages[1].code, "output-token-limit");
+  assert.equal(messages[1].role, "warning");
+});
+
 const {
   HISTORY_PREVIEW_BYTES_BUDGET,
   adaptQueueAction,

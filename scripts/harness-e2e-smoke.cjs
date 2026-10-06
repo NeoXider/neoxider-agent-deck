@@ -54,7 +54,8 @@ async function main() {
     const prompts = input.messages.filter(m => m.role === "user").map(m => typeof m.content === "string" ? m.content
       : (m.content || []).filter(b => b.type === "text").map(b => b.text).join(" "));
     const text = prompts.filter(value => /HOLD|EDITED|EDIT_ME|DELETE_ME|Image caption/.test(value)).at(-1) || "";
-    const answer = "SMOKE_OK";
+    const cutoff = prompts.some(value => value === "CUTOFF_TEST");
+    const answer = cutoff ? "PARTIAL_ANSWER" : "SMOKE_OK";
     const delta = content => ({ id: "test", object: "chat.completion.chunk", created: 1, model: "smoke", choices: [{ index: 0, delta: { content }, finish_reason: null }] });
     if (!input.stream) { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ id: "test", object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: answer }, finish_reason: "stop" }], usage })); return; }
     res.writeHead(200, { "Content-Type": "text/event-stream" });
@@ -64,7 +65,7 @@ async function main() {
       res.on("close", () => held.delete(res));
       return;
     }
-    res.end(`data: ${JSON.stringify({ ...delta(""), choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage })}\n\ndata: [DONE]\n\n`);
+    res.end(`data: ${JSON.stringify({ ...delta(""), choices: [{ index: 0, delta: {}, finish_reason: cutoff ? "length" : "stop" }], usage })}\n\ndata: [DONE]\n\n`);
   });
   const mockPort = await listen(mock);
   const probe = http.createServer();
@@ -175,6 +176,15 @@ async function main() {
     }
     const command = await api.executeCommand(sessionId, "/goal");
     assert.equal(command.result.kind, "success");
+    const cutoffId = await api.createSession({ cwd: home, agentPreset: "standard" });
+    await api.selectModel(cutoffId, { provider: "openai", model: "smoke" });
+    await api.prompt(cutoffId, "CUTOFF_TEST", "UTC");
+    await until(async () => {
+      const view = await api.history(cutoffId);
+      return view.messages.some(m => m.code === "output-token-limit") && view.messages.some(m => m.text === "PARTIAL_ANSWER");
+    }, "partial answer and output-limit warning");
+    assert.equal((await api.dashboard(cutoffId)).sessions.find(s => s.sessionId === cutoffId)?.state, "error");
+    checks.push("output cutoff preserves partial answer and warning");
     console.log(JSON.stringify({ passed: true, checks, modelRequests: requests.length, home }));
   } catch (error) {
     console.error(JSON.stringify({ requests: requests.length, requestStats: requests.map(x => ({ tokens: estimatedInputTokens(x), maxTokens: x.max_tokens, toolCount: x.tools?.length })), compactionEvents, liveTypes: live.map(x => x.event.type), home }));

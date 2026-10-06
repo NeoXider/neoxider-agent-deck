@@ -740,6 +740,31 @@ async function main() {
   if (!recovered.hidden || !recovered.text.includes("Recovered readable history")) failures.push(`manual retry did not recover the history surface: ${JSON.stringify(recovered)}`);
   console.log("PASS exact corrupt-session diagnostics, readable history retention, manual retry, coalesced models and bounded loading");
 
+  deferredSend = deferred();
+  deferredSessionRequests.history.set("cutoff-action", deferred());
+  const cutoffSendsBefore = sentPayloads.length;
+  const liveCutoff = await contents.executeJavaScript(`(async () => {
+    state.selectedSessionId = "cutoff-action";
+    state.dashboard = { harness: true, sessions: [{ sessionId: "cutoff-action", running: true, state: "working" }] };
+    state.currentMessages = [{ role: "assistant", text: "Partial output stays" }];
+    document.querySelector("#messageInput").value = "Unsent draft stays";
+    state.pendingAttachments = [{ name: "Unsent attachment stays" }];
+    await handleLiveEvent({ sessionId: "cutoff-action", event: { type: "turn/end", seq: 9001, data: { reason: { kind: "max-tokens" } } } });
+    const button = document.querySelector(".bubble.warning button");
+    button.click(); button.click();
+    return { warning: document.querySelector(".bubble.warning")?.textContent, running: state.dashboard.sessions[0].running,
+      draft: document.querySelector("#messageInput").value, attachments: state.pendingAttachments.length, partial: document.querySelector("#messages").textContent.includes("Partial output stays") };
+  })()`);
+  await wait(40);
+  if (!liveCutoff.warning?.includes("Output token limit reached") || liveCutoff.running || !liveCutoff.partial || liveCutoff.draft !== "Unsent draft stays" || liveCutoff.attachments !== 1 || sentPayloads.length - cutoffSendsBefore !== 1 || sentPayloads.at(-1)?.sessionId !== "cutoff-action") failures.push(`live cutoff or draft-preserving continuation failed: ${JSON.stringify(liveCutoff)}`);
+  dashboardValue = { harness: true, sessions: [{ sessionId: "cutoff-action", running: false, state: "error" }] };
+  deferredSend.resolve({ sessionId: "cutoff-action" });
+  deferredSend = null;
+  deferredSessionRequests.history.get("cutoff-action").resolve({ messages: [{ role: "assistant", text: "Partial output stays" }, { role: "warning", seq: 9001, code: "output-token-limit", title: "Output token limit reached", text: "The reply was cut off." }], activity: null });
+  await wait(180);
+  await contents.executeJavaScript(`(() => { state.pendingAttachments = []; document.querySelector("#messageInput").value = ""; })()`);
+  console.log("PASS live output cutoff is immediate, partial output survives, and Continue sends once without consuming the draft or attachments");
+
   dashboardValue = { harness: true, sessions: [
     { sessionId: "error-a", title: "Selected", running: false, state: "idle", projections: { values: {} }, subagents: [] },
     { sessionId: "error-b", title: "Background failure", running: false, state: "error", preview: "Needs attention", projections: { values: {} }, subagents: [] },

@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Show output-token cutoffs in saved history and immediately on the live stream, keep their partial answer, and offer a draft-preserving Continue action. Retain the provider's actual error detail in live terminal frames and mark cutoffs as requiring attention rather than successful completion.
+- Added local Harness helpers for explicit LM Studio reply budgets and version-matched, image-safe staged compaction across Standard, PTC and Minimal presets. The local profiles use a 70K output ceiling with earlier context recovery; stored conversation and attachment originals are retained.
 - Preserve the actual DSH session-load error rather than replacing it with a generic closed-channel message. Failed history remains visible with Retry, Open Harness and New chat actions; corrupt sessions are not retried continuously or silently replaced. Coalesce model loads and bound their wait so failed history cannot leave the model selector loading forever.
 - Allow slow Harness session listings to complete, retain the chat during temporary dashboard failures, and distinguish lost authorization from a stopped host. Start reconnects to a running host using its saved launch URL and invalidates old connection state; startup errors remain visible for retry.
 - Restoring the edge widget keeps its selected chat instead of switching to another session's background notification. Restoring the same chat also retains its reading position; explicit notification and recent-session selection still work.

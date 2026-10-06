@@ -27,6 +27,7 @@ async function main() {
   }
   const snapshot = await api.dashboard(preferences.lastSelectedSessionId);
   const healthy = process.argv.includes("--healthy");
+  const cutoff = process.argv.includes("--cutoff");
   const selected = healthy ? snapshot.sessions.find(s => !s.degraded && !s.running && s.sessionId !== preferences.lastSelectedSessionId)?.sessionId : preferences.lastSelectedSessionId;
   assert.ok(selected, "A saved/healthy session is required for this read-only check");
   const reader = createSharedDashboardReader({ api });
@@ -69,6 +70,8 @@ async function main() {
       modelCount: modelCount(), modelLabel: document.querySelector("#reasoningModelName").textContent,
       offline: state.harnessOffline, historyBusy: state.historyBusy, historyLoaded: state.historyLoadedSessionId === state.selectedSessionId,
       commandsLoaded: state.commandsLoadedSessionId === state.selectedSessionId,
+      cutoffWarnings: state.currentMessages.filter(m => m.code === "output-token-limit").length,
+      visibleWarnings: document.querySelectorAll(".bubble.warning").length,
       errorVisible: !document.querySelector("#historyLoadError").hidden,
       errorHeight: document.querySelector("#historyLoadError").getBoundingClientRect().height,
       errorDisplay: getComputedStyle(document.querySelector("#historyLoadError")).display,
@@ -85,7 +88,10 @@ async function main() {
     assert.equal(result.historyLoaded, true);
     assert.equal(result.commandsLoaded, true, "The saved preset must resume and expose commands");
   }
-  else {
+  else if (cutoff) {
+    assert.equal(result.historyLoaded, true);
+    assert.ok(result.cutoffWarnings > 0 && result.visibleWarnings > 0, "Saved cutoffs must actually be visible");
+  } else {
     assert.equal(result.errorVisible, true);
     assert.ok(result.errorHeight > 50, `The recovery card must actually be painted: ${JSON.stringify(result)}`);
     assert.match(result.errorDetails, /SessionFormatError|outside an open turn|stored.+corrupt/i);
@@ -94,8 +100,8 @@ async function main() {
   fs.mkdirSync(path.join(root, "tmp"), { recursive: true });
   await win.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
   await wait(200);
-  fs.writeFileSync(path.join(root, "tmp", `live-session-load-${healthy ? "healthy" : "corrupt"}.png`), (await win.webContents.capturePage()).toPNG());
-  console.log(JSON.stringify({ passed: true, kind: healthy ? "healthy" : "corrupt", modelReady: true, modelCount: result.modelCount, historyLoaded: result.historyLoaded, commandsLoaded: result.commandsLoaded, recoveryVisible: result.errorVisible, selectionRetained: true }));
+  fs.writeFileSync(path.join(root, "tmp", `live-session-load-${healthy ? "healthy" : cutoff ? "cutoff" : "corrupt"}.png`), (await win.webContents.capturePage()).toPNG());
+  console.log(JSON.stringify({ passed: true, kind: healthy ? "healthy" : cutoff ? "cutoff" : "corrupt", modelReady: true, modelCount: result.modelCount, historyLoaded: result.historyLoaded, commandsLoaded: result.commandsLoaded, cutoffWarnings: result.cutoffWarnings, visibleWarnings: result.visibleWarnings, recoveryVisible: result.errorVisible, selectionRetained: true }));
   win.destroy();
 }
 const watchdog = setTimeout(() => { console.error("Live renderer check timed out"); app.exit(1); }, 65000);

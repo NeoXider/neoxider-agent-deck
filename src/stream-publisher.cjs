@@ -1,4 +1,5 @@
 const { QUEUE_CONTENT, queueItemView } = require("./queue-view.cjs");
+const { publicTurnReason } = require("./turn-outcome.cjs");
 
 const QUEUE_PLACEMENTS = new Set(["queued", "steering"]);
 const TODO_STATUSES = new Set(["pending", "in_progress", "completed"]);
@@ -109,7 +110,7 @@ function createStreamPublisher({ queueSnapshots, backgroundJobs = new Map(), sen
         isError: Boolean(event.data?.isError),
       };
     } else if (event.type === "turn/end") {
-      data = { reason: { kind: String(event.data?.reason?.kind || "stop") } };
+      data = { reason: publicTurnReason(event.data?.reason) };
     } else if (event.type === "todo/write") {
       const todos = Array.isArray(event.data?.todos) ? event.data.todos : [];
       data = { todos: todos.slice(0, 100).map((todo) => ({

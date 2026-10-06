@@ -1,6 +1,7 @@
 const { createHash } = require("node:crypto");
 const { resultCallId, toMillis } = require("./session-activity.cjs");
 const { createCompactionContextTracker } = require("./context-compaction.cjs");
+const { turnOutcome } = require("./turn-outcome.cjs");
 
 const HISTORY_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const HISTORY_IMAGE_BASE64_LIMIT = Math.ceil(8 * 1024 * 1024 * 4 / 3) + 8;
@@ -386,14 +387,9 @@ function messagesFromHistory(entries) {
         time: event.time,
         seq: event.seq,
       });
-    } else if (event.type === "turn/end" && event.data.reason && event.data.reason.kind === "error") {
-      const detail = event.data.reason.error || event.data.reason.failure || {};
-      messages.push({
-        role: "error",
-        text: detail.message || "The model ended the turn with an error",
-        time: event.time,
-        seq: event.seq,
-      });
+    } else if (event.type === "turn/end") {
+      const outcome = turnOutcome(event.data.reason);
+      if (outcome) messages.push({ ...outcome, time: event.time, seq: event.seq });
     }
   }
   messages.push(...toolMessagesFromHistory(boundedEntries));

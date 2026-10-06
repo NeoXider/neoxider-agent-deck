@@ -1270,7 +1270,7 @@ test("compact errors are acknowledged in full chat and completion feedback is fi
   assert.match(clearError, /commandFeedback\?\.avatarMode === "error"[\s\S]+setCommandFeedback\(state\.selectedSessionId, null\)/);
   assert.match(renderer, /if \(mode !== "full"\) clearAcknowledgedErrorPresentation\(\);[\s\S]+?window\.widget\.setWindowMode\(mode\)/);
   assert.match(renderer, /session\?\.state === "error"\) signalSessionError\(session\)/);
-  assert.match(renderer, /if \(state\.windowMode === "full"\) \{[\s\S]+?if \(latest\?\.role === "error"\) setAvatar\("error", "model error"\)/);
+  assert.match(renderer, /if \(state\.windowMode === "full"\) \{[\s\S]+?\["error", "warning"\]\.includes\(latest\?\.role\)/);
   assert.match(renderer, /function clearCompletionSignal\(\)/);
   assert.match(renderer, /document\.body\.classList\.add\("completion-celebration"\)/);
   assert.match(renderer, /state\.completionSignalTimer = setTimeout[\s\S]+?\}, 2600\)/);
