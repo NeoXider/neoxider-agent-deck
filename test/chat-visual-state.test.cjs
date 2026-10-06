@@ -210,7 +210,7 @@ test("real session selection cancels late paste even after A to B to A", async (
       window: { clipboardAttachments: { clipboardFiles: () => [1], prepareClipboard: () => gate }, widget: {} },
       addAttachments(result) { context.state.pendingAttachments.push(...result.attachments); },
       showToast: (text) => toasts.push(text), showTransientActivityError() { assert.fail("old-session error leaked"); },
-      rememberSelectedSession() {}, invalidateSelectedHistoryVersion() {}, clearComposerError() {}, stashComposerDraft() {}, restoreComposerDraft() {}, renderAttachments() {},
+      rememberSelectedSession() {}, invalidateSelectedHistoryVersion() {}, renderHistoryLoadError() {}, clearComposerError() {}, stashComposerDraft() {}, restoreComposerDraft() {}, renderAttachments() {},
     };
     vm.createContext(context);
     vm.runInContext(pasteCode + selectCode, context);

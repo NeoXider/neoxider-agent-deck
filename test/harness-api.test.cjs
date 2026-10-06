@@ -6,6 +6,13 @@ const { HISTORY_PREVIEW_BYTES_BUDGET, HarnessApi, activityFromHistory, boundedHi
 // dialect under test: a legacy index answers the generation probe with HTTP 200.
 const legacyFetch = async () => ({ ok: true, status: 200 });
 
+test("a follow channel preserves the stored-session failure instead of replacing it with closed", async () => {
+  const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+  const reason = new Error("stored session is corrupt: SessionFormatError: tool/ptc-dispatch is outside an open turn");
+  const remote = { openChannel: async () => ({ close() {}, closed: Promise.resolve(reason) }) };
+  await assert.rejects(api.remoteChannelFirstFrame(remote, "session/follow", {}), error => error === reason);
+});
+
 test("a large remote session list receives a bounded thirty-second read budget", async () => {
   const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
   api.ensureRemote = async () => ({ call: async (endpoint, args, timeout) => {

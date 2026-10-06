@@ -142,6 +142,12 @@
           </summary>
           <div id="activityBody" class="activity-body"></div>
         </details>
+        <section id="historyLoadError" class="history-load-error no-drag" role="alert" hidden>
+          <strong id="historyLoadErrorLabel">History could not be loaded</strong>
+          <p id="historyLoadErrorHint"></p>
+          <details><summary>Details</summary><div id="historyLoadErrorText"></div></details>
+          <div class="history-load-actions"><button id="historyRetryButton" class="ghost-button" type="button">Retry</button><button id="historyOpenHarnessButton" class="ghost-button" type="button">Open Harness</button><button id="historyNewChatButton" class="ghost-button" type="button">New chat</button></div>
+        </section>
         <div class="messages-wrap">
           <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions"><div class="empty-state">Select a session or start a new one.</div></div>
             <nav id="messageMarks" class="message-marks no-drag" aria-label="Conversation navigator"></nav>

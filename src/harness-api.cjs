@@ -143,11 +143,11 @@ class HarnessApi {
         if (!settled) {
           // Frames can only arrive after the open resolves, so a channel that dies
           // before delivering its baseline must reject instead of waiting out the timer.
-          opened.closed.then(() => {
+          opened.closed.then((error) => {
             if (settled) return;
             settled = true;
             clearTimeout(timer);
-            reject(new Error(`Harness ${endpoint} closed`));
+            reject(error instanceof Error ? error : new Error(`Harness ${endpoint} closed`));
           });
         }
       }).catch((error) => {

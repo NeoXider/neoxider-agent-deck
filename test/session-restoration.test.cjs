@@ -123,7 +123,7 @@ test("a superseded backend revision is applied before matching-revision response
   const requests = [];
   const state = {
     selectedSessionId: "chat", historyLoadedSessionId: "chat", historyLoadedRevision: "R1",
-    historyRequestSequence: 0, liveStreamsBySession: new Map(), currentMessages: [{ text: "old R1" }],
+    historyRequestSequence: 0, historyLoadErrors: new Map(), liveStreamsBySession: new Map(), currentMessages: [{ text: "old R1" }],
   };
   const context = vm.createContext({
     state, chatVisual: null,
@@ -135,7 +135,7 @@ test("a superseded backend revision is applied before matching-revision response
     commandFeedbackFor: () => null,
     setActivity() {}, modeFromMessages: () => null,
     renderMessages(messages) { state.currentMessages = messages; },
-    paintLiveAssistant() {},
+    paintLiveAssistant() {}, renderHistoryLoadError() {},
     showError(error) { throw error; },
   });
   const start = renderer.indexOf("async function refreshHistory({");

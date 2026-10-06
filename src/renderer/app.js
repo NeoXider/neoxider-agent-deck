@@ -15,7 +15,10 @@ const state = {
   historyLoadedUpdatedAt: undefined,
   historyLoadedRevision: null,
   historyLoadedPreview: null,
+  historyLoadErrors: new Map(),
   modelsBusy: false,
+  modelsLoadPromise: null,
+  modelsLoadingSessionId: null,
   modelsRequestSequence: 0,
   commandsBusy: false,
   commandsRequestSequence: 0,
@@ -1914,8 +1917,7 @@ function renderModels() {
   updateControlsSummary();
 }
 
-async function loadModels({ force = false } = {}) {
-  const requestSequence = ++state.modelsRequestSequence;
+async function loadModels({ force = false, timeoutMs = 25000 } = {}) {
   const sessionId = state.selectedSessionId;
   if (!state.dashboard?.harness) {
     if (force) {
@@ -1924,25 +1926,39 @@ async function loadModels({ force = false } = {}) {
     }
     return;
   }
+  if (state.modelsBusy && state.modelsLoadingSessionId === sessionId && state.modelsLoadPromise) return state.modelsLoadPromise;
+  const requestSequence = ++state.modelsRequestSequence;
   state.modelsBusy = true;
+  state.modelsLoadingSessionId = sessionId;
   state.modelLoadState = "loading";
   renderModels();
-  try {
-    const catalog = await window.widget.models(sessionId);
-    if (requestSequence !== state.modelsRequestSequence || sessionId !== state.selectedSessionId) return;
-    state.modelCatalog = catalog;
-    if (!state.automaticModelRoute) state.pendingSelection = catalog.current || state.pendingSelection;
-    state.modelLoadState = "ready";
-  } catch {
-    if (requestSequence !== state.modelsRequestSequence || sessionId !== state.selectedSessionId) return;
-    state.modelLoadState = "error";
-    setAvatar("error", "models unavailable");
-  } finally {
-    if (requestSequence === state.modelsRequestSequence) {
-      state.modelsBusy = false;
-      renderModels();
+  const pending = (async () => {
+    let timer;
+    try {
+      const catalog = await Promise.race([
+        window.widget.models(sessionId),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Model providers did not respond. Retry the model list.")), timeoutMs); }),
+      ]);
+      if (requestSequence !== state.modelsRequestSequence || sessionId !== state.selectedSessionId) return;
+      state.modelCatalog = catalog;
+      if (!state.automaticModelRoute) state.pendingSelection = catalog.current || state.pendingSelection;
+      state.modelLoadState = "ready";
+    } catch {
+      if (requestSequence !== state.modelsRequestSequence || sessionId !== state.selectedSessionId) return;
+      state.modelLoadState = "error";
+      setAvatar("error", "models unavailable");
+    } finally {
+      clearTimeout(timer);
+      if (requestSequence === state.modelsRequestSequence) {
+        state.modelsBusy = false;
+        state.modelsLoadPromise = null;
+        state.modelsLoadingSessionId = null;
+        renderModels();
+      }
     }
-  }
+  })();
+  state.modelsLoadPromise = pending;
+  return pending;
 }
 
 function commandQuery() {
@@ -2751,6 +2767,7 @@ function handleComposerPaste(event) {
 async function loadCommands() {
   const requestSequence = ++state.commandsRequestSequence;
   const sessionId = state.selectedSessionId;
+  if (state.historyLoadErrors.get(sessionId)?.corrupt) return;
   if (!sessionId || !state.dashboard?.harness) {
     if (!state.selectedSessionId) {
       state.commandCatalog = [];
@@ -2766,8 +2783,9 @@ async function loadCommands() {
     state.commandsLoadedSessionId = sessionId;
     renderCommands();
     renderCommandHint();
-  } catch {
+  } catch (error) {
     if (requestSequence !== state.commandsRequestSequence || sessionId !== state.selectedSessionId) return;
+    if (/SessionFormatError|stored.+corrupt|outside an open turn/i.test(String(error?.message || error))) recordHistoryLoadError(sessionId, error);
     // A failed load is not a loaded one: keep the previous catalog and stay
     // unloaded so the next poll retries. Marking failure as loaded emptied the
     // slash menu permanently after a single blip, turning every command into
@@ -2809,6 +2827,7 @@ async function selectSession(sessionId, openChat = false) {
   state.sessionSelectionGeneration += 1;
   const previousSessionId = state.selectedSessionId;
   state.selectedSessionId = sessionId || null;
+  renderHistoryLoadError();
   rememberSelectedSession();
   // The error belongs to the message that failed, and that message stays behind with its
   // own session's composer content.
@@ -2875,7 +2894,7 @@ async function selectSession(sessionId, openChat = false) {
   renderTodos();
   renderQueuedPrompts();
   if (openChat) setTab("chat");
-  await Promise.all([refreshHistory(), loadModels(), loadCommands(), loadWorkspaces(), loadQueue(sessionId)]);
+  await Promise.all([refreshHistory({ force: true }), loadModels(), loadCommands(), loadWorkspaces(), loadQueue(sessionId)]);
 }
 
 function createToolCard(message) {
@@ -4622,6 +4641,41 @@ function showError(error) {
   showTransientActivityError(error, "Something went wrong");
 }
 
+function renderHistoryLoadError() {
+  const root = $("#historyLoadError");
+  const error = state.historyLoadErrors.get(state.selectedSessionId);
+  if (root.hidden !== !error) root.hidden = !error;
+  if (!error) return;
+  const text = {
+    "#historyLoadErrorLabel": error.corrupt ? "Saved chat needs recovery" : "History could not be loaded",
+    "#historyLoadErrorHint": error.corrupt
+      ? "DSH rejected this chat's saved log. Your messages have not been deleted. Retry after recovery, or select another chat."
+      : "Your messages are preserved. Retry the history load or open the chat in Harness.",
+    "#historyLoadErrorText": error.message,
+  };
+  for (const [selector, value] of Object.entries(text)) if ($(selector).textContent !== value) $(selector).textContent = value;
+  const empty = $("#messages .empty-state");
+  if (empty && empty.textContent !== "History unavailable. Retry or select another chat.") empty.textContent = "History unavailable. Retry or select another chat.";
+}
+
+async function retrySelectedHistory() {
+  if (state.selectedSessionId) await refreshHistory({ force: true });
+}
+
+function recordHistoryLoadError(sessionId, error) {
+  const message = String(error?.message || error).replace(/^Error invoking remote method ['"][^'"]+['"]: (?:Error: )?/, "");
+  const corrupt = /SessionFormatError|stored.+corrupt|outside an open turn|stored log is corrupt/i.test(message);
+  // Preserve the real resume failure when another surface just reports closed.
+  if (!state.historyLoadErrors.get(sessionId)?.corrupt || corrupt) state.historyLoadErrors.set(sessionId, {
+    message, corrupt, retryAt: corrupt ? Infinity : Date.now() + 10000,
+  });
+  if (state.historyPendingSessionId === sessionId) {
+    state.historyPendingSessionId = null;
+    renderMessages(state.currentMessages);
+  }
+  renderHistoryLoadError();
+}
+
 // A send that failed is the one message the user has to read: their text and attachments
 // are still sitting in the composer and nothing will happen until they act. It used to go
 // to the shared activity block on a 3.2s timer, which meant it was gone before it could be
@@ -4759,9 +4813,15 @@ function reconcileReconnectedStream(session, revisionsAtRequest) {
   if (session.sessionId === state.selectedSessionId) invalidateSelectedHistoryVersion();
 }
 
-async function refreshHistory({ priority = false } = {}) {
+async function refreshHistory({ priority = false, force = false } = {}) {
   if (state.harnessOffline) return "offline";
   const sessionId = state.selectedSessionId;
+  const previousError = state.historyLoadErrors.get(sessionId);
+  if (!priority && !force && previousError?.retryAt > Date.now()) return "blocked";
+  if (force) {
+    state.historyLoadErrors.delete(sessionId);
+    renderHistoryLoadError();
+  }
   if (!sessionId) {
     state.historyBusy = false;
     state.historyPendingSessionId = null;
@@ -4777,6 +4837,8 @@ async function refreshHistory({ priority = false } = {}) {
     const revision = state.historyLoadedSessionId === sessionId ? state.historyLoadedRevision : null;
     const view = await window.widget.history(sessionId, revision === null ? undefined : { revision });
     if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return "superseded";
+    state.historyLoadErrors.delete(sessionId);
+    renderHistoryLoadError();
     if (streamAtRequest?.disconnected && !streamAtRequest.active && state.liveStreamsBySession.get(sessionId) === streamAtRequest) {
       state.liveStreamsBySession.delete(sessionId);
     }
@@ -4821,12 +4883,12 @@ async function refreshHistory({ priority = false } = {}) {
     return "applied";
   } catch (error) {
     if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return "superseded";
+    recordHistoryLoadError(sessionId, error);
     // A failed load is not a loading one: the skeleton must not sit there forever.
     if (state.historyPendingSessionId === sessionId) {
       state.historyPendingSessionId = null;
       renderMessages(state.currentMessages);
     }
-    showError(error);
     if (state.windowMode === "full") setAvatar("error", "history error");
     return "failed";
   } finally {
@@ -6662,6 +6724,9 @@ $("#goalDelete").addEventListener("click", () => {
   runGoalCommand("/goal clear");
 });
 $("#cancelButton").addEventListener("click", () => { stopCurrentTurn().catch(showError); });
+$("#historyRetryButton").addEventListener("click", () => { retrySelectedHistory().catch(showError); });
+$("#historyOpenHarnessButton").addEventListener("click", () => { if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId).catch(showError); });
+$("#historyNewChatButton").addEventListener("click", () => { createNewSession().catch(showError); });
 $("#focusChatButton").addEventListener("click", () => setFocusMode(!state.focusMode));
 $("#startHarnessButton").addEventListener("click", startHarnessFromBanner);
 $("#harnessConnectButton")?.addEventListener("click", connectHarnessWithUrl);

@@ -38,6 +38,7 @@ let deferredCancel = null;
 let createdSessionId = "created-session";
 let dashboardCalls = 0;
 let startHarnessCalls = 0;
+const modelReadCalls = [];
 let startHarnessError = "";
 let installUpdateCalls = 0;
 let showThinkingPreference = true;
@@ -141,7 +142,10 @@ function registerStubs() {
     const request = deferredSessionRequests.history.get(sessionId);
     return request?.take?.() || request?.promise || { messages: [], activity: null };
   });
-  ipcMain.handle("models", (_event, sessionId) => deferredSessionRequests.models.get(sessionId)?.promise || ({ current: null, groups: [] }));
+  ipcMain.handle("models", (_event, sessionId) => {
+    modelReadCalls.push(sessionId);
+    return deferredSessionRequests.models.get(sessionId)?.promise || ({ current: null, groups: [] });
+  });
   ipcMain.handle("commands", (_event, sessionId) => deferredSessionRequests.commands.get(sessionId)?.promise || []);
   ipcMain.handle("workspaces", () => []);
   ipcMain.handle("get-queue", () => queueSnapshotValue);
@@ -685,6 +689,56 @@ async function main() {
   if (sessionRace.selected !== "race-b" || !sessionRace.text.includes("History B") || sessionRace.text.includes("History A") || sessionRace.model !== "model-b" || sessionRace.commands.join() !== "command-b") {
     failures.push(`stale session requests replaced the selected session UI: ${JSON.stringify(sessionRace)}`);
   }
+
+  deferredSessionRequests.models.set("slow-model-chat", deferred());
+  const modelReadsBefore = modelReadCalls.length;
+  await contents.executeJavaScript(`(() => {
+    state.dashboard = { harness: true, sessions: [] };
+    state.selectedSessionId = "slow-model-chat";
+    state.modelCatalog = null;
+    window.__modelWaits = Promise.all([loadModels(), loadModels(), loadModels({ force: true })]);
+  })()`);
+  await wait(40);
+  if (modelReadCalls.length - modelReadsBefore !== 1) failures.push("model retry/poll duplicated a pending provider read");
+  deferredSessionRequests.models.get("slow-model-chat").resolve({ current: { provider: "test", model: "ready" }, groups: [{ id: "test", models: [{ id: "ready", name: "Ready model" }] }] });
+  const coalesced = await contents.executeJavaScript(`(async () => {
+    await window.__modelWaits;
+    return { busy: state.modelsBusy, load: state.modelLoadState, label: document.querySelector("#reasoningModelName").textContent };
+  })()`);
+  if (coalesced.busy || coalesced.load !== "ready" || coalesced.label !== "Ready model") failures.push(`coalesced model read stayed loading: ${JSON.stringify(coalesced)}`);
+
+  deferredSessionRequests.models.set("model-timeout", deferred());
+  const timedOut = await contents.executeJavaScript(`(async () => {
+    state.selectedSessionId = "model-timeout";
+    state.modelCatalog = null;
+    await loadModels({ timeoutMs: 30 });
+    return { busy: state.modelsBusy, load: state.modelLoadState, label: document.querySelector("#reasoningModelName").textContent };
+  })()`);
+  if (timedOut.busy || timedOut.load !== "error" || timedOut.label.includes("Loading")) failures.push(`provider timeout left an endless model loader: ${JSON.stringify(timedOut)}`);
+  deferredSessionRequests.models.get("model-timeout").resolve({ current: null, groups: [] });
+
+  deferredSessionRequests.history.set("bad-log", { promise: Promise.reject(new Error("SessionFormatError: tool/ptc-dispatch is outside an open turn")) });
+  // Consume the rejection here until IPC takes ownership of this fixture below.
+  deferredSessionRequests.history.get("bad-log").promise.catch(() => {});
+  const corruptReadsBefore = openedSessionIds.length;
+  const failedHistory = await contents.executeJavaScript(`(async () => {
+    state.selectedSessionId = "bad-log";
+    state.harnessOffline = false;
+    state.currentMessages = [{ role: "assistant", text: "Last readable text is retained" }];
+    renderMessages(state.currentMessages);
+    await refreshHistory({ force: true });
+    const blocked = await refreshHistory();
+    return { visible: !document.querySelector("#historyLoadError").hidden, label: document.querySelector("#historyLoadErrorLabel").textContent,
+      details: document.querySelector("#historyLoadErrorText").textContent, retained: document.querySelector("#messages").textContent.includes("Last readable text"), blocked };
+  })()`);
+  if (!failedHistory.visible || !failedHistory.label.includes("recovery") || !failedHistory.details.includes("ptc-dispatch") || !failedHistory.retained || failedHistory.blocked !== "blocked" || openedSessionIds.length - corruptReadsBefore !== 1) failures.push(`corrupt history was hidden, erased or repeatedly polled: ${JSON.stringify(failedHistory)}`);
+  deferredSessionRequests.history.set("bad-log", { promise: Promise.resolve({ messages: [{ role: "assistant", text: "Recovered readable history" }], activity: null }) });
+  const recovered = await contents.executeJavaScript(`(async () => {
+    await retrySelectedHistory();
+    return { hidden: document.querySelector("#historyLoadError").hidden, text: document.querySelector("#messages").textContent };
+  })()`);
+  if (!recovered.hidden || !recovered.text.includes("Recovered readable history")) failures.push(`manual retry did not recover the history surface: ${JSON.stringify(recovered)}`);
+  console.log("PASS exact corrupt-session diagnostics, readable history retention, manual retry, coalesced models and bounded loading");
 
   dashboardValue = { harness: true, sessions: [
     { sessionId: "error-a", title: "Selected", running: false, state: "idle", projections: { values: {} }, subagents: [] },

@@ -863,6 +863,14 @@ test("explicit startup can launch Harness while ordinary and smoke launches rema
   assert.match(main, /api, launcher: harnessLauncher, persistCapturedLaunchUrl: \(\) => \{\}, invalidateDashboard: dashboardReader\.invalidate/);
 });
 
+test("history failures have a persistent recovery surface and model reads are bounded and coalesced", () => {
+  for (const id of ["historyLoadError", "historyLoadErrorText", "historyRetryButton", "historyOpenHarnessButton", "historyNewChatButton"]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(renderer, /recordHistoryLoadError\(sessionId, error\)/);
+  assert.match(renderer, /previousError\?\.retryAt > Date\.now\(\)/);
+  assert.match(renderer, /state\.modelsLoadingSessionId === sessionId && state\.modelsLoadPromise/);
+  assert.match(renderer, /timeoutMs = 25000/);
+});
+
 test("a mark jump lands exactly even with skipped transcript rows", () => {
   const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
   // Skipped rows report remembered sizes, so scrollTop math computed up front lands

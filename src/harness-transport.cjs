@@ -230,7 +230,8 @@ function createRemoteTransport({ baseUrl = "http://127.0.0.1:3080", fetchImpl = 
         try { frame = JSON.parse(String(event.data)); } catch { return; }
         if (!frame || frame.streamId !== streamId) return;
         if (frame.type === "error") {
-          const error = new Error(`Harness ${endpoint}: ${JSON.stringify(frame.error ?? {})}`);
+          const detail = typeof frame.error?.message === "string" ? frame.error.message : JSON.stringify(frame.error ?? {});
+          const error = new Error(`Harness ${endpoint}: ${detail}`);
           if (resolved) end(error); else fail(error);
           return;
         }

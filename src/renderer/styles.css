@@ -1172,3 +1172,11 @@ body.screenshot-backdrop-checkerboard { background:conic-gradient(#eef2f7 25%,#2
 .chat-tooltip { position:fixed; inset:auto; z-index:2147483647; width:max-content; max-width:min(300px,calc(100vw - 16px)); max-height:calc(100vh - 16px); margin:0; padding:8px 10px; border:1px solid rgba(103,218,199,.35); border-radius:10px; background:rgba(16,26,37,.98); color:#e2f1ee; box-shadow:0 6px 24px rgba(0,0,0,.4); font:500 11px/1.45 system-ui,sans-serif; overflow:hidden; overflow-wrap:anywhere; pointer-events:none; }
 .chat-tooltip::backdrop { background:transparent; pointer-events:none; }
 .chat-tooltip.message-mark-preview { white-space:pre-line; border-color:color-mix(in srgb, var(--text) 16%, transparent); background:color-mix(in srgb, var(--bg) 96%, #111); color:var(--text); }
+.history-load-error { flex:none; margin:0 0 8px; padding:12px; border:1px solid color-mix(in srgb, var(--text) 22%, transparent); border-radius:14px; background:color-mix(in srgb, var(--bg) 94%, #251b20); color:var(--text); font-size:11px; line-height:1.45; }
+.history-load-error strong { font-size:12px; }
+.history-load-error p { margin:5px 0; opacity:.8; }
+.history-load-error details { margin:5px 0 9px; }
+.history-load-error summary { cursor:pointer; opacity:.75; }
+#historyLoadErrorText { max-height:100px; overflow:auto; overflow-wrap:anywhere; padding-top:5px; user-select:text; }
+.history-load-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.history-load-actions button { padding:6px 9px; border-radius:9px; font-size:11px; }
