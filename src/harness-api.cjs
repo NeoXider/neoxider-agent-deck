@@ -1,7 +1,7 @@
 const { randomUUID } = require("node:crypto");
 const { isMainThread } = require("node:worker_threads");
 const { createHistoryReader } = require("./history-reader.cjs");
-const { createRemoteTransport, detectGeneration } = require("./harness-transport.cjs");
+const { commandTimeoutMs, createRemoteTransport, detectGeneration } = require("./harness-transport.cjs");
 const {
   activityFromHistory,
   sessionStateFromHistory,
@@ -616,15 +616,16 @@ class HarnessApi {
   }
 
   async executeCommand(sessionId, line, images = []) {
+    const timeoutMs = commandTimeoutMs(line);
     const remote = await this.ensureRemote();
     if (remote) {
       // Remote attachments are tagged unions; the legacy widget hands over bare image objects.
       const submittedAttachments = images.map((image) => ({ type: "image", ...image }));
-      return remote.call("commands/execute", { agentId: sessionId, line, submittedAttachments }, 30000);
+      return remote.call("commands/execute", { agentId: sessionId, line, submittedAttachments }, timeoutMs);
     }
     return this.rpc("commands/execute", {
       args: { agentId: sessionId, line, images },
-    }, 30000);
+    }, timeoutMs);
   }
 
   async executeWidgetCommand(sessionId, line, images = []) {

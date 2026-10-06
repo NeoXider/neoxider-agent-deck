@@ -28,6 +28,8 @@ for (const home of [path.join(process.env.USERPROFILE, ".dsh"), path.join(proces
         if (!policy) value.config.modelPolicies.push(policy = { provider: "openai", model: id });
         policy.provider = "openai";
         policy.model = id;
+        policy.summarizationProvider = "openai";
+        policy.summarizationModel = id;
         delete policy.target;
         Object.assign(policy, { thresholdRatio: 0.20, retainRatio: 0.08, headroomTokens: 4096, maxTokens: 16384 });
       }

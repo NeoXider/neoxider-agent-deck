@@ -6,6 +6,22 @@ const { HISTORY_PREVIEW_BYTES_BUDGET, HarnessApi, activityFromHistory, boundedHi
 // dialect under test: a legacy index answers the generation probe with HTTP 200.
 const legacyFetch = async () => ({ ok: true, status: 200 });
 
+test("manual compaction has an inference-length deadline on both protocols without slowing other commands", async () => {
+  for (const remoteProtocol of [true, false]) {
+    const seen = [];
+    const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+    const call = async (method, args, timeout) => { seen.push({ method, timeout }); return {}; };
+    api.ensureRemote = async () => remoteProtocol ? { call } : null;
+    api.rpc = call;
+    await api.executeCommand("session", "/compact");
+    await api.executeCommand("session", " /compact  ");
+    await api.executeCommand("session", "/compact-other");
+    await api.executeCommand("session", "/goal pause");
+    assert.deepEqual(seen.map(row => row.timeout), [600000, 600000, 30000, 30000]);
+    assert.ok(seen.every(row => row.method === "commands/execute"));
+  }
+});
+
 test("a follow channel preserves the stored-session failure instead of replacing it with closed", async () => {
   const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
   const reason = new Error("stored session is corrupt: SessionFormatError: tool/ptc-dispatch is outside an open turn");

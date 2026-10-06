@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.17] - 2026-10-07
+
 ### Changed
 
 - Removed the Agent settings disclosure and duplicate model control. The model name opens the model dialog directly, while the effort badge keeps its existing slider and animations.
@@ -14,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allow manual compaction to finish local inference instead of cancelling it after 30 seconds. Add an explicit profile repair that pins local summary routes and disables the conflicting billion-context fetch interceptor while retaining its installed files and conversation history.
+- Isolate every local compaction request from the worker persona and tools, including short checkpoints; reject tool-calling summaries instead of replacing conversation facts with a resumed-task response.
 - Show output-token cutoffs in saved history and immediately on the live stream, keep their partial answer, and offer a draft-preserving Continue action. Retain the provider's actual error detail in live terminal frames and mark cutoffs as requiring attention rather than successful completion.
 - Added local Harness helpers for explicit LM Studio reply budgets and version-matched, image-safe staged compaction across Standard, PTC and Minimal presets. The local profiles use a 70K output ceiling with earlier context recovery; stored conversation and attachment originals are retained.
 - Preserve the actual DSH session-load error rather than replacing it with a generic closed-channel message. Failed history remains visible with Retry, Open Harness and New chat actions; corrupt sessions are not retried continuously or silently replaced. Coalesce model loads and bound their wait so failed history cannot leave the model selector loading forever.

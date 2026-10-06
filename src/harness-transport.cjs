@@ -15,6 +15,11 @@ const { randomUUID } = require("node:crypto");
 const GATED_BODY_MARKER = "dsh web authentication required";
 const PROBE_TIMEOUT_MS = 1500;
 
+// /compact runs inference; a 30s deadline aborts local summaries mid-flight.
+function commandTimeoutMs(line) {
+  return /^\s*\/compact(?:\s|$)/i.test(String(line)) ? 600000 : 30000;
+}
+
 // What the readiness probe already established: a gated index answers 401
 // with a fixed body, an old one answers 200.
 async function detectGeneration(baseUrl, fetchImpl = globalThis.fetch) {
@@ -326,6 +331,7 @@ function normalizeHarnessLaunchUrl(value, baseUrl = "http://127.0.0.1:3080") {
 
 module.exports = {
   GATED_BODY_MARKER,
+  commandTimeoutMs,
   createRemoteTransport,
   detectGeneration,
   isSameHarnessOrigin,

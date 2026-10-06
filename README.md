@@ -1,8 +1,8 @@
 <h1 align="center">NeoXider Agent Deck</h1>
 <p align="center"><strong>Your agents, within reach.</strong><br>A desktop chat, a live session board, a small companion, or just a glowing hinge.</p>
 <p align="center">
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.9.16-49e7c6" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.9.16-8b79ff" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.9.17-49e7c6" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.9.17-8b79ff" /></a>
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
 </p>
 <p align="center"><a href="https://github.com/NeoXider/neoxider-agent-deck/releases/latest"><strong>Download</strong></a> · <a href="#get-started">Get started</a> · <a href="CHANGELOG.md">What's new</a> · <a href="SECURITY.md">Security</a></p>
@@ -28,7 +28,7 @@ These are screenshots of the current UI using demonstration sessions. Avatar and
 
 ## Get started
 
-1. Download the installer or `NeoXider-Agent-Deck-0.9.16-windows-x64-portable.exe` from [Releases](https://github.com/NeoXider/neoxider-agent-deck/releases/latest).
+1. Download the installer or `NeoXider-Agent-Deck-0.9.17-windows-x64-portable.exe` from [Releases](https://github.com/NeoXider/neoxider-agent-deck/releases/latest).
 2. Start Harness Web at `http://127.0.0.1:3080`, or use **Start** in Deck's offline banner.
 3. If authentication is required, use **Connect** and paste the `dsh web:` launch URL once. Choose a session and start chatting.
 
@@ -76,7 +76,7 @@ npm ci
 npm start
 ```
 
-Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 0.9.16 fixes the modern DSH queue and stream reconnection, keeps the reasoning slider uniform, and installs DSH 0.2.0-rc.2 when starting Harness automatically. Send now applies a queued message at the next agent step without erasing the in-flight answer. Queued images can be sent or removed; the current DSH text-only editor requires reattaching an image to change its caption.
+Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 0.9.17 improves connection recovery, remembered-session loading and output-limit reporting while preserving the reasoning slider animations. Automatic Harness installation uses the stable DSH 0.2.0-rc.2 runtime; separately installed preview runtimes are retained. Send now applies a queued message at the next agent step without erasing the in-flight answer. Queued images can be sent or removed; the current DSH text-only editor requires reattaching an image to change its caption.
 
 ## Verify and build
 
@@ -90,7 +90,7 @@ npm audit --audit-level=high
 npm run build
 ```
 
-The tests cover session contracts, streaming, attachments, window geometry and compact layouts. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction and continuation with your installed compaction preset. Release CI builds Windows, Intel/Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-0.9.16-windows-x64-portable.exe`.
+The tests cover session contracts, streaming, attachments, window geometry and compact layouts. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction and continuation with your installed compaction preset. Release CI builds Windows, Intel/Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-0.9.17-windows-x64-portable.exe`.
 
 ## Trust and integration
 

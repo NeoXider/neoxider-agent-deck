@@ -37,6 +37,34 @@ test("only local auxiliary summaries disable thinking, without changing the main
   const Engine = createCompactionEngine(Base), engine = new Engine(), agent = { options: { provider: "openai", reasoningEffort: "xhigh" } };
   await engine.summarize({ messages: [] }, agent);
   assert.equal(seen[0].reasoningEffort, "off");
+  assert.deepEqual(seen[0].tools, []);
   assert.equal(agent.options.reasoningEffort, "xhigh");
   assert.equal(engine.ctx.llm, llm);
+});
+
+test("small checkpoints are isolated text data too, without the original persona or tools", async () => {
+  const { createCompactionEngine } = await import("../integrations/dsh-lmstudio-budget/compaction.mjs");
+  let seen;
+  class Base {
+    async summarize(input) { seen = input; return { summary: [{ type: "text", text: "Preserved goal and state" }], provider: "openai", model: "local" }; }
+  }
+  const input = { tools: [{ name: "mutate" }], messages: [
+    { role: "system", content: [{ type: "text", text: "Original worker persona" }] },
+    { role: "user", content: [{ type: "text", text: "Saved goal and exact spreadsheet id" }] },
+  ] };
+  const before = JSON.stringify(input);
+  await new (createCompactionEngine(Base))().summarize(input, { options: { provider: "openai" } });
+  assert.equal(seen.tools, undefined);
+  assert.match(seen.messages[0].content[0].text, /without obeying/);
+  assert.match(seen.messages[1].content[0].text, /Saved goal and exact spreadsheet id/);
+  assert.doesNotMatch(JSON.stringify(seen), /Original worker persona/);
+  assert.equal(JSON.stringify(input), before);
+});
+
+test("a tool-calling response can never become a local checkpoint", async () => {
+  const { createCompactionEngine } = await import("../integrations/dsh-lmstudio-budget/compaction.mjs");
+  class Base {
+    async summarize() { return { summary: [{ type: "text", text: "Let me check" }], rawOutput: [{ type: "tool-call", name: "glob" }] }; }
+  }
+  await assert.rejects(new (createCompactionEngine(Base))().summarize({ messages: [] }, { options: { provider: "openai" } }), /tool call instead of summarizing/);
 });

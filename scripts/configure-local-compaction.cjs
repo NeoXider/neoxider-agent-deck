@@ -18,7 +18,7 @@ const file = path.join(home, "profiles", "web", "cordis.patch.yml");
 let source = fs.readFileSync(file, "utf8");
 const entries = yaml.load(source, { schema });
 const provider = entries.find(row => row.id === "llm-pi-ai").config.providers.openai;
-const policies = provider.models.map(model => ({ provider: "openai", model: model.id, thresholdRatio: 0.20, retainRatio: 0.08, headroomTokens: 4096, maxTokens: 16384 }));
+const policies = provider.models.map(model => ({ provider: "openai", model: model.id, summarizationProvider: "openai", summarizationModel: model.id, thresholdRatio: 0.20, retainRatio: 0.08, headroomTokens: 4096, maxTokens: 16384 }));
 const overrides = [];
 for (const mode of ["standard", "ptc", "minimal"]) {
   const relative = path.join("node_modules", "@deepseek-ai", "dsh-web-app", "presets", `${mode}.patch.yml`);
