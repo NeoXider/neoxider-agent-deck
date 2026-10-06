@@ -22,6 +22,24 @@ function response({ ok = true, status = 200, headers = {}, json = null, text = "
   };
 }
 
+test("reconnect while a cookie mint is pending cannot restore the old host cookie", async () => {
+  let url = "http://127.0.0.1:3080/?token=old-host", release;
+  const oldExchange = new Promise(resolve => { release = resolve; });
+  const remote = createRemoteTransport({
+    getLaunchBrowserUrl: () => url,
+    fetchImpl: async requested => requested.includes("old-host") ? oldExchange
+      : response({ status: 303, headers: { "set-cookie": "dsh=new-host; HttpOnly" } }),
+  });
+  const old = remote.ensureAuthenticated();
+  await new Promise(resolve => setImmediate(resolve));
+  remote.dropCookie();
+  url = "http://127.0.0.1:3080/?token=new-host";
+  await remote.ensureAuthenticated();
+  release(response({ status: 303, headers: { "set-cookie": "dsh=old-host; HttpOnly" } }));
+  await old;
+  assert.equal(remote.cookie(), "dsh=new-host");
+});
+
 test("generation detection separates legacy, gated, and down hosts", async () => {
   assert.equal(await detectGeneration("http://127.0.0.1:3080", async () => response({ ok: true })), "legacy");
   assert.equal(await detectGeneration("http://127.0.0.1:3080", async () => response({

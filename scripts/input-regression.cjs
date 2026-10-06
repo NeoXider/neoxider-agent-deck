@@ -38,6 +38,7 @@ let deferredCancel = null;
 let createdSessionId = "created-session";
 let dashboardCalls = 0;
 let startHarnessCalls = 0;
+let startHarnessError = "";
 let installUpdateCalls = 0;
 let showThinkingPreference = true;
 let lastSelectedSessionPreference = null;
@@ -131,6 +132,7 @@ function registerStubs() {
   });
   ipcMain.handle("start-harness", () => {
     startHarnessCalls += 1;
+    if (startHarnessError) throw new Error(startHarnessError);
     return { ok: true, started: true };
   });
   ipcMain.handle("create-session", () => ({ sessionId: createdSessionId }));
@@ -572,8 +574,8 @@ async function main() {
     [...document.querySelectorAll("#modelOptions .picker-option")]
       .find((button) => button.textContent.includes("Automatic route"))?.click();
     return new Promise((resolve) => setTimeout(() => resolve({
-      label: document.querySelector("#modelButtonText")?.textContent || "",
-      summary: document.querySelector("#controlsPrimary")?.textContent || "",
+      label: document.querySelector("#reasoningButton")?.dataset.modelLabel || "",
+      summary: document.querySelector("#reasoningModelName")?.textContent || "",
       automatic: state.automaticModelRoute,
     }), 40));
   })()`);
@@ -715,8 +717,8 @@ async function main() {
   })()`);
   await wait(620);
   const edgeErrorTarget = await contents.executeJavaScript(`({ selected: state.selectedSessionId, mode: state.windowMode, notification: state.compactNotification })`);
-  if (currentMode !== "full" || edgeErrorTarget.mode !== "full" || edgeErrorTarget.selected !== "error-b" || edgeErrorTarget.notification !== null) {
-    failures.push(`edge error activation did not open and acknowledge the exact session: ${JSON.stringify({ currentMode, edgeErrorTarget })}`);
+  if (currentMode !== "full" || edgeErrorTarget.mode !== "full" || edgeErrorTarget.selected !== "error-a" || edgeErrorTarget.notification?.sessionId !== "error-b") {
+    failures.push(`edge restore switched away from the selected chat or acknowledged another chat's error: ${JSON.stringify({ currentMode, edgeErrorTarget })}`);
   }
 
   dashboardValue = { harness: true, sessions: [dashboardValue.sessions[0]] };
@@ -745,8 +747,8 @@ async function main() {
   })()`);
   await wait(620);
   const openedCompletion = await contents.executeJavaScript(`({ selected: state.selectedSessionId, mode: state.windowMode })`);
-  if (edgeCompletionTarget !== "done-b" || currentMode !== "full" || openedCompletion.mode !== "full" || openedCompletion.selected !== "done-b") {
-    failures.push(`edge completion activation did not open the exact session: ${JSON.stringify({ edgeCompletionTarget, currentMode, openedCompletion })}`);
+  if (edgeCompletionTarget !== "done-b" || currentMode !== "full" || openedCompletion.mode !== "full" || openedCompletion.selected !== "done-a") {
+    failures.push(`edge restore switched the selected chat to a background completion: ${JSON.stringify({ edgeCompletionTarget, currentMode, openedCompletion })}`);
   }
   await contents.executeJavaScript(`clearCompletionSignal()`);
 
@@ -911,8 +913,6 @@ async function main() {
   })()`);
   const thinkGeometryBaseline = await contents.executeJavaScript(`(async () => {
     applyShowThinking(true);
-    const setup = document.querySelector("#agentControls");
-    setup.open = false;
     state.selectedSessionId = "thinking-geometry";
     state.messagesStickToBottom = false;
     renderMessages(Array.from({ length: 60 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", text: "Think anchor " + index })));
@@ -923,11 +923,11 @@ async function main() {
     return { scrollTop: messages.scrollTop, height: messages.clientHeight };
   })()`);
   const thinkGeometryClosed = await thinkGeometrySnapshot();
-  await contents.executeJavaScript(`document.querySelector("#agentControls").open = true`);
-  // Setup now has a 220ms disclosure transition; compare settled geometry.
+  await contents.executeJavaScript(`openModelPicker()`);
+  // Opening the model dialog must not move the transcript or thinking overlay.
   await wait(280);
   const thinkGeometryOpen = await thinkGeometrySnapshot();
-  await contents.executeJavaScript(`document.querySelector("#agentControls").open = false`);
+  await contents.executeJavaScript(`closePickers()`);
   await wait(280);
   const thinkGeometryReclosed = await thinkGeometrySnapshot();
   win.setSize(400, 640);
@@ -941,7 +941,7 @@ async function main() {
   if (!thinkSnapshots.every((snapshot) => snapshot.aligned && snapshot.scrollTop === thinkGeometryBaseline.scrollTop)
       || thinkGeometryReclosed.height !== thinkGeometryBaseline.height
       || thinkGeometryRestored.height !== thinkGeometryBaseline.height) {
-    failures.push(`unchanged live Think lost its message anchor or viewport across Setup and resize: ${JSON.stringify({ thinkGeometryBaseline, thinkSnapshots })}`);
+    failures.push(`unchanged live Think lost its message anchor or viewport across model selection and resize: ${JSON.stringify({ thinkGeometryBaseline, thinkSnapshots })}`);
   }
 
   const toolLiveHistories = [
@@ -1938,6 +1938,43 @@ async function main() {
   if (dashboardCalls - startCallsBefore < 2 || startHarnessCalls - startsBefore !== 1 || !startRace.harness || startRace.button === "Retry" || startRace.visible) {
     failures.push(`Start Harness reused a stale in-flight offline snapshot: ${JSON.stringify({ calls: dashboardCalls - startCallsBefore, starts: startHarnessCalls - startsBefore, startRace })}`);
   }
+
+  dashboardValue = { ok: false, harness: true, degraded: true, reachable: true, sessions: [] };
+  const degraded = await contents.executeJavaScript(`(async () => {
+    state.dashboard = { harness: true, sessions: [{ sessionId: "kept-chat", title: "Kept chat", running: false }] };
+    state.selectedSessionId = "kept-chat";
+    state.currentMessages = [{ role: "user", text: "Keep this transcript during a slow poll" }];
+    renderMessages(state.currentMessages);
+    const bubble = document.querySelector("#messages .message");
+    await refresh();
+    return {
+      selected: state.selectedSessionId, sessions: state.dashboard.sessions.length,
+      sameBubble: bubble === document.querySelector("#messages .message"),
+      label: document.querySelector("#offlineBannerText").textContent,
+      button: document.querySelector("#startHarnessButton").textContent,
+      offline: document.body.classList.contains("harness-offline"),
+    };
+  })()`);
+  if (degraded.selected !== "kept-chat" || degraded.sessions !== 1 || !degraded.sameBubble || degraded.offline || !degraded.label.includes("responding slowly") || degraded.button !== "Retry") {
+    failures.push(`slow dashboard destroyed the chat or pretended the host stopped: ${JSON.stringify(degraded)}`);
+  }
+  const degradedStartsBefore = startHarnessCalls;
+  await contents.executeJavaScript(`startHarnessFromBanner()`);
+  if (startHarnessCalls !== degradedStartsBefore) failures.push("Retry on a slow host spawned Harness instead of retrying the dashboard");
+
+  dashboardValue = { ok: false, harness: false, sessions: [] };
+  startHarnessError = "Test startup failure";
+  const startupFailure = await contents.executeJavaScript(`(async () => {
+    await refresh();
+    await startHarnessFromBanner();
+    await refresh();
+    return { label: document.querySelector("#offlineBannerText").textContent, button: document.querySelector("#startHarnessButton").textContent };
+  })()`);
+  startHarnessError = "";
+  if (!startupFailure.label.includes("Test startup failure") || startupFailure.button !== "Retry") failures.push(`startup failure disappeared on the next poll: ${JSON.stringify(startupFailure)}`);
+  dashboardValue = { harness: true, sessions: [] };
+  await contents.executeJavaScript(`refresh()`);
+  console.log("PASS slow dashboard preserves chat, Retry does not spawn, and startup errors survive polling");
 
   win.setContentSize(360, 360);
   await win.loadFile(path.join(root, "src", "renderer", "index.html"), {

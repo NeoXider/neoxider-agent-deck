@@ -203,6 +203,51 @@ test("changing the selected session refreshes shared enrichment after an in-flig
   assert.deepEqual(selections, ["older-a", "older-b"]);
 });
 
+test("shared dashboard failures distinguish a healthy slow host from missing authorization", async () => {
+  assert.deepEqual(await readHarnessDashboard({
+    dashboard: async () => { throw new Error("This operation was aborted"); },
+    isReachable: async () => true,
+  }), { ok: false, harness: false, error: "This operation was aborted", sessions: [], reachable: true });
+  const locked = await readHarnessDashboard({ dashboard: async () => { throw new Error("Harness token exchange returned 401 without a session cookie"); } });
+  assert.equal(locked.needsAuth, true);
+  assert.equal(locked.reachable, true);
+});
+
+test("slow dashboard failures retain the last good session list, but auth and offline failures do not", async () => {
+  let value = dashboard();
+  const reader = createSharedDashboardReader({ readDashboard: async () => value });
+  await reader.read();
+  value = { ok: false, harness: false, reachable: true, error: "read timed out", sessions: [] };
+  reader.invalidate();
+  const slow = await reader.read();
+  assert.equal(slow.harness, true);
+  assert.equal(slow.degraded, true);
+  assert.equal(slow.ok, false);
+  assert.deepEqual(slow.sessions, [session()]);
+  value = { ...value, needsAuth: true };
+  reader.invalidate();
+  assert.equal((await reader.read()).harness, false);
+  value = { ok: false, harness: false, error: "connection refused", sessions: [] };
+  reader.invalidate();
+  assert.equal((await reader.read()).harness, false);
+});
+
+test("Start invalidation cannot be overwritten by an old in-flight offline poll", async () => {
+  let release, calls = 0;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const reader = createSharedDashboardReader({ readDashboard: async () => {
+    calls += 1;
+    return calls === 1 ? blocked : dashboard();
+  } });
+  const old = reader.read();
+  await settle();
+  reader.invalidate();
+  release({ ok: false, harness: false, error: "old offline result", sessions: [] });
+  await old;
+  assert.equal((await reader.read()).harness, true);
+  assert.equal(calls, 2);
+});
+
 test("the shared dashboard reader converts thrown and malformed results into the offline contract", async () => {
   const thrown = createSharedDashboardReader({ readDashboard: async () => { throw new Error("offline"); } });
   assert.deepEqual(await thrown.read(), { ok: false, harness: false, error: "offline", sessions: [] });

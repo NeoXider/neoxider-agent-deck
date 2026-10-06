@@ -13,6 +13,7 @@ const {
   encodeFrame,
 } = require("./gamebar-protocol.cjs");
 const { createGameBarSnapshotState } = require("./gamebar-snapshot.cjs");
+const { harnessNeedsAuth } = require("./harness-connection.cjs");
 
 const HOST_EXE = "NeoXiderAgentDeck.BridgeHost.exe";
 const DEFAULT_POLL_MS = 2_500;
@@ -28,12 +29,17 @@ function readHarnessDashboard(api, selectedSessionId) {
   return Promise.resolve()
     .then(() => api.dashboard(selectedSessionId))
     .then((dashboard) => ({ ok: true, harness: true, ...dashboard }))
-    .catch((error) => ({
-      ok: false,
-      harness: false,
-      error: error instanceof Error ? error.message : String(error),
-      sessions: [],
-    }));
+    .catch(async (error) => {
+      const needsAuth = harnessNeedsAuth(error);
+      const reachable = needsAuth || (typeof api.isReachable === "function"
+        && await api.isReachable().catch(() => false));
+      return {
+        ok: false, harness: false,
+        error: error instanceof Error ? error.message : String(error), sessions: [],
+        ...(needsAuth ? { needsAuth: true } : {}),
+        ...(reachable ? { reachable: true } : {}),
+      };
+    });
 }
 
 function createSharedDashboardReader({
@@ -49,11 +55,13 @@ function createSharedDashboardReader({
     throw new TypeError("Invalid shared dashboard reader options");
   }
   let cached = null;
+  let lastGood = null;
   let cachedAt = -Infinity;
   let inflight = null;
   let selectedSessionId = null;
   let cachedSelection = null;
   let inflightSelection = null;
+  let invalidationRevision = 0;
 
   function offline(error) {
     return {
@@ -82,18 +90,34 @@ function createSharedDashboardReader({
     if (cached && cachedSelection === selectedSessionId && cacheAge >= 0 && cacheAge <= cacheMs) return Promise.resolve(cached).then(notifySessions);
     if (inflight) return inflightSelection === selectedSessionId ? inflight.then(notifySessions) : inflight.then(() => read());
     const requestedSelection = selectedSessionId;
+    const requestedRevision = invalidationRevision;
     inflightSelection = requestedSelection;
     inflight = Promise.resolve()
       .then(() => readDashboard(requestedSelection))
       .catch(offline)
       .then((dashboard) => {
-        cached = dashboard && typeof dashboard === "object" && !Array.isArray(dashboard) && Array.isArray(dashboard.sessions)
+        if (dashboard?.ok && dashboard.harness) lastGood = dashboard;
+        // Retain the authoritative transcript/session list on a slow or failed
+        // dashboard read if the host still answers. Never disguise lost auth or
+        // an unreachable server as an online connection.
+        if (dashboard?.ok === false && dashboard.reachable && !dashboard.needsAuth) {
+          dashboard = {
+            ...lastGood, ...dashboard, harness: true, degraded: true,
+            sessions: lastGood?.sessions || [],
+          };
+        }
+        const normalized = dashboard && typeof dashboard === "object" && !Array.isArray(dashboard) && Array.isArray(dashboard.sessions)
           ? dashboard
           : offline(new Error("Dashboard response is invalid"));
-        cachedAt = Number(now());
-        cachedSelection = requestedSelection;
-        if (!Number.isFinite(cachedAt)) cachedAt = timestamp;
-        return cached;
+        // A poll started before Start/Restart must not repopulate the invalidated
+        // cache with the old offline result after the host has connected.
+        if (requestedRevision === invalidationRevision) {
+          cached = normalized;
+          cachedAt = Number(now());
+          cachedSelection = requestedSelection;
+          if (!Number.isFinite(cachedAt)) cachedAt = timestamp;
+        }
+        return normalized;
       })
       .finally(() => { inflight = null; });
     return inflight.then(notifySessions);
@@ -104,6 +128,7 @@ function createSharedDashboardReader({
   // from the list — and a blank, unselected session is hidden from every group, so it became
   // unreachable. Anything that changes the session set drops the cache first.
   function invalidate() {
+    invalidationRevision += 1;
     cached = null;
     cachedAt = -Infinity;
   }

@@ -11,7 +11,6 @@ app.whenReady().then(async () => {
   const css = ["styles.css", "appearance.css"].map(file => fs.readFileSync(path.join(__dirname, "../src/renderer", file), "utf8")).join("\n");
   const html = `<style>${css}\nbody{padding:20px;overflow:auto}details{width:350px;margin-bottom:12px} .fixture-body{height:120px;background:#182838}</style>
     <details class="goal-dock"><summary>Goal</summary><div class="fixture-body">Objective</div></details>
-    <details class="agent-controls"><summary>Setup</summary><div class="fixture-body">Model and workspace</div></details>
     <details class="tool-call"><summary>Tool output</summary><div class="fixture-body">Result</div></details>`;
   await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   const result = await win.webContents.executeJavaScript(`(async () => {
@@ -21,7 +20,6 @@ app.whenReady().then(async () => {
     for (const item of document.querySelectorAll('details')) {
       const height = () => item.getBoundingClientRect().height;
       const closed = height();
-      if (item.classList.contains('agent-controls')) item.dataset.disclosureMoving = '1';
       item.open = true;
       const opening = [height()];
       for (let i = 0; i < 8; i++) { await wait(35); opening.push(height()); }
@@ -46,11 +44,10 @@ app.whenReady().then(async () => {
     const monotonic = (samples, sign) => samples.every((height, index) => index === 0 || (height - samples[index - 1]) * sign >= -1);
     if (report.full < report.closed + 100 || !intermediate(report.opening) || !intermediate(report.closing)
         || !monotonic(report.opening, 1) || !monotonic(report.closing, -1)
-        || Math.abs(report.closing.at(-1) - report.closed) > 1 || Math.abs(report.reopened - report.full) > 1
-        || (report.name === "agent-controls" && report.overflow !== "visible")) failures.push(report);
+        || Math.abs(report.closing.at(-1) - report.closed) > 1 || Math.abs(report.reopened - report.full) > 1) failures.push(report);
   }
   if (failures.length) throw new Error(`Disclosure motion snapped, overshot, or failed to reverse: ${JSON.stringify(failures)}`);
-  console.log(`PASS Goal, Setup and tool drawers animate both ways, reverse cleanly, and restore menu overflow: ${JSON.stringify(result.map(({ name, closed, full }) => ({ name, closed, full })))}`);
+  console.log(`PASS Goal and tool drawers animate both ways and reverse cleanly: ${JSON.stringify(result.map(({ name, closed, full }) => ({ name, closed, full })))}`);
   win.destroy();
   clearTimeout(deadline);
   app.quit();

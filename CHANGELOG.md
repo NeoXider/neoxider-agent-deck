@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Removed the Agent settings disclosure and duplicate model control. The model name opens the model dialog directly, while the effort badge keeps its existing slider and animations.
+- Conversation navigation follows Harness: evenly spaced neutral question ticks, a theme-coloured current-turn marker, hover previews, keyboard navigation, and an independently scrolling virtualized rail with access to every question.
+
+### Fixed
+
+- Allow slow Harness session listings to complete, retain the chat during temporary dashboard failures, and distinguish lost authorization from a stopped host. Start reconnects to a running host using its saved launch URL and invalidates old connection state; startup errors remain visible for retry.
+- Restoring the edge widget keeps its selected chat instead of switching to another session's background notification. Restoring the same chat also retains its reading position; explicit notification and recent-session selection still work.
+- The selected chat is persisted immediately rather than through the shared preference debounce, so a quick restart restores the latest choice.
+- The highest-effort model chip uses a sparse, faded pixel ribbon instead of an all-over grid, keeping the model name and effort badge readable without changing the slider fill animation.
+- Update source-map-js to 1.2.2 to resolve the high-severity source-map denial-of-service advisory.
+
 ## [0.9.16] - 2026-10-03
 
 ### Changed

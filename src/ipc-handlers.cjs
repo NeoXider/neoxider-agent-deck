@@ -23,6 +23,7 @@ const { normalizeBackground, normalizeDesignProfiles } = require("./appearance-s
 // harness already paid for that lesson once (see scripts/screenshot-harness.cjs).
 const { harnessSessionUrl } = require("./harness-url.cjs");
 const { isSameHarnessOrigin, normalizeHarnessLaunchUrl } = require("./harness-transport.cjs");
+const { harnessNeedsAuth: dashboardNeedsAuth, startHarnessConnection } = require("./harness-connection.cjs");
 const { QUEUE_CONTENT, editableQueueContent } = require("./queue-view.cjs");
 const { renderMarkdownBatch, renderMarkdownAsync } = require("./markdown-service.cjs");
 const { applyPlatformOpacity } = require("./platform-capabilities.cjs");
@@ -194,11 +195,6 @@ function registerIpcHandlers({
   // A failed dashboard is either "Harness is down" or "Harness is up but gated and
   // we hold no launch token". The renderer shows a Start action for the first and a
   // launch-URL Connect action for the second, so the failure must say which it is.
-  function dashboardNeedsAuth(error) {
-    return /launch URL is unknown|session cookie|token exchange|HTTP 401|\b401\b|unauthorized/i
-      .test(error instanceof Error ? error.message : String(error ?? ""));
-  }
-
   handle("dashboard", async (_event, selectedSessionId) => {
     try {
       // Through the shared reader, not api.dashboard(): the Game Bar widget reads the same
@@ -366,14 +362,13 @@ function registerIpcHandlers({
     }
   }
 
-  handle("start-harness", async () => {
-    const result = await getHarnessLauncher().start();
-    persistCapturedLaunchUrl();
-    return result;
-  });
+  handle("start-harness", () => startHarnessConnection({
+    api, launcher: getHarnessLauncher(), persistCapturedLaunchUrl, invalidateDashboard,
+  }));
   handle("restart-harness", async () => {
     const result = await getHarnessLauncher().restart();
     persistCapturedLaunchUrl();
+    if (result?.ok && typeof api.reconnect === "function") await api.reconnect();
     invalidateDashboard();
     return result;
   });
@@ -445,7 +440,8 @@ function registerIpcHandlers({
     const preferences = getPreferences();
     if (preferences.lastSelectedSessionId !== sessionId) {
       preferences.lastSelectedSessionId = sessionId;
-      schedulePreferenceSave();
+      // Persist a discrete chat choice before an immediate restart.
+      savePreferences();
     }
     return preferences.lastSelectedSessionId;
   });

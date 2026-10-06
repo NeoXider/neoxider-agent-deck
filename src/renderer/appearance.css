@@ -147,12 +147,9 @@ body[data-design="cave"] .widget-shell { background:rgba(9,19,34,var(--panel-bac
 body[data-design="cave"] .settings-panel { background:#101e32; }
 body[data-design="cave"] #sendButton { background:linear-gradient(145deg,#72e5ef,#9793ee); }
 
-/* Keep effort immediately accessible, independently of the setup disclosure. */
+/* Keep effort immediately accessible in the compact toolbar. */
 .chat-heading { grid-template-columns:40px 40px minmax(0,1fr) auto; }
 .chat-heading > .reasoning-picker { grid-column:4; grid-row:1; z-index:12; }
-.chat-heading > .agent-controls { grid-column:3; grid-row:1; }
-.chat-heading > .agent-controls[open] { grid-column:1 / -1; grid-row:2; }
-.control-grid > .model-picker { grid-column:1 / -1; }
 .reasoning-picker > .picker-button { height:40px; padding:0 9px; gap:5px; }
 .reasoning-picker > .picker-button .picker-chevron { display:none; }
 #reasoningButtonText { max-width:85px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -205,13 +202,10 @@ body[data-design="cyberpunk"] #reasoningButton { --reasoning-secondary:#867400; 
 
 .chat-heading { grid-template-columns:40px 40px minmax(0,1fr); }
 .chat-heading > .reasoning-picker { grid-column:3; }
-.chat-heading > .agent-controls:not([open]) { display:none; }
 #reasoningButton { width:100%; justify-content:flex-start; gap:7px; }
 #reasoningButton .picker-chevron { display:block; width:12px; height:12px; }
 #reasoningModelName { flex:1; min-width:0; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #reasoningButtonText { flex:none; color:var(--muted); font-size:10px; }
-.reasoning-setup { display:block; margin:9px auto 0; padding:3px 8px; border:0; background:transparent; color:var(--muted); font-size:10px; cursor:pointer; border-radius:8px; }
-.reasoning-setup:hover { color:var(--text); background:#ffffff08; }
 @media(max-width:380px) { .chat-heading { grid-template-columns:34px 34px minmax(0,1fr); } }
 body.mode-full .composer-view-stack .focus-chat-button,
 body.mode-full .composer-utility-stack .composer-action { width:17px; height:17px; justify-self:center; padding:0; display:grid; place-items:center; border-radius:50%; background:var(--surface); }
@@ -288,10 +282,6 @@ body.mode-full .composer-utility-stack .composer-action { width:17px; height:17p
 body.mode-full .window-actions .icon-button { width:32px; height:32px; min-height:32px; padding:0; border-radius:10px; flex-shrink:0; }
 .window-actions .capture-picker { display:flex; align-items:center; }
 #captureButton .ui-icon { width:18px; height:18px; flex:none; }
-.agent-controls:has(.model-picker.open) { position:absolute; width:0; height:0; margin:0; padding:0; border:0; }
-.agent-controls:has(.model-picker.open) > summary,
-.agent-controls:has(.model-picker.open) .control-grid > :not(.model-picker),
-.model-picker.open > #modelButton { display:none; }
 .model-picker.compact-overlay #modelMenu { margin:0; right:auto; height:auto; max-height:var(--picker-max-height); background:#292a2d; border:1px solid #ffffff20; border-radius:17px; padding:7px; color:#f1f1f2; box-shadow:0 18px 48px #0008,0 2px 10px #0004; }
 .model-picker.compact-overlay.open-up #modelMenu { top:auto; bottom:var(--model-sheet-bottom); }
 #modelMenu .picker-search { height:36px; border-color:#ffffff20; border-radius:10px; background:#1f2023; }
@@ -350,7 +340,9 @@ body.mode-full .window-actions .icon-button { width:32px; height:32px; min-heigh
 .reasoning-track[data-intensity="peak"] .reasoning-fill { background:linear-gradient(90deg,var(--reasoning-secondary),var(--reasoning-accent)); box-shadow:0 0 12px color-mix(in srgb,var(--reasoning-accent) 55%,transparent); }
 .reasoning-track[data-intensity="peak"] .reasoning-fill::before { opacity:.95; background-image:linear-gradient(90deg,var(--reasoning-secondary),var(--reasoning-accent) 35%,color-mix(in srgb,var(--reasoning-accent) 45%,white) 50%,var(--reasoning-accent) 65%,var(--reasoning-secondary)); background-size:96px 100%; animation:reasoning-wave-96 1.5s linear infinite; }
 .reasoning-track[data-intensity="peak"] .reasoning-fill::after { opacity:.95; animation:reasoning-sheen 1.7s ease-in-out infinite; }
-#reasoningButton[data-intensity="peak"]::before { background-image:linear-gradient(110deg,color-mix(in srgb,var(--reasoning-secondary) 34%,#272a30),var(--reasoning-secondary) 22%,var(--reasoning-accent) 42%,color-mix(in srgb,var(--reasoning-accent) 42%,white) 53%,var(--reasoning-accent) 62%,var(--reasoning-secondary) 82%,color-mix(in srgb,var(--reasoning-secondary) 34%,#272a30)); background-size:200px 100%; mask-image:repeating-linear-gradient(90deg,#000 0 3px,transparent 3px 5px),repeating-linear-gradient(0deg,#000 0 3px,transparent 3px 5px); mask-composite:intersect; animation:reasoning-pixel-wave 2.8s linear infinite; }
+/* A sparse, softly bounded pixel ribbon, not an all-over checkerboard.
+   The lower-right envelope keeps the model name clear while light flows through it. */
+#reasoningButton[data-intensity="peak"]::before { inset:4px 5px; background-image:linear-gradient(110deg,transparent 8%,color-mix(in srgb,var(--reasoning-secondary) 60%,transparent) 30%,var(--reasoning-accent) 47%,color-mix(in srgb,var(--reasoning-accent) 65%,white) 54%,var(--reasoning-accent) 61%,transparent 88%); background-size:200px 100%; mask-image:repeating-linear-gradient(90deg,#000 0 2px,transparent 2px 7px),repeating-linear-gradient(0deg,#000 0 2px,transparent 2px 7px),radial-gradient(ellipse 65% 80% at 85% 100%,#000 15%,transparent 80%); mask-composite:intersect; animation:reasoning-pixel-wave 3.8s linear infinite; }
 @keyframes reasoning-wave-140 { to { background-position-x:140px; } }
 @keyframes reasoning-wave-96 { to { background-position-x:96px; } }
 @keyframes reasoning-pixel-wave { to { background-position-x:200px; } }
@@ -371,9 +363,11 @@ body.mode-full .window-actions .icon-button { width:32px; height:32px; min-heigh
 #reasoningButton[data-intensity="peak"] { border-color:color-mix(in srgb,var(--mint) 72%,transparent); box-shadow:inset 0 0 10px color-mix(in srgb,var(--mint) 10%,transparent),0 0 14px color-mix(in srgb,var(--mint) 28%,transparent); }
 #reasoningButton[data-intensity="deep"]::before { opacity:.22; background-image:linear-gradient(90deg,transparent,var(--reasoning-accent),transparent); background-size:140px 100%; animation:reasoning-wave-140 4.8s linear infinite; }
 #reasoningButton[data-intensity="deep"]::after { opacity:.35; animation:reasoning-sheen 3.6s ease-in-out infinite; }
-#reasoningButton[data-intensity="peak"]::before { opacity:.42; }
+#reasoningButton[data-intensity="peak"]::before { opacity:.65; }
 #reasoningButton[data-intensity="peak"]::after { opacity:.16; animation:reasoning-sheen 3.4s ease-in-out infinite; }
 #reasoningButton[data-intensity="deep"] #reasoningButtonText,#reasoningButton[data-intensity="peak"] #reasoningButtonText { background:color-mix(in srgb,var(--mint) 18%,transparent); }
+#reasoningButton[data-intensity="peak"] #reasoningButtonText { background:color-mix(in srgb,var(--bg) 84%,var(--reasoning-accent)); }
+#reasoningButton[data-intensity="peak"] #reasoningModelName { text-shadow:0 1px 2px var(--bg); }
 body.motion-off .reasoning-fill::before,body.motion-off .reasoning-fill::after,body.motion-off #reasoningButton::before,body.motion-off #reasoningButton::after { animation:none !important; }
 body.motion-off .reasoning-starfield i { animation:none !important; opacity:.9; transform:translate(-50%,-50%); }
 @media(prefers-reduced-motion:reduce) { .reasoning-fill::before,.reasoning-fill::after,#reasoningButton::before,#reasoningButton::after { animation:none !important; } .reasoning-starfield i { animation:none !important; opacity:.9; transform:translate(-50%,-50%); } }

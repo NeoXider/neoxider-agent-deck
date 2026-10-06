@@ -77,6 +77,69 @@ function attachScreenshotHarness({
           window.__stripTrace = trace;
         })()`);
       }
+      if (process.env.WIDGET_SCREENSHOT_FIXTURE === "message-rail-preview") {
+        await window.webContents.executeJavaScript(`showChatTooltip(document.querySelector('#messageMarks [data-ordinal="1"]'))`);
+      }
+      if (process.env.WIDGET_SCREENSHOT_FIXTURE === "message-rail-long") {
+        await window.webContents.executeJavaScript(`(async () => {
+          const rail = document.querySelector('#messageMarks');
+          const log = document.querySelector('#messages');
+          const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const checks = {};
+          syncMessageMarksPosition();
+          checks.latest = Number(rail.querySelector('[aria-current="true"]')?.dataset.ordinal) === 1199;
+          const before = log.scrollTop;
+          rail.dispatchEvent(new PointerEvent('pointerenter'));
+          rail.scrollTop = 0;
+          drawMessageMarks();
+          await frame();
+          checks.independent = Math.abs(log.scrollTop - before) <= 1;
+          checks.hoverStable = rail.scrollTop === 0;
+          const first = rail.querySelector('[data-ordinal="0"]');
+          showChatTooltip(first);
+          checks.preview = document.querySelector('#chatTooltip')?.textContent.includes('Question 1 of 1200');
+          first.focus({ preventScroll: true });
+          first.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+          checks.endKey = document.activeElement?.dataset.ordinal === '1199';
+          document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+          checks.homeKey = document.activeElement?.dataset.ordinal === '0';
+          document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+          checks.arrowKey = document.activeElement?.dataset.ordinal === '1';
+          document.activeElement.blur();
+          rail.scrollTop = 407 * MESSAGE_MARK_SPACING;
+          drawMessageMarks();
+          const target = rail.querySelector('[data-ordinal="407"]');
+          checks.unsampled = target?.dataset.msgIndex === '814';
+          checks.unloaded = target?.classList.contains('unloaded');
+          target.click();
+          renderMessages(state.currentMessages);
+          await new Promise(resolve => setTimeout(resolve, 800));
+          syncMessageMarksPosition();
+          const node = log.querySelector('[data-vmsg="814"]');
+          checks.jump = !!node && Math.abs(node.getBoundingClientRect().top - log.getBoundingClientRect().top - MESSAGE_PIN_OFFSET) <= 2;
+          checks.bounded = log.querySelectorAll('[data-vmsg]').length <= TRANSCRIPT_WINDOW_MAX;
+          checks.active = rail.querySelector('[aria-current="true"]')?.dataset.ordinal === '407';
+          releaseMessageScrollPin();
+          const later = log.querySelector('[data-vmsg="818"]');
+          log.scrollTop += later.getBoundingClientRect().top - log.getBoundingClientRect().top - MESSAGE_PIN_OFFSET;
+          await frame();
+          syncMessageMarksPosition();
+          checks.readingActive = messageMarkActive === 409;
+          rail.dispatchEvent(new PointerEvent('pointerleave'));
+          await frame();
+          const active = rail.querySelector('[aria-current="true"]')?.getBoundingClientRect();
+          const bounds = rail.getBoundingClientRect();
+          checks.follow = !!active && active.top >= bounds.top && active.bottom <= bounds.bottom;
+          // A narrow resize must preserve the message and recompute the rail window.
+          rememberTranscriptReadingPosition(log);
+          const anchor = captureTranscriptAnchor(log);
+          document.querySelector('.widget-shell').style.width = '350px';
+          await frame();
+          checks.resize = captureTranscriptAnchor(log)?.key === anchor?.key;
+          checks.count = rail.dataset.turnCount === '1200' && rail.querySelectorAll('.message-mark').length < 60;
+          window.__messageRailChecks = checks;
+        })()`);
+      }
       let audit = null;
       if (auditPath) {
         audit = await window.webContents.executeJavaScript(`(() => {
@@ -118,7 +181,7 @@ function attachScreenshotHarness({
                 return rect.top < bar.top - 1 || rect.bottom > bar.bottom + 1;
               });
             })(),
-            setupInToolbar: document.querySelector('#agentControls')?.parentElement?.classList.contains('chat-heading') || false,
+            setupInToolbar: document.querySelector('.reasoning-picker')?.parentElement?.classList.contains('chat-heading') || false,
             focusMode: document.body.classList.contains('focus-chat'),
             focusChromeHidden: ['.titlebar','.chat-heading','.activity-card','.settings-panel'].every((selector) => getComputedStyle(document.querySelector(selector)).display === 'none'),
             commandRows: document.querySelectorAll('.command-row').length,
@@ -265,6 +328,15 @@ function attachScreenshotHarness({
             goalTrackFill: document.querySelector('#goalTrackFill')?.style.width || '',
             goalRounds: document.querySelector('#goalRounds')?.textContent || '',
             messageMarkHitHeight: Math.round(document.querySelector('#messageMarks .message-mark')?.getBoundingClientRect().height || 0),
+            messageRailTurnCount: Number(document.querySelector('#messageMarks')?.dataset.turnCount || 0),
+            messageMarksActiveCount: document.querySelectorAll('#messageMarks [aria-current="true"]').length,
+            messageRailInteractions: !!window.__messageRailChecks && Object.values(window.__messageRailChecks).every(Boolean),
+            messageRailChecks: window.__messageRailChecks || null,
+            messageRailPreview: document.querySelector('#chatTooltip.message-mark-preview')?.textContent.includes('Question 2 of 5') || false,
+            messageMarksNonOverlapping: (() => {
+              const rects = [...document.querySelectorAll('#messageMarks .message-mark')].map(tick => tick.getBoundingClientRect());
+              return rects.length > 0 && rects.every((rect, i) => i === 0 || rect.top >= rects[i - 1].bottom - .5);
+            })(),
             // The jump-to-latest pill used to sit on top of the last marks and eat their presses.
             messageMarksClearOfLatest: (() => {
               const pill = document.querySelector('.scroll-latest:not([hidden])')?.getBoundingClientRect();
@@ -564,9 +636,10 @@ function attachScreenshotHarness({
             })(),
             sendWidth: Math.round(document.querySelector('#sendButton').getBoundingClientRect().width),
             sendHeight: Math.round(document.querySelector('#sendButton').getBoundingClientRect().height),
-            modelControlLabel: document.querySelector('.model-button-copy small')?.textContent || '',
-            modelControlText: document.querySelector('#modelButtonText')?.textContent || '',
+            modelControlLabel: document.querySelector('#reasoningButton')?.getAttribute('aria-label')?.split(':')[0] || '',
+            modelControlText: document.querySelector('#reasoningButton')?.dataset.modelLabel || '',
             agentControlsOpen: document.querySelector('#agentControls')?.open || false,
+            agentControlsAbsent: !document.querySelector('#agentControls, .agent-controls, .reasoning-setup'),
             agentPlanSwitchCount: document.querySelectorAll('#modeSwitch, .mode-option').length,
             reasoningButtonIntensity: document.querySelector('#reasoningButton')?.dataset.intensity || '',
             reasoningTrackIntensity: document.querySelector('.reasoning-track')?.dataset.intensity || '',

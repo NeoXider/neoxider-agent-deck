@@ -34,7 +34,7 @@ app.whenReady().then(async () => {
         document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
         snapshot.escapeClosed = !menu.matches(':popover-open');
         snapshot.focusRestored = document.activeElement === quick;
-        snapshot.setupCollapsed = !document.querySelector('#agentControls').open;
+        snapshot.setupAbsent = !document.querySelector('#agentControls, .agent-controls, .reasoning-setup');
         quick.click(); document.querySelector('.reasoning-model').click(); await new Promise(r=>setTimeout(r,30));
         const search=document.querySelector('#modelSearch'); search.value='Model 19'; search.dispatchEvent(new Event('input',{bubbles:true}));
         const option=document.querySelector('[data-model-option]'); option.click();

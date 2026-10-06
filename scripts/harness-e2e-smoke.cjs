@@ -25,6 +25,14 @@ async function listen(server) {
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   return server.address().port;
 }
+function estimatedInputTokens(input) {
+  const bytes = input.messages.reduce((total, message) => total + (typeof message.content === "string"
+    ? Buffer.byteLength(message.content)
+    : (message.content || []).reduce((count, block) => count + (block.type === "text" ? Buffer.byteLength(block.text || "") : 1024), 0)), 0);
+  // Image base64 is not text tokens. Charging its serialized bytes would create
+  // a fake 230K-token overflow in the tiny queued-image fixture.
+  return Math.ceil((bytes + Buffer.byteLength(JSON.stringify(input.tools || []))) / 4);
+}
 async function main() {
   const entry = process.argv[process.argv.indexOf("--entry") + 1];
   assert.ok(process.argv.includes("--entry") && fs.existsSync(entry), "Use --entry <installed dsh/lib/bin.js>");
@@ -39,12 +47,16 @@ async function main() {
     if (!req.url.endsWith("/chat/completions")) { res.writeHead(404); res.end(); return; }
     const input = JSON.parse(body);
     requests.push(input);
+    // Report pressure proportional to the actual request. A constant 100-token
+    // usage makes the host believe even a saturated test chat is almost empty.
+    const promptTokens = estimatedInputTokens(input);
+    const usage = { prompt_tokens: promptTokens, completion_tokens: 10, total_tokens: promptTokens + 10 };
     const prompts = input.messages.filter(m => m.role === "user").map(m => typeof m.content === "string" ? m.content
       : (m.content || []).filter(b => b.type === "text").map(b => b.text).join(" "));
     const text = prompts.filter(value => /HOLD|EDITED|EDIT_ME|DELETE_ME|Image caption/.test(value)).at(-1) || "";
     const answer = "SMOKE_OK";
     const delta = content => ({ id: "test", object: "chat.completion.chunk", created: 1, model: "smoke", choices: [{ index: 0, delta: { content }, finish_reason: null }] });
-    if (!input.stream) { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ id: "test", object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: answer }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 } })); return; }
+    if (!input.stream) { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ id: "test", object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: answer }, finish_reason: "stop" }], usage })); return; }
     res.writeHead(200, { "Content-Type": "text/event-stream" });
     res.write(`data: ${JSON.stringify(delta(text.includes("HOLD") ? "STREAM_PREFIX" : answer))}\n\n`);
     if (text.includes("HOLD") && requests.length === 1) {
@@ -52,7 +64,7 @@ async function main() {
       res.on("close", () => held.delete(res));
       return;
     }
-    res.end(`data: ${JSON.stringify({ ...delta(""), choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 } })}\n\ndata: [DONE]\n\n`);
+    res.end(`data: ${JSON.stringify({ ...delta(""), choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage })}\n\ndata: [DONE]\n\n`);
   });
   const mockPort = await listen(mock);
   const probe = http.createServer();
@@ -136,18 +148,23 @@ async function main() {
     if (compactionCheck) {
       // Saturate only this disposable chat. Keep all real model requests local to
       // the deterministic server and observe the actual host compaction events.
-      for (let round = 0; round < 7; round++) {
-        await api.prompt(sessionId, `CONTEXT_BOUNDARY_${round}\n` + "stable acceptance facts and decisions. ".repeat(1100), "UTC");
+      let firstCompactedRound = null;
+      for (let round = 0; round < 24; round++) {
+        // Small increments leave room for the latest (non-compactable) message
+        // and the system prompt, rather than testing an impossible single input.
+        await api.prompt(sessionId, `CONTEXT_BOUNDARY_${round}\n` + "stable acceptance facts and decisions. ".repeat(300), "UTC");
         await until(async () => {
           const h = await api.history(sessionId);
           return h.messages.some(m => m.role === "user" && m.text.startsWith(`CONTEXT_BOUNDARY_${round}`))
             && !(await api.dashboard(sessionId)).sessions.find(s => s.sessionId === sessionId)?.running;
         }, `large context round ${round}`, 30000);
+        if (firstCompactedRound === null && compactionEvents.includes("compaction/summary")) firstCompactedRound = round;
+        if (firstCompactedRound !== null && round >= firstCompactedRound + 3) break;
       }
       assert.ok(compactionEvents.includes("compaction/start"), "automatic compaction ran before the context filled");
       assert.ok(compactionEvents.includes("compaction/end"), "automatic compaction completed");
       const compact = await api.executeCommand(sessionId, "/compact");
-      assert.equal(compact.result.kind, "success", "manual compaction remains usable");
+      assert.equal(compact.result.kind, "success", `manual compaction remains usable: ${JSON.stringify(compact.result)}`);
       await api.prompt(sessionId, "AFTER_COMPACTION", "UTC");
       await until(async () => {
         const h = await api.history(sessionId);
@@ -160,7 +177,7 @@ async function main() {
     assert.equal(command.result.kind, "success");
     console.log(JSON.stringify({ passed: true, checks, modelRequests: requests.length, home }));
   } catch (error) {
-    console.error(JSON.stringify({ requests: requests.length, compactionEvents, liveTypes: live.map(x => x.event.type), home }));
+    console.error(JSON.stringify({ requests: requests.length, requestStats: requests.map(x => ({ tokens: estimatedInputTokens(x), maxTokens: x.max_tokens, toolCount: x.tools?.length })), compactionEvents, liveTypes: live.map(x => x.event.type), home }));
     if (api && sessionId) {
       const h = await api.history(sessionId).catch(e => ({ error: e.message }));
       console.error(JSON.stringify({ messages: h.messages?.length, errors: h.messages?.filter(m => m.role === "error").map(m => m.text.slice(0, 500)), error: h.error }));

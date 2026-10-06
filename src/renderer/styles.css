@@ -267,9 +267,6 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .picker-button:focus-visible { border-color:var(--mint); box-shadow:0 0 0 2px rgba(73,231,198,.12); }
 .picker-button > span { min-width:0; flex:1; overflow:hidden; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 .picker-button > .ui-icon:first-child { color:#91a0b5; }
-.model-button-copy { display:flex; flex-direction:column; align-items:flex-start; gap:1px; line-height:1; }
-.model-button-copy small { color:#728095; font-size:7px; font-weight:800; letter-spacing:.12em; }
-.model-button-copy b { max-width:100%; overflow:hidden; color:#e5ebf3; font-size:9px; font-weight:650; line-height:1.15; text-overflow:ellipsis; white-space:nowrap; }
 .picker-chevron { width:14px; height:14px; color:#8390a2; transition:transform .15s ease; }
 .picker.open .picker-chevron { transform:rotate(180deg); }
 .picker-menu { position:absolute; z-index:50; top:calc(100% + 6px); left:0; width:100%; min-width:190px; max-height:var(--picker-max-height,320px); display:none; flex-direction:column; overflow:hidden; padding:6px; border:1px solid rgba(255,255,255,.14); border-radius:13px; background:rgba(16,21,31,.99); box-shadow:0 18px 48px rgba(0,0,0,.58); }
@@ -288,6 +285,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .capture-menu b { font-size:10px; }
 .capture-menu small { color:var(--dim); font-size:8px; }
 .model-menu { width:min(330px, calc(100vw - 34px)); }
+.model-picker { position:absolute; width:0; height:0; }
 .model-picker.compact-overlay .model-menu { position:fixed; top:var(--model-sheet-top); bottom:auto; left:var(--model-sheet-left); width:var(--model-sheet-width); min-width:0; max-width:none; padding:5px; border-radius:14px; box-shadow:0 18px 48px rgba(0,0,0,.62),inset 0 1px rgba(255,255,255,.035); }
 .model-picker.compact-overlay .picker-search { height:32px; margin-bottom:3px; }
 .model-picker.compact-overlay .picker-group,
@@ -322,18 +320,8 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .icon-only { width:var(--control); padding:0; }
 .icon-only .ui-icon, .composer-action .ui-icon, .composer-stop .ui-icon { width:18px; height:18px; }
 
-.agent-controls { position:relative; z-index:10; min-width:0; border:1px solid var(--line); border-radius:11px; background:rgba(255,255,255,.035); }
-.agent-controls[open] { grid-column:1 / -1; }
-.agent-controls > summary, .activity-card > summary { min-width:0; display:flex; align-items:center; gap:8px; list-style:none; cursor:pointer; user-select:none; }
-.agent-controls > summary::-webkit-details-marker, .activity-card > summary::-webkit-details-marker, .reasoning-bubble > summary::-webkit-details-marker { display:none; }
-.agent-controls > summary { height:38px; padding:0 8px; }
-.controls-label { min-width:0; flex:1; display:flex; align-items:center; gap:4px; overflow:hidden; color:#d5dce6; }
-.controls-label .ui-icon { width:15px; height:15px; }
-.controls-label b { min-width:0; overflow:hidden; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
-.controls-summary { display:none; }
-.controls-chevron { width:15px; height:15px; color:#7f8c9e; transition:transform .15s ease; }
-.agent-controls[open] .controls-chevron { transform:rotate(180deg); }
-.control-grid { min-width:0; display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr); gap:7px; padding:0 8px 8px; }
+.activity-card > summary { min-width:0; display:flex; align-items:center; gap:8px; list-style:none; cursor:pointer; user-select:none; }
+.activity-card > summary::-webkit-details-marker, .reasoning-bubble > summary::-webkit-details-marker { display:none; }
 .workspace-control { min-width:0; grid-column:1 / -1; display:grid; grid-template-columns:minmax(0,1fr) var(--control); gap:7px; }
 .workspace-picker { min-width:0; }
 
@@ -431,18 +419,23 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
   22% { box-shadow:0 0 0 2px rgba(73,231,198,.5); }
 }
 
-/* A rail of the caller's own messages, in the gutter beside the scrollbar rather than
-   over it, so dragging the scrollbar still works. Marks are placed by scroll fraction,
-   which is what the scrollbar next to them is showing. */
-.message-marks { position:absolute; z-index:6; top:3px; right:5px; bottom:8px; width:7px; display:none; }
+/* Harness-style turn navigator: neutral ticks in an independent, fixed-step rail.
+   Its hit area lives in a reserved gutter, not on top of the conversation. */
+.message-marks { position:absolute; z-index:6; top:50%; right:5px; width:24px; height:min(var(--message-rail-height, 0px), calc(100% - 24px), 420px); display:none; transform:translateY(-50%); overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-width:none; contain:layout; }
 .message-marks.has-marks { display:block; }
-/* The tick reads as 3px, but a 3px click target is a coin toss - the button carries 11px of
-   transparent hit area around it, so the press lands where the hover tooltip promised. */
-.message-mark { position:absolute; right:0; width:7px; height:11px; padding:0; border:0; background:none; cursor:pointer; transform:translateY(-50%); }
-.message-mark::after { content:""; position:absolute; right:0; top:50%; width:7px; height:3px; border-radius:2px; background:rgba(73,231,198,.5); transform:translateY(-50%); transition:background .15s ease, height .15s ease; }
-.message-mark:hover::after, .message-mark:focus-visible::after { height:5px; background:var(--mint); }
-.message-mark:focus-visible { outline:0; }
-.chat-crowded .message-marks { top:2px; bottom:6px; }
+.message-marks::-webkit-scrollbar { display:none; }
+.message-marks-track { position:relative; width:100%; }
+.messages-wrap.has-marks .messages { padding-right:34px; }
+.message-marks.fade-top { mask-image:linear-gradient(to bottom, transparent, #000 18px); }
+.message-marks.fade-bottom { mask-image:linear-gradient(to top, transparent, #000 18px); }
+.message-marks.fade-top.fade-bottom { mask-image:linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent); }
+/* The tick reads as 2px; the transparent 24x10 button is the actual hit target. */
+.message-mark { position:absolute; right:0; width:24px; height:10px; padding:0; border:0; border-radius:3px; background:none; cursor:pointer; }
+.message-mark::after { content:""; position:absolute; right:0; top:50%; width:20px; height:2px; border-radius:2px; background:color-mix(in srgb, var(--text) 45%, transparent); transform:translateY(-50%) scaleX(.6); transform-origin:right; transition:background .14s ease, transform .14s ease; }
+.message-mark.unloaded::after { background:color-mix(in srgb, var(--text) 25%, transparent); }
+.message-mark[aria-current="true"]::after { background:var(--mint); transform:translateY(-50%) scaleX(1); }
+.message-mark:hover::after, .message-mark:focus-visible::after { background:var(--text); transform:translateY(-50%) scaleX(1); }
+.message-mark:focus-visible { outline:0; background:color-mix(in srgb, var(--mint) 16%, transparent); }
 .bubble { position:relative; width:fit-content; max-width:88%; margin:0 0 8px; padding:9px 11px; border-radius:14px 14px 14px 4px; background:rgba(255,255,255,.07); color:#dfe4ec; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
 /* Copy, and for your own messages reuse: a column of glyphs beside the bubble, in the free
    space its width limit leaves, shown on hover or focus. The column starts flush with the
@@ -669,7 +662,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .scroll-latest { position:absolute; z-index:24; right:7px; bottom:7px; height:27px; display:flex; align-items:center; gap:4px; padding:0 8px; border:1px solid rgba(73,231,198,.3); border-radius:14px; background:rgba(11,17,26,.94); box-shadow:0 5px 16px rgba(0,0,0,.38),0 0 13px rgba(73,231,198,.12); color:#8fead8; cursor:pointer; font-size:8px; font-weight:700; backdrop-filter:blur(10px); }
 .scroll-latest[hidden] { display:none; }
 /* The pill used to sit on top of the last marks on the rail and swallow their clicks. */
-.messages-wrap.has-marks .scroll-latest { right:18px; }
+.messages-wrap.has-marks .scroll-latest { right:34px; }
 .scroll-latest .ui-icon { width:13px; height:13px; }
 .scroll-latest.completion-pop { animation:scroll-latest-complete .68s cubic-bezier(.16,1,.3,1) both; }
 @keyframes scroll-latest-complete { 0%{opacity:.55;transform:translateY(7px) scale(.82);box-shadow:0 0 0 rgba(73,231,198,0)} 55%{opacity:1;transform:translateY(-2px) scale(1.08);box-shadow:0 0 24px rgba(166,238,103,.36)} 100%{transform:none} }
@@ -1001,10 +994,8 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
   .chat-heading { grid-template-columns:34px 34px minmax(0,1fr); gap:5px; }
   .context-meter { width:28px; height:17px; }
   .context-meter svg { width:15px; height:15px; }
-  .control-grid { gap:5px; padding:0 6px 6px; }
   .picker-button { padding:0 8px; gap:6px; }
   .picker-button > span { font-size:9px; }
-  .agent-controls > summary { height:36px; padding:0 7px; }
   .activity-card > summary { min-height:38px; padding:6px 8px; }
   .bubble.user.has-attachments { max-width:96%; }
   .message-attachment { max-width:104px; }
@@ -1096,8 +1087,6 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .composer #sendButton:active { transform:scale(.93); }
 .composer-action, .icon-button, .composer-stop { transition:background .14s ease, color .14s ease, transform .12s ease; }
 .composer-action:active, .icon-button:active, .composer-stop:active { transform:scale(.9); }
-.message-mark::after { transition:background .15s ease, height .15s ease, box-shadow .15s ease; }
-.message-mark:hover::after { box-shadow:0 0 8px rgba(73,231,198,.55); }
 .avatar-button:hover .avatar-shell::before { opacity:1; transform:scale(1.08); }
 /* The plane leaves when the message does: one short flight off the corner and back. */
 .composer #sendButton.launch .ui-icon { animation:send-launch .55s cubic-bezier(.2,.8,.2,1) both; }
@@ -1153,9 +1142,6 @@ body[data-chat-state="waiting"] .widget-shell::before, body[data-chat-state="thi
 .tool-call::details-content, .tool-group::details-content, .activity-card::details-content, .goal-dock::details-content, .hotkey-settings::details-content { interpolate-size:allow-keywords; height:0; overflow:clip; opacity:0; transition:height .22s cubic-bezier(.22,1,.36,1), opacity .16s ease, content-visibility .22s allow-discrete; }
 .tool-call[open]::details-content, .tool-group[open]::details-content, .activity-card[open]::details-content, .goal-dock[open]::details-content, .hotkey-settings[open]::details-content { height:auto; opacity:1; }
 .goal-dock::details-content { flex:none; min-height:0; }
-.agent-controls::details-content { interpolate-size:allow-keywords; height:0; overflow:clip; opacity:0; transition:height .22s cubic-bezier(.22,1,.36,1), opacity .16s ease, content-visibility .22s allow-discrete; }
-.agent-controls[open]::details-content { height:auto; opacity:1; }
-.agent-controls[open]:not([data-disclosure-moving])::details-content { overflow:visible; }
 /* Reopened after a rebuild, not opened: no reveal for a card that was already open. */
 details[data-restored]::details-content { transition:none; }
 
@@ -1185,3 +1171,4 @@ body.screenshot-backdrop-checkerboard { background:conic-gradient(#eef2f7 25%,#2
 .context-compaction-label { min-width:0; max-width:calc(100% - 44px); padding:4px 9px; border:1px solid rgba(87,196,185,.18); border-radius:999px; background:rgba(50,113,117,.07); font-size:10px; font-weight:600; line-height:1.4; text-align:center; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
 .chat-tooltip { position:fixed; inset:auto; z-index:2147483647; width:max-content; max-width:min(300px,calc(100vw - 16px)); max-height:calc(100vh - 16px); margin:0; padding:8px 10px; border:1px solid rgba(103,218,199,.35); border-radius:10px; background:rgba(16,26,37,.98); color:#e2f1ee; box-shadow:0 6px 24px rgba(0,0,0,.4); font:500 11px/1.45 system-ui,sans-serif; overflow:hidden; overflow-wrap:anywhere; pointer-events:none; }
 .chat-tooltip::backdrop { background:transparent; pointer-events:none; }
+.chat-tooltip.message-mark-preview { white-space:pre-line; border-color:color-mix(in srgb, var(--text) 16%, transparent); background:color-mix(in srgb, var(--bg) 96%, #111); color:var(--text); }

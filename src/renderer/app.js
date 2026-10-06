@@ -51,6 +51,8 @@ const state = {
   composerError: null,
   compactErrorUnread: false,
   harnessOffline: false,
+  harnessDegraded: false,
+  harnessStartError: "",
   harnessNeedsAuth: false,
   harnessAuthError: "",
   harnessStartingLabel: "",
@@ -349,8 +351,6 @@ function closePickers(except = null, { restoreFocus = false } = {}) {
     if (menu?.matches(":popover-open")) menu.hidePopover();
     if (picker.classList.contains("model-picker")) {
       $("#reasoningButton").setAttribute("aria-expanded", "false");
-      if (picker.dataset.quickEntry === "true") $("#agentControls").open = false;
-      delete picker.dataset.quickEntry;
     }
     if (restoreFocus || activeInside) {
       (picker.classList.contains("model-picker") ? $("#reasoningButton") : button)?.focus();
@@ -368,15 +368,14 @@ function togglePicker(button) {
   picker.querySelector(".picker-menu")?.setAttribute("aria-hidden", String(!open));
   if (open) {
     const menu = picker.querySelector(".picker-menu");
+    if (button.id === "reasoningButton") button.setAttribute("aria-controls", "reasoningMenu");
     if (menu?.hasAttribute("popover")) menu.showPopover();
-    if (button.id === "modelButton") $("#reasoningButton").setAttribute("aria-expanded", "true");
     positionPickerMenu(picker);
-    if (button.id === "modelButton") void loadModels({ force: true });
   }
 }
 
 function positionPickerMenu(picker) {
-  const button = picker?.querySelector(".picker-button");
+  const button = picker?.classList.contains("model-picker") ? $("#reasoningButton") : picker?.querySelector(".picker-button");
   const menu = picker?.querySelector(".picker-menu");
   if (!button || !menu) return;
   const rect = button.getBoundingClientRect();
@@ -1762,10 +1761,8 @@ function renderReasoning() {
   for (const effort of efforts) { const dot = document.createElement("i"); dot.title = effort.name || effort.id; dots.append(dot); }
   const fill = document.createElement("div"); fill.className = "reasoning-fill"; fill.setAttribute("aria-hidden", "true");
   fill.append(createReasoningStars());
-  const setup = document.createElement("button"); setup.type = "button"; setup.className = "reasoning-setup"; setup.textContent = "Agent settings";
-  setup.addEventListener("click", event => { event.stopPropagation(); closePickers(); $("#agentControls").open = true; });
   track.hidden = efforts.length === 0;
-  track.append(fill, range, dots); root.append(heading, track, setup); paint(!selectedId);
+  track.append(fill, range, dots); root.append(heading, track); paint(!selectedId);
 }
 
 function modelDisplay(selection) {
@@ -1813,13 +1810,9 @@ function updateControlsSummary() {
   if (state.modelLoadState === "loading" && !modelCount()) shortModel = "Loading…";
   else if (["error", "ready"].includes(state.modelLoadState) && !modelCount()) shortModel = "No model";
   const effort = $("#reasoningButtonText")?.textContent || "Auto";
-  $("#controlsPrimary").textContent = shortModel;
   $("#reasoningModelName").textContent = shortModel;
-  $("#controlsSummary").textContent = `${shortModel} · ${effort}`;
-  const summary = $("#agentControls > summary");
   const fullLabel = `${modelDisplay(selection)} · ${effort}`;
-  summary.title = `Model / Setup: ${fullLabel}`;
-  summary.setAttribute("aria-label", `Model and agent setup: ${fullLabel}`);
+  $("#reasoningButton").setAttribute("aria-label", `Model and reasoning: ${fullLabel}`);
 }
 
 function renderModelOptions(query = "") {
@@ -1914,10 +1907,8 @@ function renderModels() {
   if (state.modelLoadState === "loading" && !modelCount(catalog)) label = "Loading providers…";
   else if (state.modelLoadState === "error" && !modelCount(catalog)) label = "Models unavailable";
   else if (!modelCount(catalog)) label = "No models loaded";
-  $("#modelButtonText").textContent = label;
+  $("#reasoningButton").dataset.modelLabel = label;
   $("#reasoningButton").title = `Model and reasoning: ${label}`;
-  $("#modelButton").title = `Model: ${label}`;
-  $("#modelButton").setAttribute("aria-label", `Model: ${label}`);
   renderModelOptions($("#modelSearch").value || "");
   renderReasoning();
   updateControlsSummary();
@@ -3059,9 +3050,16 @@ function restoreOpenToolKeys(root, keys) {
 // asked" meant dragging through everything the agent said in between; the rail turns
 // that into one click. A rebuild must not throw the jump away, so the pin survives
 // repaints and re-resolves the message instead of a stale offset.
-// The rail is bounded: past a few hundred own messages it samples evenly, because
-// every tick costs style and layout on each keystroke reflow.
+// Like Harness, the rail lists turns at a fixed spacing in its own scroller.
+// Only its visible slice is mounted: no overlapping ticks or skipped questions,
+// and thousands of turns don't add thousands of nodes to every composer reflow.
 const MESSAGE_MARKS_MAX = 400;
+const MESSAGE_MARK_SPACING = 10;
+const MESSAGE_RAIL_INSET = 6;
+let messageMarkEntries = [];
+let messageMarkActive = -1;
+let messageMarksPointerInside = false;
+let messageMarksFrame = 0;
 const MESSAGE_PIN_MS = 1600;
 const MESSAGE_PIN_OFFSET = 6;
 function activeMessageScrollPin() {
@@ -3136,6 +3134,7 @@ function scrollToUserMessage(msgIndex) {
   }, 700);
   flashMessageMark(msgIndex);
   updateScrollLatestButton();
+  scheduleMessageMarksUpdate();
 }
 
 // A marked message may sit in an unloaded part of the history. Center the
@@ -3160,51 +3159,126 @@ function renderMessageMarks() {
   const rail = $("#messageMarks");
   const root = $("#messages");
   const messages = state.currentMessages;
-  const total = messages.length;
-  // Against the message count, not the rendered nodes: unloaded history has no
-  // DOM offsets, but the spacers stand in for it at the running average row
-  // height, so an index fraction means the same thing as a scrollbar position.
-  const userEntries = [];
-  for (let index = 0; index < total; index += 1) {
-    if (messages[index]?.role === "user") userEntries.push({ ordinal: userEntries.length, msgIndex: index });
+  const entries = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    if (messages[index]?.role === "user") entries.push({
+      msgIndex: index,
+      label: compactText(messages[index]?.text || "Message with attachments", 280),
+    });
   }
-  // Five thousand ticks cost a millisecond per keystroke: style and layout pay
-  // per node on every reflow. Past a few hundred the rail is denser than its
-  // own pixels anyway, so it samples evenly and every tick still jumps exactly.
-  const stride = Math.max(1, Math.ceil(userEntries.length / MESSAGE_MARKS_MAX));
-  const sampled = userEntries.filter((_, position) => position % stride === 0 || position === userEntries.length - 1);
-  const span = root.scrollHeight;
-  const scrollable = span - root.clientHeight > 4;
-  const marks = scrollable
-    ? sampled.map(({ ordinal, msgIndex }) => ({
-        ordinal,
-        msgIndex,
-        ratio: total ? Math.max(0, Math.min(1, (msgIndex + 0.5) / total)) : 0,
-        label: compactText(messages[msgIndex]?.text || "Your message", 80),
-      }))
-    : [];
-  const signature = JSON.stringify([total, marks.map((mark) => [mark.msgIndex, Math.round(mark.ratio * 1000), mark.label])]);
-  if (signature === state.messageMarksSignature) return false;
-  state.messageMarksSignature = signature;
-  rail.classList.toggle("has-marks", marks.length > 0);
-  $("#messages").parentElement?.classList.toggle("has-marks", marks.length > 0);
-  hideChatTooltip();
-  rail.replaceChildren();
-  for (const mark of marks) {
-    const tick = document.createElement("button");
-    tick.type = "button";
-    tick.className = "message-mark";
-    tick.style.top = `${(mark.ratio * 100).toFixed(3)}%`;
-    tick.dataset.tooltip = mark.label;
+  const signature = JSON.stringify([state.selectedSessionId, entries]);
+  const changed = signature !== state.messageMarksSignature;
+  if (changed) {
+    hideChatTooltip();
+    state.messageMarksSignature = signature;
+    messageMarkEntries = entries;
+    messageMarkActive = -1;
+  }
+  const visible = entries.length > 0 && root.scrollHeight - root.clientHeight > 4;
+  rail.classList.toggle("has-marks", visible);
+  root.parentElement?.classList.toggle("has-marks", visible);
+  rail.dataset.turnCount = String(entries.length);
+  const height = entries.length * MESSAGE_MARK_SPACING + MESSAGE_RAIL_INSET * 2;
+  rail.style.setProperty("--message-rail-height", `${height}px`);
+  if (!rail.firstElementChild) {
+    const track = document.createElement("div");
+    track.className = "message-marks-track";
+    rail.append(track);
+  }
+  rail.firstElementChild.style.height = `${height}px`;
+  if (!visible) rail.firstElementChild.replaceChildren();
+  if (changed) syncMessageMarksPosition();
+  else scheduleMessageMarksUpdate();
+  return changed;
+}
+
+function drawMessageMarks() {
+  const rail = $("#messageMarks");
+  const track = rail.firstElementChild;
+  if (!track || !rail.classList.contains("has-marks")) return;
+  const start = Math.max(0, Math.floor((rail.scrollTop - MESSAGE_RAIL_INSET) / MESSAGE_MARK_SPACING) - 3);
+  const end = Math.min(messageMarkEntries.length, start + MESSAGE_MARKS_MAX - 1,
+    Math.ceil((rail.scrollTop + rail.clientHeight) / MESSAGE_MARK_SPACING) + 3);
+  const existing = new Map([...track.children].map(tick => [Number(tick.dataset.ordinal), tick]));
+  const focused = document.activeElement?.closest("#messageMarks .message-mark");
+  const ordinals = new Set(Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i));
+  if (focused && Number(focused.dataset.ordinal) < messageMarkEntries.length) ordinals.add(Number(focused.dataset.ordinal));
+  const nodes = [...ordinals].sort((a, b) => a - b).map(ordinal => {
+    const mark = messageMarkEntries[ordinal];
+    let tick = existing.get(ordinal);
+    if (!tick) {
+      tick = document.createElement("button");
+      tick.type = "button";
+      tick.className = "message-mark";
+      tick.setAttribute("aria-controls", "messages");
+      // Always resolve the live message, including unloaded transcript windows.
+      tick.addEventListener("click", () => scrollToUserMessage(Number(tick.dataset.msgIndex)));
+    }
+    const loaded = mark.msgIndex >= transcriptViewStart && mark.msgIndex < transcriptViewEnd;
+    const tabIndex = ordinal === (focused ? Number(focused.dataset.ordinal) : messageMarkActive) ? 0 : -1;
+    const signature = JSON.stringify([ordinal, mark.msgIndex, mark.label, loaded, messageMarkActive === ordinal, tabIndex]);
+    if (tick.messageMarkSignature === signature) return tick;
+    tick.messageMarkSignature = signature;
+    tick.style.top = `${MESSAGE_RAIL_INSET + ordinal * MESSAGE_MARK_SPACING}px`;
+    tick.dataset.ordinal = String(ordinal);
     tick.dataset.msgIndex = String(mark.msgIndex);
-    // Of all your messages, not of the sampled ticks: a long chat announced "message 998 of 334".
-    tick.setAttribute("aria-label", `Your message ${mark.ordinal + 1} of ${userEntries.length}: ${mark.label}`);
-    // The click reads the index off the element, so it resolves the live bubble at
-    // click time rather than closing over one that a later render will have replaced.
-    tick.addEventListener("click", () => scrollToUserMessage(Number(tick.dataset.msgIndex)));
-    rail.append(tick);
+    tick.dataset.tooltip = `Question ${ordinal + 1} of ${messageMarkEntries.length}\n${mark.label}`;
+    tick.setAttribute("aria-label", `Your message ${ordinal + 1} of ${messageMarkEntries.length}: ${mark.label}`);
+    tick.classList.toggle("unloaded", !loaded);
+    if (ordinal === messageMarkActive) tick.setAttribute("aria-current", "true");
+    else tick.removeAttribute("aria-current");
+    tick.tabIndex = tabIndex;
+    return tick;
+  });
+  // Drop obsolete siblings first. Moving the already-focused tick with
+  // insertBefore would blur it when a virtualized keyboard jump changes slices.
+  const retained = new Set(nodes);
+  for (const child of [...track.children]) if (!retained.has(child)) child.remove();
+  reconcileChildren(track, nodes);
+  rail.classList.toggle("fade-top", rail.scrollTop > 1);
+  rail.classList.toggle("fade-bottom", rail.scrollHeight - rail.scrollTop - rail.clientHeight > 1);
+}
+
+function syncMessageMarksPosition() {
+  const rail = $("#messageMarks");
+  const root = $("#messages");
+  if (!rail.classList.contains("has-marks") || !root.clientHeight || state.windowMode !== "full") return;
+  let msgIndex = activeMessageScrollPin()?.msgIndex;
+  if (msgIndex === undefined) {
+    if (messagesNearBottom() && transcriptAtLatest()) msgIndex = state.currentMessages.length - 1;
+    else {
+      const top = root.getBoundingClientRect().top + MESSAGE_PIN_OFFSET;
+      for (const node of root.children) {
+        if (node.dataset.vmsg === undefined || node.getBoundingClientRect().bottom <= top) continue;
+        msgIndex = Number(node.dataset.vmsg);
+        break;
+      }
+    }
   }
-  return true;
+  if (msgIndex !== undefined) {
+    // The visible assistant/tool row belongs to the preceding user question.
+    let low = 0, high = messageMarkEntries.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (messageMarkEntries[mid].msgIndex <= msgIndex) low = mid + 1;
+      else high = mid;
+    }
+    messageMarkActive = Math.max(0, low - 1);
+  } else messageMarkActive = Math.max(0, messageMarkActive);
+  // Never move a mark from underneath a hovering pointer or keyboard focus.
+  if (!messageMarksPointerInside && !rail.contains(document.activeElement)) {
+    const center = MESSAGE_RAIL_INSET + messageMarkActive * MESSAGE_MARK_SPACING + MESSAGE_MARK_SPACING / 2;
+    rail.scrollTop = Math.max(0, center - rail.clientHeight / 2);
+  }
+  drawMessageMarks();
+}
+
+function scheduleMessageMarksUpdate() {
+  if (messageMarksFrame) return;
+  messageMarksFrame = requestAnimationFrame(() => {
+    messageMarksFrame = 0;
+    syncMessageMarksPosition();
+  });
 }
 
 // The rail lands you somewhere in the middle of a long conversation, where one bubble
@@ -3720,19 +3794,15 @@ function paintLiveAssistant() {
 }
 
 function openModelPicker({ retry = false } = {}) {
-  setTab("chat");
-  const wasExpanded = $("#agentControls").open;
-  $("#agentControls").open = true;
-  const button = $("#modelButton");
-  const picker = button.closest(".picker");
-  picker.dataset.quickEntry = String(!wasExpanded);
+  if (state.tab !== "chat") setTab("chat");
+  const picker = $(".model-picker");
   closePickers(picker);
   picker.classList.add("open");
   $("#modelMenu").showPopover();
   $("#modelMenu").setAttribute("aria-hidden", "false");
   $("#reasoningButton").setAttribute("aria-expanded", "true");
+  $("#reasoningButton").setAttribute("aria-controls", "modelMenu");
   positionPickerMenu(picker);
-  button.setAttribute("aria-expanded", "true");
   if (retry) retryModels();
   setTimeout(() => $("#modelSearch").focus(), 0);
 }
@@ -4153,13 +4223,15 @@ function showChatTooltip(owner) {
     document.body.append(chatTooltipNode);
   }
   owner.setAttribute("aria-describedby", [chatTooltipDescription, "chatTooltip"].filter(Boolean).join(" "));
+  chatTooltipNode.classList.toggle("message-mark-preview", owner.classList.contains("message-mark"));
   chatTooltipNode.textContent = label;
   chatTooltipNode.hidden = false;
   if (!chatTooltipNode.matches(":popover-open")) chatTooltipNode.showPopover();
   const anchor = owner.getBoundingClientRect();
   const bounds = chatTooltipNode.getBoundingClientRect();
   const left = owner.classList.contains("message-mark") ? anchor.left - bounds.width - 10 : anchor.left + (anchor.width - bounds.width) / 2;
-  const top = anchor.top >= bounds.height + 14 ? anchor.top - bounds.height - 8 : anchor.bottom + 8;
+  const top = owner.classList.contains("message-mark") ? anchor.top + (anchor.height - bounds.height) / 2
+    : anchor.top >= bounds.height + 14 ? anchor.top - bounds.height - 8 : anchor.bottom + 8;
   chatTooltipNode.style.left = `${Math.max(8, Math.min(left, window.innerWidth - bounds.width - 8))}px`;
   chatTooltipNode.style.top = `${Math.max(8, Math.min(top, window.innerHeight - bounds.height - 8))}px`;
 }
@@ -5048,7 +5120,6 @@ function setFocusMode(enabled) {
   state.focusMode = next;
   if (next) {
     if (state.tab !== "chat") setTab("chat");
-    $("#agentControls").open = false;
     setSettingsOpen(false, { restoreFocus: false });
     $("#commandMenu").classList.remove("open");
     closePickers();
@@ -5074,11 +5145,9 @@ function toggleCompactHistory() {
 }
 
 async function openCompactSession(requestedSessionId = null) {
-  const entry = compactPreviewEntry();
   const sessionId = typeof requestedSessionId === "string"
     ? requestedSessionId
-    : entry?.sessionId || state.selectedSessionId;
-  if (!sessionId) return;
+    : state.selectedSessionId || state.lastSelectedSessionId;
   state.compactNotification = null;
   state.compactStatusClosing = false;
   state.compactHistoryOpen = false;
@@ -5090,7 +5159,8 @@ async function openCompactSession(requestedSessionId = null) {
   // native Orb is resizing, its authoritative mode echo cancels an in-flight
   // animated mode request; sequencing these operations keeps Full as the intent.
   await setWindowMode("full");
-  await selectSession(sessionId, true);
+  if (sessionId && sessionId !== state.selectedSessionId) await selectSession(sessionId, true);
+  else setTab("chat");
   if (state.compactReplySessionId === sessionId) state.compactReplySessionId = null;
   $("#messageInput")?.focus();
   syncCompactStatus();
@@ -5259,6 +5329,16 @@ async function performRefresh() {
     const selectedAtRequest = state.selectedSessionId;
     const liveRevisionsAtRequest = new Map(state.liveSessionRevisions);
     const dashboardResult = await window.widget.dashboard(selectedAtRequest);
+    state.harnessDegraded = dashboardResult.degraded === true && dashboardResult.ok === false;
+    if (state.harnessDegraded) {
+      // The host is alive, but its session read failed. Keep the chat, queue,
+      // selection and live streams intact while polling retries the snapshot.
+      state.harnessOffline = false;
+      state.harnessNeedsAuth = false;
+      document.body.classList.remove("harness-offline");
+      renderOfflineBanner();
+      return;
+    }
     const dashboard = {
       ...dashboardResult,
       sessions: (dashboardResult.sessions || []).map((session) => {
@@ -5289,6 +5369,7 @@ async function performRefresh() {
     // without a minted cookie is "running but locked", not "down".
     state.harnessNeedsAuth = !dashboard.harness && dashboard.needsAuth === true;
     state.harnessAuthError = !dashboard.harness ? String(dashboard.error || "") : "";
+    if (dashboard.harness) state.harnessStartError = "";
     if (state.harnessOffline) invalidateDisconnectedStreams(liveRevisionsAtRequest);
     document.body.classList.toggle("harness-offline", state.harnessOffline);
     state.dashboard = dashboard;
@@ -5427,8 +5508,8 @@ async function refresh({ afterCurrent = false } = {}) {
 function renderOfflineBanner() {
   const banner = $("#offlineBanner");
   if (!banner) return;
-  banner.classList.toggle("show", state.harnessOffline);
-  if (!state.harnessOffline) return;
+  banner.classList.toggle("show", state.harnessOffline || state.harnessDegraded);
+  if (!state.harnessOffline && !state.harnessDegraded) return;
   const label = $("#offlineBannerText");
   const connectRow = $("#harnessConnectRow");
   const connectError = $("#harnessConnectError");
@@ -5440,16 +5521,18 @@ function renderOfflineBanner() {
     ? (state.harnessStartingLabel || "Launching Harness")
     : state.harnessNeedsAuth
       ? "Harness is running, but the widget lost access"
-      : "Harness is offline";
+      : state.harnessDegraded
+        ? "Harness is responding slowly; retrying…"
+        : state.harnessStartError || "Harness is offline";
   if (label && label.textContent !== text) label.textContent = text;
   // A running gated Harness cannot reveal its process token to a second client.
   // Make the primary action an explicit restart instead of a Start that can only
   // repeat the failed token probe. Keep paste-and-connect for live turns.
   if (startButton && !state.harnessStarting) {
-    startButton.textContent = state.harnessNeedsAuth ? "Restart" : "Start";
+    startButton.textContent = state.harnessNeedsAuth ? "Restart" : (state.harnessDegraded || state.harnessStartError ? "Retry" : "Start");
     startButton.title = state.harnessNeedsAuth
       ? "Stops the running Harness and any active turns, then reconnects"
-      : "Start Harness";
+      : state.harnessDegraded ? "Retry the connection without restarting Harness" : "Start or reconnect to Harness";
   }
   if (connectRow) connectRow.hidden = !state.harnessNeedsAuth;
   if (connectError) {
@@ -5466,12 +5549,17 @@ function renderOfflineBanner() {
 
 async function startHarnessFromBanner() {
   if (state.harnessStarting) return;
+  if (state.harnessDegraded) {
+    await refresh({ afterCurrent: true });
+    return;
+  }
   if (state.harnessNeedsAuth) {
     await restartHarnessFromBanner();
     return;
   }
   state.harnessStarting = true;
   state.harnessStartingLabel = "Launching Harness";
+  state.harnessStartError = "";
   state.harnessConnectError = "";
   renderOfflineBanner();
   const button = $("#startHarnessButton");
@@ -5496,9 +5584,10 @@ async function startHarnessFromBanner() {
     state.harnessStartingLabel = "Connecting…";
     label.textContent = "Connecting…";
     await refresh({ afterCurrent: true });
-    if (!state.dashboard?.harness) throw new Error("Harness started but is not responding yet");
+    if (!state.dashboard?.harness && !state.harnessDegraded) throw new Error("Harness started but is not responding yet");
   } catch (error) {
-    label.textContent = String(error?.message || "Harness could not be started");
+    state.harnessStartError = String(error?.message || "Harness could not be started");
+    label.textContent = state.harnessStartError;
     button.textContent = "Retry";
   } finally {
     state.harnessStarting = false;
@@ -6129,17 +6218,21 @@ document.querySelectorAll(".tab").forEach((button) => {
     next.focus();
   });
 });
-$("#modelButton").addEventListener("click", (event) => {
-  event.stopPropagation();
-  togglePicker(event.currentTarget);
-  if (event.currentTarget.closest(".picker").classList.contains("open")) setTimeout(() => $("#modelSearch").focus(), 0);
-});
 $("#captureButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $$('#captureMenu [data-capture]').forEach((button) => button.addEventListener("click", () => {
   if (button.dataset.capture === "display-send") { closePickers(); void captureAndSendScreenshot(); }
   else void captureScreenshot(button.dataset.capture);
 }));
-$("#reasoningButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
+$("#reasoningButton").addEventListener("click", (event) => {
+  event.stopPropagation();
+  if (event.target.closest("#reasoningModelName")) openModelPicker({ retry: true });
+  else togglePicker(event.currentTarget);
+});
+$("#reasoningButton").addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown") return;
+  event.preventDefault();
+  openModelPicker({ retry: true });
+});
 $("#workspaceButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#modelSearch").addEventListener("input", (event) => renderModelOptions(event.target.value));
 $("#modelCloseButton").addEventListener("click", () => closePickers(null, { restoreFocus: true }));
@@ -6250,7 +6343,6 @@ $("#chatForm").addEventListener("submit", async (event) => {
   const queueRevisionAtSubmit = queueSnapshotRevision(targetSessionId);
   const attachmentCount = submittedAttachments.length;
   let submittedCommand = false;
-  $("#agentControls").open = false;
   setSettingsOpen(false, { restoreFocus: false });
   setCommandMenuOpen(false);
   closePickers();
@@ -6385,6 +6477,7 @@ $("#messages").addEventListener("click", (event) => {
   window.widget.openExternal(link.href).catch(() => {});
 });
 $("#messages").addEventListener("scroll", () => {
+  scheduleMessageMarksUpdate();
   const log = $("#messages");
   if (!log.clientHeight || log.clientWidth < 250 || state.windowMode !== "full"
       || state.transcriptModeRestore || document.body.classList.contains("mode-transition-in") || document.body.classList.contains("mode-transition-out")) return;
@@ -6454,6 +6547,7 @@ for (const eventName of ["wheel", "pointerdown", "keydown"]) {
 if (typeof ResizeObserver === "function") {
   new ResizeObserver(() => {
     const root = $("#messages");
+    scheduleMessageMarksUpdate();
     if (!root.clientHeight || root.clientWidth < 250 || state.windowMode !== "full" || state.scrollLatestAutoScrolling || activeMessageScrollPin()) return;
     if (state.messagesStickToBottom) root.scrollTop = root.scrollHeight;
     else if (transcriptReadingPosition?.sessionId === state.selectedSessionId) {
@@ -6462,6 +6556,29 @@ if (typeof ResizeObserver === "function") {
     if (!document.body.classList.contains("mode-transition-in") && !document.body.classList.contains("mode-transition-out")) rememberTranscriptReadingPosition(root);
   }).observe($("#messages"));
 }
+$("#messageMarks").addEventListener("scroll", drawMessageMarks, { passive: true });
+$("#messageMarks").addEventListener("pointerenter", () => { messageMarksPointerInside = true; });
+$("#messageMarks").addEventListener("pointerleave", () => {
+  messageMarksPointerInside = false;
+  scheduleMessageMarksUpdate();
+});
+$("#messageMarks").addEventListener("focusout", scheduleMessageMarksUpdate);
+$("#messageMarks").addEventListener("keydown", event => {
+  if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+  const tick = event.target.closest(".message-mark");
+  if (!tick || !messageMarkEntries.length) return;
+  event.preventDefault();
+  const ordinal = Number(tick.dataset.ordinal);
+  const next = event.key === "Home" ? 0 : event.key === "End" ? messageMarkEntries.length - 1
+    : Math.max(0, Math.min(messageMarkEntries.length - 1, ordinal + (event.key === "ArrowDown" ? 1 : -1)));
+  const rail = $("#messageMarks");
+  const top = MESSAGE_RAIL_INSET + next * MESSAGE_MARK_SPACING;
+  if (top < rail.scrollTop) rail.scrollTop = top;
+  else if (top + MESSAGE_MARK_SPACING > rail.scrollTop + rail.clientHeight) rail.scrollTop = top + MESSAGE_MARK_SPACING - rail.clientHeight;
+  drawMessageMarks();
+  rail.querySelector(`[data-ordinal="${next}"]`)?.focus({ preventScroll: true });
+  drawMessageMarks();
+});
 $("#scrollLatestButton").addEventListener("click", async () => {
   // The pill can outrun the transcript: refresh first so the jump lands on the
   // messages it promised, not on a window that has since moved on.
@@ -6559,21 +6676,6 @@ $("#openHarnessButton").addEventListener("click", () => window.widget.openHarnes
 $("#openSessionButton").addEventListener("click", () => {
   if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId);
 });
-// Clip Setup only while it changes height; its model/workspace menus must escape
-// the disclosure after opening. A new toggle cancels the previous cleanup timer.
-let controlsMotionTimer = null;
-$("#agentControls").addEventListener("toggle", (event) => {
-  const details = event.currentTarget;
-  clearTimeout(controlsMotionTimer);
-  if (prefersReducedMotion() || document.body.classList.contains("motion-off")) {
-    delete details.dataset.disclosureMoving;
-    return;
-  }
-  details.dataset.disclosureMoving = "1";
-  controlsMotionTimer = setTimeout(() => {
-    delete details.dataset.disclosureMoving;
-  }, 240);
-});
 $("#subagentsButton").addEventListener("click", () => {
   if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId);
 });
@@ -6581,7 +6683,7 @@ $("#dockButton").addEventListener("click", () => setWindowMode("edge"));
 $("#collapseHandle").addEventListener("click", () => setWindowMode(state.platformPresentation?.edgeAvailable === false ? "orb" : "edge"));
 $("#orbRestore").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
 $("#orbHistoryButton").addEventListener("click", toggleCompactHistory);
-$("#orbStatusCard").addEventListener("click", () => openCompactSession().catch(showError));
+$("#orbStatusCard").addEventListener("click", () => openCompactSession(compactPreviewEntry()?.sessionId).catch(showError));
 $("#orbReplyClose").addEventListener("click", () => closeCompactReply());
 $("#orbReplyForm").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -6595,7 +6697,6 @@ $("#orbReplyInput").addEventListener("keydown", (event) => {
 });
 $("#edgeMode").addEventListener("click", (event) => {
   if (suppressCompactClick) event.preventDefault();
-  else if (compactPreviewEntry()?.sessionId) openCompactSession().catch(showError);
   else setWindowMode("full");
 });
 for (const target of [$("#orbMode"), $("#edgeMode")]) {
@@ -6928,7 +7029,6 @@ if (screenshotFixture) {
       state.modelLoadState = "ready";
       state.pendingSelection = state.modelCatalog.current;
       renderModels();
-      $("#controlsSummary").textContent = "LM Studio · Qwen 3.8 27B · Medium";
       state.collapsedSessionGroupKeys.clear();
       if (screenshotFixture === "workspace-groups") state.collapsedSessionGroupKeys.add("workspace:workspace-neoxider");
       state.sessionListSignature = "";
@@ -6959,7 +7059,6 @@ if (screenshotFixture) {
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-chat", title: "Release verification", running: false, projections: { values: { contextPressure: { projectedTokens: 55296, contextWindow: 131072 } } }, subagents: [] }] };
       state.selectedSessionId = "demo-chat";
       renderSessionToolbar();
-      $("#controlsSummary").textContent = "LM Studio · Qwen 3.5 9B · Medium";
       renderContext();
       renderMessages([
         { role: "user", text: "Verify the compact widget and summarize the result." },
@@ -6998,8 +7097,6 @@ if (screenshotFixture) {
       renderModels();
       if (screenshotFixture === "model") {
         openModelPicker();
-      } else if (screenshotFixture === "model-controls-open") {
-        $("#agentControls").open = true;
       }
     } else if (screenshotFixture === "model-empty") {
       setTab("chat");
@@ -7111,19 +7208,20 @@ if (screenshotFixture) {
       renderMessages([{ role: "user", text: "/goal" }, { role: "assistant", text: "Working on the goal." }]);
       renderGoal();
       if (screenshotFixture !== "goal-collapsed") $("#goalDock").open = true;
-    } else if (["message-marks", "mark-jump"].includes(screenshotFixture)) {
+    } else if (["message-marks", "mark-jump", "message-rail-long", "message-rail-preview"].includes(screenshotFixture)) {
       // A conversation long enough to scroll, so the rail has somewhere to put marks.
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-marks", title: "Long conversation", running: false, projections: { values: {} }, subagents: [] }] };
       state.selectedSessionId = "demo-marks";
       const history = [];
-      for (let turn = 1; turn <= 5; turn += 1) {
+      const turns = screenshotFixture === "message-rail-long" ? 1200 : 5;
+      for (let turn = 1; turn <= turns; turn += 1) {
         history.push({ role: "user", text: `Question ${turn}: what did the last run report?` });
         history.push({ role: "assistant", text: `Answer ${turn}. ${"The agent explains the result at some length so the log has to scroll. ".repeat(3)}` });
       }
       renderMessages(history);
-      $("#messages").scrollTop = 0;
-      state.messagesStickToBottom = false;
+      $("#messages").scrollTop = screenshotFixture === "message-rail-long" ? $("#messages").scrollHeight : 0;
+      state.messagesStickToBottom = screenshotFixture === "message-rail-long";
       syncMessageMagnet();
       renderMessageMarks();
       updateScrollLatestButton();

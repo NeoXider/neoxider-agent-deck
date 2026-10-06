@@ -173,7 +173,10 @@ test("an attachment-only path reference can save an empty caption", async () => 
 test("last opened session is saved once, returned in preferences, and validated", async () => {
   const preferences = { windowState: {}, lastSelectedSessionId: null };
   let saves = 0;
-  const { ipcMain, window } = register({ getPreferences: () => preferences, getScreenshotService: () => null, schedulePreferenceSave: () => { saves += 1; } });
+  const { ipcMain, window } = register({ getPreferences: () => preferences, getScreenshotService: () => null,
+    savePreferences: () => { saves += 1; },
+    schedulePreferenceSave: () => { assert.fail("A chat choice must be persisted before the IPC resolves"); },
+  });
   const event = { sender: window.webContents };
   await ipcMain.invoke("set-last-selected-session", event, "chat-42");
   await ipcMain.invoke("set-last-selected-session", event, "chat-42");
@@ -653,6 +656,7 @@ test("a captured owned launch URL is persisted on start and restart", async () =
     browserUrl: () => "http://127.0.0.1:3080/?launchToken=owned",
   };
   const { ipcMain, window } = register({
+    api: {},
     getHarnessLauncher: () => launcher,
     getPreferences: () => preferences,
     savePreferences: () => { saves += 1; },
@@ -667,6 +671,35 @@ test("a captured owned launch URL is persisted on start and restart", async () =
   await ipcMain.invoke("restart-harness", event);
   assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?launchToken=owned");
   assert.equal(saves, 1);
+});
+
+test("Start reconnects to an inherited authenticated Harness without spawning or restarting it", async () => {
+  let connects = 0, starts = 0, invalidations = 0;
+  const { ipcMain, window } = register({
+    api: { reconnect: async () => { connects += 1; } },
+    getHarnessLauncher: () => ({ start: async () => { starts += 1; return { ok: true }; } }),
+    invalidateDashboard: () => { invalidations += 1; },
+  });
+  assert.deepEqual(await ipcMain.invoke("start-harness", { sender: window.webContents }), {
+    ok: true, started: false, alreadyRunning: true,
+  });
+  assert.equal(connects, 1);
+  assert.equal(starts, 0);
+  assert.equal(invalidations, 1);
+});
+
+test("a cold Start reauthenticates and invalidates the offline dashboard after launching", async () => {
+  const actions = [];
+  const { ipcMain, window } = register({
+    api: { reconnect: async () => {
+      actions.push("connect");
+      if (actions.length === 1) throw new Error("down");
+    } },
+    getHarnessLauncher: () => ({ start: async () => { actions.push("launch"); return { ok: true }; } }),
+    invalidateDashboard: () => actions.push("invalidate"),
+  });
+  await ipcMain.invoke("start-harness", { sender: window.webContents });
+  assert.deepEqual(actions, ["connect", "launch", "connect", "invalidate"]);
 });
 
 // The launch URL is read back from a settings file an agent with full disk access can write,

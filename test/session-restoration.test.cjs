@@ -74,6 +74,50 @@ test("late preferences and an in-flight poll cannot override a new user choice",
   assert.deepEqual(h.saved, ["new-choice"]);
 });
 
+function compactRestoreHarness() {
+  const opened = [];
+  const state = {
+    selectedSessionId: "last-widget-chat", lastSelectedSessionId: "last-widget-chat",
+    compactNotification: { sessionId: "other-notification-chat" },
+  };
+  const context = vm.createContext({
+    state, clearTimeout() {}, $(selector) { return { focus() {} }; },
+    setWindowMode: async () => opened.push("full"),
+    selectSession: async (id) => { state.selectedSessionId = id; opened.push(id); },
+    setTab: () => opened.push("chat"), syncCompactStatus() {},
+  });
+  const start = renderer.indexOf("async function openCompactSession(");
+  vm.runInContext(renderer.slice(start, renderer.indexOf("function openCompactReply(", start)), context);
+  return { state, opened, restore: context.openCompactSession };
+}
+
+test("restoring the compact widget ignores other chats' notifications and retains the reading position", async () => {
+  const h = compactRestoreHarness();
+  await h.restore();
+  assert.equal(h.state.selectedSessionId, "last-widget-chat");
+  assert.deepEqual(h.opened, ["full", "chat"], "restoring the same chat must not reselect it and reset its scroll");
+  const start = renderer.indexOf('$("#edgeMode").addEventListener("click"');
+  const edgeClick = renderer.slice(start, renderer.indexOf("for (const target", start));
+  assert.doesNotMatch(edgeClick, /compactPreviewEntry|openCompactSession|selectSession/);
+  assert.match(edgeClick, /setWindowMode\("full"\)/);
+});
+
+test("explicitly selecting a notification or recent chat still switches to that chat", async () => {
+  const h = compactRestoreHarness();
+  await h.restore("explicit-chat");
+  assert.equal(h.state.selectedSessionId, "explicit-chat");
+  assert.deepEqual(h.opened, ["full", "explicit-chat"]);
+});
+
+test("an empty restored widget opens the composer without guessing another notification's chat", async () => {
+  const h = compactRestoreHarness();
+  h.state.selectedSessionId = null;
+  h.state.lastSelectedSessionId = null;
+  await h.restore();
+  assert.equal(h.state.selectedSessionId, null);
+  assert.deepEqual(h.opened, ["full", "chat"]);
+});
+
 test("a superseded backend revision is applied before matching-revision responses may omit messages", async () => {
   const pending = [];
   const requests = [];

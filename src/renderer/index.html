@@ -107,17 +107,7 @@
         <div class="chat-heading no-drag">
           <button id="newSessionButton" class="ghost-button icon-only" type="button" title="New session" aria-label="New session"><svg class="ui-icon"><use href="#icon-plus"/></svg></button>
           <button id="openSessionButton" class="ghost-button icon-only harness-button" type="button" title="Open current session in DeepSeek Harness" aria-label="Open current session in DeepSeek Harness" disabled><img src="assets/deepseek.svg" alt="" /></button>
-          <details id="agentControls" class="agent-controls no-drag">
-            <summary title="Model and agent setup" aria-label="Model and agent setup">
-              <span class="controls-label"><svg class="ui-icon"><use href="#icon-controls"/></svg><b id="controlsPrimary">Auto</b></span>
-              <span id="controlsSummary" class="controls-summary" aria-hidden="true">Automatic route · Auto</span>
-              <svg class="ui-icon controls-chevron"><use href="#icon-chevron"/></svg>
-            </summary>
-            <div class="control-grid">
-            <div class="picker model-picker">
-              <button id="modelButton" class="picker-button" type="button" aria-haspopup="dialog" aria-controls="modelMenu" aria-expanded="false" title="Model">
-                <svg class="ui-icon"><use href="#icon-model"/></svg><span class="model-button-copy"><small>MODEL</small><b id="modelButtonText">Loading providers…</b></span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
-              </button>
+            <div class="picker model-picker no-drag">
               <div id="modelMenu" class="picker-menu model-menu" role="dialog" aria-label="Model picker" popover="manual">
                 <div class="model-menu-heading"><strong>Choose model</strong><button id="modelCloseButton" type="button" aria-label="Close model picker">×</button></div>
                 <label class="picker-search"><svg class="ui-icon"><use href="#icon-model"/></svg><input id="modelSearch" type="search" placeholder="Search models or providers" aria-label="Search models or providers" autocomplete="off" /></label>
@@ -134,8 +124,6 @@
               </div>
               <button id="addWorkspaceButton" class="ghost-button icon-only" type="button" title="Add workspace folder" aria-label="Add workspace folder"><svg class="ui-icon"><use href="#icon-plus"/></svg></button>
             </div>
-            </div>
-          </details>
             <div class="picker reasoning-picker">
               <button id="reasoningButton" class="picker-button" type="button" aria-haspopup="dialog" aria-controls="reasoningMenu" aria-expanded="false" title="Model and reasoning effort">
                 <span id="reasoningModelName">Model</span><span id="reasoningButtonText">Auto</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
@@ -156,7 +144,7 @@
         </details>
         <div class="messages-wrap">
           <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions"><div class="empty-state">Select a session or start a new one.</div></div>
-          <nav id="messageMarks" class="message-marks no-drag" aria-label="Your messages in this conversation"></nav>
+            <nav id="messageMarks" class="message-marks no-drag" aria-label="Conversation navigator"></nav>
           <button id="scrollLatestButton" class="scroll-latest no-drag" type="button" title="Jump to latest message" aria-label="Jump to latest message" hidden><svg class="ui-icon"><use href="#icon-down"/></svg><span id="scrollLatestCount">New</span></button>
           <div id="toastStack" class="toast-stack" role="status" aria-live="polite"></div>
         </div>

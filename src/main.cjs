@@ -5,6 +5,7 @@ const { HarnessApi } = require("./harness-api.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createAutoStartController } = require("./auto-start.cjs");
 const { createHarnessLauncher } = require("./harness-launcher.cjs");
+const { startHarnessConnection } = require("./harness-connection.cjs");
 const { createDesktopAccess, desktopHarnessUrl } = require("./desktop-access.cjs");
 const { createDeviceTrustStore } = require("./device-trust-store.cjs");
 const { createGameLayerKeeper } = require("./game-layer-keeper.cjs");
@@ -689,6 +690,7 @@ app.whenReady().then(() => {
       if (preferences.harnessLaunchUrl === url) return;
       preferences.harnessLaunchUrl = url;
       savePreferences();
+      api.resetRemoteAuth();
       dashboardReader.invalidate();
     },
   });
@@ -775,6 +777,11 @@ app.whenReady().then(() => {
   if (!ISOLATED_SMOKE_MODE) startPortableExtractionSweep({ tempRoot: app.getPath("temp") });
   // A screenshot run must capture a fixture, not whatever a live Harness pushes.
   if (!ISOLATED_SMOKE_MODE) {
+    // Explicit installer/user request only; normal launches never start or
+    // replace the user's Harness implicitly.
+    if (process.argv.includes("--start-harness")) startHarnessConnection({
+      api, launcher: harnessLauncher, persistCapturedLaunchUrl: () => {}, invalidateDashboard: dashboardReader.invalidate,
+    }).catch(error => console.error("Requested Harness startup failed", error));
     muxClient.connect();
     remoteMux.start();
     desktopAccess = createDesktopAccess({ app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, productName: PRODUCT_NAME,

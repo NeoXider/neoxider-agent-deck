@@ -6,6 +6,39 @@ const { HISTORY_PREVIEW_BYTES_BUDGET, HarnessApi, activityFromHistory, boundedHi
 // dialect under test: a legacy index answers the generation probe with HTTP 200.
 const legacyFetch = async () => ({ ok: true, status: 200 });
 
+test("a large remote session list receives a bounded thirty-second read budget", async () => {
+  const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+  api.ensureRemote = async () => ({ call: async (endpoint, args, timeout) => {
+    assert.equal(endpoint, "session/list");
+    assert.equal(timeout, 30000);
+    return { items: [] };
+  } });
+  api.remoteWorkspaceBaseline = async () => ({ items: [] });
+  assert.deepEqual((await api.dashboard()).sessions, []);
+});
+
+test("reconnect resets a cached protocol and stale authorization before reusing a running host", async () => {
+  let mints = 0, drops = 0;
+  const api = new HarnessApi(undefined, async () => ({
+    ok: false, status: 401, text: async () => "dsh web authentication required",
+  }), { historyWorker: false });
+  api._generationPromise = Promise.resolve("legacy");
+  api._remoteTransport = { dropCookie: () => { drops += 1; }, ensureAuthenticated: async () => { mints += 1; } };
+  assert.equal(await api.reconnect(), true);
+  assert.equal(await api.detectGeneration(), "gated");
+  assert.equal(drops, 1);
+  assert.equal(mints, 1);
+});
+
+test("reachability probes the current host rather than trusting the cached protocol", async () => {
+  let up = true;
+  const api = new HarnessApi(undefined, async () => ({ ok: up, status: up ? 200 : 503 }), { historyWorker: false });
+  assert.equal(await api.detectGeneration(), "legacy");
+  up = false;
+  assert.equal(await api.isReachable(), false);
+  await assert.rejects(api.reconnect(), /not responding/);
+});
+
 
 test("subagent activity refreshes independently of an unchanged parent with bounded retries", async () => {
   let now = 0;

@@ -43,7 +43,7 @@ test("visible widget copy stays English", () => {
   assert.doesNotMatch(html + renderer, /[\u0400-\u04ff]/);
   for (const id of [
     "contextMeter",
-    "modelButton",
+    "modelMenu",
     "modelSearch",
     "reasoningButton",
     "commandsButton",
@@ -52,7 +52,6 @@ test("visible widget copy stays English", () => {
     "attachButton",
     "attachmentBar",
     "queueDock",
-    "agentControls",
     "activityCard",
     "focusChatButton",
     "orbMode",
@@ -68,7 +67,9 @@ test("visible widget copy stays English", () => {
 test("compact layout uses custom pickers, expandable controls, and no useless count strip", () => {
   assert.doesNotMatch(html, /class="stats-strip"/);
   assert.doesNotMatch(html, /id="(?:model|reasoning|workspace|mode|session)Select"/);
-  assert.match(html, /<details id="agentControls"/);
+  assert.doesNotMatch(html + renderer, /agentControls|Agent settings|controlsPrimary|controlsSummary|modelButton/);
+  assert.match(renderer, /event\.target\.closest\("#reasoningModelName"\)\) openModelPicker/);
+  assert.match(renderer, /event\.key !== "ArrowDown"/);
   assert.match(html, /class="picker-menu model-menu"/);
   assert.match(renderer, /localRank/);
 });
@@ -157,7 +158,7 @@ test("the full chat has a verified 360px minimum height and a 380 by 400 compact
 });
 
 test("model picker names the control and provides loading, empty, error, retry, and model-recovery UI", () => {
-  assert.match(html, /class="model-button-copy"><small>MODEL<\/small><b id="modelButtonText">Loading providers…<\/b>/);
+  assert.match(renderer, /setAttribute\("aria-label", `Model and reasoning: \$\{fullLabel\}`\)/);
   assert.match(html, /id="modelSearch"[^>]+aria-label="Search models or providers"/);
   assert.match(renderer, /modelLoadState === "loading"/);
   assert.match(renderer, /state\.modelLoadState === "loading" && !modelCount\(catalog\)/);
@@ -182,8 +183,8 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(renderer, /Load a model in LM Studio or another Harness provider/);
   assert.match(renderer, /\["assistant", "error"\]\.includes\(message\.role\) && isMissingModelError\(message\.text\)/);
   assert.match(renderer, /if \(!modelSetupShown\) blocks\.push\(\{ key: "model-setup", signature: "model-setup", count: 0, build: createModelSetupCard \}\)/);
-  assert.match(html, /id="controlsPrimary">Auto<\/b>/);
-  assert.match(renderer, /\$\("#controlsPrimary"\)\.textContent = shortModel/);
+  assert.match(html, /id="reasoningModelName">Model<\/span>/);
+  assert.match(renderer, /\$\("#reasoningModelName"\)\.textContent = shortModel/);
   assert.match(renderer, /shortModel = "No model"/);
   assert.match(renderer, /state\.automaticModelRoute = true;[\s\S]+?state\.pendingSelection = null;[\s\S]+?await applyModelSelection\(\)/);
   assert.match(renderer, /window\.widget\.selectModel\(selection \? \{ sessionId, selection \} : \{ sessionId \}\)/);
@@ -442,7 +443,7 @@ test("collapsed pet exposes three exact recent sessions and inline quick reply w
   assert.match(renderer, /recentReplySessions\(state\.dashboard\?\.sessions, 3\)/);
   assert.match(renderer, /openCompactSession\(session\.sessionId\)/);
   assert.match(renderer, /openCompactReply\(session\.sessionId\)/);
-  assert.match(renderer, /await setWindowMode\("full"\);\s*await selectSession\(sessionId, true\)/);
+  assert.match(renderer, /await setWindowMode\("full"\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
   const quickReply = renderer.slice(renderer.indexOf("async function sendCompactReply"), renderer.indexOf("function detectCompletedSessions"));
   assert.match(quickReply, /window\.widget\.send\(\{/);
   assert.match(quickReply, /sessionId,/);
@@ -748,12 +749,15 @@ test("the caller's own messages are marked on the scroll rail and pull the scrol
   const css = readSource("src", "renderer", "styles.css");
   const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
   // Scrolling back to "the thing I asked" meant dragging through everything the agent
-  // said in between. The marks are placed by message-index fraction so a mark means what
-  // the scrollbar beside it means even for unloaded history (the spacers stand in for
-  // it at the running average row height), and the rail sits in the gutter rather than
-  // over it, so dragging the scrollbar still works.
+  // said in between. Like Harness, every question has an evenly spaced tick in
+  // a separate scroller. Only the visible slice is mounted, not a sampled history.
   assert.match(html, /id="messageMarks" class="message-marks no-drag"/);
-  assert.match(renderer, /\(msgIndex \+ 0\.5\) \/ total/);
+  assert.match(renderer, /const MESSAGE_MARK_SPACING = 10;/);
+  assert.match(renderer, /function drawMessageMarks\(\)/);
+  assert.match(renderer, /function syncMessageMarksPosition\(\)/);
+  assert.match(renderer, /tick\.setAttribute\("aria-current", "true"\)/);
+  assert.match(renderer, /!messageMarksPointerInside && !rail\.contains\(document\.activeElement\)/);
+  assert.match(renderer, /\["ArrowUp", "ArrowDown", "Home", "End"\]/);
   // The click resolves the live node by message index, never a captured node - and the
   // window expands to include an unloaded row first, so a jump cannot land on nothing.
   assert.match(renderer, /function scrollToUserMessage\(msgIndex\)/);
@@ -762,18 +766,19 @@ test("the caller's own messages are marked on the scroll rail and pull the scrol
   assert.doesNotMatch(renderer, /mark\.bubble\.scrollIntoView/);
   assert.match(visualSmoke, /messageMarksAllResolve: true/);
   assert.match(renderer, /function renderMessageMarks\(\)/);
-  // The rail is bounded: thousands of ticks would tax every keystroke reflow, and
-  // past a few hundred the rail is denser than its own pixels anyway.
+  // The mounted rail is bounded, but every question remains addressable.
   assert.match(renderer, /const MESSAGE_MARKS_MAX = 400;/);
-  assert.match(renderer, /Math\.ceil\(userEntries\.length \/ MESSAGE_MARKS_MAX\)/);
+  assert.match(renderer, /start \+ MESSAGE_MARKS_MAX - 1/);
+  assert.doesNotMatch(renderer, /Math\.ceil\(userEntries\.length \/ MESSAGE_MARKS_MAX\)/);
   assert.match(css, /\.message-marks \{[^}]*right:5px/);
+  assert.match(css, /\.message-marks \{[^}]*overscroll-behavior:contain/);
   assert.match(css, /\.message-mark:hover::after, \.message-mark:focus-visible::after/);
-  // A 3px tick is a 3px click target, so the button carries transparent hit area around it
+  // A 2px tick is a 2px click target, so the button carries transparent hit area around it
   // and the tick itself is drawn in ::after.
-  assert.match(css, /\.message-mark \{[^}]*height:11px/);
-  assert.match(css, /\.message-mark::after \{[^}]*height:3px/);
+  assert.match(css, /\.message-mark \{[^}]*width:24px; height:10px/);
+  assert.match(css, /\.message-mark::after \{[^}]*height:2px/);
   // The jump-to-latest pill used to sit on top of the last marks and swallow their presses.
-  assert.match(css, /\.messages-wrap\.has-marks \.scroll-latest \{ right:18px; \}/);
+  assert.match(css, /\.messages-wrap\.has-marks \.scroll-latest \{ right:34px; \}/);
   // The press that "did nothing": every repaint writes the scroll offset it captured before
   // the rebuild, which both throws away the jump and cancels the smooth scroll mid-flight.
   // A short-lived pin outranks that offset until the caller scrolls for themselves.
@@ -787,7 +792,8 @@ test("the caller's own messages are marked on the scroll rail and pull the scrol
   // The pulse is re-applied by index, so a repaint landing mid-flash does not swallow it.
   assert.match(renderer, /function paintMessageMarkFlash\(\)/);
   assert.match(visualSmoke, /markJumpAligned: true, markJumpFlashed: 1/);
-  assert.match(visualSmoke, /messageMarkHitHeight: 11, scrollLatestVisible: true, messageMarksClearOfLatest: true/);
+  assert.match(visualSmoke, /messageMarkHitHeight: 10, scrollLatestVisible: true, messageMarksClearOfLatest: true/);
+  assert.match(visualSmoke, /messageRailInteractions: true/);
   // Idle scrolling must never snap the reader to a nearby message.
   assert.doesNotMatch(css, /\.messages(\.magnet)?[^{]*\{[^}]*scroll-snap/);
   assert.doesNotMatch(renderer, /function scheduleMessageMagnet/);
@@ -838,7 +844,7 @@ test("a gated Harness offers Connect with its launch URL instead of plain offlin
   assert.match(renderer, /harnessNeedsAuth: false/);
   assert.match(renderer, /function renderOfflineBanner\(\)/);
   assert.match(renderer, /Harness is running, but the widget lost access/);
-  assert.match(renderer, /startButton\.textContent = state\.harnessNeedsAuth \? "Restart" : "Start"/);
+  assert.match(renderer, /startButton\.textContent = state\.harnessNeedsAuth \? "Restart" : \(state\.harnessDegraded/);
   assert.match(renderer, /if \(state\.harnessNeedsAuth\) \{\s+await restartHarnessFromBanner\(\)/);
   assert.match(renderer, /await window\.widget\.setHarnessLaunchUrl\(value\)/);
   assert.match(renderer, /await window\.widget\.restartHarness\(\)/);
@@ -850,6 +856,11 @@ test("a gated Harness offers Connect with its launch URL instead of plain offlin
   assert.match(ipc, /handle\("restart-harness"/);
   assert.match(ipc, /needsAuth: dashboardNeedsAuth\(error\)/);
   assert.match(settingsStore, /harnessLaunchUrl: ""/);
+});
+
+test("explicit startup can launch Harness while ordinary and smoke launches remain non-mutating", () => {
+  assert.match(main, /if \(!ISOLATED_SMOKE_MODE\) \{[\s\S]*?if \(process\.argv\.includes\("--start-harness"\)\) startHarnessConnection/);
+  assert.match(main, /api, launcher: harnessLauncher, persistCapturedLaunchUrl: \(\) => \{\}, invalidateDashboard: dashboardReader\.invalidate/);
 });
 
 test("a mark jump lands exactly even with skipped transcript rows", () => {
@@ -1087,7 +1098,7 @@ test("view switch lives in the titlebar and chat actions share one toolbar", () 
   assert.match(titlebar, /<nav class="tabs/);
   const toolbar = html.slice(html.indexOf('<div class="chat-heading'), html.indexOf('<details id="activityCard"'));
   assert.match(toolbar, /id="newSessionButton"/);
-  assert.match(toolbar, /id="agentControls"/);
+  assert.match(toolbar, /id="reasoningButton"/);
 });
 
 test("the session toolbar has a DeepSeek button for the selected Harness session", () => {
@@ -1244,7 +1255,7 @@ test("compact errors are acknowledged in full chat and completion feedback is fi
   assert.match(renderer, /clearTimeout\(state\.compactNotificationTimer\)[\s\S]+?state\.compactNotification = null/);
   assert.match(renderer, /state\.unacknowledgedErrorSessionIds\.add\(sessionId\)/);
   assert.match(renderer, /acknowledgeSessionError\(state\.selectedSessionId\)/);
-  assert.match(renderer, /await setWindowMode\("full"\);\s*await selectSession\(sessionId, true\)/);
+  assert.match(renderer, /await setWindowMode\("full"\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
   assert.match(renderer, /state\.avatarMode === "error" && !state\.compactErrorUnread && !state\.harnessOffline/);
   const clearError = renderer.slice(renderer.indexOf("function clearAcknowledgedErrorPresentation"), renderer.indexOf("function signalSessionError"));
   assert.doesNotMatch(clearError, /state\.currentActivity\?\.kind !== "error"/);
@@ -1275,7 +1286,7 @@ test("sending a message automatically collapses transient setup surfaces", () =>
   const submitStart = renderer.indexOf('$("#chatForm").addEventListener("submit"');
   const submitEnd = renderer.indexOf('$("#messageInput").addEventListener("keydown"', submitStart);
   const submit = renderer.slice(submitStart, submitEnd);
-  assert.match(submit, /\$\("#agentControls"\)\.open = false/);
+  assert.doesNotMatch(submit, /agentControls/);
   assert.match(submit, /setSettingsOpen\(false, \{ restoreFocus: false \}\)/);
   assert.match(submit, /setCommandMenuOpen\(false\)/);
   assert.match(submit, /closePickers\(\)/);
@@ -1365,9 +1376,12 @@ test("a failed settings write can never crash the main process", () => {
 });
 
 test("continuous slider input is debounced instead of rewritten per tick", () => {
-  const opacity = ipc.slice(ipc.indexOf('handle("set-opacity"'), ipc.indexOf('handle("set-size"'));
-  assert.match(opacity, /schedulePreferenceSave\(\)/);
-  assert.doesNotMatch(opacity, /\n\s*savePreferences\(\);/);
+  for (const action of ["set-opacity", "set-glow-intensity", "set-font-scale", "set-background-opacity"]) {
+    const start = ipc.indexOf(`handle("${action}"`);
+    const body = ipc.slice(start, ipc.indexOf('  handle("', start + 1));
+    assert.match(body, /schedulePreferenceSave\(\)/);
+    assert.doesNotMatch(body, /\n\s*savePreferences\(\);/);
+  }
 });
 
 test("a dead renderer is recovered instead of left on screen", () => {
@@ -1689,8 +1703,8 @@ test("the strips around the log ease open and shut while the log stays anchored"
   assert.match(css, /\.chat-crowded \.chat-panel\.active \{ --strip-gap:1px; \}/);
   // Drawers: tool cards, the activity card and the goal panel reveal their content.
   assert.match(css, /\.tool-call::details-content, \.tool-group::details-content, \.activity-card::details-content, \.goal-dock::details-content, \.hotkey-settings::details-content \{ interpolate-size:allow-keywords; height:0; overflow:clip;/);
-  assert.match(css, /\.agent-controls::details-content \{[^}]*transition:height/);
-  assert.match(css, /\.agent-controls\[open\]:not\(\[data-disclosure-moving\]\)::details-content \{ overflow:visible; \}/, "menus escape after the height transition settles");
+  assert.doesNotMatch(css, /\.agent-controls/);
+  assert.match(css, /\.model-picker\.compact-overlay \.model-menu \{[^}]*position:fixed/, "the model dialog escapes the toolbar without a setup disclosure");
   // The old one-frame entrances are gone; the strip's own height is the entrance now.
   for (const name of ["queue-in", "command-menu-in", "thinking-activity-in", "goal-open", "live-bubble-in"]) {
     assert.doesNotMatch(css, new RegExp(`@keyframes ${name} `), `${name} is replaced by the eased strip`);

@@ -163,6 +163,19 @@ class HarnessApi {
     try { this._remoteTransport?.dropCookie(); } catch {}
   }
 
+  async isReachable() {
+    return (await detectGeneration(this.baseUrl, this.fetch)) !== "down";
+  }
+  async reconnect() {
+    this._generationPromise = null;
+    this.resetRemoteAuth();
+    const generation = await this.detectGeneration();
+    if (generation === "down") throw new Error("Harness is not responding");
+    const remote = await this.ensureRemote();
+    if (remote) await remote.ensureAuthenticated();
+    return true;
+  }
+
   async listSubagents(parentSessionId) {
     const remote = await this.ensureRemote();
     if (remote) return remote.call("subagent/list", { request: { parentSessionId } }, 4000);
@@ -255,7 +268,8 @@ class HarnessApi {
       // The remote generation has no host.describe and the renderer never reads host,
       // so an empty object stands in. Workspaces arrive as a follow-channel baseline.
       [sessionsValue, workspaceResult] = await Promise.all([
-        remote.call("session/list", { _request: {} }),
+        // Cold on-disk session lists need a larger bounded budget than other calls.
+        remote.call("session/list", { _request: {} }, 30000),
         this.remoteWorkspaceBaseline()
           .then((value) => ({ value, degraded: false }))
           .catch(() => ({ value: this.workspaceSnapshot, degraded: true })),

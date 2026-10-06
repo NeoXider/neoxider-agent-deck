@@ -88,11 +88,14 @@ function createRemoteTransport({ baseUrl = "http://127.0.0.1:3080", fetchImpl = 
   // commands, queue) fires at once with no cookie, and N parallel token
   // exchanges are exactly the stampede that makes some of them fail.
   let mintPromise = null;
+  let authRevision = 0;
 
   async function ensureCookie() {
     if (cookie) return cookie;
+    const revision = authRevision;
     if (!mintPromise) {
-      mintPromise = (async () => {
+      let pending;
+      pending = (async () => {
         try {
           const launchUrl = typeof getLaunchBrowserUrl === "function" ? getLaunchBrowserUrl() : "";
           // The launch URL can come from the settings file, which anything with disk
@@ -100,14 +103,22 @@ function createRemoteTransport({ baseUrl = "http://127.0.0.1:3080", fetchImpl = 
           if (launchUrl && !isSameHarnessOrigin(launchUrl, root)) {
             throw new Error("Harness launch URL does not point at the configured Harness address");
           }
-          cookie = await mintBrowserCookie(launchUrl, fetchImpl);
-          return cookie;
+          const minted = await mintBrowserCookie(launchUrl, fetchImpl);
+          if (revision === authRevision) cookie = minted;
+          return minted;
         } finally {
-          mintPromise = null;
+          if (mintPromise === pending) mintPromise = null;
         }
       })();
+      mintPromise = pending;
     }
-    return mintPromise;
+    try {
+      const minted = await mintPromise;
+      return revision === authRevision ? minted : ensureCookie();
+    } catch (error) {
+      if (revision !== authRevision) return ensureCookie();
+      throw error;
+    }
   }
 
   async function post(endpoint, args, timeoutMs) {
@@ -247,7 +258,9 @@ function createRemoteTransport({ baseUrl = "http://127.0.0.1:3080", fetchImpl = 
     ensureAuthenticated,
     openChannel,
     dropCookie() {
+      authRevision += 1;
       cookie = "";
+      mintPromise = null;
     },
     get hasCookie() {
       return cookie !== "";
