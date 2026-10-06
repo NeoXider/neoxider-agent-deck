@@ -31,7 +31,7 @@ for (const home of [path.join(process.env.USERPROFILE, ".dsh"), path.join(proces
         policy.summarizationProvider = "openai";
         policy.summarizationModel = id;
         delete policy.target;
-        Object.assign(policy, { thresholdRatio: 0.20, retainRatio: 0.08, headroomTokens: 4096, maxTokens: 16384 });
+        Object.assign(policy, { thresholdRatio: 0.25, retainRatio: 0.08, headroomTokens: 4096, maxTokens: 16384 });
       }
     }
     for (const child of Object.values(value)) visit(child);
@@ -39,5 +39,5 @@ for (const home of [path.join(process.env.USERPROFILE, ".dsh"), path.join(proces
   visit(rows);
   fs.copyFileSync(file, file + `.before-output-${tokens}-${Date.now()}.bak`);
   fs.writeFileSync(file, yaml.dump(rows, { schema, lineWidth: -1 }));
-  console.log(JSON.stringify({ home, models: models.length, outputLimit: tokens, pressureRatio: 0.20, retentionRatio: 0.08 }));
+  console.log(JSON.stringify({ home, models: models.length, outputLimit: tokens, pressureRatio: 0.25, retentionRatio: 0.08 }));
 }
