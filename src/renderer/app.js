@@ -3539,7 +3539,7 @@ function createMessageBubble(message, bubble = document.createElement("div")) {
     if (!message.text) bubble.classList.add("attachment-only");
     bubble.append(attachmentStrip);
   }
-  if (["user", "assistant"].includes(message.role) && message.text) bubble.append(createBubbleActions(message));
+  if (["user", "assistant"].includes(message.role) && message.text) bubble.prepend(createBubbleActions(message));
   return bubble;
 }
 
@@ -3556,8 +3556,8 @@ function createSteeringBubble(item) {
 }
 
 // Every message can be copied, and your own can be put back in the composer to be sent
-// again or changed. The actions ride beside the bubble on hover or focus, outside its
-// text, so they never cover what they act on.
+// again or changed. An interior float reserves real space in the first text lines,
+// without adding an invisible footer or covering content when controls appear.
 function createBubbleActions(message) {
   const actions = document.createElement("span");
   actions.className = "bubble-actions";

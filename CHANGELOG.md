@@ -7,11 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.19] - 2026-10-11
+
+### Fixed
+
+- Keep short messages fully visible in compact windows with expanded tasks. Copy/reuse controls reserve text space inside the first lines rather than adding an invisible footer; wide bubbles and the user-message tail are unchanged.
+- Includes all 0.9.18 changes below. The 0.9.18 release was blocked by full Windows visual acceptance and was not published.
+
 ## [0.9.18] - 2026-10-11
 
 ### Changed
 
-- Both speakers use almost the full conversation width. User messages have a small right offset and a pointed tail; copy/reuse actions stay inside a separate row instead of clipping outside wide bubbles.
+- Both speakers use almost the full conversation width. User messages have a small right offset and a pointed tail; copy/reuse actions stay inside bubbles instead of clipping outside them.
 - The whole model chip opens the reasoning slider. A separate Choose model action opens the catalog without removing effort animations.
 - Private overlay stays visible while capturing; protected windows skip hide/restore and its settle delay. Screenshot attachments keep lossless, full-resolution PNG bytes in memory instead of writing, rereading and deleting a temporary file.
 

@@ -1788,8 +1788,9 @@ test("messages carry copy and reuse actions with a toast for feedback", () => {
   assert.match(toast, /setTimeout\(\(\) => toast\.remove\(\), 320\);/);
   const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /\.bubble:hover \.bubble-actions, \.bubble:focus-within \.bubble-actions, \.bubble\.actions-visible \.bubble-actions \{ opacity:1; transform:none; pointer-events:auto; \}/);
-  // Actions occupy a separate row in the wide bubble and cannot overlap text.
-  assert.match(css, /\.bubble-actions \{ position:relative;[^}]*width:100%;[^}]*flex-direction:row;/);
+  // Interior floats reserve text space without an invisible footer in small chats.
+  assert.match(css, /\.bubble-actions \{ position:relative; float:right;[^}]*width:auto;[^}]*flex-direction:row;/);
+  assert.match(renderer, /bubble\.prepend\(createBubbleActions\(message\)\)/);
   assert.match(css, /\.bubble \{[^}]*width:calc\(100% - 12px\); max-width:none;/);
   assert.match(css, /\.bubble\.user::after \{[^}]*clip-path:polygon\(0 0,100% 100%,0 100%\);/);
   assert.match(css, /\.messages \{[^}]*overflow:hidden auto;/);

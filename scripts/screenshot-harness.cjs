@@ -695,7 +695,7 @@ function attachScreenshotHarness({
             bubbleActionGroups: document.querySelectorAll('#messages .bubble-actions').length,
             bubbleCopyActions: document.querySelectorAll('#messages .bubble-action.copy').length,
             bubbleReuseActions: document.querySelectorAll('#messages .bubble-action.reuse').length,
-            // Wide bubbles keep their actions in a separate interior row.
+            // Wide bubbles keep their actions in an interior float.
             bubbleActionsInsideBubble: (() => {
               const pinned = [...document.querySelectorAll('#messages .bubble.actions-visible')];
               if (!pinned.length) return false;

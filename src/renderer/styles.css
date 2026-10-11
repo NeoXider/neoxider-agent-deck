@@ -436,10 +436,10 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .message-mark[aria-current="true"]::after { background:var(--mint); transform:translateY(-50%) scaleX(1); }
 .message-mark:hover::after, .message-mark:focus-visible::after { background:var(--text); transform:translateY(-50%) scaleX(1); }
 .message-mark:focus-visible { outline:0; background:color-mix(in srgb, var(--mint) 16%, transparent); }
-.bubble { position:relative; width:calc(100% - 12px); max-width:none; margin:0 0 10px; padding:9px 11px; border-radius:14px; background:rgba(255,255,255,.07); color:#dfe4ec; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
-/* Wide messages leave no exterior action gutter. Keep actions in their own
-   row below the text so neither the scrollbar nor copy/reuse can cover it. */
-.bubble-actions { position:relative; z-index:2; width:100%; display:flex; flex-direction:row; justify-content:flex-end; align-items:center; gap:4px; margin-top:4px; opacity:0; transform:translateY(2px); pointer-events:none; transition:opacity .16s ease, transform .2s cubic-bezier(.22,1,.36,1); }
+.bubble { position:relative; display:flow-root; width:calc(100% - 12px); max-width:none; margin:0 0 10px; padding:9px 11px; border-radius:14px; background:rgba(255,255,255,.07); color:#dfe4ec; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
+/* Wide messages leave no exterior action gutter. Float controls inside the
+   first lines so short messages do not gain an invisible 24px footer. */
+.bubble-actions { position:relative; float:right; z-index:2; width:auto; display:flex; flex-direction:row; justify-content:flex-end; align-items:center; gap:4px; margin:0 0 4px 8px; opacity:0; transform:translateY(2px); pointer-events:none; transition:opacity .16s ease, transform .2s cubic-bezier(.22,1,.36,1); }
 .bubble:hover .bubble-actions, .bubble:focus-within .bubble-actions, .bubble.actions-visible .bubble-actions { opacity:1; transform:none; pointer-events:auto; }
 .bubble-action { width:22px; height:20px; display:grid; place-items:center; padding:0; border:1px solid rgba(255,255,255,.1); border-radius:7px; background:rgba(11,16,24,.94); color:#9aa7b8; cursor:pointer; box-shadow:0 3px 10px rgba(0,0,0,.3); }
 .bubble-action .ui-icon { width:12px; height:12px; }
