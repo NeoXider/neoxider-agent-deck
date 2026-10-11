@@ -436,12 +436,10 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .message-mark[aria-current="true"]::after { background:var(--mint); transform:translateY(-50%) scaleX(1); }
 .message-mark:hover::after, .message-mark:focus-visible::after { background:var(--text); transform:translateY(-50%) scaleX(1); }
 .message-mark:focus-visible { outline:0; background:color-mix(in srgb, var(--mint) 16%, transparent); }
-.bubble { position:relative; width:fit-content; max-width:88%; margin:0 0 8px; padding:9px 11px; border-radius:14px 14px 14px 4px; background:rgba(255,255,255,.07); color:#dfe4ec; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
-/* Copy, and for your own messages reuse: a column of glyphs beside the bubble, in the free
-   space its width limit leaves, shown on hover or focus. The column starts flush with the
-   bubble's edge so the pointer can cross to it without the hover letting go. */
-.bubble-actions { position:absolute; z-index:2; top:0; right:-30px; width:30px; display:flex; flex-direction:column; align-items:flex-end; gap:2px; padding-left:8px; opacity:0; transform:translateX(-4px); pointer-events:none; transition:opacity .16s ease, transform .2s cubic-bezier(.22,1,.36,1); }
-.bubble.user .bubble-actions { right:auto; left:-30px; align-items:flex-start; padding-left:0; padding-right:8px; transform:translateX(4px); }
+.bubble { position:relative; width:calc(100% - 12px); max-width:none; margin:0 0 10px; padding:9px 11px; border-radius:14px; background:rgba(255,255,255,.07); color:#dfe4ec; font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
+/* Wide messages leave no exterior action gutter. Keep actions in their own
+   row below the text so neither the scrollbar nor copy/reuse can cover it. */
+.bubble-actions { position:relative; z-index:2; width:100%; display:flex; flex-direction:row; justify-content:flex-end; align-items:center; gap:4px; margin-top:4px; opacity:0; transform:translateY(2px); pointer-events:none; transition:opacity .16s ease, transform .2s cubic-bezier(.22,1,.36,1); }
 .bubble:hover .bubble-actions, .bubble:focus-within .bubble-actions, .bubble.actions-visible .bubble-actions { opacity:1; transform:none; pointer-events:auto; }
 .bubble-action { width:22px; height:20px; display:grid; place-items:center; padding:0; border:1px solid rgba(255,255,255,.1); border-radius:7px; background:rgba(11,16,24,.94); color:#9aa7b8; cursor:pointer; box-shadow:0 3px 10px rgba(0,0,0,.3); }
 .bubble-action .ui-icon { width:12px; height:12px; }
@@ -450,22 +448,23 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .bubble-action.copied .ui-icon { animation:action-pop .42s cubic-bezier(.2,.9,.2,1); }
 @keyframes action-pop { 0% { transform:scale(.6); } 60% { transform:scale(1.25); } 100% { transform:none; } }
 .bubble.plain, .reasoning-text.plain { white-space:pre-wrap; }
-.bubble.user { margin-left:auto; border-radius:14px 14px 4px 14px; background:linear-gradient(135deg,rgba(73,231,198,.19),rgba(139,121,255,.20)); color:white; }
-.bubble.user.has-attachments { max-width:94%; display:grid; gap:6px; }
+.bubble.user { margin-left:auto; margin-right:6px; border-radius:14px 14px 0 14px; background:linear-gradient(135deg,rgba(73,231,198,.19),rgba(139,121,255,.20)); color:white; }
+.bubble.user::after { content:""; position:absolute; right:-6px; bottom:0; width:8px; height:10px; background:inherit; clip-path:polygon(0 0,100% 100%,0 100%); pointer-events:none; }
+.bubble.user.has-attachments { max-width:none; display:grid; gap:6px; }
 .message-attachments { max-width:100%; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px; }
 .message-attachment { min-width:0; max-width:116px; height:30px; display:flex; align-items:center; gap:4px; padding:2px 5px 2px 2px; overflow:hidden; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(7,12,19,.34); }
 .message-attachment-preview { width:30px; height:26px; flex:none; display:grid; place-items:center; overflow:hidden; border-radius:5px; background:rgba(73,231,198,.1); color:#8cebd8; }
 .message-attachment-preview img { width:100%; height:100%; object-fit:cover; }
 .message-attachment-preview .ui-icon { width:13px; height:13px; }
 .message-attachment-name { min-width:0; overflow:hidden; color:#e5edf4; font-size:7px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
-.bubble.steering-message { max-width:92%; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; border:1px solid rgba(255,193,107,.22); background:linear-gradient(135deg,rgba(73,231,198,.14),rgba(255,193,107,.1)); }
+.bubble.steering-message { max-width:none; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; border:1px solid rgba(255,193,107,.22); background:linear-gradient(135deg,rgba(73,231,198,.14),rgba(255,193,107,.1)); }
 .steering-message > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .steering-message > small { color:#ffc77a; font-size:7px; font-weight:750; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
 .bubble.error { border:1px solid rgba(255,115,143,.25); background:rgba(255,115,143,.09); color:#ff9aaf; }
-.model-setup-card { max-width:min(94%,330px); display:grid; gap:5px; color:#cbd5e1; }
+.model-setup-card { max-width:none; display:grid; gap:5px; color:#cbd5e1; }
 .model-setup-card b { color:#ffb3c2; font-size:11px; }
 .model-setup-card span { color:#a8b4c4; font-size:10px; }
-.bubble.command { max-width:96%; max-height:140px; overflow:auto; border:1px solid rgba(139,121,255,.2); background:rgba(139,121,255,.09); color:#d5d0ff; font-family:"Cascadia Code",Consolas,monospace; font-size:9px; white-space:pre-wrap; }
+.bubble.command { max-width:none; max-height:140px; overflow:auto; border:1px solid rgba(139,121,255,.2); background:rgba(139,121,255,.09); color:#d5d0ff; font-family:"Cascadia Code",Consolas,monospace; font-size:9px; white-space:pre-wrap; }
 .bubble.command.goal-result { display:grid; gap:6px; overflow:visible; font-family:inherit; white-space:normal; }
 .goal-result-head { display:flex; align-items:center; gap:7px; }
 .goal-result-head b { color:#e3dfff; font-size:10px; }
@@ -997,7 +996,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
   .picker-button { padding:0 8px; gap:6px; }
   .picker-button > span { font-size:9px; }
   .activity-card > summary { min-height:38px; padding:6px 8px; }
-  .bubble.user.has-attachments { max-width:96%; }
+  .bubble.user.has-attachments { max-width:none; }
   .message-attachment { max-width:104px; }
   .attachment-bar { grid-template-columns:1fr; gap:5px; }
   .attachment-heading { display:none; }

@@ -116,10 +116,15 @@ function createScreenshotService({
     return source.thumbnail;
   }
 
-  async function save(image, kind) {
+  function encodePng(image) {
     if (!image || image.isEmpty?.()) throw new ScreenshotError("Capture is empty", { code: "empty-capture" });
     const png = image.toPNG();
     if (!Buffer.isBuffer(png) || png.length === 0) throw new ScreenshotError("Capture could not be encoded as PNG", { code: "empty-png" });
+    return png;
+  }
+
+  async function save(image, kind) {
+    const png = encodePng(image);
     await fileSystem.mkdir(captureDirectory, { recursive: true });
     const stamp = new Date(now()).toISOString().replace(/[:.]/g, "-");
     const safeId = String(makeId()).replace(/[^a-zA-Z0-9-]/g, "").slice(0, 64) || "capture";
@@ -133,11 +138,12 @@ function createScreenshotService({
     const values = displays();
     const display = findDisplay(values, options);
     const image = await snapshot(display);
+    if (options.inMemory) return { ok: true, canceled: false, kind: "screen", png: encodePng(image), displayId: display.id, bounds: { ...display.bounds } };
     const filePath = await save(image, "screen");
     return { ok: true, canceled: false, kind: "screen", path: filePath, displayId: display.id, bounds: { ...display.bounds } };
   }
 
-  async function captureRegion() {
+  async function captureRegion(options = {}) {
     const support = capabilities().region;
     if (!support.available) return { ok: false, canceled: false, reason: support.reason };
     const values = displays();
@@ -168,6 +174,7 @@ function createScreenshotService({
     crop.height = Math.min(crop.height, imageSize.height - crop.y);
     if (crop.width < 1 || crop.height < 1) throw new ScreenshotError("Selected region contains no capturable pixels", { code: "empty-region" });
     const cropped = image.crop(crop);
+    if (options.inMemory) return { ok: true, canceled: false, kind: "region", png: encodePng(cropped), displayId: display.id, bounds, pixelBounds: crop };
     const filePath = await save(cropped, "region");
     return { ok: true, canceled: false, kind: "region", path: filePath, displayId: display.id, bounds, pixelBounds: crop };
   }

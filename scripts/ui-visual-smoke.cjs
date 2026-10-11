@@ -26,7 +26,7 @@ const cases = [
   { name: "chat-font-135", tab: "chat", fixture: "chat", width: 380, height: 400, fontScale: 1.35, expect: { fontScale: 1.35, titlebarOverlap: false }, min: { bubbleFontPx: 14.8 } },
   { name: "history-loading", tab: "chat", fixture: "history-loading", width: 380, height: 400, expect: { skeletonRows: 3, emptyStateText: "", conversationBubbles: 0 } },
   { name: "toast", tab: "chat", fixture: "toast", width: 380, height: 400, expect: { toastVisible: true, toastText: "Copied to clipboard", conversationBubbles: 2 } },
-  { name: "bubble-actions", tab: "chat", fixture: "bubble-actions", width: 380, height: 400, expect: { bubbleActionGroups: 2, bubbleCopyActions: 2, bubbleReuseActions: 1, bubbleActionsBesideBubble: true, conversationBubbles: 2 } },
+  { name: "bubble-actions", tab: "chat", fixture: "bubble-actions", width: 380, height: 400, expect: { bubbleActionGroups: 2, bubbleCopyActions: 2, bubbleReuseActions: 1, bubbleActionsInsideBubble: true, conversationBubbles: 2 } },
   // Waits on the Markdown worker, which a cold start on a busy machine can keep past the default capture.
   { name: "live-markdown", tab: "chat", fixture: "live-markdown", width: 380, height: 400, delay: 3000, expect: { liveBubbles: 1, liveBubbleFormatted: true, liveBubbleHeadings: 1, liveBubbleListItems: 3, liveCaretInLastLine: true, liveCaretDisplay: "inline-block", activityCardVisible: false } },
   { name: "composer-recall", tab: "chat", fixture: "composer-recall", width: 380, height: 400, expect: { composerValue: "Now re-render the cover.", conversationBubbles: 4 } },

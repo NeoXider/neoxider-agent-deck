@@ -1714,6 +1714,7 @@ function renderReasoning() {
   copy.addEventListener("click", event => {
     event.stopPropagation(); openModelPicker({ retry: true });
   });
+  copy.setAttribute("aria-label", "Choose model");
   const title = document.createElement("strong");
   const subtitle = document.createElement("small");
   subtitle.textContent = model?.name || model?.id || "Model";
@@ -1723,6 +1724,7 @@ function renderReasoning() {
   reset.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 5v5h-5M20 10a8 8 0 1 0 .2 4"/></svg>';
   reset.title = "Reset to Auto";
   reset.setAttribute("aria-label", "Reset reasoning to Auto");
+  reset.disabled = efforts.length === 0;
   const emblem = document.createElement("span");
   emblem.className = "reasoning-emblem";
   emblem.innerHTML = '<svg class="ui-icon" aria-hidden="true"><use href="#icon-reasoning"/></svg>';
@@ -1736,7 +1738,7 @@ function renderReasoning() {
   const paint = (automatic = false) => {
     const effort = efforts[Number(range.value)];
     const label = effort?.name || effort?.id || "Auto";
-    title.textContent = automatic ? autoLabel : label;
+    title.textContent = efforts.length ? (automatic ? autoLabel : label) : "No thinking modes";
     range.setAttribute("aria-valuetext", automatic ? autoLabel : label);
     const intensity = reasoningIntensity(Number(range.value), efforts.length);
     track.dataset.intensity = intensity;
@@ -1766,7 +1768,11 @@ function renderReasoning() {
   const fill = document.createElement("div"); fill.className = "reasoning-fill"; fill.setAttribute("aria-hidden", "true");
   fill.append(createReasoningStars());
   track.hidden = efforts.length === 0;
-  track.append(fill, range, dots); root.append(heading, track); paint(!selectedId);
+  const modelsButton = document.createElement("button");
+  modelsButton.type = "button"; modelsButton.className = "reasoning-model-choice";
+  modelsButton.textContent = "Choose model";
+  modelsButton.addEventListener("click", event => { event.stopPropagation(); openModelPicker({ retry: true }); });
+  track.append(fill, range, dots); root.append(heading, track, modelsButton); paint(!selectedId);
 }
 
 function modelDisplay(selection) {
@@ -3909,16 +3915,20 @@ function trapSettingsFocus(event) {
 }
 
 function isMissingModelError(value) {
-  return /no models? (?:are )?loaded|no model (?:is )?(?:loaded|available)|model provider.*unavailable/i.test(String(value || ""));
+  return /no models? (?:are )?loaded|no model (?:is )?(?:loaded|available)|model (?:is )?unloaded|failed to load model|engine protocol startup was aborted|model provider.*unavailable/i.test(String(value || ""));
 }
 
-function createModelSetupCard() {
+function createModelSetupCard(message = {}) {
   const card = document.createElement("div");
   card.className = "bubble error model-setup-card";
   const heading = document.createElement("b");
-  heading.textContent = "No model is ready";
+  heading.textContent = "Model could not start";
   const detail = document.createElement("span");
-  detail.textContent = "Load a model in LM Studio or another Harness provider, then choose it or retry.";
+  detail.textContent = "The model was unloaded or failed to start for this message. Load it in LM Studio, or choose another ready model. This does not mean Harness is offline.";
+  const diagnostic = document.createElement("details");
+  const summary = document.createElement("summary"); summary.textContent = "Error details";
+  const original = document.createElement("pre"); original.textContent = String(message.text || "");
+  diagnostic.append(summary, original);
   const actions = document.createElement("div");
   actions.className = "model-setup-actions";
   const choose = document.createElement("button");
@@ -3930,7 +3940,7 @@ function createModelSetupCard() {
   retry.textContent = "Retry models";
   retry.addEventListener("click", () => openModelPicker({ retry: true }));
   actions.append(choose, retry);
-  card.append(heading, detail, actions);
+  card.append(heading, detail, actions, diagnostic);
   return card;
 }
 
@@ -4587,7 +4597,7 @@ function renderMessages(messages) {
         continue;
       }
       if (["assistant", "error"].includes(message.role) && isMissingModelError(message.text)) {
-        if (!modelSetupShown) blocks.push({ key: "model-setup", signature: "model-setup", count: 0, build: createModelSetupCard });
+        if (!modelSetupShown) blocks.push({ key: "model-setup", signature: messageSignature(message), count: 0, build: () => createModelSetupCard(message) });
         modelSetupShown = true;
         index += 1;
         continue;
@@ -6325,13 +6335,12 @@ $$('#captureMenu [data-capture]').forEach((button) => button.addEventListener("c
 }));
 $("#reasoningButton").addEventListener("click", (event) => {
   event.stopPropagation();
-  if (event.target.closest("#reasoningModelName")) openModelPicker({ retry: true });
-  else togglePicker(event.currentTarget);
+  togglePicker(event.currentTarget);
 });
 $("#reasoningButton").addEventListener("keydown", (event) => {
   if (event.key !== "ArrowDown") return;
   event.preventDefault();
-  openModelPicker({ retry: true });
+  togglePicker(event.currentTarget);
 });
 $("#workspaceButton").addEventListener("click", (event) => { event.stopPropagation(); togglePicker(event.currentTarget); });
 $("#modelSearch").addEventListener("input", (event) => renderModelOptions(event.target.value));

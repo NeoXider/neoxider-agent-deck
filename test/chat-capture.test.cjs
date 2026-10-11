@@ -23,6 +23,29 @@ test('instant capture never reveals an already hidden widget', async () => {
 test('ordinary capture still opens attachment review', async () => {
   const f = fixture(); await captureForChat('display', f); assert.equal(f.events.at(-1), 'full');
 });
+
+test('protected private overlay stays rendered and adds no hide delay or focus change', async () => {
+  for (const kind of ['display', 'display-send']) {
+    const f = fixture(); f.captureProtected = true; f.mode = 'full';
+    await captureForChat(kind, f);
+    assert.equal(f.events.includes('hide'), false); assert.equal(f.events.includes('frame'), false);
+    assert.equal(f.events.includes('restore-inactive'), false); assert.equal(f.events.includes('full'), false);
+  }
+});
+test('ordinary capture still opens review when a full widget was already hidden', async () => {
+  const f = fixture(false); f.mode = 'full'; f.captureProtected = true;
+  await captureForChat('display', f);
+  assert.equal(f.events.at(-1), 'full'); assert.equal(f.events.includes('hide'), false);
+});
+test('memory capture preserves PNG bytes without disk roundtrip or duplicate IPC pixels', async () => {
+  const f = fixture(); const png = Buffer.from('original lossless pixels');
+  f.service.captureDisplay = async options => { assert.equal(options.inMemory, true); return { ok: true, png }; };
+  f.prepareImage = async data => { assert.equal(data, png); return { attachments: ['image'] }; };
+  f.prepareFiles = async () => { throw new Error('disk preparation must not run'); };
+  const result = await captureForChat('display-send', f);
+  assert.equal('png' in result, false); assert.deepEqual(result.prepared.attachments, ['image']);
+  assert.equal(f.events.includes('removed'), false);
+});
 test('screenshot send freezes target session, ignores repeat shortcut and preserves draft', async () => {
   const vm = require('node:vm'); const fs = require('node:fs');
   const source = fs.readFileSync(require('node:path').join(__dirname, '../src/renderer/app.js'), 'utf8');

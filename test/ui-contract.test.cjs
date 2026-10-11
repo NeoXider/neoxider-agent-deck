@@ -68,7 +68,8 @@ test("compact layout uses custom pickers, expandable controls, and no useless co
   assert.doesNotMatch(html, /class="stats-strip"/);
   assert.doesNotMatch(html, /id="(?:model|reasoning|workspace|mode|session)Select"/);
   assert.doesNotMatch(html + renderer, /agentControls|Agent settings|controlsPrimary|controlsSummary|modelButton/);
-  assert.match(renderer, /event\.target\.closest\("#reasoningModelName"\)\) openModelPicker/);
+  assert.doesNotMatch(renderer, /event\.target\.closest\("#reasoningModelName"\)\) openModelPicker/);
+  assert.match(renderer, /modelsButton\.className = "reasoning-model-choice"/);
   assert.match(renderer, /event\.key !== "ArrowDown"/);
   assert.match(html, /class="picker-menu model-menu"/);
   assert.match(renderer, /localRank/);
@@ -182,7 +183,8 @@ test("model picker names the control and provides loading, empty, error, retry, 
   assert.match(renderer, /Retry models/);
   assert.match(renderer, /Load a model in LM Studio or another Harness provider/);
   assert.match(renderer, /\["assistant", "error"\]\.includes\(message\.role\) && isMissingModelError\(message\.text\)/);
-  assert.match(renderer, /if \(!modelSetupShown\) blocks\.push\(\{ key: "model-setup", signature: "model-setup", count: 0, build: createModelSetupCard \}\)/);
+  assert.match(renderer, /if \(!modelSetupShown\) blocks\.push\(\{ key: "model-setup", signature: messageSignature\(message\), count: 0, build: \(\) => createModelSetupCard\(message\) \}\)/);
+  assert.match(renderer, /original\.textContent = String\(message\.text \|\| ""\)/);
   assert.match(html, /id="reasoningModelName">Model<\/span>/);
   assert.match(renderer, /\$\("#reasoningModelName"\)\.textContent = shortModel/);
   assert.match(renderer, /shortModel = "No model"/);
@@ -1786,9 +1788,10 @@ test("messages carry copy and reuse actions with a toast for feedback", () => {
   assert.match(toast, /setTimeout\(\(\) => toast\.remove\(\), 320\);/);
   const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /\.bubble:hover \.bubble-actions, \.bubble:focus-within \.bubble-actions, \.bubble\.actions-visible \.bubble-actions \{ opacity:1; transform:none; pointer-events:auto; \}/);
-  // The column sits beside the bubble in the room its width limit leaves, and the log clips
-  // sideways so it can never grow a horizontal scrollbar.
-  assert.match(css, /\.bubble-actions \{ position:absolute;[^}]*right:-30px; width:30px;/);
+  // Actions occupy a separate row in the wide bubble and cannot overlap text.
+  assert.match(css, /\.bubble-actions \{ position:relative;[^}]*width:100%;[^}]*flex-direction:row;/);
+  assert.match(css, /\.bubble \{[^}]*width:calc\(100% - 12px\); max-width:none;/);
+  assert.match(css, /\.bubble\.user::after \{[^}]*clip-path:polygon\(0 0,100% 100%,0 100%\);/);
   assert.match(css, /\.messages \{[^}]*overflow:hidden auto;/);
   // Goal and queue actions say what they did the same way.
   assert.match(renderer, /showToast\(GOAL_TOASTS\.find/);

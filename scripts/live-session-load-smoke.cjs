@@ -28,6 +28,7 @@ async function main() {
   const snapshot = await api.dashboard(preferences.lastSelectedSessionId);
   const healthy = process.argv.includes("--healthy");
   const cutoff = process.argv.includes("--cutoff");
+  const current = process.argv.includes("--current");
   const selected = healthy ? snapshot.sessions.find(s => !s.degraded && !s.running && s.sessionId !== preferences.lastSelectedSessionId)?.sessionId : preferences.lastSelectedSessionId;
   assert.ok(selected, "A saved/healthy session is required for this read-only check");
   const reader = createSharedDashboardReader({ api });
@@ -84,9 +85,18 @@ async function main() {
   assert.equal(result.modelState, "ready");
   assert.ok(result.modelCount > 0);
   assert.doesNotMatch(result.modelLabel, /Loading/);
-  if (healthy) {
+  if (healthy || current) {
     assert.equal(result.historyLoaded, true);
     assert.equal(result.commandsLoaded, true, "The saved preset must resume and expose commands");
+  }
+  if (current) {
+    const entry = await win.webContents.executeJavaScript(`(() => {
+      document.querySelector('#reasoningModelName').click();
+      return { sliderMenuOpen: document.querySelector('.reasoning-picker').classList.contains('open'),
+        catalogClosed: !document.querySelector('#modelMenu').matches(':popover-open'),
+        choicePresent: Boolean(document.querySelector('.reasoning-model-choice')) };
+    })()`);
+    assert.deepEqual(entry, { sliderMenuOpen: true, catalogClosed: true, choicePresent: true });
   }
   else if (cutoff) {
     assert.equal(result.historyLoaded, true);
@@ -100,8 +110,8 @@ async function main() {
   fs.mkdirSync(path.join(root, "tmp"), { recursive: true });
   await win.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
   await wait(200);
-  fs.writeFileSync(path.join(root, "tmp", `live-session-load-${healthy ? "healthy" : cutoff ? "cutoff" : "corrupt"}.png`), (await win.webContents.capturePage()).toPNG());
-  console.log(JSON.stringify({ passed: true, kind: healthy ? "healthy" : cutoff ? "cutoff" : "corrupt", modelReady: true, modelCount: result.modelCount, historyLoaded: result.historyLoaded, commandsLoaded: result.commandsLoaded, cutoffWarnings: result.cutoffWarnings, visibleWarnings: result.visibleWarnings, recoveryVisible: result.errorVisible, selectionRetained: true }));
+  fs.writeFileSync(path.join(root, "tmp", `live-session-load-${current ? "current" : healthy ? "healthy" : cutoff ? "cutoff" : "corrupt"}.png`), (await win.webContents.capturePage()).toPNG());
+  console.log(JSON.stringify({ passed: true, kind: current ? "current" : healthy ? "healthy" : cutoff ? "cutoff" : "corrupt", modelReady: true, modelCount: result.modelCount, historyLoaded: result.historyLoaded, commandsLoaded: result.commandsLoaded, cutoffWarnings: result.cutoffWarnings, visibleWarnings: result.visibleWarnings, recoveryVisible: result.errorVisible, selectionRetained: true }));
   win.destroy();
 }
 const watchdog = setTimeout(() => { console.error("Live renderer check timed out"); app.exit(1); }, 65000);

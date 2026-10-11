@@ -252,6 +252,8 @@ function captureScreenshotForChat(kind) {
   return require("./chat-capture.cjs").captureForChat(kind, {
     service: screenshotService, gate: screenshotCaptureGate, window: windowRef,
     mode: windowMode, displayPoint: screenshotDisplayPoint, cursorPoint: () => screen.getCursorScreenPoint(),
+    captureProtected: preferences.windowLayer === "private" && PLATFORM_CAPABILITIES.captureExclusion && typeof windowRef?.setContentProtection === "function",
+    prepareImage: png => attachmentRegistry.registerPrepared({ attachments: [{ kind: "image", mediaType: "image/png", data: png.toString("base64"), name: "screenshot.png" }] }),
     prepareFiles, applyWindowMode,
   });
 }

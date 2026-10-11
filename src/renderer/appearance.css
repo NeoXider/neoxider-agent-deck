@@ -189,9 +189,11 @@ body.mode-full #chatPanel :is(.tool-group,.tool-call,.activity-card,.todo-dock,.
 body.mode-full #chatPanel :is(.tool-group,.tool-call) > summary { border-radius:inherit; }
 @media (max-height:420px) { body.mode-full.chat-crowded #chatForm.composer { padding-top:4px; padding-bottom:4px; } }
 
-/* Keep conversation bubbles compact; their small tail distinguishes each speaker. */
-body.mode-full #chatPanel .bubble { border-radius:14px 14px 14px 4px; }
-body.mode-full #chatPanel .bubble.user { border-radius:14px 14px 4px 14px; }
+/* A real pointed tail, not an asymmetric rounded corner, marks our messages. */
+body.mode-full #chatPanel .bubble { border-radius:14px; }
+body.mode-full #chatPanel .bubble.user { border-radius:14px 14px 0 14px; }
+.reasoning-model-choice { width:100%; min-height:28px; margin-top:10px; border:0; border-radius:8px; background:transparent; color:var(--muted); font-size:10px; cursor:pointer; }
+.reasoning-model-choice:hover, .reasoning-model-choice:focus-visible { background:color-mix(in srgb,var(--mint) 12%,transparent); color:var(--text); }
 body[data-design="cyberpunk"] #reasoningMenu { --reasoning-secondary:#867400; background:#171916; }
 .reasoning-fill { position:absolute; inset:0 auto 0 0; width:var(--effort-fill); border-radius:99px 0 0 99px; overflow:hidden; pointer-events:none; background:var(--reasoning-accent); }
 

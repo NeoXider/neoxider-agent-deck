@@ -1,5 +1,6 @@
 const CHUNK_CHARS = 50000;
 const CHECKPOINT_CHARS = 48000;
+const localProvider = provider => provider === "openai" || provider === "lmstudio";
 function text(block) {
   if (block.type === "text") return block.text || "";
   if (block.type === "image") return "[image omitted from text recovery; original is preserved in the session log]";
@@ -15,7 +16,7 @@ export function createCompactionEngine(Base) {
   return class LocalContextCompaction extends Base {
     async summarizeSegment(input, agent, signal) {
       const provider = agent.session?.requestHeader?.()?.config?.provider || agent.options?.provider;
-      if (provider !== "openai" || !this.ctx?.llm) return super.summarize(input, agent, signal);
+      if (!localProvider(provider) || !this.ctx?.llm) return super.summarize(input, agent, signal);
       const original = this;
       const llm = original.ctx.llm;
       const localLlm = new Proxy(llm, { get(target, key) {
@@ -28,7 +29,7 @@ export function createCompactionEngine(Base) {
     }
     async summarize(input, agent, signal) {
       const provider = agent.session?.requestHeader?.()?.config?.provider || agent.options?.provider;
-      if (provider !== "openai") return super.summarize(input, agent, signal);
+      if (!localProvider(provider)) return super.summarize(input, agent, signal);
       // Even a short checkpoint is transcript DATA, not an agent conversation.
       // Replaying its original persona and tools can make a local model resume
       // work instead of summarizing, then silently replace facts with narration.

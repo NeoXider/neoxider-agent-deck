@@ -695,15 +695,15 @@ function attachScreenshotHarness({
             bubbleActionGroups: document.querySelectorAll('#messages .bubble-actions').length,
             bubbleCopyActions: document.querySelectorAll('#messages .bubble-action.copy').length,
             bubbleReuseActions: document.querySelectorAll('#messages .bubble-action.reuse').length,
-            // Pinned open, every action sits beside its bubble and inside the log - never over the text.
-            bubbleActionsBesideBubble: (() => {
+            // Wide bubbles keep their actions in a separate interior row.
+            bubbleActionsInsideBubble: (() => {
               const pinned = [...document.querySelectorAll('#messages .bubble.actions-visible')];
               if (!pinned.length) return false;
               const log = document.querySelector('#messages').getBoundingClientRect();
               return pinned.every((bubble) => {
                 const box = bubble.getBoundingClientRect();
                 const buttons = [...bubble.querySelectorAll('.bubble-action')].map((button) => button.getBoundingClientRect());
-                return buttons.length > 0 && buttons.every((rect) => (rect.left >= box.right - 1 || rect.right <= box.left + 1) && rect.left >= log.left - 1 && rect.right <= log.right + 1);
+                return buttons.length > 0 && buttons.every((rect) => rect.left >= box.left && rect.right <= box.right && rect.bottom <= box.bottom && rect.left >= log.left - 1 && rect.right <= log.right + 1);
               });
             })(),
             composerValue: document.querySelector('#messageInput')?.value || '',

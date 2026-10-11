@@ -72,9 +72,11 @@ app.whenReady().then(async () => {
     await new Promise(resolve => setTimeout(resolve, 300));
     const modelPickerOpened = document.querySelector('.model-picker').classList.contains('open') && !document.querySelector('#agentControls, .reasoning-setup');
     closePickers(); document.querySelector('#reasoningModelName').click();
-    if (!document.querySelector('#modelMenu').matches(':popover-open')) throw new Error('Model name did not open the picker directly');
+    if (!button.closest('.picker').classList.contains('open') || document.querySelector('.reasoning-slider').getBoundingClientRect().width < 100 || document.querySelector('#modelMenu').matches(':popover-open')) throw new Error('Model chip did not open the reasoning slider');
+    document.querySelector('.reasoning-model-choice').click();
+    if (!document.querySelector('#modelMenu').matches(':popover-open')) throw new Error('Separate model choice did not open the picker');
     closePickers(); button.dispatchEvent(new KeyboardEvent('keydown', { key:'ArrowDown', bubbles:true }));
-    if (!document.querySelector('#modelMenu').matches(':popover-open')) throw new Error('Keyboard model entry did not open the picker');
+    if (!button.closest('.picker').classList.contains('open')) throw new Error('Keyboard model entry did not open the slider');
     closePickers(); button.click();
     return { modelPickerOpened, motion, sliderFrozen, frozenBefore, frozenAfter, frozenStyles, starOpacityBefore, starOpacityAfter, pixelWaveBefore, pixelWaveAfter, chipWaveBefore, chipWaveAfter, chipMask, chipDuration, twoEfforts: [reasoningIntensity(0,2),reasoningIntensity(1,2)], singleEffort: reasoningIntensity(0,1), resetOpen, stable, preview, remainedOpen, calls, visible: rect.width > 0 && rect.height > 0, sameRow: Math.abs(rect.top - modelRect.top) < 2, fits: menuRect.left >= 0 && menuRect.right <= innerWidth, reset: button.textContent.trim() };
   })()`);

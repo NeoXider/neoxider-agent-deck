@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.18] - 2026-10-11
+
+### Changed
+
+- Both speakers use almost the full conversation width. User messages have a small right offset and a pointed tail; copy/reuse actions stay inside a separate row instead of clipping outside wide bubbles.
+- The whole model chip opens the reasoning slider. A separate Choose model action opens the catalog without removing effort animations.
+- Private overlay stays visible while capturing; protected windows skip hide/restore and its settle delay. Screenshot attachments keep lossless, full-resolution PNG bytes in memory instead of writing, rereading and deleting a temporary file.
+
+### Fixed
+
+- Recognize unloaded models and failed engine startup as model errors, independently of Harness connection state, with recovery actions and original diagnostics.
+- Add an explicit local LFM 2.5 VL 3B configuration with vision, a 32K context, no invented thinking levels, and an 8K output budget. Local Mercury configurations retain history headroom instead of reserving their entire window for output.
+- Migrate unsupported persona workspace placeholders in both profile overrides and separately installed user presets for DSH 0.2.1. Preserve supported provider/model variables and keep backups.
+- Add an opt-in OpenRouter free-model setup for Web and Desktop profiles. Verify zero-priced catalog entries, exclude non-chat safety classifiers, retain credential references outside the repository, and disable only direct DeepSeek model adapters without removing history.
+
 ## [0.9.17] - 2026-10-07
 
 ### Changed

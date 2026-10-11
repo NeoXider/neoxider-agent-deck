@@ -72,6 +72,14 @@ test("full-display capture maps Electron display_id and writes a private PNG und
   assert.equal(calls.write[0][1].toString(), "PNG");
 });
 
+test("in-memory display capture keeps full-resolution lossless pixels without touching disk", async () => {
+  const { calls, service } = fixture();
+  const result = await service.captureDisplay({ displayId: 11, inMemory: true });
+  assert.equal(result.png.toString(), 'PNG'); assert.equal(result.path, undefined);
+  assert.equal(calls.mkdir.length, 0); assert.equal(calls.write.length, 0);
+  assert.deepEqual(calls.getSources[0].thumbnailSize, { width: 2560, height: 2048 });
+});
+
 test("Windows region selection preserves negative monitor coordinates and mixed-DPI pixels", async () => {
   const selection = { displayId: 11, bounds: { x: -1200, y: 100, width: 200, height: 150 } };
   let contract;
