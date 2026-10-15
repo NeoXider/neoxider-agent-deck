@@ -125,3 +125,21 @@ test("answers must name each question exactly once", () => {
     answers: [{ id: "b", selected: [], custom: "later" }, { id: "a", selected: ["x"] }],
   });
 });
+
+test("refresh opens a new stream so the Gateway replays a question a half-open one missed", async () => {
+  const transport = fakeTransport();
+  const statuses = [];
+  const { relay, published } = relayWith(transport, { onStatus: (status) => statuses.push(status) });
+  relay.start();
+  await tick();
+  transport.channels[0].onFrame({ type: "ready", clientId: "first" });
+  assert.equal(statuses.at(-1).connected, true);
+  assert.equal(relay.refresh(), true);
+  await tick();
+  assert.equal(transport.channels.length, 2, "a second stream was opened");
+  assert.equal(transport.channels[0].closedByClient, true, "the stale one was closed");
+  transport.channels[1].onFrame({ type: "ready", clientId: "second" });
+  transport.channels[1].onFrame({ type: "waterfall", event: "user-questions/request", eventId: "e1", agentId: "session-a", request: { questions: [{ id: "q", question: "Ship it?" }] } });
+  assert.equal(published.at(-1)[0].sessionId, "session-a");
+  assert.equal(relay.status().connected, true);
+});

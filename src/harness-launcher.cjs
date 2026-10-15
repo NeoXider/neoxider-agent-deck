@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawn, execFile } = require("node:child_process");
+const { newestRuntimeEntry } = require("./harness-runtime.cjs");
 
 // Pinned to the runtime covered by the end-to-end compatibility smoke.
 // Bump deliberately with a compatibility recheck, never silently.
@@ -45,7 +46,14 @@ function resolveInstalledDshEntry({ platform = process.platform, env = process.e
     env.APPDATA && path.win32.join(env.APPDATA, "npm"),
     platform === "win32" ? path.win32.join(systemDrive, "AI", "work", "deepseek-harness-runtime") : "",
   ].filter((value) => typeof value === "string" && value.trim());
+  const managedRoot = env.LOCALAPPDATA ? path.win32.join(env.LOCALAPPDATA, "NeoXider", "DeepSeek Harness Runtime") : "";
   for (const root of roots) {
+    // Deck's own runtimes (harness-runtime.cjs): the newest installed version wins.
+    if (root === managedRoot) {
+      const managed = newestRuntimeEntry(root, fileSystem, platformPath);
+      if (managed) return managed;
+      continue;
+    }
     const candidates = [
       platformPath.join(root, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"),
       platformPath.join(root, "node_modules", "@deepseek-ai", "dsh", "dist", "bin.js"),
@@ -291,8 +299,15 @@ function createHarnessLauncher({
   outputLog = null,
   totalMemoryBytes = os.totalmem(),
 } = {}) {
-  const installedEntry = resolveInstalledDshEntry({ platform, env, workingDirectory, fileSystem });
-  const launchSpec = resolveHarnessLaunchSpec({ platform, env, harnessUrl, installedEntry, totalMemoryBytes });
+  // Read again before every launch, so a runtime installed or updated while Deck runs is the
+  // one the next start uses.
+  let launchSpec = resolveHarnessLaunchSpec({ platform, env, harnessUrl, installedEntry: resolveInstalledDshEntry({ platform, env, workingDirectory, fileSystem }), totalMemoryBytes });
+  const refreshLaunchSpec = () => {
+    launchSpec = resolveHarnessLaunchSpec({ platform, env, harnessUrl, installedEntry: resolveInstalledDshEntry({ platform, env, workingDirectory, fileSystem }), totalMemoryBytes });
+    listenerImageNames = /^npx(?:\.cmd)?$/.test(launchSpec.displayCommand)
+      ? [...HARNESS_IMAGE_NAMES]
+      : [...HARNESS_IMAGE_NAMES, path.win32.basename(launchSpec.command)];
+  };
   // This path only ever describes a Windows desktop, so it must be built with the
   // win32 rules even when the process resolving it runs on POSIX.
   const legacyBatchPath = platform === "win32" && desktopPath
@@ -300,7 +315,7 @@ function createHarnessLauncher({
     : "";
   // A configured dsh or Node executable is the listener's image too; the npx route goes
   // through a command processor, and the listener under it is plain node.
-  const listenerImageNames = /^npx(?:\.cmd)?$/.test(launchSpec.displayCommand)
+  let listenerImageNames = /^npx(?:\.cmd)?$/.test(launchSpec.displayCommand)
     ? [...HARNESS_IMAGE_NAMES]
     : [...HARNESS_IMAGE_NAMES, path.win32.basename(launchSpec.command)];
   let startPromise = null;
@@ -389,6 +404,7 @@ function createHarnessLauncher({
   function spawnOwnedLaunch({ probe = false } = {}) {
     // A start that was already under way when the app quit must not leave a new tree.
     if (disposed) throw new Error("Harness launcher is disposed");
+    if (!probe) refreshLaunchSpec();
     if (workingDirectory) fileSystem.mkdirSync(workingDirectory, { recursive: true });
     const launch = { child: null, error: null, exited: false, ready: false, browserUrl: "", probe, stopRequested: false };
     const childEnv = { ...env };
@@ -592,7 +608,7 @@ function createHarnessLauncher({
   }
 
   return {
-    launchSpec,
+    get launchSpec() { return launchSpec; },
     legacyBatchPath,
     workingDirectory,
     outputLog,

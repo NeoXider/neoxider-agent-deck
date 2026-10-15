@@ -81,7 +81,7 @@ function compactRestoreHarness() {
     compactNotification: { sessionId: "other-notification-chat" },
   };
   const context = vm.createContext({
-    state, clearTimeout() {}, $(selector) { return { focus() {} }; },
+    state, clearTimeout() {}, setTimeout, $(selector) { return { focus() {} }; },
     setWindowMode: async () => opened.push("full"),
     selectSession: async (id) => { state.selectedSessionId = id; opened.push(id); },
     setTab: () => opened.push("chat"), syncCompactStatus() {}, renderReturnToAvatarButton() {},
@@ -106,7 +106,9 @@ test("explicitly selecting a notification or recent chat still switches to that 
   const h = compactRestoreHarness();
   await h.restore("explicit-chat");
   assert.equal(h.state.selectedSessionId, "explicit-chat");
-  assert.deepEqual(h.opened, ["full", "explicit-chat"]);
+  // Chosen first, so the window unfolds onto the right conversation instead of switching it
+  // in the middle of the unfold.
+  assert.deepEqual(h.opened, ["explicit-chat", "full"]);
 });
 
 test("an empty restored widget opens the composer without guessing another notification's chat", async () => {

@@ -96,6 +96,9 @@ function registerIpcHandlers({
   savePreferences,
   schedulePreferenceSave,
   snapCompactWindow,
+  snapCompactToEdge = () => {},
+  getHarnessRuntime = () => null,
+  petRoamer = null,
   moveWithinNearestDisplay,
   moveEdgeDragToPointer,
   traceCompactDrag,
@@ -323,6 +326,7 @@ function registerIpcHandlers({
   }));
   handle("restart-harness", async () => {
     const result = await getHarnessLauncher().restart();
+    if (result?.ok) getHarnessRuntime()?.switched?.();
     persistCapturedLaunchUrl();
     if (result?.ok && typeof api.reconnect === "function") await api.reconnect();
     invalidateDashboard();
@@ -331,6 +335,9 @@ function registerIpcHandlers({
   // Crash recovery for the owned Harness. Open log takes no argument from the renderer.
   // The agent's questions (question-relay.cjs): the ones waiting now, and the user's answer.
   handle("get-pending-questions", () => getQuestionRelay()?.list() || []);
+  handle("get-harness-runtime", () => getHarnessRuntime()?.state() || null);
+  handle("check-harness-runtime", () => getHarnessRuntime()?.check() || null);
+  handle("refresh-questions", () => ({ refreshed: getQuestionRelay()?.refresh() === true, status: getQuestionRelay()?.status?.() || null }));
   handle("answer-question", async (_event, eventId, answer) => {
     const relay = getQuestionRelay();
     if (!relay) throw new Error("Questions are not available");
@@ -439,6 +446,19 @@ function registerIpcHandlers({
     schedulePreferenceSave();
     return preferences.compactAutoExpand;
   });
+  handle("set-pet-mode", (_event, value) => {
+    const preferences = getPreferences();
+    preferences.petMode = value !== false;
+    schedulePreferenceSave();
+    petRoamer?.setEnabled(preferences.petMode);
+    // Switched off, a pet that wandered away goes back to its edge.
+    if (!preferences.petMode && getWindowMode() === "orb") snapCompactToEdge?.();
+    return preferences.petMode;
+  });
+  on("pet-context", (_event, value) => {
+    const context = value && typeof value === "object" ? value : {};
+    petRoamer?.setContext(Object.fromEntries(["hovered", "statusOpen", "busy", "attention", "reducedMotion", "dragging", "stimulus"].map((key) => [key, context[key] === true])));
+  });
   handle("set-collapse-after-send", (_event, value) => {
     const preferences = getPreferences();
     preferences.collapseAfterSend = Boolean(value);
@@ -503,6 +523,7 @@ function registerIpcHandlers({
       appearance: preferences.appearance,
       compactAutoExpand: preferences.compactAutoExpand === true,
       collapseAfterSend: preferences.collapseAfterSend !== false,
+      petMode: preferences.petMode !== false,
       size: preferences.size,
       windowMode: getWindowMode(),
       compactSide: preferences.compactSide,
@@ -518,8 +539,8 @@ function registerIpcHandlers({
   handle("get-update-state", () => getUpdateService()?.getState() || null);
   handle("check-for-updates", () => checkForUpdates());
   handle("install-update", () => getUpdateService()?.install() || null);
-  handle("set-window-mode", (_event, mode) => {
-    applyWindowMode(mode);
+  handle("set-window-mode", (_event, mode, options) => {
+    applyWindowMode(mode, { mini: options?.mini === true });
     return getWindowMode();
   });
   handle("set-compact-status", (_event, value) => {
@@ -534,6 +555,7 @@ function registerIpcHandlers({
     };
     setCompactStatus(compactStatus);
     const changed = wasActive !== compactStatus.active || wasExpanded !== compactStatus.expanded;
+    if (getWindowMode() === "orb" && changed) petRoamer?.hold();
     if (getWindowMode() === "orb" && changed && !getCompactDragOrigin()) {
       applyWindowMode("orb", { captureCurrent: false, persist: false, preserveCompactPosition: true });
     } else if (getWindowMode() === "orb" && changed) {

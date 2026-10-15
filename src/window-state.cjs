@@ -1,4 +1,7 @@
-const { clamp, compactMargin, compactVisibleInset } = require("./window-geometry.cjs");
+const { COMPACT_VISUALS, clamp, compactMargin, compactVisibleInset } = require("./window-geometry.cjs");
+
+// From a compact window's outer side to the avatar's centre (30 px margin + 34 px radius).
+const AVATAR_INSET = COMPACT_VISUALS.orb.margin + COMPACT_VISUALS.orb.size / 2;
 
 function finite(value, fallback) {
   const numeric = Number(value);
@@ -41,6 +44,14 @@ function restoreCompactBounds(saved, fallback, workArea, options = {}) {
     workArea.y - inset.top,
     workArea.y + workArea.height - height + inset.bottom,
   );
+  // A pet that walked away from its edge is saved by where the avatar's centre is, and the
+  // window (whatever its width now) is put back around that, kept on the screen.
+  const freeCentre = mode === "orb" && saved?.free === true ? finite(saved.ax, NaN) : NaN;
+  if (Number.isFinite(freeCentre)) {
+    const half = COMPACT_VISUALS.orb.size / 2;
+    const centre = clamp(freeCentre, workArea.x + half, workArea.x + workArea.width - half);
+    return { x: side === "left" ? centre - AVATAR_INSET : centre - (width - AVATAR_INSET), y, width, height, side };
+  }
   return {
     x: side === "left" ? workArea.x + margin : workArea.x + workArea.width - width - margin,
     y,
@@ -71,6 +82,7 @@ function captureModeBounds(state, mode, bounds, side) {
       x: finite(bounds?.x, 0),
       y: finite(bounds?.y, 0),
       side: side === "left" ? "left" : "right",
+      ...(mode === "orb" && bounds?.free === true && Number.isFinite(Number(bounds.ax)) ? { free: true, ax: finite(bounds.ax, 0) } : {}),
     };
   }
   return next;

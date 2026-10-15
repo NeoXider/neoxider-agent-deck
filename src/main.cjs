@@ -39,7 +39,7 @@ const { createFileSelectionBroker } = require("./file-selection-broker.cjs");
 const { createBase64Encoder } = require("./base64-encoder.cjs");
 const { createExternalLinkOpener, parseExternalUrl } = require("./external-links.cjs");
 const { createMuxClient } = require("./mux-client.cjs");
-const { createRemoteMuxClient } = require("./remote-mux.cjs");
+const { createRemoteMuxClient, liveSessionIds } = require("./remote-mux.cjs");
 const { createStreamPublisher } = require("./stream-publisher.cjs");
 const { createSettingsStore, DEFAULT_PREFERENCES } = require("./settings-store.cjs");
 const { configureProductUserData } = require("./user-data-migration.cjs");
@@ -50,7 +50,7 @@ const {
   snapCompactBounds,
 } = require("./window-geometry.cjs");
 const { captureModeBounds, fitFullBounds, resizeCompactAnchor } = require("./window-state.cjs");
-const { COMPACT_SIZES, compactTargetBounds, compactWindowSize, nearestCompactSize, placeCompactWindow } = require("./compact-window.cjs");
+const { COMPACT_SIZES, compactTargetBounds, compactWindowSize, miniChatBounds, nearestCompactSize, placeCompactWindow } = require("./compact-window.cjs");
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
 const { isScreenshotMode, pinScreenshotRenderScale, screenshotRequest } = require("./screenshot-mode.cjs");
@@ -67,8 +67,8 @@ installProcessGuards();
 const api = new HarnessApi(HARNESS_URL, globalThis.fetch, { getLaunchBrowserUrl: () => harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl || "" });
 const dashboardReader = createSharedDashboardReader({
   api,
-  onSessions: (sessionIds) => {
-    remoteMux.setTrackedSessions(sessionIds);
+  onSessions: (sessionIds, sessions) => {
+    remoteMux.setTrackedSessions(liveSessionIds(sessions, { selected: preferences.lastSelectedSessionId }));
     // The open chat is kept even when it is a subagent or archived session the list omits.
     api.retainSessions([...sessionIds, preferences.lastSelectedSessionId].filter(Boolean));
   },
@@ -97,9 +97,7 @@ const SIZE_PRESETS = {
 };
 const FULL_MIN_WIDTH = 360;
 const FULL_MIN_HEIGHT = 360;
-// The transparent margin prevents the animated bloom around the pet from being clipped.
-// Every compact size now lives in compact-window.cjs, next to the placement rules that
-// depend on it.
+// Compact sizes live in compact-window.cjs, beside the placement rules that use them.
 const ORB_SIZE = COMPACT_SIZES.orb.height;
 const ORB_EXPANDED_HEIGHT = COMPACT_SIZES.orbPanel.height;
 const openExternalUrl = createExternalLinkOpener({ openExternal: (url) => shell.openExternal(url) });
@@ -131,6 +129,7 @@ let compactStatusResizePending = false;
 // something. Empty means "not measured yet", which keeps the whole window interactive.
 let compactHitAreas = [];
 let fullDragOrigin = null;
+let miniChat = false; // Full mode in the small window beside the avatar; its bounds are never saved.
 let compactDragTrace = [];
 // A stranded full origin silently stops every later move and resize from being captured,
 // so Full reopens at a stale position for the rest of the session; a stranded compact one
@@ -156,6 +155,7 @@ function cleanupApplication() {
   preferenceSaveTimer = null;
   rendererRecovery?.dispose();
   gameBarController?.dispose();
+  petRoamer.dispose();
   if (windowRef && !windowRef.isDestroyed()) captureWindowBounds(windowMode, windowRef.getBounds());
   if (settingsStore) savePreferences({ retryOnFailure: false });
   muxClient.stop();
@@ -163,6 +163,7 @@ function cleanupApplication() {
   harnessLauncher?.dispose();
   remoteMux?.stop();
   questionRelay.stop();
+  harnessRuntime.stop();
   gameLayerKeeper?.stop();
   compactHitTracker?.stop();
   hotkeyManager?.dispose();
@@ -248,32 +249,18 @@ function createApplicationUpdateService() {
     isWindowsStore: process.windowsStore,
   });
 }
-function screenshotDisplayPoint() {
-  if (!windowRef || windowRef.isDestroyed()) return undefined;
-  const bounds = windowRef.getBounds();
-  return { x: bounds.x + Math.round(bounds.width / 2), y: bounds.y + Math.round(bounds.height / 2) };
-}
-
-function captureScreenshotForChat(kind) {
-  return require("./chat-capture.cjs").captureForChat(kind, {
-    service: screenshotService, gate: screenshotCaptureGate, window: windowRef,
-    mode: windowMode, displayPoint: screenshotDisplayPoint, cursorPoint: () => screen.getCursorScreenPoint(),
-    captureProtected: preferences.windowLayer === "private" && PLATFORM_CAPABILITIES.captureExclusion && typeof windowRef?.setContentProtection === "function",
-    shieldFromCapture: PLATFORM_CAPABILITIES.captureExclusion ? on => { if (windowRef && !windowRef.isDestroyed()) windowRef.setContentProtection(on || preferences.windowLayer === "private"); } : null,
-    prepareImage: png => attachmentRegistry.registerPrepared({ attachments: [{ kind: "image", mediaType: "image/png", data: png.toString("base64"), name: "screenshot.png" }] }),
-    prepareFiles, applyWindowMode,
-  });
-}
-
-async function captureScreenshotFromHotkey(kind) {
-  sendToRenderer("hotkey-action", `captureStarted:${kind}`);
-  try {
-    const result = await captureScreenshotForChat(kind);
-    sendToRenderer("screenshot-captured", result);
-  } catch (error) {
-    sendToRenderer("screenshot-captured", { ok: false, canceled: false, reason: error?.code || "capture-failed", error: String(error?.message || error) });
-  }
-}
+const petRoamer = require("./pet-roamer.cjs").createPetRoamer({
+  getWindow: () => windowRef, getWorkArea: (bounds) => screen.getDisplayMatching(bounds).workArea, getSide: () => preferences.compactSide,
+  isActive: () => windowMode === "orb" && preferences.petMode && PLATFORM_CAPABILITIES.programmaticPosition && !compactDragOrigin && Boolean(windowRef?.isVisible()),
+  place: (x, y) => placeCompactWindow(windowRef, x, y), send: (state) => sendToRenderer("pet-state", state),
+  onRest: (bounds) => { captureWindowBounds("orb", bounds, preferences.compactSide); schedulePreferenceSave(); },
+});
+const chatCapture = require("./chat-capture.cjs").createChatCaptureController({
+  getService: () => screenshotService, gate: screenshotCaptureGate, getWindow: () => windowRef, getMode: () => windowMode, screen,
+  isPrivate: () => preferences.windowLayer === "private", captureExclusion: PLATFORM_CAPABILITIES.captureExclusion,
+  prepareImage: png => attachmentRegistry.registerPrepared({ attachments: [{ kind: "image", mediaType: "image/png", data: png.toString("base64"), name: "screenshot.png" }] }),
+  prepareFiles, applyWindowMode: (...args) => applyWindowMode(...args), send: sendToRenderer,
+});
 
 function registerConfiguredHotkeys(bindings) {
   const registration = hotkeyManager.applyAvailable(bindings);
@@ -287,19 +274,6 @@ function registerConfiguredHotkeys(bindings) {
   return registration.active;
 }
 
-async function cleanupSentCaptureFiles(attachments) {
-  if (!screenshotService) return;
-  const paths = [...new Set((attachments || [])
-    .map((item) => item?.path)
-    .filter((filePath) => screenshotService.ownsCapture(filePath)))].slice(0, 12);
-  await Promise.all(paths.map(async (filePath) => {
-    try {
-      await screenshotService.removeCapture(filePath);
-    } catch (error) {
-      console.warn("Failed to remove sent screenshot", error);
-    }
-  }));
-}
 const { publishLiveEvent, publishQueue, publishJobs } = createStreamPublisher({
   queueSnapshots, backgroundJobs: api.backgroundJobs, send: sendToRenderer,
   readAttachment: (sessionId, attachmentId) => api.readAttachment(sessionId, attachmentId),
@@ -323,9 +297,12 @@ remoteMux = createRemoteMuxClient({
   onLiveEvent: publishLiveEvent,
 });
 // The agent's questions, answered in Deck instead of only in the browser (question-relay.cjs).
-const questionRelay = createQuestionRelay({ getTransport: () => api.ensureRemote(), publish: (list) => sendToRenderer("pending-questions", list) });
+const harnessRuntime = require("./harness-runtime.cjs").createHarnessRuntime({ onState: (state) => sendToRenderer("harness-runtime", state) });
+const questionRelay = createQuestionRelay({ getTransport: () => api.ensureRemote(), publish: (list) => sendToRenderer("pending-questions", list),
+  onError: (error) => console.warn("Question relay:", error?.message || error), onStatus: (status) => sendToRenderer("question-relay-status", status) });
 
 function captureWindowBounds(mode, bounds, side = preferences.compactSide, setLastMode = true) {
+  if (mode === "full" && miniChat) return;
   const previousMode = preferences.windowState.mode;
   const canonicalBounds = mode === "orb"
     ? resizeCompactAnchor(bounds, bounds.height, ORB_SIZE)
@@ -419,13 +396,13 @@ function snapCurrentCompactWindow({ traceEnd = false } = {}) {
   // flight starts, instead of sliding ~44px after the window has landed.
   sendToRenderer("compact-side", preferences.compactSide);
   const target = { x: snapped.x, y: snapped.y, width: snapped.width, height: snapped.height };
-  compactGlide.glide(bounds, target, () => { if (windowRef && !windowRef.isDestroyed()) setPlatformBounds(windowRef, target, true, PLATFORM_CAPABILITIES); });
+  compactGlide.glide(bounds, target, () => { if (windowRef && !windowRef.isDestroyed()) setPlatformBounds(windowRef, target, true, PLATFORM_CAPABILITIES); if (windowMode === "orb") petRoamer.landed(target); });
   captureWindowBounds(windowMode, snapped, snapped.side);
   savePreferences();
   return { ...windowRef.getBounds(), side: preferences.compactSide };
 }
 
-function applyWindowMode(nextMode, { captureCurrent = true, persist = true, preserveCompactPosition = false } = {}) {
+function applyWindowMode(nextMode, { captureCurrent = true, persist = true, preserveCompactPosition = false, mini = false } = {}) {
   if (!windowRef || windowRef.isDestroyed() || !["full", "orb", "edge"].includes(nextMode)) return;
   if (nextMode === "edge" && PLATFORM_CAPABILITIES.edgeMode === "unavailable") nextMode = "orb";
   const preservedOrbPosition = preserveCompactPosition && nextMode === "orb" ? preferences.windowState.orb : null;
@@ -434,14 +411,16 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   if (nextMode !== windowMode) releaseDragOrigins();
   compactGlide.stop();
   if (captureCurrent) captureWindowBounds(windowMode, windowRef.getBounds());
+  const compactBounds = windowRef.getBounds();
   windowMode = nextMode;
+  miniChat = nextMode === "full" && mini && !SCREENSHOT_MODE;
   preferences.windowState.mode = nextMode;
   windowRef.setMinimumSize(1, 1);
 
   if (nextMode === "full") {
     const fallbackSize = SIZE_PRESETS[preferences.size] || SIZE_PRESETS.standard;
     const fallback = { ...windowRef.getBounds(), width: fallbackSize[0], height: fallbackSize[1] };
-    const target = preferences.windowState.full || fullBounds || fallback;
+    const target = miniChat ? miniChatBounds(compactBounds, preferences.compactSide, screen.getDisplayMatching(compactBounds).workArea) : preferences.windowState.full || fullBounds || fallback;
     const display = screen.getDisplayMatching(target).workArea;
     const restored = fitFullBounds(target, fallback, display, {
       minWidth: SCREENSHOT_MODE ? 1 : FULL_MIN_WIDTH,
@@ -481,6 +460,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   gameLayerKeeper?.trigger();
   sendToRenderer("window-mode", windowMode);
   sendToRenderer("compact-side", preferences.compactSide);
+  petRoamer.modeChanged(windowMode);
 }
 
 function createWindow() {
@@ -636,6 +616,7 @@ function registerWidgetIpc() {
     getHarnessLauncher: () => harnessLauncher,
     getHarnessSupervisor: () => harnessSupervisor,
     getQuestionRelay: () => questionRelay,
+    getHarnessRuntime: () => harnessRuntime,
     getHotkeyManager: () => hotkeyManager,
     getCompactHitTracker: () => compactHitTracker,
     getScreenshotService: () => screenshotService,
@@ -656,8 +637,10 @@ function registerWidgetIpc() {
     moveEdgeDragToPointer: moveEdgeWindowToPointer,
     traceCompactDrag,
     setWindowLayer: setWindowLayerPreference,
-    captureScreenshot: captureScreenshotForChat,
-    cleanupSentCaptureFiles,
+    petRoamer,
+    snapCompactToEdge: () => snapCurrentCompactWindow(),
+    captureScreenshot: chatCapture.capture,
+    cleanupSentCaptureFiles: chatCapture.cleanupSentCaptureFiles,
     autoStartPreference,
     hotkeyErrorView,
     sendToRenderer,
@@ -746,8 +729,8 @@ app.whenReady().then(() => {
         sendToRenderer("hotkey-action", "newSession");
       },
       openHarness: () => shell.openExternal(desktopHarnessUrl(HARNESS_URL, harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl)),
-      captureDisplay: () => captureScreenshotFromHotkey("display"),
-      captureRegion: () => captureScreenshotFromHotkey("region"),
+      captureDisplay: () => chatCapture.captureFromHotkey("display"),
+      captureRegion: () => chatCapture.captureFromHotkey("region"),
       captureDisplaySend: () => sendToRenderer("hotkey-action", "captureDisplaySend"),
     },
     onError: (error) => {
@@ -790,6 +773,7 @@ app.whenReady().then(() => {
     muxClient.connect();
     remoteMux.start();
     questionRelay.start();
+    harnessRuntime.start();
     desktopAccess = createDesktopAccess({ app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, productName: PRODUCT_NAME,
       getPreferences: () => preferences, savePreferences, harnessUrl: HARNESS_URL,
       trustStore: createDeviceTrustStore({ filePath: path.join(app.getPath("userData"), "trusted-devices.json") }),

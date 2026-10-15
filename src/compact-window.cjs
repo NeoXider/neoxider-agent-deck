@@ -75,4 +75,23 @@ function placeCompactWindow(windowRef, x, y) {
   windowRef.setBounds({ x, y, ...size }, false);
 }
 
-module.exports = { COMPACT_SIZES, compactAnchor, compactTargetBounds, compactWindowSize, nearestCompactSize, placeCompactWindow };
+// A chat opened from the avatar unfolds as a small window beside it, not at the full
+// widget's own size and place: the avatar's panel grown into a conversation. Its inner edge
+// lines up with the avatar's, so the window seems to come out of it.
+const MINI_CHAT_SIZE = Object.freeze({ width: 380, height: 540 });
+const ORB_AVATAR_INSET = 64; // 30 px margin + 34 px radius, from the window's outer side.
+function miniChatBounds(orbBounds, side, workArea, size = MINI_CHAT_SIZE) {
+  const width = Math.min(size.width, workArea.width);
+  const height = Math.min(size.height, workArea.height);
+  const avatarX = side === "left" ? orbBounds.x + ORB_AVATAR_INSET : orbBounds.x + orbBounds.width - ORB_AVATAR_INSET;
+  const x = side === "left" ? avatarX - 34 : avatarX + 34 - width;
+  const y = orbBounds.y + orbBounds.height / 2 - height / 2;
+  return {
+    x: Math.round(Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - width)),
+    y: Math.round(Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - height)),
+    width,
+    height,
+  };
+}
+
+module.exports = { COMPACT_SIZES, MINI_CHAT_SIZE, compactAnchor, compactTargetBounds, compactWindowSize, miniChatBounds, nearestCompactSize, placeCompactWindow };

@@ -43,6 +43,7 @@ const state = {
   motionEffects: true,
   compactAutoExpand: false,
   collapseAfterSend: true,
+  petMode: true,
   // The chat opened from the avatar's recent chats: its heading offers the way back, and
   // sending to it folds the widget back into the avatar (see collapseAfterSend).
   returnToAvatarSessionId: null,
@@ -85,6 +86,7 @@ const state = {
   compactHitAreaSignature: "",
   // Questions the agent is waiting on, as question-relay.cjs holds them, oldest first.
   pendingQuestions: [],
+  questionRelayStatus: null,
   sessionTimerTick: null,
   // Deck's choice is independent of which chat Harness opens in its own browser.
   lastSelectedSessionId: null,
@@ -211,6 +213,20 @@ function createIcon(name, className = "ui-icon") {
   use.setAttribute("href", `#icon-${name}`);
   svg.append(use);
   return svg;
+}
+
+// Status on (the eye beside the chat button): every message the agent writes slides out
+// beside the avatar for a few seconds - its words only, never its tools or its thinking.
+// Off, only the finished reply does (notifyCompletion).
+function announceAssistantMessage(sessionId, message) {
+  if (!state.compactAutoExpand || state.windowMode === "full" || !sessionId) return false;
+  const text = (Array.isArray(message?.content) ? message.content : [])
+    .filter((part) => part?.type === "text" && typeof part.text === "string")
+    .map((part) => part.text).join(" ").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+  showCompactNotification({ kind: "notification", sessionId, title: session?.title || "Agent", text: compactText(text, 160) }, 5000);
+  return true;
 }
 
 function compactText(value, limit = 120) {
@@ -486,7 +502,8 @@ function startCompactNotificationTimer(duration) {
   clearTimeout(state.compactNotificationTimer);
   compactNotificationRemaining = duration;
   compactNotificationDeadline = performance.now() + duration;
-  document.documentElement.style.setProperty("--toast-duration", `${duration}ms`);
+  // On the status itself: a custom property on the root restyles the whole document.
+  $("#orbStatus")?.style.setProperty("--toast-duration", `${duration}ms`);
   // The hairline restarts with every notification, so the class comes off for one frame.
   document.body.classList.remove("toast-timing", "toast-paused");
   void document.body.offsetWidth;
@@ -649,17 +666,18 @@ function syncCompactStatus() {
   // panel over the user's screen without being asked. They now show as the ring colour and
   // the count on the expand button; the panel is a deliberate act.
   const autoActive = Boolean(offline || preview || activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
-  // Notifications always show and leave on their own; standing status (working, offline)
-  // only when the user asked the avatar to expand on activity.
-  const active = Boolean(expanded || state.compactStatusClosing || preview || (state.compactAutoExpand && autoActive));
+  // Notifications always show and leave on their own. Thinking and tool calls never stand
+  // beside the avatar: with status on (the eye) every message the agent writes arrives as a
+  // notification of its own (announceAssistantMessage), and an offline Harness says so.
+  const active = Boolean(expanded || state.compactStatusClosing || preview || (state.compactAutoExpand && offline && autoActive));
   const label = offline ? "Harness offline" : preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
   const text = compactText(offline ? "Start Harness to reconnect." : preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
   const statusKind = offline ? "offline" : preview?.kind || "";
   const compactButton = $("#orbHistoryButton");
   const replySession = state.dashboard?.sessions?.find((session) => session.sessionId === state.compactReplySessionId);
-  // What someone glancing at a collapsed circle wants to know: how many agents are working
-  // right now. New replies are counted on the avatar itself, so the chat button carries
-  // only this, and with nothing running it steps out of sight until the avatar is hovered.
+  // Agents at work keep the chat button in sight with its turning ring. It used to carry
+  // their count too, and a 1 on the button beside the 1 of new replies on the avatar read as
+  // two numbers for one thing; the avatar's count is the only number now.
   const runningCount = (state.dashboard?.sessions || []).filter((session) => session.running).length;
   const badgeCount = runningCount;
   const compactButtonLabel = expanded ? "Close recent replies" : `Recent replies${compactSessions.length ? ` (${compactSessions.length})` : ""}`;
@@ -708,9 +726,7 @@ function syncCompactStatus() {
     compactButton.title = compactButtonLabel;
     compactButton.setAttribute("aria-label", compactButtonLabel);
     compactButton.querySelector("use")?.setAttribute("href", expanded ? "#icon-close" : "#icon-chat");
-    const badge = $("#orbPanelCount");
-    badge.textContent = badgeCount > 9 ? "9+" : String(badgeCount);
-    badge.classList.toggle("visible", !expanded && badgeCount > 0);
+    $("#orbPanelCount").classList.remove("visible");
     $("#orbReplyTitle").textContent = replyTitle;
     $("#orbReplyFeedback").textContent = state.compactReplyError;
     $("#orbReplySend").disabled = state.compactReplyBusy;
@@ -723,6 +739,7 @@ function syncCompactStatus() {
     // #orbMode for why one measurement taken now is not enough.
     schedulePublishCompactHitAreas();
   }
+  publishPetContext();
   const compactStatus = { active, expanded, label, text };
   const ipcSignature = JSON.stringify([active, expanded, label, text]);
   if (ipcSignature !== state.compactStatusIpcSignature) {
@@ -795,7 +812,7 @@ function schedulePublishCompactHitAreas() {
 function publishCompactHitAreas() {
   if (!window.widget.setCompactHitAreas || state.windowMode !== "orb") return;
   const areas = [];
-  for (const selector of ["#orbRestore", "#orbHistoryButton", "#orbStatus"]) {
+  for (const selector of ["#orbRestore", "#orbRestore .pet-body", "#orbHistoryButton", "#orbFeedButton", "#orbDockButton", "#orbStatus"]) {
     const element = $(selector);
     if (!element || element.hidden || !element.offsetParent) continue;
     // The chat button waits out of sight until the avatar is hovered; while hidden, its
@@ -913,10 +930,12 @@ function setAvatar(mode, label) {
     const shell = $("#avatarShell");
     shell.className = `avatar-shell ${mode}`;
     shell.title = mode === "offline" ? "Harness offline" : "";
+    const nextAvatar = AVATARS[mode] || AVATARS.idle;
     document.querySelectorAll("[data-avatar]").forEach((image) => {
-      const next = AVATARS[mode] || AVATARS.idle;
-      if (!image.src.endsWith(next)) image.src = next;
+      if (!image.src.endsWith(nextAvatar)) image.src = nextAvatar;
     });
+    // The avatar's glow is its own silhouette, so it follows the mood's picture.
+    $("#orbRestore").style.setProperty("--avatar-mask", `url("${nextAvatar}")`);
     $("#avatarState").textContent = text;
     document.body.classList.remove("state-idle", "state-working", "state-waiting", "state-error", "state-done", "state-offline");
     document.body.classList.add(`state-${mode}`);
@@ -1056,12 +1075,12 @@ function notifyCompletion(session) {
   return true;
 }
 
-const MODE_EXIT_DURATION = 145;
+const MODE_EXIT_DURATION = 100;
 // Folding the whole widget into the avatar or the edge is the part of the move the eye
 // follows, so it gets twice the beat of a compact handle stepping aside (motion.css).
 const MODE_FOLD_DURATION = 290;
 // Long enough for the slime's landing and the full widget's bloom to finish.
-const MODE_ENTER_DURATION = 660;
+const MODE_ENTER_DURATION = 500;
 const FIRST_VISIBLE_ENTRY_DURATION = 720;
 // A failure older than this is history, not news, when the first poll finds it.
 const STARTUP_ERROR_RECENT_MS = 10 * 60 * 1000;
@@ -1091,7 +1110,11 @@ function playFirstVisibleEntry() {
 
 function clearModeTransitionClasses(kind) {
   const prefix = kind === "out" ? "mode-transition-to-" : "mode-transition-from-";
-  document.body.classList.remove(`mode-transition-${kind}`, "mode-transition-pending");
+  // Only an unfold's own reset takes the pending hide off. setWindowMode's cleanup of the fold
+  // runs after the new mode is applied, and taking it off there showed the whole widget for a
+  // frame or two before it grew out of the avatar.
+  document.body.classList.remove(`mode-transition-${kind}`);
+  if (kind === "in") document.body.classList.remove("mode-transition-pending");
   [...document.body.classList].filter((name) => name.startsWith(prefix)).forEach((name) => document.body.classList.remove(name));
 }
 
@@ -1120,7 +1143,10 @@ function rememberCompactAnchor() {
 
 // --morph-x/--morph-y are in the window's own pixels and clamped inside it: an avatar parked
 // beyond the window is aimed at through the nearest point of the window's edge. Without an
-// anchor the dock side stands in for it.
+// anchor the dock side stands in for it. They are set on the two elements that read them and
+// do not inherit (motion.css): on the body they restyled the whole conversation on every one
+// of the unfold's first frames, which is what made it start late and stutter.
+const modeMorphPoint = { x: NaN, y: NaN };
 function setModeMorphOrigin(anchor, local = null) {
   const width = window.innerWidth;
   const height = window.innerHeight;
@@ -1131,10 +1157,13 @@ function setModeMorphOrigin(anchor, local = null) {
   const x = Math.min(width - 18, Math.max(18, point.x));
   const y = Math.min(height - 18, Math.max(18, point.y));
   const cover = Math.ceil(Math.hypot(Math.max(x, width - x), Math.max(y, height - y))) + 2;
-  const style = document.body.style;
-  style.setProperty("--morph-x", `${Math.round(x)}px`);
-  style.setProperty("--morph-y", `${Math.round(y)}px`);
-  style.setProperty("--morph-cover", `${cover}px`);
+  modeMorphPoint.x = Math.round(x);
+  modeMorphPoint.y = Math.round(y);
+  for (const element of [$(".widget-shell"), $(".mode-morph-rim")]) {
+    element?.style.setProperty("--morph-x", `${modeMorphPoint.x}px`);
+    element?.style.setProperty("--morph-y", `${modeMorphPoint.y}px`);
+    element?.style.setProperty("--morph-cover", `${cover}px`);
+  }
 }
 
 // The native resize and the renderer's idea of its own window size and position do not
@@ -1176,12 +1205,16 @@ function animateModeEnter(previousMode) {
   clearModeTransitionClasses("in");
   const start = () => {
     if (sequence !== modeTransitionSequence) return;
+    const unfolding = state.windowMode === "full";
+    if (unfolding && previousMode === "orb") followModeMorphOrigin(compactAnchors.orb);
+    if (unfolding && previousMode === "edge") setModeMorphOrigin(null);
+    // Measured here, while the shell is laid out but still hidden and unscaled: the title bar
+    // is where the slime will rest.
+    if (unfolding && ["orb", "edge"].includes(previousMode)) flyTitleSlime("in", previousMode, SLIME_FLIGHT_IN_DURATION);
     document.body.classList.remove("mode-transition-pending");
-    if (state.windowMode === "full" && previousMode === "orb") followModeMorphOrigin(compactAnchors.orb);
-    if (state.windowMode === "full" && previousMode === "edge") setModeMorphOrigin(null);
-    // Measured here, before the unfold scales the shell: the title bar is where it will rest.
-    if (state.windowMode === "full" && ["orb", "edge"].includes(previousMode)) flyTitleSlime("in", previousMode, SLIME_FLIGHT_IN_DURATION);
-    void document.body.offsetWidth;
+    // An unfold's classes came off a frame or more ago, while it waited hidden; only a compact
+    // entrance, cleared just now, needs the reflow to restart its animations.
+    if (!unfolding) void document.body.offsetWidth;
     document.body.classList.add("mode-transition-in", `mode-transition-from-${previousMode}`);
     setTimeout(() => {
       if (sequence === modeTransitionSequence) clearModeTransitionClasses("in");
@@ -1204,13 +1237,12 @@ function animateModeEnter(previousMode) {
 // unfolding, it hops from there back to its place and lands with a squash. It flies as a copy
 // above the shell, which is shrinking or growing at the same time, while the one in the title
 // bar waits hidden. Both directions measure the title bar before the shell is transformed.
-const SLIME_FLIGHT_IN_DURATION = 640;
+const SLIME_FLIGHT_IN_DURATION = 470;
 function flyTitleSlime(direction, compactMode, duration) {
   if (prefersReducedMotion() || document.body.dataset.motion === "subtle") return;
   const home = $("#avatarShell img");
   const rect = home?.getBoundingClientRect();
-  const x = parseFloat(document.body.style.getPropertyValue("--morph-x"));
-  const y = parseFloat(document.body.style.getPropertyValue("--morph-y"));
+  const { x, y } = modeMorphPoint;
   if (!rect?.width || !Number.isFinite(x) || !Number.isFinite(y)) return;
   const dx = x - (rect.left + rect.width / 2);
   const dy = y - (rect.top + rect.height / 2);
@@ -1313,13 +1345,13 @@ function applyWindowMode(mode) {
   schedulePublishCompactHitAreas();
 }
 
-async function setWindowMode(mode) {
+async function setWindowMode(mode, options) {
   if (mode === "edge" && state.platformPresentation?.edgeAvailable === false) return state.windowMode;
   if (mode !== "full") clearAcknowledgedErrorPresentation();
   const requestSequence = ++modeRequestSequence;
   try {
     if (!await animateModeExit(mode, requestSequence) || requestSequence !== modeRequestSequence) return state.windowMode;
-    const appliedMode = await window.widget.setWindowMode(mode);
+    const appliedMode = await window.widget.setWindowMode(mode, options);
     if (requestSequence !== modeRequestSequence) return state.windowMode;
     applyWindowMode(appliedMode);
     return state.windowMode;
@@ -1386,12 +1418,13 @@ function updateEdgePointerHit(event) {
     setEdgePointerActive(true);
     return;
   }
-  const line = $("#edgeMode .edge-line");
-  const rect = line.getBoundingClientRect();
-  const hit = event.clientX >= rect.left - EDGE_HIT_PADDING
+  const inside = (rect) => event.clientX >= rect.left - EDGE_HIT_PADDING
     && event.clientX <= rect.right + EDGE_HIT_PADDING
     && event.clientY >= rect.top - EDGE_HIT_PADDING
     && event.clientY <= rect.bottom + EDGE_HIT_PADDING;
+  // The slime that peeks out above a hovered line stays reachable while the line is lit.
+  const hit = inside($("#edgeMode .edge-line").getBoundingClientRect())
+    || (edgePointerActive && inside($("#edgeToOrbButton").getBoundingClientRect()));
   setEdgePointerActive(hit);
 }
 
@@ -1546,6 +1579,7 @@ function moveCompactDrag(event) {
     compactDrag.target.setPointerCapture?.(event.pointerId);
     window.widget.beginCompactDrag({ x: compactDrag.startX, y: compactDrag.startY });
     document.body.classList.add("compact-dragging");
+    publishPetContext();
   }
   event.preventDefault();
   leanCompactDrag(event.movementX);
@@ -1558,9 +1592,10 @@ function moveCompactDrag(event) {
 let compactDragLeanTimer = 0;
 function leanCompactDrag(movementX) {
   const lean = Math.max(-14, Math.min(14, (Number(movementX) || 0) * 1.1));
-  document.body.style.setProperty("--drag-lean", `${lean.toFixed(1)}deg`);
+  const orb = $("#orbRestore");
+  orb?.style.setProperty("--drag-lean", `${lean.toFixed(1)}deg`);
   clearTimeout(compactDragLeanTimer);
-  compactDragLeanTimer = setTimeout(() => document.body.style.setProperty("--drag-lean", "0deg"), 90);
+  compactDragLeanTimer = setTimeout(() => orb?.style.setProperty("--drag-lean", "0deg"), 90);
 }
 
 // Set down, the avatar lands as the window finishes gliding to its edge: a squash, a
@@ -1581,7 +1616,8 @@ async function endCompactDrag(event) {
   if (nativeStarted) flushCompactDragMove();
   compactDrag = null; // lostpointercapture may fire synchronously when capture is released.
   document.body.classList.remove("compact-dragging");
-  document.body.style.setProperty("--drag-lean", "0deg");
+  $("#orbRestore")?.style.setProperty("--drag-lean", "0deg");
+  publishPetContext();
   if (nativeStarted) target.releasePointerCapture?.(event.pointerId);
   // The click event fires synchronously right after pointerup, long before this IPC
   // round trip resolves. Arming the guard after the await let every drag release
@@ -3274,9 +3310,25 @@ function isWaitingUserQuestion(message) {
 function syncQuestionHandoffButton(button) {
   const here = hasPendingQuestion(button.dataset.sessionId);
   button.textContent = here ? "Answer below" : "Answer in DSH";
+  const relay = state.questionRelayStatus;
   button.title = here
     ? "The agent is waiting for your answer: the question is above the message box."
-    : "The agent is waiting for your answer. Open this chat's question in Harness; queued messages wait until it is answered.";
+    : `The agent is waiting for your answer. Open this chat's question in Harness; queued messages wait until it is answered.${relay && !relay.connected && relay.error ? ` Deck is not receiving questions: ${relay.error}` : ""}`;
+  if (!here) requestQuestionRefresh();
+}
+
+// A card waiting on a question Deck does not hold asks main for a fresh question stream, at
+// most every 20 s: the Gateway replays pending questions to a new stream, so a half-open one
+// stops costing the user a trip to the browser.
+let questionRefreshAt = 0;
+function requestQuestionRefresh() {
+  const now = Date.now();
+  if (now - questionRefreshAt < 20_000 || !window.widget.refreshQuestions) return;
+  questionRefreshAt = now;
+  setTimeout(() => {
+    if (!document.querySelector(".question-handoff-button") || hasPendingQuestion(state.selectedSessionId)) return;
+    window.widget.refreshQuestions().then((result) => { if (result?.status) state.questionRelayStatus = result.status; }).catch(() => {});
+  }, 1500);
 }
 
 function createQuestionHandoffButton() {
@@ -6136,6 +6188,7 @@ async function handleLiveEvent(payload) {
   // until the next dashboard poll noticed.
   if (event.type === "assistant/message") {
     if (sessionId === state.selectedSessionId) await refreshHistoryAfterLiveMessage(sessionId);
+    announceAssistantMessage(sessionId, event.data?.message);
     return;
   }
 
@@ -6251,11 +6304,15 @@ async function openCompactSession(requestedSessionId = null, { fromAvatar = fals
   state.compactReplyBusy = false;
   state.compactReplyError = "";
   clearTimeout(state.compactNotificationTimer);
-  // Restore before selection publishes the collapsed compact status. While the
-  // native Orb is resizing, its authoritative mode echo cancels an in-flight
-  // animated mode request; sequencing these operations keeps Full as the intent.
-  await setWindowMode("full");
-  if (sessionId && sessionId !== state.selectedSessionId) await selectSession(sessionId, true);
+  // The chat is chosen before the window unfolds. Switching it afterwards rendered the new
+  // conversation in the middle of the unfold, which is what made opening a chat from the
+  // avatar stutter. (The orb's resize echo no longer cancels the unfold: only a real mode
+  // change outranks a request in flight.) A slow history load is waited for only a moment.
+  const selecting = sessionId && sessionId !== state.selectedSessionId ? selectSession(sessionId, true) : null;
+  if (selecting) await Promise.race([selecting.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 300))]);
+  // From the avatar's recent chats it opens small, beside the avatar.
+  await setWindowMode("full", { mini: fromAvatar });
+  if (selecting) await selecting;
   else setTab("chat");
   if (state.compactReplySessionId === sessionId) state.compactReplySessionId = null;
   renderReturnToAvatarButton();
@@ -7143,8 +7200,102 @@ function applyMotionEffects(value) {
 function applyCompactAutoExpand(value) {
   state.compactAutoExpand = value === true;
   $("#compactAutoExpandToggle").checked = state.compactAutoExpand;
+  const feed = $("#orbFeedButton");
+  const feedLabel = state.compactAutoExpand ? "Status on: every message shows. Click for finished replies only" : "Status off: only finished replies show. Click to see every message";
+  feed.setAttribute("aria-pressed", String(state.compactAutoExpand));
+  feed.title = feedLabel;
+  feed.setAttribute("aria-label", feedLabel);
   syncCompactStatus();
   return state.compactAutoExpand;
+}
+
+// Pet mode. pet-roamer.cjs in main decides what the pet does and moves the window; this draws
+// it (poses and moves are CSS on .pet-body and .pet-act, keyed by data-pet-surface and
+// data-pet-action) and tells main what it must not interrupt.
+let petHovered = false;
+let petContextSignature = "";
+let petStrokes = [];
+let petHappyUntil = 0;
+function applyPetMode(value) {
+  state.petMode = value !== false;
+  $("#petModeToggle").checked = state.petMode;
+  document.body.classList.toggle("pet-mode", state.petMode);
+  if (!state.petMode) applyPetState({ surface: null, action: "off" });
+  publishPetContext();
+  return state.petMode;
+}
+
+function applyPetState(pet) {
+  const orb = $("#orbRestore");
+  orb.dataset.petSurface = pet?.surface || "";
+  orb.dataset.petAction = pet?.action || "";
+  orb.style.setProperty("--pet-dir", String(pet?.dir || 1));
+  if (Number.isFinite(pet?.impact)) orb.style.setProperty("--pet-impact", String(pet.impact));
+  document.body.classList.toggle("pet-on-wall", pet?.surface === "wall");
+  // A one-off move restarts its animation even when the same move comes twice in a row.
+  if (pet?.pulse) {
+    const act = orb.querySelector(".pet-act");
+    act.style.animation = "none";
+    void act.offsetWidth;
+    act.style.animation = "";
+  }
+  schedulePublishCompactHitAreas();
+}
+
+function publishPetContext(extra = {}) {
+  if (!window.widget.setPetContext || !state.petMode) return;
+  const context = {
+    hovered: petHovered,
+    statusOpen: document.body.classList.contains("orb-has-status") || state.compactHistoryOpen || state.compactReplyOpen,
+    busy: !state.harnessOffline && ["working", "waiting"].includes(state.avatarMode),
+    attention: Boolean(state.compactErrorUnread || state.compactNotification?.kind === "question" || state.avatarMode === "error"),
+    reducedMotion: prefersReducedMotion(),
+    dragging: Boolean(compactDrag),
+  };
+  const signature = JSON.stringify(context);
+  if (signature === petContextSignature && !extra.stimulus) return;
+  petContextSignature = signature;
+  window.widget.setPetContext({ ...context, ...extra });
+}
+
+// Stroking the pet: the pointer going back and forth over it three times within a second and
+// a half makes it squish happily and wakes it.
+function strokePet(event) {
+  if (!state.petMode || compactDrag || !event.movementX) return;
+  const now = performance.now();
+  const direction = Math.sign(event.movementX);
+  petStrokes = petStrokes.filter((stroke) => now - stroke.at < 1500);
+  if (petStrokes.at(-1)?.direction !== direction) petStrokes.push({ direction, at: now });
+  if (petStrokes.length < 4 || now < petHappyUntil) return;
+  petStrokes = [];
+  petHappyUntil = now + 2500;
+  const orb = $("#orbRestore");
+  orb.classList.remove("pet-happy");
+  void orb.offsetWidth;
+  orb.classList.add("pet-happy");
+  setTimeout(() => orb.classList.remove("pet-happy"), 1400);
+  publishPetContext({ stimulus: true });
+}
+
+// DeepSeek Harness runtime (harness-runtime.cjs): what is installed, whether a newer one
+// is waiting, and the restart that switches to it. Nothing restarts on its own: the agents
+// would be cut off mid-turn.
+function renderHarnessRuntime(runtime) {
+  if (!runtime) return;
+  state.harnessRuntime = runtime;
+  const channel = runtime.channel === "alpha" ? "alpha channel" : "stable channel";
+  $("#harnessRuntimeVersion").textContent = runtime.installed ? `Installed ${runtime.installed} · ${channel}` : "Not installed yet";
+  const waiting = Boolean(runtime.ready);
+  $("#harnessRuntimeBadge").hidden = !(waiting || runtime.installing);
+  $("#harnessRuntimeBadge").textContent = runtime.installing ? "Installing" : "New";
+  $("#harnessRuntimeStatus").textContent = runtime.installing
+    ? `Installing Harness ${runtime.installing}… The running Harness keeps working.`
+    : runtime.error ? `Harness update failed: ${runtime.error}`
+    : waiting ? `Harness ${runtime.ready} is installed. Restart Harness to switch; running agents are stopped by the restart.`
+    : runtime.latest ? `Up to date (newest on this channel: ${runtime.latest}).`
+    : "Deck installs Harness when it is missing and keeps it up to date.";
+  $("#restartHarnessRuntimeButton").hidden = !waiting;
+  $("#checkHarnessRuntimeButton").disabled = Boolean(runtime.installing);
 }
 
 function applyCollapseAfterSend(value) {
@@ -7355,6 +7506,7 @@ function applyPlatformCapabilities(capabilities) {
     ? "Enhanced always-on-top mode. Does not guarantee visibility over exclusive fullscreen games."
     : "Enhanced above-windows mode is unavailable on this platform; Above is used instead";
 
+  document.body.classList.toggle("edge-unavailable", !presentation.edgeAvailable);
   const dockButton = $("#dockButton");
   dockButton.disabled = !presentation.edgeAvailable;
   dockButton.setAttribute("aria-disabled", String(!presentation.edgeAvailable));
@@ -7412,6 +7564,7 @@ async function hydratePreferences() {
     window.deckAppearance?.apply(preferences.appearance);
     applyCompactAutoExpand(preferences.compactAutoExpand);
     applyCollapseAfterSend(preferences.collapseAfterSend);
+    applyPetMode(preferences.petMode);
     syncPressed($$('#sizeSwitch button'), preferences.size, "size");
     applyPlatformCapabilities(preferences.platformCapabilities);
     applyCompactSide(preferences.compactSide || "right");
@@ -7952,6 +8105,13 @@ $("#collapseHandle").addEventListener("click", (event) => {
 });
 $("#orbRestore").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
 $("#orbHistoryButton").addEventListener("click", toggleCompactHistory);
+$("#orbFeedButton").addEventListener("click", () => {
+  const toggle = $("#compactAutoExpandToggle");
+  toggle.checked = !state.compactAutoExpand;
+  toggle.dispatchEvent(new Event("change"));
+});
+$("#orbDockButton").addEventListener("click", () => { setWindowMode("edge").catch(showError); });
+$("#edgeToOrbButton").addEventListener("click", () => { setEdgePointerActive(false); setWindowMode("orb").catch(showError); });
 // The recent-replies panel eases open from a 64 px card to its full height, and the click
 // rectangles used to be measured during that move. Rows outside the half-grown panel were
 // left out, so their clicks went to the window behind the orb: Quick reply on the first
@@ -8111,6 +8271,46 @@ $("#collapseAfterSendToggle").addEventListener("change", async (event) => {
   }
 });
 $("#returnToAvatarButton").addEventListener("click", () => returnToAvatar().catch(showError));
+$("#petModeToggle").addEventListener("change", async (event) => {
+  const toggle = event.currentTarget;
+  const previous = state.petMode;
+  const requested = applyPetMode(toggle.checked);
+  toggle.disabled = true;
+  try {
+    applyPetMode(await window.widget.setPetMode(requested));
+  } catch {
+    applyPetMode(previous);
+  } finally {
+    toggle.disabled = false;
+  }
+});
+window.widget.onPetState?.((pet) => applyPetState(pet));
+window.widget.onHarnessRuntime?.((runtime) => renderHarnessRuntime(runtime));
+window.widget.getHarnessRuntime?.().then(renderHarnessRuntime).catch(() => {});
+$("#checkHarnessRuntimeButton").addEventListener("click", () => {
+  $("#harnessRuntimeStatus").textContent = "Checking npm for a newer Harness…";
+  window.widget.checkHarnessRuntime().then(renderHarnessRuntime).catch(showError);
+});
+$("#restartHarnessRuntimeButton").addEventListener("click", async () => {
+  const running = (state.dashboard?.sessions || []).filter((session) => session.running).length;
+  if (running && !window.confirm(`${running} agent${running === 1 ? " is" : "s are"} working. Restarting Harness stops ${running === 1 ? "it" : "them"}. Restart now?`)) return;
+  try { await window.widget.restartHarness(); } catch (error) { showError(error); }
+});
+// The agent's questions. question-relay.cjs in main held them all along, but nothing here
+// ever listened, so every question fell back to "Answer in DSH".
+window.widget.onPendingQuestions((list) => applyPendingQuestions(list));
+window.widget.onQuestionRelayStatus?.((status) => {
+  state.questionRelayStatus = status;
+  document.querySelectorAll(".question-handoff-button").forEach(syncQuestionHandoffButton);
+});
+window.widget.getPendingQuestions().then(applyPendingQuestions).catch(() => {});
+// The pointer on the pet or one of its buttons holds it still.
+$("#orbMode").addEventListener("pointerover", (event) => {
+  const over = Boolean(event.target.closest?.(".orb-avatar, .orb-satellite, .orb-history-button"));
+  if (over !== petHovered) { petHovered = over; publishPetContext(); }
+});
+$("#orbMode").addEventListener("pointerleave", () => { if (petHovered) { petHovered = false; publishPetContext(); } });
+$("#orbRestore").addEventListener("pointermove", strokePet);
 $("#compactAutoExpandToggle").addEventListener("change", async (event) => {
   const toggle = event.currentTarget;
   const previous = state.compactAutoExpand;

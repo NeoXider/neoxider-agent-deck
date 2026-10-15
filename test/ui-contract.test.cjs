@@ -456,7 +456,8 @@ test("collapsed pet exposes a scrolling list of recent sessions and inline quick
   assert.match(renderer, /if \(state\.compactReplyOpen && session\.sessionId === state\.compactReplySessionId\) openCompactSession\(session\.sessionId, \{ fromAvatar: true \}\)/);
   assert.match(renderer, /if \(state\.collapseAfterSend && state\.windowMode === "full" && state\.returnToAvatarSessionId === result\.sessionId\)/);
   assert.match(renderer, /openCompactReply\(session\.sessionId\)/);
-  assert.match(renderer, /await setWindowMode\("full"\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
+  // The chat is selected (briefly awaited) before the unfold, and from the avatar opens small.
+  assert.match(renderer, /const selecting = sessionId && sessionId !== state\.selectedSessionId \? selectSession\(sessionId, true\) : null;[\s\S]+?await setWindowMode\("full", \{ mini: fromAvatar \}\);\s*if \(selecting\) await selecting;/);
   const quickReply = renderer.slice(renderer.indexOf("async function sendCompactReply"), renderer.indexOf("function detectCompletedSessions"));
   assert.match(quickReply, /window\.widget\.send\(\{/);
   assert.match(quickReply, /sessionId,/);
@@ -1254,7 +1255,7 @@ test("updates download in the background and expose install only after verificat
 
 test("full, avatar, and edge transitions use a short renderer handoff without touching saved geometry", () => {
   const css = readSource("src", "renderer", "styles.css");
-  assert.match(renderer, /MODE_EXIT_DURATION = 145/);
+  assert.match(renderer, /MODE_EXIT_DURATION = 100/);
   assert.match(renderer, /await animateModeExit\(mode, requestSequence\)/);
   assert.match(renderer, /requestSequence !== modeRequestSequence/);
   assert.match(renderer, /function applyAuthoritativeWindowMode\(mode\)/);
@@ -1287,12 +1288,12 @@ test("compact errors are acknowledged in full chat and completion feedback is fi
   assert.match(renderer, /clearTimeout\(state\.compactNotificationTimer\)[\s\S]+?state\.compactNotification = null/);
   assert.match(renderer, /state\.unacknowledgedErrorSessionIds\.add\(sessionId\)/);
   assert.match(renderer, /acknowledgeSessionError\(state\.selectedSessionId\)/);
-  assert.match(renderer, /await setWindowMode\("full"\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
+  assert.match(renderer, /await setWindowMode\("full", \{ mini: fromAvatar \}\);\s*if \(selecting\) await selecting;/);
   assert.match(renderer, /state\.avatarMode === "error" && !state\.compactErrorUnread && !state\.harnessOffline/);
   const clearError = renderer.slice(renderer.indexOf("function clearAcknowledgedErrorPresentation"), renderer.indexOf("function signalSessionError"));
   assert.doesNotMatch(clearError, /state\.currentActivity\?\.kind !== "error"/);
   assert.match(clearError, /commandFeedback\?\.avatarMode === "error"[\s\S]+setCommandFeedback\(state\.selectedSessionId, null\)/);
-  assert.match(renderer, /if \(mode !== "full"\) clearAcknowledgedErrorPresentation\(\);[\s\S]+?window\.widget\.setWindowMode\(mode\)/);
+  assert.match(renderer, /if \(mode !== "full"\) clearAcknowledgedErrorPresentation\(\);[\s\S]+?window\.widget\.setWindowMode\(mode, options\)/);
   assert.match(renderer, /session\?\.state === "error"\) signalSessionError\(session\)/);
   assert.match(renderer, /if \(state\.windowMode === "full"\) \{[\s\S]+?\["error", "warning"\]\.includes\(latest\?\.role\)/);
   assert.match(renderer, /function clearCompletionSignal\(\)/);
@@ -1590,7 +1591,7 @@ test("re-asserting the same avatar state does not touch the DOM", () => {
     assert.ok(body.indexOf(churn) > guardAt, `${churn} must run only when the state actually changed`);
   }
   // An identical image src is a needless decode on every poll.
-  assert.match(body, /if \(!image\.src\.endsWith\(next\)\) image\.src = next;/);
+  assert.match(body, /if \(!image\.src\.endsWith\(nextAvatar\)\) image\.src = nextAvatar;/);
 });
 
 test("dashboard polls cannot replace Deck's own selected session", () => {
@@ -1641,7 +1642,11 @@ test("the orb window only takes the mouse where it draws something", () => {
   // A 172x128 transparent window for a 68px circle used to swallow every click that landed
   // near the avatar. The renderer measures its live controls; everything else forwards.
   assert.match(renderer, /function publishCompactHitAreas\(\)/);
-  assert.match(renderer, /for \(const selector of \["#orbRestore", "#orbHistoryButton", "#orbStatus"\]\)/);
+  // The relay's questions reach the renderer: pushed as they change and read once at start.
+  assert.match(renderer, /window\.widget\.onPendingQuestions\(\(list\) => applyPendingQuestions\(list\)\);/);
+  assert.match(renderer, /window\.widget\.getPendingQuestions\(\)\.then\(applyPendingQuestions\)/);
+  // The pet's body is measured too: on its edge it is drawn beyond the button's own box.
+  assert.match(renderer, /for \(const selector of \["#orbRestore", "#orbRestore \.pet-body", "#orbHistoryButton", "#orbFeedButton", "#orbDockButton", "#orbStatus"\]\)/);
   assert.match(renderer, /if \(!element \|\| element\.hidden \|\| !element\.offsetParent\) continue;/);
   const preload = readSource("src", "preload.cjs");
   assert.match(preload, /setCompactHitAreas: \(areas\) => ipcRenderer\.send\("set-compact-hit-areas", areas\)/);
@@ -1659,10 +1664,17 @@ test("avatar mode is collapsed until the user opens it", () => {
   assert.match(html, /id="compactAutoExpandToggle" type="checkbox" \/>/, "off by default, with no checked attribute");
   // Standing status (working, offline) waits for the setting; a notification - a reply, a
   // question, a failure - always shows, and leaves on its own.
-  assert.match(renderer, /const active = Boolean\(expanded \|\| state\.compactStatusClosing \|\| preview \|\| \(state\.compactAutoExpand && autoActive\)\)/);
-  // The count moves onto the expand button so the collapsed orb still says something.
+  assert.match(renderer, /const active = Boolean\(expanded \|\| state\.compactStatusClosing \|\| preview \|\| \(state\.compactAutoExpand && offline && autoActive\)\)/);
+  // Status on shows each of the agent's messages, never its tools or thinking.
+  assert.match(renderer, /announceAssistantMessage\(sessionId, event\.data\?\.message\);/);
+  assert.match(renderer, /\.filter\(\(part\) => part\?\.type === "text" && typeof part\.text === "string"\)/);
+  // One number only: new replies on the avatar. Agents at work show as the chat button's
+  // turning ring, not as a second count beside the first.
   assert.match(html, /id="orbPanelCount"/);
-  assert.match(renderer, /badge\.classList\.toggle\("visible", !expanded && badgeCount > 0\)/);
+  assert.match(renderer, /\$\("#orbPanelCount"\)\.classList\.remove\("visible"\);/);
+  // The eye beside the chat button is the same preference as the settings toggle.
+  assert.match(html, /id="orbFeedButton"[^>]+aria-pressed="false"/);
+  assert.match(renderer, /feed\.setAttribute\("aria-pressed", String\(state\.compactAutoExpand\)\)/);
 });
 
 test("the compact status commits its signature only after the DOM is painted", () => {
@@ -2017,7 +2029,7 @@ test("folds and unfolds aim at the compact handle and animate the clip or a tran
   const exit = functionBody(renderer, "function animateModeExit(targetMode, requestSequence)");
   assert.match(exit, /if \(!folding\) rememberCompactAnchor\(\);/);
   assert.match(exit, /const exitDuration = folding \? MODE_FOLD_DURATION : MODE_EXIT_DURATION;/);
-  assert.match(renderer, /if \(state\.windowMode === "full" && previousMode === "orb"\) followModeMorphOrigin\(compactAnchors\.orb\);/);
+  assert.match(renderer, /if \(unfolding && previousMode === "orb"\) followModeMorphOrigin\(compactAnchors\.orb\);/);
 });
 
 test("the release snap flies to the edge, with the side applied first", () => {
@@ -2036,7 +2048,7 @@ test("mode transitions keep their fade across the IPC and honour the motion swit
   const exitTimer = exit.slice(exit.indexOf("setTimeout(() => {"), exit.indexOf("}, exitDuration);"));
   assert.ok(exitTimer.length > 0, "the exit timer is found");
   assert.doesNotMatch(exitTimer, /clearModeTransitionClasses/, "the timer must not clear the fade before the window changes");
-  const set = functionBody(renderer, "async function setWindowMode(mode)");
+  const set = functionBody(renderer, "async function setWindowMode(mode, options)");
   assert.match(set, /\} finally \{[\s\S]*clearModeTransitionClasses\("out"\);/);
   const authoritative = functionBody(renderer, "function applyAuthoritativeWindowMode(mode)");
   assert.match(authoritative, /if \(mode !== state\.windowMode\) \{\s*\n\s*modeRequestSequence \+= 1;/);

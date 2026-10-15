@@ -385,3 +385,17 @@ test("a follow DSH refuses as corrupt is asked for again only after the long ref
     assert.equal(transport.channels.length, 1, "no second open while the refusal wait runs");
   } finally { mux.stop(); }
 });
+
+test("only live sessions get a stream: running, with a child at work, recently touched, or open", () => {
+  const { liveSessionIds } = require("../src/remote-mux.cjs");
+  const now = Date.parse("2026-10-16T12:00:00Z");
+  const sessions = [
+    { sessionId: "running", running: true, updatedAt: "2026-10-01T00:00:00Z" },
+    { sessionId: "child", running: false, subagents: [{ kind: "child", activity: "running" }], updatedAt: 0 },
+    { sessionId: "recent", running: false, updatedAt: "2026-10-16T11:55:00Z" },
+    { sessionId: "idle", running: false, state: "idle", updatedAt: "2026-10-15T09:00:00Z" },
+    { sessionId: "open", running: false, updatedAt: "2026-10-10T09:00:00Z" },
+  ];
+  assert.deepEqual(liveSessionIds(sessions, { selected: "open", now }).sort(), ["child", "open", "recent", "running"]);
+  assert.deepEqual(liveSessionIds([], { selected: "kept", now }), ["kept"], "the open chat streams even when the list omits it");
+});

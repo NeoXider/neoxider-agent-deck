@@ -22,6 +22,9 @@ const DEFAULT_PREFERENCES = Object.freeze({
   // A chat opened from the avatar's recent chats folds back into the avatar once its
   // message is sent.
   collapseAfterSend: true,
+  // The avatar lives on the desktop like a pet: it climbs its edge, drops to the taskbar,
+  // hops about and naps. It never moves while it is being looked at or an agent is busy.
+  petMode: true,
   size: "standard",
   windowLayer: "above",
   compactSide: "right",
@@ -67,7 +70,10 @@ function normalizeCompactBounds(value, fallbackSide) {
   const x = finiteInteger(value?.x);
   const y = finiteInteger(value?.y);
   const side = value?.side === "left" || value?.side === "right" ? value.side : fallbackSide;
-  return x === null || y === null ? null : { x, y, side };
+  // A pet that walked away from its edge also keeps where the avatar's centre was.
+  const ax = finiteInteger(value?.ax);
+  const free = value?.free === true && ax !== null ? { free: true, ax } : {};
+  return x === null || y === null ? null : { x, y, side, ...free };
 }
 
 // The saved launch URL is later handed to the OS shell by "Open Harness", and the
@@ -118,6 +124,7 @@ function normalizePreferences(raw = {}) {
     },
     compactAutoExpand: source.compactAutoExpand === true,
     collapseAfterSend: source.collapseAfterSend !== false,
+    petMode: source.petMode !== false,
     size: ["compact", "standard", "large"].includes(source.size) ? source.size : DEFAULT_PREFERENCES.size,
     windowLayer,
     compactSide,

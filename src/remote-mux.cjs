@@ -14,6 +14,25 @@ const REMOTE_MUX_REFUSED_RETRY = STORED_SESSION_REFUSAL_RETRY_MS;
 
 function defaultSleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
+// The sessions worth a live stream: running ones, ones with a child at work, ones touched in
+// the last ten minutes, and the open chat. Every session used to get its own session/follow
+// socket - 79 of them on one machine - and DSH decoded each one's whole log to open it; an
+// idle session has nothing to stream, and the list poll starts its stream the moment it runs.
+const LIVE_SESSION_RECENT_MS = 10 * 60 * 1000;
+function liveSessionIds(sessions, { selected = null, now = Date.now(), recentMs = LIVE_SESSION_RECENT_MS } = {}) {
+  const ids = new Set();
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    const id = typeof session?.sessionId === "string" ? session.sessionId : "";
+    if (!id) continue;
+    const updated = typeof session.updatedAt === "string" ? Date.parse(session.updatedAt) : Number(session.updatedAt);
+    const childRunning = (session.subagents || []).some((child) => child?.activity === "running");
+    if (session.running || ["working", "waiting"].includes(session.state) || childRunning
+      || (Number.isFinite(updated) && now - updated <= recentMs)) ids.add(id);
+  }
+  if (selected) ids.add(String(selected));
+  return [...ids];
+}
+
 function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () => {}, onLiveEvent = () => {}, sleep = defaultSleep } = {}) {
   if (typeof getTransport !== "function") throw new TypeError("getTransport must be a function");
   let stopped = false;
@@ -221,6 +240,7 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
     track,
     untrack,
     setTrackedSessions,
+    trackedCount: () => follows.size,
     get state() {
       return { connected: Boolean(controlHandle), follows: follows.size, stopped };
     },
@@ -232,4 +252,5 @@ module.exports = {
   REMOTE_MUX_RECONNECT_MIN,
   REMOTE_MUX_REFUSED_RETRY,
   createRemoteMuxClient,
+  liveSessionIds,
 };

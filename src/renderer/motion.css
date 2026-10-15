@@ -10,6 +10,11 @@
    on the avatar fold's edge is a separate childless layer that animates its own --morph-r
    with the same timing, so the two stay in step without either one paying for the other. */
 @property --morph-r { syntax:"<length>"; inherits:false; initial-value:0px; }
+/* Set by app.js on the shell and the rim only. Inherited, they restyled every message in the
+   conversation each time the unfold re-aimed. */
+@property --morph-x { syntax:"*"; inherits:false; }
+@property --morph-y { syntax:"*"; inherits:false; }
+@property --morph-cover { syntax:"*"; inherits:false; }
 
 /* The title-bar slime on its way to or from the avatar (flyTitleSlime in app.js). */
 .slime-flight { position:fixed; z-index:300; margin:0; object-fit:contain; pointer-events:none; transform-origin:50% 50%; will-change:transform,opacity; filter:drop-shadow(0 6px 10px rgba(0,0,0,.42)); }
@@ -64,9 +69,9 @@
 /* Avatar -> full: the widget grows out of the avatar and springs into place. */
 .mode-transition-in.mode-transition-from-orb.mode-full .widget-shell {
   transform-origin:var(--morph-x,50%) var(--morph-y,50%);
-  animation:mode-bloom-full .56s var(--morph-spring) both,mode-bloom-fade .16s ease-out both;
+  animation:mode-bloom-full .42s var(--morph-spring) both,mode-bloom-fade .12s ease-out both;
 }
-.mode-transition-in.mode-transition-from-orb.mode-full .mode-morph-rim { animation:mode-rim-bloom .56s cubic-bezier(.2,.86,.16,1) both; }
+.mode-transition-in.mode-transition-from-orb.mode-full .mode-morph-rim { animation:mode-rim-bloom .42s cubic-bezier(.2,.86,.16,1) both; }
 @keyframes mode-bloom-full {
   0% { clip-path:circle(188px at var(--morph-x,50%) var(--morph-y,50%)); transform:scale(.16); }
   100% { clip-path:circle(var(--morph-cover,1000px) at var(--morph-x,50%) var(--morph-y,50%)); transform:none; }
@@ -91,7 +96,7 @@
 /* Edge -> full: the widget pours back out of the edge and springs into place. */
 .mode-transition-in.mode-transition-from-edge.mode-full .widget-shell {
   transform-origin:100% var(--morph-y,50%);
-  animation:mode-unfurl-edge .56s var(--morph-spring) both,mode-bloom-fade .16s ease-out both;
+  animation:mode-unfurl-edge .42s var(--morph-spring) both,mode-bloom-fade .12s ease-out both;
 }
 .side-left.mode-transition-in.mode-transition-from-edge.mode-full .widget-shell { transform-origin:0 var(--morph-y,50%); }
 @keyframes mode-unfurl-edge {
@@ -131,8 +136,8 @@
 .side-left { --satellite-from:-16px; }
 
 /* Leaving the avatar: the slime gathers itself, then the window takes over. */
-.mode-transition-out.mode-orb .orb-avatar { animation:orb-depart .145s cubic-bezier(.3,0,.6,1) both; }
-.mode-transition-out.mode-transition-to-edge.mode-orb .orb-avatar { animation:orb-to-edge .145s cubic-bezier(.5,0,.8,.3) both; }
+.mode-transition-out.mode-orb .orb-avatar { animation:orb-depart .1s cubic-bezier(.3,0,.6,1) both; }
+.mode-transition-out.mode-transition-to-edge.mode-orb .orb-avatar { animation:orb-to-edge .1s cubic-bezier(.5,0,.8,.3) both; }
 .mode-transition-out.mode-orb :is(.orb-history-button,.orb-status) { animation:orb-satellite-out .12s ease-in both; }
 @keyframes orb-depart { 0% { transform:none; } 55% { transform:scale(1.14,.88); filter:brightness(1.2); } 100% { transform:scale(1.22); filter:brightness(1.55); } }
 @keyframes orb-to-edge { 0% { transform:none; } 100% { transform:translateX(var(--mode-exit-x,12px)) scale(.14,1.12); opacity:.5; filter:brightness(1.6); } }
@@ -159,7 +164,7 @@
 @keyframes edge-arrive-core { 0%,30% { width:4px; opacity:.95; } 100% { width:2px; opacity:.12; } }
 
 /* Leaving the edge: the line flares wide, and the window opens from that flare. */
-.mode-transition-out.mode-edge .edge-line { animation:edge-depart .145s cubic-bezier(.4,0,.7,.2) both; }
+.mode-transition-out.mode-edge .edge-line { animation:edge-depart .1s cubic-bezier(.4,0,.7,.2) both; }
 @keyframes edge-depart { 0% { transform:translateY(-50%); } 100% { transform:translateY(-50%) scale(3.4,1.12); filter:brightness(1.8); } }
 
 /* The recent-replies panel: rows arrive one after another from the avatar's side, and the
@@ -249,3 +254,99 @@ body[data-motion="subtle"] :is(#avatarShell,#orbRestore).avatar-hop { animation-
 .mode-edge .edge-line { transition:transform .4s var(--spring-pop),filter .25s ease; }
 .compact-dragging.mode-edge .edge-line { transform:translateY(-50%) scale(1.6,1.12); filter:brightness(1.35); transition:transform .22s var(--spring-pop),filter .2s ease; }
 .edge-mode.edge-drop .edge-line::before { animation:edge-arrive-halo .7s ease-out both; }
+
+/* Pet mode (pet-roamer.cjs decides, app.js applyPetState draws). The pose - on its edge,
+   on the floor, in the air - is a transform on .pet-body; what it is doing is an animation
+   on .pet-act; the mood pictures keep their own animations on the image. One front-facing
+   picture is enough: it squashes and stretches from its feet, leans into a walk, and lies
+   against its edge when it clings to it. */
+.orb-avatar .pet-body, .orb-avatar .pet-act { position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; }
+.orb-avatar .pet-body { transition:transform .5s var(--spring-pop); }
+.orb-avatar .pet-act { transform-origin:50% 88%; transition:transform .3s var(--spring-pop); }
+.pet-mode .orb-avatar[data-pet-surface="wall"] .pet-body { transform:translateX(38px) rotate(-90deg); }
+.pet-mode.side-left .orb-avatar[data-pet-surface="wall"] .pet-body { transform:translateX(-38px) rotate(90deg); }
+.pet-mode.compact-dragging .orb-avatar .pet-body { transform:none; }
+
+/* A ground shadow keeps the single picture standing on the taskbar. */
+.pet-shadow { position:absolute; left:50%; bottom:3px; width:40px; height:7px; margin-left:-20px; border-radius:50%; background:radial-gradient(closest-side,rgba(0,0,0,.45),transparent); opacity:0; transform:scale(.6); transition:opacity .3s ease,transform .3s ease; pointer-events:none; }
+.pet-mode .orb-avatar[data-pet-surface="floor"] .pet-shadow { opacity:1; transform:none; }
+.pet-mode .orb-avatar[data-pet-surface="floor"]:is([data-pet-action="walk"],[data-pet-action="scoot"]) .pet-shadow { animation:pet-shadow-hop .5s cubic-bezier(.33,0,.5,1) infinite; }
+.pet-mode .orb-avatar[data-pet-action="scoot"] .pet-shadow { animation-duration:.26s; }
+@keyframes pet-shadow-hop { 0%,100% { transform:none; opacity:1; } 50% { transform:scale(.7); opacity:.6; } }
+
+/* Hopping along: crouch, spring, a 10 px arc, land squashed - two hops a second at 40 px/s. */
+.pet-mode .orb-avatar[data-pet-action="walk"] .pet-act { animation:pet-hop .5s cubic-bezier(.33,0,.5,1) infinite; }
+.pet-mode .orb-avatar[data-pet-action="scoot"] .pet-act { --pet-hop-height:-5px; animation:pet-hop .26s linear infinite; }
+@keyframes pet-hop {
+  0%,100% { transform:skewX(calc(var(--pet-dir,1) * -5deg)) scale(1.1,.86); }
+  15% { transform:translateY(-2px) skewX(calc(var(--pet-dir,1) * -8deg)) scale(.9,1.12); }
+  50% { transform:translateY(var(--pet-hop-height,-11px)) skewX(calc(var(--pet-dir,1) * -4deg)) scale(.97,1.04); }
+  85% { transform:translateY(-1px) skewX(calc(var(--pet-dir,1) * -6deg)) scale(.94,1.08); }
+}
+/* Climbing its edge like an inch-worm: stretch along it, gather, stretch again. */
+.pet-mode .orb-avatar[data-pet-action="climb"] .pet-act { animation:pet-inch .55s ease-in-out infinite; }
+@keyframes pet-inch { 0%,100% { transform:scale(1.14,.88); } 50% { transform:scale(.9,1.1); } }
+.pet-mode .orb-avatar[data-pet-action="cling"] .pet-act { animation:pet-cling 3.2s ease-in-out infinite; }
+@keyframes pet-cling { 0%,100% { transform:scale(1.04,.94); } 50% { transform:scale(1.07,.9); } }
+/* Falling stretches it along the fall; landing squashes it by how hard it hit, then it
+   wobbles back into shape. */
+.pet-mode .orb-avatar[data-pet-action="fall"] .pet-act { transform:scale(.86,1.2); transition-duration:.18s; }
+.pet-mode .orb-avatar[data-pet-action="land"] .pet-act { animation:pet-land .62s cubic-bezier(.2,.8,.3,1) both; }
+@keyframes pet-land {
+  0% { transform:scale(calc(1 + var(--pet-impact,.5) * .42),calc(1 - var(--pet-impact,.5) * .36)); }
+  28% { transform:translateY(calc(var(--pet-impact,.5) * -9px)) scale(.9,1.12); }
+  52% { transform:scale(1.07,.93); }
+  74% { transform:scale(.98,1.02); }
+  100% { transform:none; }
+}
+.pet-mode .orb-avatar[data-pet-action="sit"] .pet-act { transform:translateY(2px) scale(1.1,.88); }
+.pet-mode .orb-avatar[data-pet-action="look"] .pet-act { animation:pet-look 3.6s ease-in-out infinite; }
+@keyframes pet-look { 0%,100% { transform:none; } 22% { transform:rotate(-7deg); } 30%,48% { transform:rotate(-6deg) translateY(-1px); } 62% { transform:rotate(6deg); } 70%,86% { transform:rotate(7deg) translateY(-1px); } }
+.pet-mode .orb-avatar[data-pet-action="bighop"] .pet-act { animation:pet-bighop .9s cubic-bezier(.3,.6,.4,1) both; }
+@keyframes pet-bighop {
+  0% { transform:none; } 14% { transform:scale(1.16,.82); }
+  26% { transform:translateY(-6px) scale(.86,1.16); } 48% { transform:translateY(-24px) scale(.96,1.05); }
+  70% { transform:translateY(-4px) scale(.94,1.08); } 80% { transform:scale(1.14,.86); }
+  92% { transform:scale(.98,1.03); } 100% { transform:none; }
+}
+/* Asleep: sagged, breathing slowly, dimmed, with z's rising out of it. Wakes with a stretch. */
+.pet-mode .orb-avatar[data-pet-action="sleep"] .pet-act { animation:pet-sleep 4s ease-in-out infinite; }
+.pet-mode .orb-avatar[data-pet-action="sleep"] img { filter:drop-shadow(0 7px 10px rgba(0,0,0,.52)) brightness(.82) saturate(.8); }
+.pet-mode .orb-avatar[data-pet-action="sleep"] .orb-glow { opacity:calc(var(--orb-ring-opacity) * .35); animation:none; }
+@keyframes pet-sleep { 0%,100% { transform:translateY(3px) scale(1.12,.84); } 50% { transform:translateY(2px) scale(1.08,.89); } }
+.pet-mode .orb-avatar[data-pet-action="wake"] .pet-act { animation:pet-wake .9s cubic-bezier(.3,.7,.4,1) both; }
+@keyframes pet-wake { 0% { transform:translateY(3px) scale(1.12,.84); } 30% { transform:scale(.84,1.2); } 55% { transform:translateY(-10px) scale(.96,1.05); } 78% { transform:scale(1.08,.92); } 100% { transform:none; } }
+/* Being stroked, and being looked at. */
+.pet-mode .orb-avatar.pet-happy .pet-act { animation:pet-happy .9s cubic-bezier(.3,.7,.4,1) both; }
+@keyframes pet-happy { 0% { transform:none; } 20% { transform:scale(1.18,.82); } 40% { transform:translateY(-8px) scale(.9,1.12) rotate(-6deg); } 60% { transform:scale(1.1,.9) rotate(5deg); } 80% { transform:scale(.97,1.03); } 100% { transform:none; } }
+.pet-mode .orb-mode:has(.orb-avatar:hover) .orb-avatar:not(.pet-happy) .pet-act { transform:translateY(-2px) scale(1.04); }
+/* Waiting on the user (a question, a failure): a nudge hop every ten seconds. */
+.pet-mode:is(.compact-error-unread,.orb-notification-question) .orb-avatar:not(.pet-happy) .pet-act { animation:pet-nudge 10s ease-in-out infinite; }
+@keyframes pet-nudge { 0%,10%,100% { transform:none; } 2% { transform:scale(1.12,.88); } 4.5% { transform:translateY(-12px) scale(.94,1.07) rotate(-6deg); } 6.5% { transform:translateY(-3px) rotate(6deg); } 8% { transform:scale(1.06,.95); } }
+
+/* Its thoughts: z's while it sleeps, a heart when stroked, ? and ! when it needs the user. */
+.pet-bubble { position:absolute; z-index:6; top:-6px; left:2px; min-width:18px; height:18px; display:grid; place-items:center; padding:0 4px; border:1px solid color-mix(in srgb,var(--orb-ring-primary) 55%,transparent); border-radius:9px 9px 3px 9px; background:rgba(14,18,28,.9); color:#e9f6ff; font-size:11px; font-weight:800; line-height:1; opacity:0; transform:translateY(4px) scale(.5); pointer-events:none; transition:opacity .2s ease,transform .32s var(--spring-pop); }
+.side-left .pet-bubble { right:2px; left:auto; border-radius:9px 9px 9px 3px; }
+.pet-mode.pet-on-wall .pet-bubble { translate:20px -6px; }
+.pet-mode.pet-on-wall.side-left .pet-bubble { translate:-20px -6px; }
+.pet-mode .orb-avatar:is([data-pet-action="sleep"],.pet-happy) .pet-bubble,
+.pet-mode:is(.compact-error-unread,.orb-notification-question) .orb-avatar .pet-bubble { opacity:1; transform:none; }
+.pet-mode .orb-avatar[data-pet-action="sleep"] .pet-bubble::before { content:"z"; animation:pet-z 1.8s ease-in infinite; }
+.pet-mode .orb-avatar.pet-happy .pet-bubble::before { content:"\2665"; color:#ff8cc0; font-size:13px; text-shadow:0 0 6px rgba(255,126,182,.75); }
+.pet-mode.orb-notification-question .orb-avatar:not(.pet-happy) .pet-bubble::before { content:"?"; color:var(--mint); }
+.pet-mode.compact-error-unread:not(.orb-notification-question) .orb-avatar:not(.pet-happy) .pet-bubble::before { content:"!"; color:#ff9db0; }
+@keyframes pet-z { 0% { opacity:0; transform:translate(0,4px) scale(.7); } 30% { opacity:1; } 100% { opacity:0; transform:translate(6px,-8px) scale(1.15); } }
+
+/* On its edge the buttons gather round where it actually is, and the dock button moves above
+   it: the screen edge has no room. The count rides on the slime too. */
+.pet-mode.pet-on-wall .orb-feed-button { right:38px; }
+.pet-mode.pet-on-wall .orb-history-button { right:37px; }
+.pet-mode.pet-on-wall .orb-dock-button { top:calc(50% - 52px); right:14px; }
+.pet-mode.pet-on-wall.side-left .orb-feed-button { right:auto; left:38px; }
+.pet-mode.pet-on-wall.side-left .orb-history-button { right:auto; left:37px; }
+.pet-mode.pet-on-wall.side-left .orb-dock-button { right:auto; left:14px; }
+.pet-mode.pet-on-wall .orb-count { translate:24px 0; }
+.pet-mode.pet-on-wall.side-left .orb-count { translate:-24px 0; }
+@media (prefers-reduced-motion: reduce) {
+  .pet-mode .orb-avatar .pet-act, .pet-mode .orb-avatar .pet-shadow { animation:none !important; }
+}

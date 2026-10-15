@@ -76,7 +76,7 @@ function createSharedDashboardReader({
     // Remote follow channels do not subscribe themselves: every dashboard read, cached
     // or fresh, is the authoritative tracking set for them.
     if (onSessions && dashboard?.ok && Array.isArray(dashboard.sessions)) {
-      onSessions(dashboard.sessions.map((session) => session.sessionId));
+      onSessions(dashboard.sessions.map((session) => session.sessionId), dashboard.sessions);
     }
     return dashboard;
   }

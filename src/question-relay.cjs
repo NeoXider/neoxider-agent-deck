@@ -72,8 +72,18 @@ function createQuestionRelay({
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
   onError = () => {},
+  onStatus = () => {},
 } = {}) {
   const pending = new Map();
+  // Whether Deck is receiving questions at all, and why not. A relay that failed used to say
+  // nothing anywhere: the card fell back to "Answer in DSH" and nobody could tell why.
+  let status = { connected: false, error: "", attempts: 0 };
+  function setStatus(next) {
+    const merged = { ...status, ...next };
+    if (merged.connected === status.connected && merged.error === status.error && merged.attempts === status.attempts) return;
+    status = merged;
+    try { onStatus({ ...status }); } catch {}
+  }
   let channel = null;
   let clientId = null;
   let connecting = false;
@@ -110,6 +120,7 @@ function createQuestionRelay({
     if (frame.type === "ready") {
       clientId = typeof frame.clientId === "string" ? frame.clientId : null;
       attempt = 0;
+      setStatus({ connected: Boolean(clientId), error: "", attempts: 0 });
       return;
     }
     if (frame.type === "cancel") {
@@ -138,6 +149,7 @@ function createQuestionRelay({
       const transport = await getTransport();
       // A legacy Harness has no event stream, and an offline one has nothing to open.
       if (!transport || typeof transport.openChannel !== "function") {
+        setStatus({ connected: false, error: "Harness is not connected", attempts: attempt + 1 });
         schedule();
         return;
       }
@@ -147,10 +159,11 @@ function createQuestionRelay({
         return;
       }
       channel = handle;
-      Promise.resolve(handle.closed).then(() => {
+      Promise.resolve(handle.closed).then((reason) => {
         if (channel !== handle) return;
         channel = null;
         clientId = null;
+        setStatus({ connected: false, error: reason instanceof Error ? reason.message : "The question stream closed", attempts: attempt + 1 });
         // The Gateway forgets this Client's deliveries with the stream and replays whatever
         // is still pending to the next one, so nothing held here is answerable any more.
         if (pending.size) {
@@ -161,6 +174,7 @@ function createQuestionRelay({
       });
     } catch (error) {
       onError(error);
+      setStatus({ connected: false, error: error instanceof Error ? error.message : String(error), attempts: attempt + 1 });
       schedule();
     } finally {
       connecting = false;
@@ -194,6 +208,22 @@ function createQuestionRelay({
     connect();
   }
 
+  // The chat shows the agent waiting on a question that Deck does not hold: the stream may
+  // be half-open, alive to the socket but delivering nothing. A new stream is a new Client,
+  // and the Gateway replays every pending question to it.
+  function refresh() {
+    if (stopped) return false;
+    const handle = channel;
+    channel = null;
+    clientId = null;
+    try { handle?.close(); } catch {}
+    if (retryTimer) clearTimeoutFn(retryTimer);
+    retryTimer = null;
+    attempt = 0;
+    connect();
+    return true;
+  }
+
   function stop() {
     stopped = true;
     if (retryTimer) clearTimeoutFn(retryTimer);
@@ -208,7 +238,7 @@ function createQuestionRelay({
     }
   }
 
-  return { start, stop, kick, answer, list, isConnected: () => Boolean(channel && clientId) };
+  return { start, stop, kick, refresh, answer, list, status: () => ({ ...status }), isConnected: () => Boolean(channel && clientId) };
 }
 
 module.exports = { QUESTION_EVENT, createQuestionRelay, normalizeAnswer, normalizeQuestions };

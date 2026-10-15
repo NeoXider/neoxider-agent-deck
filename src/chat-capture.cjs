@@ -34,4 +34,49 @@ async function captureForChat(kind, { service, gate, window, mode, captureProtec
     }
   });
 }
-module.exports = { captureForChat };
+// Main's side of chat screenshots: the button and hotkey captures, and removing the files of
+// captures that were sent. The window and service are read when used, since both are made
+// after this is.
+function createChatCaptureController({ getService, gate, getWindow, getMode, screen, isPrivate, captureExclusion, prepareImage, prepareFiles, applyWindowMode, send }) {
+  const liveWindow = () => { const window = getWindow(); return window && !window.isDestroyed() ? window : null; };
+  function displayPoint() {
+    const window = liveWindow();
+    if (!window) return undefined;
+    const bounds = window.getBounds();
+    return { x: bounds.x + Math.round(bounds.width / 2), y: bounds.y + Math.round(bounds.height / 2) };
+  }
+  function capture(kind) {
+    const window = getWindow();
+    const canExclude = captureExclusion && typeof window?.setContentProtection === "function";
+    return captureForChat(kind, {
+      service: getService(), gate, window, mode: getMode(), displayPoint, cursorPoint: () => screen.getCursorScreenPoint(),
+      captureProtected: isPrivate() && canExclude,
+      shieldFromCapture: canExclude ? (on) => liveWindow()?.setContentProtection(on || isPrivate()) : null,
+      prepareImage, prepareFiles, applyWindowMode,
+    });
+  }
+  async function captureFromHotkey(kind) {
+    send("hotkey-action", `captureStarted:${kind}`);
+    try {
+      send("screenshot-captured", await capture(kind));
+    } catch (error) {
+      send("screenshot-captured", { ok: false, canceled: false, reason: error?.code || "capture-failed", error: String(error?.message || error) });
+    }
+  }
+  async function cleanupSentCaptureFiles(attachments) {
+    const service = getService();
+    if (!service) return;
+    const paths = [...new Set((attachments || [])
+      .map((item) => item?.path)
+      .filter((filePath) => service.ownsCapture(filePath)))].slice(0, 12);
+    await Promise.all(paths.map(async (filePath) => {
+      try {
+        await service.removeCapture(filePath);
+      } catch (error) {
+        console.warn("Failed to remove sent screenshot", error);
+      }
+    }));
+  }
+  return { capture, captureFromHotkey, cleanupSentCaptureFiles };
+}
+module.exports = { captureForChat, createChatCaptureController };

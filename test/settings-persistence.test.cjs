@@ -97,6 +97,7 @@ const completePreferences = {
   appearance: { theme: "aurora", motion: "fluid", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] },
   compactAutoExpand: true,
   collapseAfterSend: false,
+  petMode: false,
   size: "large",
   windowLayer: "game",
   compactSide: "left",
@@ -296,6 +297,7 @@ const preferenceMutations = [
   ["motion effects", (value) => ({ ...value, motionEffects: false })],
   ["avatar auto expand", (value) => ({ ...value, compactAutoExpand: false })],
   ["back to the avatar after sending", (value) => ({ ...value, collapseAfterSend: true })],
+  ["pet mode", (value) => ({ ...value, petMode: true })],
   ["size", (value) => ({ ...value, size: "compact" })],
   ["window layer", (value) => ({ ...value, windowLayer: "normal" })],
   ["private overlay", (value) => ({ ...value, windowLayer: "private" })],
@@ -435,6 +437,8 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     compactAutoExpand: false,
     // On unless the file says otherwise: a chat opened from the avatar folds back after a send.
     collapseAfterSend: true,
+    // On unless the file says otherwise: the avatar lives on the desktop as a pet.
+    petMode: true,
     size: "compact",
     windowLayer: "normal",
     compactSide: "left",
