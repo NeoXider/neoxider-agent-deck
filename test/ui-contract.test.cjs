@@ -2021,6 +2021,20 @@ test("a crashed owned Harness says why it is offline and offers Restart now and 
   assert.match(ipc, /handle\("open-harness-log", \(\) => getHarnessSupervisor\(\)\?\.openLog\(\)/);
 });
 
+test("a model engine crash reads as the engine's, with Retry, compaction and the original kept", () => {
+  assert.match(html, /<script src="engine-crash\.js"><\/script>\s*<script src="appearance\.js"><\/script>\s*<script src="app\.js"><\/script>/);
+  const bubble = functionBody(renderer, "function createMessageBubble(message, bubble = document.createElement(\"div\"))");
+  assert.match(bubble, /const engineCrash = message\.role === "error" \? describeSelectedEngineCrash\(message\.text\) : null;/);
+  const card = functionBody(renderer, "function createEngineCrashBubble(message, bubble, crash)");
+  assert.match(card, /retry\.textContent = state\.continuedCutoffs\.has\(retryKey\) \? "Retry sent" : "Retry";/);
+  assert.match(card, /text: window\.engineCrash\.RETRY_PROMPT/);
+  assert.match(card, /if \(crash\.compactSuggested && sessionId\)/);
+  assert.match(card, /executeHarnessCommand\("\/compact", sessionId\)/);
+  assert.match(card, /detailsSummary\.textContent = "Provider message";\s+original\.textContent = crash\.original;/);
+  assert.match(functionBody(renderer, "function describeSelectedEngineCrash(text)"), /contextUsed: pressure\?\.used, contextWindow: pressure\?\.total/);
+  assert.match(functionBody(renderer, "function showComposerError(error, label)"), /describeSelectedEngineCrash\(original\)/);
+});
+
 test("the visual runner forgives one flaky frame, loudly, and never a repeatable failure", () => {
   const runner = readSource("scripts", "ui-visual-smoke.cjs");
   // A case is booted and photographed on a timer, so a loaded machine can capture it before
