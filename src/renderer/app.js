@@ -1691,6 +1691,30 @@ function reasoningIntensity(index, count) {
   return index === count - 2 ? "deep" : "normal";
 }
 
+// Choosing the top effort is worth one moment of light: a burst from the slider's handle and a
+// flash behind the chip's label. It plays when the level changes into the top one, never when a
+// render merely shows it again, and not at all with Motion effects off or reduced motion on.
+// The menu is rebuilt when the choice is saved, part-way through the burst, so the new track
+// picks it up where the old one was instead of cutting it off or starting it again.
+const EFFORT_BURST_MS = 760;
+const effortBurstTimers = new WeakMap();
+let effortTrackBurstAt = -Infinity;
+function playEffortBurst(node, startedAt = performance.now()) {
+  if (prefersReducedMotion() || performance.now() - startedAt >= EFFORT_BURST_MS) return;
+  clearTimeout(effortBurstTimers.get(node));
+  node.classList.remove("effort-burst");
+  requestAnimationFrame(() => {
+    const elapsed = performance.now() - startedAt;
+    if (elapsed >= EFFORT_BURST_MS || !node.isConnected) return;
+    node.style.setProperty("--burst-delay", `${-Math.round(elapsed)}ms`);
+    node.classList.add("effort-burst");
+    effortBurstTimers.set(node, setTimeout(() => {
+      node.classList.remove("effort-burst");
+      node.style.removeProperty("--burst-delay");
+    }, EFFORT_BURST_MS - elapsed));
+  });
+}
+
 function createReasoningStars() {
   const field = document.createElement("span");
   field.className = "reasoning-starfield";
@@ -1750,7 +1774,12 @@ function renderReasoning() {
     title.textContent = efforts.length ? (automatic ? autoLabel : label) : "No thinking modes";
     range.setAttribute("aria-valuetext", automatic ? autoLabel : label);
     const intensity = reasoningIntensity(Number(range.value), efforts.length);
+    const previousIntensity = track.dataset.intensity;
     track.dataset.intensity = intensity;
+    if (intensity === "peak" && previousIntensity !== "peak") {
+      if (previousIntensity) effortTrackBurstAt = performance.now();
+      playEffortBurst(track, effortTrackBurstAt);
+    }
     $("#reasoningMenu").dataset.intensity = intensity;
     track.style.setProperty("--effort-fill", `calc(14px + (100% - 28px) * ${efforts.length > 1 ? Number(range.value) / (efforts.length - 1) : 0})`);
     dots.querySelectorAll("i").forEach((dot, index) => {
@@ -1764,7 +1793,9 @@ function renderReasoning() {
     state.automaticModelRoute = false;
     state.pendingSelection = { provider: base.provider, model: base.model, ...(id ? { reasoningEffort: id } : {}) };
     const sliderFocused = document.activeElement === range;
+    const wasPeak = $("#reasoningButton").dataset.intensity === "peak";
     renderReasoning(); updateControlsSummary();
+    if (!wasPeak && $("#reasoningButton").dataset.intensity === "peak") playEffortBurst($("#reasoningButton"));
     if (sliderFocused) root.querySelector("input")?.focus();
     try { await applyModelSelection(); } catch (error) { showToast(error.message || "Could not change reasoning effort"); }
   };
@@ -2963,7 +2994,7 @@ function createQuestionHandoffButton() {
 
 function createToolCard(message) {
   const details = document.createElement("details");
-  details.className = `tool-call${message.isError ? " failed" : ""}${message.nested ? " nested" : ""}`;
+  details.className = `tool-call${message.isError ? " failed" : ""}${message.nested ? " nested" : ""}${message.status === "running" && !message.isError ? " running" : ""}`;
   details.dataset.toolKey = `tool:${message.callId || message.seq || `${message.name || "tool"}:${message.arguments || ""}`}`;
   const summary = document.createElement("summary");
   summary.append(createIcon("command"));
@@ -3503,13 +3534,33 @@ function reconcileChildren(root, nodes) {
 // built in the meantime, and switching Motion effects back on slid the whole transcript in
 // at once. The timer covers any other animationend that never arrives.
 const TRANSCRIPT_ENTER_FALLBACK_MS = 600;
+// Blocks that arrive together rise one after another, a frame apart. A larger batch is a
+// catch-up rather than an arrival, so it simply appears: the batch is settled in a microtask,
+// before anything is painted, and loses its entrance there.
+const TRANSCRIPT_ENTER_STAGGER_MS = 40;
+const TRANSCRIPT_ENTER_STAGGER_MAX = 3;
+const TRANSCRIPT_ENTER_BATCH_MAX = 6;
+let transcriptEnterBatch = [];
+function settleTranscriptEnterBatch() {
+  const batch = transcriptEnterBatch;
+  transcriptEnterBatch = [];
+  if (batch.length <= TRANSCRIPT_ENTER_BATCH_MAX) return;
+  for (const node of batch) {
+    node.classList.remove("enter");
+    node.style.removeProperty("--enter-delay");
+  }
+}
 function markTranscriptEntry(node) {
   if (prefersReducedMotion()) return;
+  const position = transcriptEnterBatch.push(node) - 1;
+  if (position === 0) queueMicrotask(settleTranscriptEnterBatch);
+  node.style.setProperty("--enter-delay", `${Math.min(position, TRANSCRIPT_ENTER_STAGGER_MAX) * TRANSCRIPT_ENTER_STAGGER_MS}ms`);
   node.classList.add("enter");
   let timer = null;
   const settle = () => {
     clearTimeout(timer);
     node.classList.remove("enter");
+    node.style.removeProperty("--enter-delay");
     node.removeEventListener("animationend", onEnd);
   };
   const onEnd = (event) => { if (event.target === node) settle(); };
@@ -3609,8 +3660,10 @@ function createMessageBubble(message, bubble = document.createElement("div")) {
     bubble.append(title, text, button);
     return bubble;
   }
-  if (message.html) bubble.innerHTML = message.html;
-  else if (message.text) {
+  if (message.html) {
+    bubble.innerHTML = message.html;
+    if (message.html.includes("<pre")) decorateCodeBlocks(bubble);
+  } else if (message.text) {
     bubble.classList.add("plain");
     bubble.textContent = message.text;
   }
@@ -3682,6 +3735,37 @@ function createEngineCrashBubble(message, bubble, crash) {
   details.append(detailsSummary, original);
   bubble.append(actions, details);
   return bubble;
+}
+
+// A fenced block gets a header naming its language and a copy button. The label is an
+// attribute that CSS paints, so selecting the answer never picks it up, and the button
+// copies exactly the code - not the prose around it.
+function decorateCodeBlocks(root) {
+  for (const pre of root.querySelectorAll("pre")) {
+    if (pre.parentElement?.classList.contains("code-block")) continue;
+    const code = pre.querySelector("code");
+    const language = /(?:^|\s)language-([\w#+.-]{1,24})/.exec(code?.className || "")?.[1] || "";
+    const block = document.createElement("div");
+    block.className = "code-block";
+    block.dataset.lang = language.toLowerCase() || "code";
+    pre.replaceWith(block);
+    block.append(pre, createCodeCopyButton(pre));
+  }
+}
+
+function createCodeCopyButton(pre) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "code-copy";
+  button.title = "Copy code";
+  button.setAttribute("aria-label", "Copy code");
+  button.append(createIcon("copy"));
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    copyMessageText(pre.textContent.replace(/\n$/, ""), button);
+  });
+  return button;
 }
 
 function createSteeringBubble(item) {
@@ -3917,6 +4001,7 @@ function applyLiveMarkdown(bubble, html) {
   bubble.classList.remove("plain");
   bubble.dataset.formatted = "1";
   bubble.innerHTML = html;
+  if (html.includes("<pre")) decorateCodeBlocks(bubble);
   liveCaretHost(bubble).append(liveCaret());
 }
 
@@ -6135,6 +6220,10 @@ function renderOfflineBanner() {
         : state.harnessStartError || "Harness is offline";
   if (label && label.textContent !== text) label.textContent = text;
   if (label) label.title = crash?.detail || "";
+  // The status dot says which kind of offline this is without another word on the card:
+  // amber for down, red for a failure, a slow violet pulse while something is under way.
+  banner.dataset.tone = state.harnessStarting || state.harnessDegraded || crash?.busy ? "busy"
+    : crash || state.harnessStartError ? "error" : "offline";
   // A running gated Harness cannot reveal its process token to a second client.
   // Make the primary action an explicit restart instead of a Start that can only
   // repeat the failed token probe. Keep paste-and-connect for live turns.

@@ -41,7 +41,27 @@ app.whenReady().then(async () => {
         motion.push({ theme,index,fill:fill.animationName,badge:badge.animationName,duration:fill.animationDuration,accent:getComputedStyle(document.querySelector('#reasoningMenu')).getPropertyValue('--reasoning-accent').trim(),themeAccent:getComputedStyle(document.body).getPropertyValue('--mint').trim(),pixels:getComputedStyle(document.querySelector('.reasoning-fill'),'::after').animationName,buttonPixels:getComputedStyle(button,'::after').animationName,star:getComputedStyle(document.querySelector('.reasoning-fill .reasoning-starfield i')).animationName,buttonStar:getComputedStyle(button.querySelector('.reasoning-starfield i')).animationName,starsShown:getComputedStyle(document.querySelector('.reasoning-fill .reasoning-starfield')).display==='block',starShape:getComputedStyle(document.querySelector('.reasoning-fill .reasoning-starfield i')).clipPath });
       }
     }
+    // Entering the top level plays one burst from the handle; showing it again does not, and
+    // with Motion effects off it never plays at all.
+    const frame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     state.pendingSelection = { provider:'local', model:'test', reasoningEffort:'medium' }; renderReasoning();
+    const burstTrack = document.querySelector('.reasoning-track');
+    const burstSlider = document.querySelector('.reasoning-slider');
+    burstSlider.value = '2'; burstSlider.dispatchEvent(new Event('input', { bubbles: true })); await frame();
+    const burstOnEntry = burstTrack.classList.contains('effort-burst');
+    const burstName = getComputedStyle(burstTrack, '::after').animationName;
+    await new Promise(resolve => setTimeout(resolve, 900));
+    const burstCleared = !burstTrack.classList.contains('effort-burst');
+    burstSlider.dispatchEvent(new Event('input', { bubbles: true })); await frame();
+    const burstNotRepeated = !burstTrack.classList.contains('effort-burst');
+    document.body.classList.add('motion-off');
+    burstSlider.value = '1'; burstSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    burstSlider.value = '2'; burstSlider.dispatchEvent(new Event('input', { bubbles: true })); await frame();
+    const burstStillWhenOff = !burstTrack.classList.contains('effort-burst');
+    document.body.classList.remove('motion-off');
+    const burst = { reduced, burstOnEntry, burstName, burstCleared, burstNotRepeated, burstStillWhenOff };
+    state.pendingSelection = { provider:'local', model:'test', reasoningEffort:'high' }; renderReasoning();
     const star = document.querySelector('.reasoning-fill .reasoning-starfield i');
     const starOpacityBefore = getComputedStyle(star).opacity;
     await new Promise(resolve => setTimeout(resolve, 220));
@@ -53,6 +73,7 @@ app.whenReady().then(async () => {
     const pixelWaveBefore = getComputedStyle(frozenFill,'::before').backgroundPosition;
     const chipWaveBefore = getComputedStyle(button,'::before').backgroundPosition;
     const chipMask = getComputedStyle(button,'::before').maskImage;
+    const chipMaskComposite = getComputedStyle(button,'::before').maskComposite;
     const chipDuration = getComputedStyle(button,'::before').animationDuration;
     await new Promise(resolve => setTimeout(resolve, 220));
     const frozenAfter = { value:frozenSlider.value, x:frozenSlider.getBoundingClientRect().x, width:frozenFill.getBoundingClientRect().width };
@@ -78,28 +99,39 @@ app.whenReady().then(async () => {
     closePickers(); button.dispatchEvent(new KeyboardEvent('keydown', { key:'ArrowDown', bubbles:true }));
     if (!button.closest('.picker').classList.contains('open')) throw new Error('Keyboard model entry did not open the slider');
     closePickers(); button.click();
-    return { modelPickerOpened, motion, sliderFrozen, frozenBefore, frozenAfter, frozenStyles, starOpacityBefore, starOpacityAfter, pixelWaveBefore, pixelWaveAfter, chipWaveBefore, chipWaveAfter, chipMask, chipDuration, twoEfforts: [reasoningIntensity(0,2),reasoningIntensity(1,2)], singleEffort: reasoningIntensity(0,1), resetOpen, stable, preview, remainedOpen, calls, visible: rect.width > 0 && rect.height > 0, sameRow: Math.abs(rect.top - modelRect.top) < 2, fits: menuRect.left >= 0 && menuRect.right <= innerWidth, reset: button.textContent.trim() };
+    return { burst, chipMaskComposite, modelPickerOpened, motion, sliderFrozen, frozenBefore, frozenAfter, frozenStyles, starOpacityBefore, starOpacityAfter, pixelWaveBefore, pixelWaveAfter, chipWaveBefore, chipWaveAfter, chipMask, chipDuration, twoEfforts: [reasoningIntensity(0,2),reasoningIntensity(1,2)], singleEffort: reasoningIntensity(0,1), resetOpen, stable, preview, remainedOpen, calls, visible: rect.width > 0 && rect.height > 0, sameRow: Math.abs(rect.top - modelRect.top) < 2, fits: menuRect.left >= 0 && menuRect.right <= innerWidth, reset: button.textContent.trim() };
   })()`);
   assert.ok(catalogReads > 0, "Opening model selection refreshes the catalog");
   assert.equal(result.stable, true); assert.equal(result.preview, 'High'); assert.equal(result.remainedOpen, true);
   assert.deepEqual(result.twoEfforts, ['deep', 'peak']); assert.equal(result.singleEffort, 'normal');
-  assert.notEqual(result.starOpacityBefore, result.starOpacityAfter, 'Sharp stars should twinkle independently');
+  assert.notEqual(result.starOpacityBefore, result.starOpacityAfter, 'Sparks glint and fade on their own');
   assert.notEqual(result.pixelWaveBefore, result.pixelWaveAfter, 'The current should move inside a fixed fill');
-  assert.notEqual(result.chipWaveBefore, result.chipWaveAfter, 'The pixel ribbon must animate independently of the fill');
-  assert.match(result.chipMask, /radial-gradient/, 'Pixel density fades away beneath the model name');
-  assert.equal(result.chipDuration, '3.8s');
+  assert.notEqual(result.chipWaveBefore, result.chipWaveAfter, 'The rim light must move independently of the fill');
+  // The rim is a ring: two masks cut away everything but the one-pixel band, so the light
+  // never passes under the model name.
+  assert.match(result.chipMask, /^linear-gradient\(.*\), linear-gradient\(/, 'The chip light is confined to its rim');
+  assert.match(result.chipMaskComposite, /^exclude/);
+  assert.equal(result.chipDuration, '3.2s');
+  assert.equal(result.burst.burstOnEntry, !result.burst.reduced, 'Entering the top effort plays the burst');
+  if (!result.burst.reduced) assert.equal(result.burst.burstName, 'reasoning-burst');
+  assert.equal(result.burst.burstCleared, true, 'The burst plays once and clears');
+  assert.equal(result.burst.burstNotRepeated, true, 'Showing the top effort again does not burst again');
+  assert.equal(result.burst.burstStillWhenOff, true, 'No burst with Motion effects off');
   assert.equal(result.calls[0].reasoningEffort, 'high'); assert.equal(result.calls[1].reasoningEffort, undefined);
   for (const key of ['visible', 'sameRow', 'fits', 'resetOpen', 'modelPickerOpened', 'sliderFrozen']) assert.equal(result[key], true, `${key}: ${JSON.stringify({ before:result.frozenBefore, after:result.frozenAfter, styles:result.frozenStyles })}`);
   assert.match(result.reset, /Auto/);
   for (const item of result.motion) {
-    assert.equal(item.fill,['none','reasoning-wave-140','reasoning-wave-96'][item.index]);
-    assert.equal(item.badge,['none','reasoning-wave-140','reasoning-pixel-wave'][item.index]);
-    assert.equal(item.pixels,['none','reasoning-sheen','reasoning-sheen'][item.index]);
-    assert.equal(item.buttonPixels,['none','reasoning-sheen','reasoning-sheen'][item.index]);
-    assert.equal(item.duration,['0s','4.8s','1.5s'][item.index]);
+    // Below the top two the fill is still; the penultimate is a slow tide with a sheen, the top
+    // a fast current with a crisp sweep. The chip: a drifting wash, then light round its rim.
+    assert.equal(item.fill,['none','reasoning-tide','reasoning-current'][item.index]);
+    assert.equal(item.badge,['none','reasoning-chip-tide','reasoning-rim'][item.index]);
+    assert.equal(item.pixels,['none','reasoning-sheen','reasoning-sweep'][item.index]);
+    assert.equal(item.buttonPixels,['none','reasoning-sheen','reasoning-sweep'][item.index]);
+    assert.equal(item.duration,['0s','9s','2.8s'][item.index]);
     assert.equal(item.accent,item.themeAccent);
-    assert.equal(item.starsShown,item.index>0);
-    if(item.index===1) { assert.equal(item.star,'reasoning-star-twinkle'); assert.equal(item.buttonStar,'reasoning-star-twinkle'); assert.match(item.starShape,/polygon/); }
+    // Sparks belong to the top effort alone.
+    assert.equal(item.starsShown,item.index===2);
+    if(item.index===2) { assert.equal(item.star,'reasoning-spark'); assert.equal(item.buttonStar,'reasoning-spark'); assert.match(item.starShape,/polygon/); }
   }
   fs.mkdirSync(path.join(__dirname, '../tmp/ui-smoke'), { recursive: true });
   fs.writeFileSync(path.join(__dirname, '../tmp/ui-smoke/reasoning-slider.png'), (await win.webContents.capturePage()).toPNG());

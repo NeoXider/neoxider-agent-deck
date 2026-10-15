@@ -699,15 +699,21 @@ function attachScreenshotHarness({
             bubbleActionGroups: document.querySelectorAll('#messages .bubble-actions').length,
             bubbleCopyActions: document.querySelectorAll('#messages .bubble-action.copy').length,
             bubbleReuseActions: document.querySelectorAll('#messages .bubble-action.reuse').length,
-            // Wide bubbles keep their actions in an interior float.
-            bubbleActionsInsideBubble: (() => {
+            // The assistant's prose keeps its actions in an interior float; a user bubble keeps
+            // them in the gutter it leaves on its left. Either way they stay inside the log and
+            // never sit on top of the message they act on.
+            bubbleActionsPlaced: (() => {
               const pinned = [...document.querySelectorAll('#messages .bubble.actions-visible')];
               if (!pinned.length) return false;
               const log = document.querySelector('#messages').getBoundingClientRect();
               return pinned.every((bubble) => {
                 const box = bubble.getBoundingClientRect();
                 const buttons = [...bubble.querySelectorAll('.bubble-action')].map((button) => button.getBoundingClientRect());
-                return buttons.length > 0 && buttons.every((rect) => rect.left >= box.left && rect.right <= box.right && rect.bottom <= box.bottom && rect.left >= log.left - 1 && rect.right <= log.right + 1);
+                const inLog = (rect) => rect.left >= log.left - 1 && rect.right <= log.right + 1;
+                if (bubble.classList.contains('user')) {
+                  return buttons.length > 0 && buttons.every((rect) => inLog(rect) && rect.right <= box.left && rect.bottom <= box.bottom + 1 && rect.top >= box.top - 24);
+                }
+                return buttons.length > 0 && buttons.every((rect) => inLog(rect) && rect.left >= box.left && rect.right <= box.right && rect.bottom <= box.bottom);
               });
             })(),
             composerValue: document.querySelector('#messageInput')?.value || '',
