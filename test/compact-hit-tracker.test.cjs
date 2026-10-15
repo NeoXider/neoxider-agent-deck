@@ -116,3 +116,32 @@ test("dragging keeps the handle active until the drag ends", () => {
   tracker.tick();
   assert.deepEqual(published, [true, false]);
 });
+
+// The slime that peeks out above a hovered hinge could be seen and not clicked: only the line
+// took the pointer, so a click on the slime fell through to the desktop.
+test("the peeking slime above a hovered edge line takes the pointer, an idle corner does not", () => {
+  let point = { x: 75, y: 15 };
+  let callback;
+  const published = [];
+  const tracker = createCompactHitTracker({
+    screen: { getCursorScreenPoint: () => point },
+    getWindow: () => ({ isDestroyed: () => false, getBounds: () => ({ x: 0, y: 0, width: 88, height: 132 }) }),
+    getMode: () => "edge",
+    getSide: () => "right",
+    setActive: (active) => published.push(active),
+    setIntervalFn: (next) => { callback = next; return 7; },
+    clearIntervalFn() {},
+  });
+  tracker.sync();
+  assert.deepEqual(published, [], "the corner above an idle line is the desktop's");
+  point = { x: 84, y: 66 };
+  callback();
+  point = { x: 84, y: 30 };
+  callback();
+  point = { x: 75, y: 15 };
+  callback();
+  assert.deepEqual(published, [true], "from the line up to the slime it stays live");
+  point = { x: 20, y: 100 };
+  callback();
+  assert.deepEqual(published, [true, false]);
+});

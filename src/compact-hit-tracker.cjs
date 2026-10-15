@@ -57,6 +57,20 @@ function edgeHandleArea(bounds, side) {
   };
 }
 
+// The little slime that peeks out above a hovered edge line (.edge-to-orb in styles.css:
+// 26 px, 2 px from the top, 1 px from the docked side) and turns the hinge back into the
+// avatar. It takes the pointer only once the line has, so the corner above an idle line
+// stays the desktop's; without it here, clicks on it went straight through to the desktop.
+const EDGE_PEEK = { size: 26, top: 2, side: 1 };
+function edgePeekArea(bounds, side) {
+  return {
+    x: side === "left" ? EDGE_PEEK.side : Math.max(0, bounds.width - EDGE_PEEK.side - EDGE_PEEK.size),
+    y: EDGE_PEEK.top,
+    width: EDGE_PEEK.size,
+    height: EDGE_PEEK.size,
+  };
+}
+
 function edgeHandleContains(point, bounds, side, { padding = HIT_PADDING } = {}) {
   return containsPoint(point, bounds, [edgeHandleArea(bounds, side)], padding);
 }
@@ -105,7 +119,7 @@ function createCompactHitTracker({
     const reported = getAreas?.();
     const areas = Array.isArray(reported) && reported.length
       ? reported
-      : (mode === "edge" ? [edgeHandleArea(bounds, getSide?.())] : null);
+      : (mode === "edge" ? [edgeHandleArea(bounds, getSide?.()), ...(active ? [edgePeekArea(bounds, getSide?.())] : [])] : null);
     // No measurement yet: keep every pixel live rather than swallow the user's clicks.
     if (!areas) {
       publish(true);
