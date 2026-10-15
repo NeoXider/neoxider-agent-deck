@@ -363,7 +363,9 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .activity-card[hidden] { display:none; }
 .activity-card > summary { min-height:42px; padding:7px 10px; }
 .activity-card > summary > .ui-icon:first-child { color:#a697ff; }
-.activity-card > summary > span { min-width:0; flex:1; display:flex; align-items:baseline; gap:7px; }
+/* Only the label column grows. The meta is a span too, and when it matched this rule it took
+   half of the row even while empty, cutting the preview to a couple of words. */
+.activity-card > summary > span:not(.activity-meta) { min-width:0; flex:1; display:flex; align-items:baseline; gap:7px; }
 .activity-card b { flex:none; color:#cfc8ff; font-size:9px; }
 .activity-card small { min-width:0; flex:1; overflow:hidden; color:#8d98aa; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
 .activity-chevron { width:14px; height:14px; color:#7f8b9c; transition:transform .15s ease; }

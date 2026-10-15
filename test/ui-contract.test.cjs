@@ -980,6 +980,10 @@ test("chat reports elapsed turn time and running background tasks", () => {
   const dashboardCalls = renderer.indexOf("renderActivityMeta();");
   assert.ok(dashboardCalls > 0 && renderer.slice(dashboardCalls, dashboardCalls + 120).includes("renderSessions();"));
   assert.match(css, /\.activity-meta \{ flex:none; display:flex;/);
+  // The meta is a span beside the label column; only the label column may grow, or an empty
+  // meta takes half of the row and the preview is cut to a couple of words.
+  assert.match(css, /\.activity-card > summary > span:not\(\.activity-meta\) \{[^}]*flex:1;/);
+  assert.doesNotMatch(css, /\.activity-card > summary > span \{/);
   assert.match(visualSmoke, /activityElapsedMinutes: 21, activityElapsedRunning: true, activityBackgroundCount: "2"/);
 });
 
