@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-16
+
 ### Added
+
+- Three new faces for the pet, drawn from the classic slime: it sleeps with its eyes shut, looks curious with one brow up while an agent waits on your answer, and blushes when stroked.
 
 - Throw the pet. Grab it and fling it: it flies with the pointer's speed under gravity, bounces off the top of the screen, and hits its wall or the taskbar. Thrown hard at the wall it splats against it and pulls itself together clinging there; thrown softly it just takes hold.
 
@@ -19,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A splat no longer ends with the landing squash playing a second time.
+- No ring around the pet. The keyboard focus ring traced the button's box, which stays put while the slime clings to the wall, splats or hops, so a lone circle hung beside it; focus brightens the slime's own bloom instead.
+- A pet that walks or falls out from under a pointer that stays still no longer looks hovered: its buttons and stroked face stayed up while it walked off, because the page only re-reads hover when the mouse moves. Main now tells it the pointer is off the pet.
 
 ## [1.0.0] - 2026-10-16
 

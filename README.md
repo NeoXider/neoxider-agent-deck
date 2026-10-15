@@ -5,8 +5,8 @@
 <p align="center"><strong>Your agents, within reach. And a slime that lives on your desktop.</strong><br>
 A desktop chat for DeepSeek Harness, a live session board, a little pet that climbs your screen, or just a glowing hinge.</p>
 <p align="center">
-  <img alt="Source version" src="https://img.shields.io/badge/source-v1.0.0-49e7c6" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-1.0.0-8b79ff" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v1.0.1-49e7c6" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-1.0.1-8b79ff" /></a>
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Desktop pet" src="https://img.shields.io/badge/desktop%20pet-slime-3ddc84" />
   <img alt="Platform" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-desktop-5b6b8c" />
@@ -30,10 +30,12 @@ Fold the widget and it becomes a slime. The slime is a proper desktop pet, built
 | **drops to the taskbar** and lands with a squash | now and then, under real gravity |
 | **hops along the taskbar**, looks around, sits, scoots | when nothing needs you, never past the middle of the screen |
 | **climbs back home** | after a while away, or whenever it feels like it |
-| **naps**, with z's floating up | after a minute and a half of quiet; the pointer or any agent wakes it |
-| **squishes happily** with a ♥ | when you stroke it: move the pointer back and forth over it |
+| **naps** with its eyes shut, z's floating up | after a minute and a half of quiet; the pointer or any agent wakes it |
+| **blushes and squishes** with a ♥ | when you stroke it: move the pointer back and forth over it |
+| **flies** where you throw it | grab it and fling it; it bounces off the top of the screen and lands on the taskbar or its wall |
+| **splats** into drops and pulls itself back together | after a high fall or a hard throw at its wall; the harder the hit, the farther the drops fly. A short hop down only squashes it |
 | **holds still** | while you point at it, a notification or the panel is open, an agent works, or motion is reduced |
-| **nudges you** with a **?** or **!** | when an agent asks a question or fails |
+| **nudges you** with a **?**, looking curious, or with a **!** | when an agent asks a question or fails |
 | **celebrates** | when an agent finishes |
 
 Its glow is its own silhouette in the colour of what the agents are doing. Hover it and three little buttons appear: recent chats, **status** (the eye: every message the agent writes, or only finished replies), and folding into the screen edge. Pet mode can be switched off in **Settings → Pet mode**; the slime then stays put at its edge.
@@ -108,7 +110,7 @@ npm ci
 npm start
 ```
 
-Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 1.0.0 turns the avatar into a desktop pet, answers the agent's questions inside Deck for real, opens a chat from the avatar as a small window beside it, installs and updates DeepSeek Harness, and makes folding and unfolding start at once with no flash. Every earlier release is in the [changelog](CHANGELOG.md).
+Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 1.0.1 lets you grab the pet and throw it, splats it by how hard it hits, and keeps it from looking hovered after it walks away from the pointer. 1.0.0 turned the avatar into a desktop pet, answers the agent's questions inside Deck for real, opens a chat from the avatar as a small window beside it, installs and updates DeepSeek Harness, and makes folding and unfolding start at once with no flash. Every earlier release is in the [changelog](CHANGELOG.md).
 
 ## Verify and build
 
@@ -122,7 +124,7 @@ npm audit --audit-level=high
 npm run build
 ```
 
-The tests cover session contracts, streaming, attachments, window geometry, compact layouts and the pet's behaviour. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction. Release CI builds Windows, Intel and Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-1.0.0-windows-x64-portable.exe`.
+The tests cover session contracts, streaming, attachments, window geometry, compact layouts and the pet's behaviour. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction. Release CI builds Windows, Intel and Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-1.0.1-windows-x64-portable.exe`.
 
 ## Trust and integration
 
