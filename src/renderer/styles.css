@@ -204,11 +204,19 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 @keyframes chat-glow-breathe { 0%,100%{opacity:calc(var(--chat-glow-intensity) * .52)} 50%{opacity:var(--chat-glow-intensity)} }
 
 /* A calm inline status card: a dot for the state, the sentence that explains it, and up to a
-   few small actions. Everything wraps, so a long reason or a third button never clips. */
-.offline-banner { --banner-tone:var(--warning); display:none; width:100%; min-height:40px; align-items:center; justify-content:flex-start; gap:6px 8px; padding:6px 6px 6px 12px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--surface-1); color:var(--text-2); font-size:12.5px; line-height:1.4; box-shadow:var(--shadow-1); }
+   few small actions. The sentence takes its natural width, so a short "Harness is offline"
+   keeps its button on the same line while a crash report claims the whole line and its
+   buttons wrap underneath - aligned with the text, because the dot hangs in the padding
+   beside the first line rather than taking a place in the row. It never shrinks under the
+   panel either: squeezed by a short window it used to clip its own second row of buttons. */
+.offline-banner { --banner-tone:var(--warning); display:none; flex:none; width:100%; min-height:40px; align-items:center; justify-content:flex-start; gap:6px 8px; padding:6px 6px 6px 28px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--surface-1); color:var(--text-2); font-size:12.5px; line-height:1.4; box-shadow:var(--shadow-1); }
 .offline-banner.show { display:flex; flex-wrap:wrap; }
-.offline-banner::before { content:""; flex:none; width:8px; height:8px; border-radius:50%; background:var(--banner-tone); box-shadow:0 0 0 3px color-mix(in srgb,var(--banner-tone) 18%,transparent); }
-.offline-banner > span, #offlineBannerText { min-width:0; flex:1 1 140px; overflow-wrap:anywhere; }
+.offline-banner[data-tone="error"] { --banner-tone:var(--danger); }
+.offline-banner[data-tone="busy"] { --banner-tone:var(--violet); }
+.offline-banner[data-tone="busy"] #offlineBannerText::before { animation:banner-dot-pulse 1.4s ease-in-out infinite; }
+@keyframes banner-dot-pulse { 50% { opacity:.45; transform:scale(.8); } }
+.offline-banner > span, #offlineBannerText { position:relative; min-width:0; flex:1 1 auto; overflow-wrap:anywhere; }
+#offlineBannerText::before { content:""; position:absolute; top:calc(.7em - 4px); left:-18px; width:8px; height:8px; border-radius:50%; background:var(--banner-tone); box-shadow:0 0 0 3px color-mix(in srgb,var(--banner-tone) 18%,transparent); transition:background-color var(--dur-3) ease, box-shadow var(--dur-3) ease; }
 .harness-connect { display:flex; flex-basis:100%; align-items:center; gap:6px; margin-top:2px; }
 .harness-connect[hidden] { display:none; }
 .harness-connect input { flex:1 1 auto; min-width:0; height:30px; padding:0 10px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--code-bg); color:var(--text); font-size:12px; outline:0; transition:border-color var(--dur-1) ease, box-shadow var(--dur-2) ease; }

@@ -6189,6 +6189,10 @@ function renderOfflineBanner() {
         : state.harnessStartError || "Harness is offline";
   if (label && label.textContent !== text) label.textContent = text;
   if (label) label.title = crash?.detail || "";
+  // The status dot says which kind of offline this is without another word on the card:
+  // amber for down, red for a failure, a slow violet pulse while something is under way.
+  banner.dataset.tone = state.harnessStarting || state.harnessDegraded || crash?.busy ? "busy"
+    : crash || state.harnessStartError ? "error" : "offline";
   // A running gated Harness cannot reveal its process token to a second client.
   // Make the primary action an explicit restart instead of a Start that can only
   // repeat the failed token probe. Keep paste-and-connect for live turns.

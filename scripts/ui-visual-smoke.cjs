@@ -21,6 +21,9 @@ const cases = [
   { name: "offline", tab: "chat", fixture: "offline", expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", contextUnavailable: true }, min: { composerTextareaWidth: 220, startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
   { name: "harness-crash", tab: "chat", fixture: "harness-crash", expect: { offlineBanners: 1, startHarnessText: "Restart now", startHarnessButtonVisible: true, startHarnessButtonDisabled: false } },
   { name: "harness-crash-gave-up", tab: "chat", fixture: "harness-crash-gave-up", expect: { offlineBanners: 1, startHarnessText: "Restart", startHarnessButtonVisible: true } },
+  // The crash sentence is the longest thing the status card says. At the narrowest size it
+  // wraps beside its two actions, and the card still leaves the composer on screen.
+  { name: "harness-crash-360", tab: "chat", fixture: "harness-crash", width: 360, height: 360, expect: { offlineBanners: 1, startHarnessText: "Restart now", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, titlebarOverlap: false, headerTopClipped: false } },
   { name: "engine-crash", tab: "chat", fixture: "engine-crash", expect: { offlineBanners: 0 } },
   { name: "empty-chat", tab: "chat", fixture: "empty-chat", width: 380, height: 400, expect: { contextUnavailable: true, contextValue: "0%", contextVisible: true, conversationBubbles: 0, titlebarOverlap: false } },
   { name: "offline-agents", tab: "agents", fixture: "offline-agents", expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", offlineSessionText: "Start Harness to load sessions." }, min: { startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },

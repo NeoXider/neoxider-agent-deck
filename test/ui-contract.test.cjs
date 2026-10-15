@@ -2063,6 +2063,17 @@ test("a crashed owned Harness says why it is offline and offers Restart now and 
   // Only ever an explanation of "offline", never a banner of its own over a working Harness.
   assert.match(render, /const crash = state\.harnessOffline \? harnessCrashBanner\(\) : null;/);
   assert.match(render, /openLogButton\.hidden = !crash && !state\.harnessStartError;/);
+  // One dot says which kind of offline it is: busy while a restart is under way, red for a
+  // crash or a failed start, amber for plainly down.
+  assert.match(render, /banner\.dataset\.tone = state\.harnessStarting \|\| state\.harnessDegraded \|\| crash\?\.busy \? "busy"/);
+  const bannerCss = readSource("src", "renderer", "styles.css");
+  assert.match(bannerCss, /\.offline-banner\[data-tone="error"\] \{ --banner-tone:var\(--danger\); \}/);
+  // The sentence keeps its natural width so a long one pushes the actions onto their own row,
+  // the dot hangs beside its first line, and a short window cannot squeeze the card shut.
+  assert.match(bannerCss, /\.offline-banner \{[^}]*flex:none;[^}]*padding:6px 6px 6px 28px;/);
+  assert.match(bannerCss, /#offlineBannerText \{ position:relative; min-width:0; flex:1 1 auto;/);
+  assert.match(bannerCss, /#offlineBannerText::before \{[^}]*position:absolute;[^}]*left:-18px;/);
+  assert.match(readSource("scripts", "ui-visual-smoke.cjs"), /name: "harness-crash-360", tab: "chat", fixture: "harness-crash", width: 360, height: 360/);
   assert.match(functionBody(renderer, "async function startHarnessFromBanner()"), /if \(state\.harnessOffline && harnessCrashBanner\(\)\) \{\s+await restartHarnessNowFromBanner\(\);/);
   assert.match(renderer, /await window\.widget\.restartHarnessNow\(\)/);
   assert.match(renderer, /window\.widget\.openHarnessLog\(\)/);
