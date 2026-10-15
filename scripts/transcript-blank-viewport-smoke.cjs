@@ -149,8 +149,8 @@ async function arrivalPhase(win) {
       jumpToLatestTranscript();
       await frames();
     };
-    const stream = async () => {
-      state.liveStreamsBySession.set(state.selectedSessionId, { text: 'Streaming line\\n'.repeat(30), lastSeq: 'live-' + run });
+    const stream = async (lines = 30) => {
+      state.liveStreamsBySession.set(state.selectedSessionId, { text: 'Streaming line\\n'.repeat(lines), lastSeq: 'live-' + run });
       renderMessages(state.currentMessages);
       await frames();
     };
@@ -211,7 +211,10 @@ async function arrivalPhase(win) {
   const readingUp = await run(`(async () => {
     const t = window.__arrival;
     await t.reset();
-    await t.stream();
+    // The reader is on a finished row above the live answer, not inside the live text: that
+    // is replaced when the turn lands, so no position within it can be kept. Thirty lines
+    // left that row a 20px sliver of the viewport at 11px type, and none at reading size.
+    await t.stream(12);
     await t.handUp(120);
     const pausedByHand = !state.messagesStickToBottom;
     await t.wait(1300); // let the wheel intent lapse, as an idle reader's would
@@ -262,6 +265,11 @@ async function arrivalPhase(win) {
     t.log.scrollTop = t.log.scrollHeight;
     await t.frames();
     await t.handUp(160);
+    // The open card starts in view, under the row the reader is on. With reading-size type
+    // the card alone could fill the viewport, and the row being read was then the card that
+    // is about to fold away rather than anything that can stay where it was.
+    const cardTop = group.getBoundingClientRect().top - t.log.getBoundingClientRect().top;
+    if (cardTop < 48) await t.handUp(Math.ceil(48 - cardTop));
     await t.wait(1300);
     await t.arrive();
     const before = captureTranscriptAnchor(t.log);

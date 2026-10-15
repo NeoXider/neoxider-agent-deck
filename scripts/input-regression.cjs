@@ -255,13 +255,16 @@ async function main() {
       results.push({ theme, outline: parseFloat(u.borderTopWidth) >= .5 && u.borderTopStyle === 'solid',
         distinct: u.backgroundImage !== a.backgroundImage,
         clearOfRail: user.getBoundingClientRect().right + 6 <= rightLimit && assistant.getBoundingClientRect().right <= rightLimit,
+        // Your own message is a bubble hugging the right edge, leaving its action gutter on
+        // the left; the assistant's prose takes the whole measure.
+        rightAligned: rightLimit - user.getBoundingClientRect().right <= 16,
         userWidth: user.getBoundingClientRect().width / available,
         assistantWidth: assistant.getBoundingClientRect().width / available });
     }
     document.body.dataset.design = original;
     return results;
   })()`);
-  if (speakerChecks.some(r => !r.outline || !r.distinct || !r.clearOfRail || r.userWidth < .95 || r.assistantWidth < .99)) {
+  if (speakerChecks.some(r => !r.outline || !r.distinct || !r.clearOfRail || !r.rightAligned || r.userWidth > .9 || r.assistantWidth < .99)) {
     failures.push('Speaker contrast/width failed: ' + JSON.stringify(speakerChecks));
   }
   const restoredAppearance = await contents.executeJavaScript(`({ theme: document.body.dataset.design, motion: document.body.dataset.motion })`);

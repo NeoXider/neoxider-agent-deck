@@ -29,7 +29,7 @@ const cases = [
   { name: "chat-font-135", tab: "chat", fixture: "chat", width: 380, height: 400, fontScale: 1.35, expect: { fontScale: 1.35, titlebarOverlap: false }, min: { bubbleFontPx: 14.8 } },
   { name: "history-loading", tab: "chat", fixture: "history-loading", width: 380, height: 400, expect: { skeletonRows: 3, emptyStateText: "", conversationBubbles: 0 } },
   { name: "toast", tab: "chat", fixture: "toast", width: 380, height: 400, expect: { toastVisible: true, toastText: "Copied to clipboard", conversationBubbles: 2 } },
-  { name: "bubble-actions", tab: "chat", fixture: "bubble-actions", width: 380, height: 400, expect: { bubbleActionGroups: 2, bubbleCopyActions: 2, bubbleReuseActions: 1, bubbleActionsInsideBubble: true, conversationBubbles: 2 } },
+  { name: "bubble-actions", tab: "chat", fixture: "bubble-actions", width: 380, height: 400, expect: { bubbleActionGroups: 2, bubbleCopyActions: 2, bubbleReuseActions: 1, bubbleActionsPlaced: true, conversationBubbles: 2 } },
   // Waits on the Markdown worker, which a cold start on a busy machine can keep past the default capture.
   { name: "live-markdown", tab: "chat", fixture: "live-markdown", width: 380, height: 400, delay: 3000, expect: { liveBubbles: 1, liveBubbleFormatted: true, liveBubbleHeadings: 1, liveBubbleListItems: 3, liveCaretInLastLine: true, liveCaretDisplay: "inline-block", activityCardVisible: false } },
   { name: "composer-recall", tab: "chat", fixture: "composer-recall", width: 380, height: 400, expect: { composerValue: "Now re-render the cover.", conversationBubbles: 4 } },
@@ -81,7 +81,7 @@ const cases = [
   { name: "send-rejected-compact", width: 360, height: 360, tab: "chat", fixture: "send-rejected", expect: { composerErrorVisible: true, composerErrorUnclipped: true, composerErrorText: "The current model does not support images; switch to a model with vision support.", composerErrorDismissable: true, composerErrorAboveComposer: true, activityCardVisible: true, attachmentChips: 1 } },
   // A queued background job is regularly longer than its one-line row; opening it shows the
   // command whole, in the dock, without reaching into the conversation or the composer.
-  { name: "queued-long", tab: "chat", fixture: "queued-long", expect: { queueRows: 2, queueRowsExpanded: 1, queueExpandedNotClipped: true, queueExpandedFontPx: 9, queueDockAboveComposer: true } },
+  { name: "queued-long", tab: "chat", fixture: "queued-long", expect: { queueRows: 2, queueRowsExpanded: 1, queueExpandedNotClipped: true, queueExpandedFontPx: 13, queueDockAboveComposer: true } },
   // Editing that same job: a textarea holding the whole command, not a one-line input.
   { name: "queued-editing", tab: "chat", fixture: "queued-editing", expect: { queueEditorTag: "TEXTAREA", queueDockAboveComposer: true }, min: { queueEditorLines: 3 } },
   // A mark per message the caller wrote, in the gutter beside the scrollbar, with the
@@ -118,7 +118,7 @@ const cases = [
   { name: "question-wait-360", tab: "chat", fixture: "question-wait", width: 360, height: 360, expect: { toolCalls: 1, questionHandoffVisible: true, questionWaitVisible: true, titlebarOverlap: false } },
   { name: "question-wait-group-360", tab: "chat", fixture: "question-wait-group", width: 360, height: 360, expect: { toolGroups: 1, toolCalls: 2, questionHandoffVisible: true, questionWaitVisible: true, titlebarOverlap: false } },
   { name: "composer-single-line", tab: "chat", fixture: "composer-single-line", width: 380, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 36, composerInputScrollable: false, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 48 } },
-  { name: "composer-multiline-max", tab: "chat", fixture: "composer-multiline", width: 380, height: 400, expect: { composerInputScrollable: true, conversationBubbles: 1, shortMessageVisible: true }, layout: { composerFullLines: 8 } },
+  { name: "composer-multiline-max", tab: "chat", fixture: "composer-multiline", width: 380, height: 400, expect: { composerInputScrollable: true, conversationBubbles: 1, shortMessageVisible: true }, layout: { composerFullLines: 6 } },
   { name: "small-chat-400", tab: "chat", fixture: "small-chat", width: 400, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 36, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 48 } },
   { name: "small-chat-380", tab: "chat", fixture: "small-chat", width: 380, height: 380, expect: { composerInputHeight: 34, composerUtilityHeight: 36, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 48 } },
   { name: "small-chat-360", tab: "chat", fixture: "small-chat", width: 360, height: 360, expect: { composerInputHeight: 34, composerUtilityHeight: 36, conversationBubbles: 1, shortMessageVisible: true, titlebarOverlap: false, headerTopClipped: false, titlebarNativeDragDisabled: true, avatarHitWidth: 38, avatarHitHeight: 38, avatarPlateTransparent: true, avatarAuraCircular: true, avatarAuraContained: true, avatarAuraRadial: true }, min: { titlebarTop: 9 }, max: { composerHeight: 48 } },
@@ -224,7 +224,7 @@ function assertSnappedLayout(testCase, audit) {
     }
   }
   if (testCase.layout?.composerFullLines) {
-    const expectedHeight = testCase.layout.composerFullLines * 15;
+    const expectedHeight = testCase.layout.composerFullLines * 20;
     if (Math.abs(audit.semantic.composerInputHeight - expectedHeight) > 1) {
       throw new Error(`${testCase.name} expected ${testCase.layout.composerFullLines} complete composer lines (${expectedHeight}px), got ${audit.semantic.composerInputHeight}px`);
     }

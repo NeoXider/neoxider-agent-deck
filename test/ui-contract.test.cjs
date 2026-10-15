@@ -395,7 +395,8 @@ test("widget text-size slider changes readable text and persists its choice", ()
   assert.match(html, /id="fontScaleRange"[^>]+type="range"/);
   assert.match(renderer, /applyFontScale\(preferences\.fontScale\)/);
   assert.match(renderer, /setFontScale\(scale\)/);
-  assert.match(appearance, /\.bubble \{ font-size:calc\(11px \* var\(--font-scale\)\)/);
+  // 14px body text at the default scale: the conversation reads at the size of a document.
+  assert.match(appearance, /\.bubble \{ font-size:calc\(14px \* var\(--font-scale\)\)/);
   assert.match(preload, /setFontScale: \(value\) => ipcRenderer\.invoke\("set-font-scale"/);
 });
 
@@ -915,7 +916,9 @@ test("a queued prompt can be read and edited in full without touching the conver
   assert.match(css, /\.queue-dock\.opened \.queue-list \{ max-height:186px; \}/);
   assert.match(css, /\.queue-row\.expanded \.queue-preview \{[^}]*white-space:pre-wrap/);
   assert.match(css, /\.queue-row\.expanded \.queue-preview \{[^}]*text-overflow:clip/);
-  assert.match(css, /\.queue-row\.expanded \.queue-preview \{[^}]*font-size:9px/);
+  assert.match(css, /\.queue-row\.expanded \.queue-preview \{[^}]*font-size:13px/);
+  // A size up from the resting line, never smaller than it.
+  assert.match(css, /\.queue-preview \{[^}]*font-size:12px/);
   // Editing is a textarea now: one 8px line could not show a command, let alone correct it.
   assert.match(renderer, /createElement\("textarea"\);\s*$/m);
   assert.match(renderer, /if \(event\.key === "Enter" && !event\.shiftKey\)/);
@@ -926,7 +929,7 @@ test("a queued prompt can be read and edited in full without touching the conver
   assert.match(css, /\.queue-edit-input \{[^}]*max-height:132px/);
   assert.match(css, /\.queue-edit-input \{[^}]*resize:none/);
   // The dock may take room from the log while open; it must never reach the composer.
-  assert.match(visualSmoke, /queueRowsExpanded: 1, queueExpandedNotClipped: true, queueExpandedFontPx: 9, queueDockAboveComposer: true/);
+  assert.match(visualSmoke, /queueRowsExpanded: 1, queueExpandedNotClipped: true, queueExpandedFontPx: 13, queueDockAboveComposer: true/);
   assert.match(visualSmoke, /queueEditorTag: "TEXTAREA", queueDockAboveComposer: true/);
 });
 
@@ -1039,8 +1042,11 @@ test("consecutive tool activity collapses into one expandable group", () => {
   assert.match(renderer, /tool-group-body/);
   assert.match(css, /\.tool-group\.partial-failure/);
   // A tool header is one line of text: it gets a line of box, not two.
-  assert.match(css, /\.tool-group > summary \{[^}]*height:27px/);
-  assert.match(css, /\.tool-call > summary \{[^}]*height:25px/);
+  assert.match(css, /\.tool-group > summary \{[^}]*height:30px/);
+  assert.match(css, /\.tool-call > summary \{[^}]*height:28px/);
+  // The glyph carries the state: a running call says so without another line of text.
+  assert.match(renderer, /message\.status === "running" && !message\.isError \? " running" : ""/);
+  assert.match(css, /\.tool-call\.running > summary > \.ui-icon:first-child \{[^}]*animation:tool-running/);
 });
 
 test("Harness TODO projections render as a compact collapsible current plan", () => {
@@ -1798,10 +1804,15 @@ test("messages carry copy and reuse actions with a toast for feedback", () => {
   assert.match(css, /\.bubble:hover \.bubble-actions, \.bubble:focus-within \.bubble-actions, \.bubble\.actions-visible \.bubble-actions \{ opacity:1; transform:none; pointer-events:auto; \}/);
   // Interior floats reserve text space without an invisible footer in small chats.
   assert.match(css, /\.bubble-actions \{ position:relative; float:right;[^}]*width:auto;[^}]*flex-direction:row;/);
+  // One line tall: a button-tall float also notched the second line of every answer.
+  assert.match(css, /\.bubble-actions \{[^}]*height:20px;[^}]*margin:0 0 0 10px;/);
   assert.match(renderer, /bubble\.prepend\(createBubbleActions\(message\)\)/);
+  // The assistant's prose spans the log; your own messages are bubbles hugging the right
+  // edge, and their actions wait in the gutter the bubble leaves on its left - never over a
+  // word and never as a reserved footer.
   assert.match(css, /\.bubble \{[^}]*width:100%; max-width:none;/);
-  assert.match(css, /\.bubble\.user \{[^}]*width:calc\(100% - 8px\);/);
-  assert.match(css, /\.bubble\.user::after \{[^}]*clip-path:polygon\(0 0,100% 100%,0 100%\);/);
+  assert.match(css, /\.bubble\.user \{[^}]*width:fit-content; max-width:calc\(100% - 60px\); margin-left:auto;/);
+  assert.match(css, /\.bubble\.user > \.bubble-actions \{ position:absolute;[^}]*right:calc\(100% \+ 6px\);[^}]*float:none;/);
   assert.match(css, /\.messages \{[^}]*overflow:hidden auto;/);
   // Goal and queue actions say what they did the same way.
   assert.match(renderer, /showToast\(GOAL_TOASTS\.find/);

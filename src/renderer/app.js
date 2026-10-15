@@ -2963,7 +2963,7 @@ function createQuestionHandoffButton() {
 
 function createToolCard(message) {
   const details = document.createElement("details");
-  details.className = `tool-call${message.isError ? " failed" : ""}${message.nested ? " nested" : ""}`;
+  details.className = `tool-call${message.isError ? " failed" : ""}${message.nested ? " nested" : ""}${message.status === "running" && !message.isError ? " running" : ""}`;
   details.dataset.toolKey = `tool:${message.callId || message.seq || `${message.name || "tool"}:${message.arguments || ""}`}`;
   const summary = document.createElement("summary");
   summary.append(createIcon("command"));
@@ -3609,8 +3609,10 @@ function createMessageBubble(message, bubble = document.createElement("div")) {
     bubble.append(title, text, button);
     return bubble;
   }
-  if (message.html) bubble.innerHTML = message.html;
-  else if (message.text) {
+  if (message.html) {
+    bubble.innerHTML = message.html;
+    if (message.html.includes("<pre")) decorateCodeBlocks(bubble);
+  } else if (message.text) {
     bubble.classList.add("plain");
     bubble.textContent = message.text;
   }
@@ -3682,6 +3684,37 @@ function createEngineCrashBubble(message, bubble, crash) {
   details.append(detailsSummary, original);
   bubble.append(actions, details);
   return bubble;
+}
+
+// A fenced block gets a header naming its language and a copy button. The label is an
+// attribute that CSS paints, so selecting the answer never picks it up, and the button
+// copies exactly the code - not the prose around it.
+function decorateCodeBlocks(root) {
+  for (const pre of root.querySelectorAll("pre")) {
+    if (pre.parentElement?.classList.contains("code-block")) continue;
+    const code = pre.querySelector("code");
+    const language = /(?:^|\s)language-([\w#+.-]{1,24})/.exec(code?.className || "")?.[1] || "";
+    const block = document.createElement("div");
+    block.className = "code-block";
+    block.dataset.lang = language.toLowerCase() || "code";
+    pre.replaceWith(block);
+    block.append(pre, createCodeCopyButton(pre));
+  }
+}
+
+function createCodeCopyButton(pre) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "code-copy";
+  button.title = "Copy code";
+  button.setAttribute("aria-label", "Copy code");
+  button.append(createIcon("copy"));
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    copyMessageText(pre.textContent.replace(/\n$/, ""), button);
+  });
+  return button;
 }
 
 function createSteeringBubble(item) {
@@ -3917,6 +3950,7 @@ function applyLiveMarkdown(bubble, html) {
   bubble.classList.remove("plain");
   bubble.dataset.formatted = "1";
   bubble.innerHTML = html;
+  if (html.includes("<pre")) decorateCodeBlocks(bubble);
   liveCaretHost(bubble).append(liveCaret());
 }
 
