@@ -30,6 +30,13 @@ const FRAME_MS = 16;
 // Let go this close to a screen side, the pet takes hold of that side; anywhere else it
 // drops where it was let go and lands on the taskbar.
 const RELEASE_WALL_DISTANCE = 110;
+// Thrown: the pointer's speed over its last ~100 ms of the drag becomes the pet's.
+const THROW_SAMPLE_MS = 100;
+const THROW_MIN_SPEED = 350;
+const THROW_MAX_SPEED = 2600;
+const AIR_DRAG = 0.35; // per second, sideways
+const WALL_SPLAT_SPEED = 520; // slower than this it just takes hold of the wall
+const WALL_REACH = 38; // a docked window's slime is this far from its edge (the wall pose closes it)
 
 // [name, weight, minimum ms, maximum ms]; a travel's length comes from its distance.
 const WALL_BEHAVIOURS = [
@@ -77,6 +84,8 @@ function petGeometry(bounds, side, workArea) {
     ceilingY: workArea.y - insetY,
     minX: side === "left" ? wallX : wallX - reach,
     maxX: side === "left" ? wallX + reach : wallX,
+    screenLeft: workArea.x,
+    screenRight: workArea.x + workArea.width,
   };
 }
 
@@ -111,6 +120,7 @@ function createPetRoamer({
   let awaySince = null;
   let asleep = false;
   let lastSent = "";
+  let dragSamples = [];
 
   const liveWindow = () => { const window = getWindow(); return window && !window.isDestroyed() ? window : null; };
   const geometry = () => {
@@ -183,12 +193,21 @@ function createPetRoamer({
     startMotion(kind, { target, speed }, onArrive);
   }
 
-  function startFall() {
+  // Ballistic flight: dropped (no speed) or thrown. It lands on the floor, takes hold of or
+  // splats against its own wall, bounces off the ceiling and off the far side.
+  function startFall(vx = 0, vy = 0) {
     surface = "air";
     emit("fall");
-    startMotion("fall", { vy: 0 }, (impact) => {
-      surface = "floor";
-      emit("land", { impact: Math.round(Math.min(1, impact / MAX_FALL_SPEED) * 100) / 100 });
+    startMotion("fall", { vx, vy }, (hit) => {
+      const round = (value) => Math.round(value * 100) / 100;
+      if (hit.wall) {
+        surface = "wall";
+        emit(hit.speed >= WALL_SPLAT_SPEED ? "splat-wall" : "cling", { impact: round(Math.min(1, hit.speed / 1800)) });
+      } else {
+        surface = "floor";
+        // How high a plain drop would have to be to hit this hard: the renderer splats by it.
+        emit("land", { impact: round(Math.min(1, hit.speed / MAX_FALL_SPEED)), drop: Math.round((hit.speed * hit.speed) / (2 * GRAVITY)) });
+      }
       persist();
       schedule(between(4000, 8000, random));
     });
@@ -212,9 +231,30 @@ function createPetRoamer({
     motion.last = at;
     let arrived = false;
     if (motion.kind === "fall") {
-      motion.vy = Math.min(MAX_FALL_SPEED, motion.vy + GRAVITY * dt);
-      pos.y = Math.min(g.floorY, pos.y + motion.vy * dt);
-      arrived = pos.y >= g.floorY;
+      const side = getSide();
+      const toward = side === "left" ? -1 : 1;
+      motion.vy = Math.min(THROW_MAX_SPEED, motion.vy + GRAVITY * dt);
+      motion.vx *= Math.exp(-AIR_DRAG * dt);
+      pos.x += motion.vx * dt;
+      pos.y += motion.vy * dt;
+      if (pos.y < g.ceilingY) { pos.y = g.ceilingY; motion.vy = Math.abs(motion.vy) * 0.3; }
+      // The far side: the avatar stays on the screen and bounces off it.
+      const centre = avatarCentreX({ x: pos.x, width: g.width }, side);
+      const farEdge = side === "left" ? g.screenRight - 26 : g.screenLeft + 26;
+      if ((side === "left" && centre > farEdge) || (side !== "left" && centre < farEdge)) {
+        pos.x += farEdge - centre;
+        motion.vx = -motion.vx * 0.4;
+      }
+      const wallContact = g.wallX + toward * WALL_REACH;
+      if (toward * (pos.x - wallContact) >= 0) {
+        motion.hit = { wall: true, speed: Math.abs(motion.vx) };
+        pos.x = g.wallX;
+        arrived = true;
+      } else if (pos.y >= g.floorY) {
+        motion.hit = { wall: false, speed: Math.abs(motion.vy) };
+        pos.y = g.floorY;
+        arrived = true;
+      }
     } else {
       const step = motion.speed * dt;
       for (const axis of ["x", "y"]) {
@@ -226,9 +266,9 @@ function createPetRoamer({
     }
     place(Math.round(pos.x), Math.round(pos.y));
     if (arrived) {
-      const { onArrive, vy } = motion;
+      const { onArrive, hit } = motion;
       stopMotion();
-      onArrive?.(vy || 0);
+      onArrive?.(hit);
       return;
     }
     frameTimer = setTimer(frame, FRAME_MS);
@@ -331,20 +371,37 @@ function createPetRoamer({
       persist();
       pos = null;
     },
-    // A drag was let go. Near a side the usual flight to that edge follows (null); anywhere
-    // else the pet drops where it is: the window it should be in for the side of the screen
-    // it was let go on, keeping the avatar exactly where the pointer left it.
+    // Where the pointer has been during a drag, for the speed of a throw.
+    trackDrag(x, y) {
+      const at = now();
+      dragSamples = [...dragSamples.filter((sample) => at - sample.at <= THROW_SAMPLE_MS * 2), { x, y, at }].slice(-12);
+    },
+    // A drag was let go. Thrown, it flies toward the side it was thrown at; let go gently near
+    // a side, the usual flight to that edge follows (null); anywhere else it drops where it
+    // is. The window is put where the avatar stays exactly where the pointer left it.
     release(bounds, workArea, side) {
       if (!enabled) return null;
+      const at = now();
+      const recent = dragSamples.filter((sample) => at - sample.at <= THROW_SAMPLE_MS);
+      dragSamples = [];
+      const first = recent[0];
+      const last = recent.at(-1);
+      const span = first && last ? (last.at - first.at) / 1000 : 0;
+      let vx = span > 0.01 ? (last.x - first.x) / span : 0;
+      let vy = span > 0.01 ? (last.y - first.y) / span : 0;
+      const speed = Math.hypot(vx, vy);
+      if (speed > THROW_MAX_SPEED) { vx *= THROW_MAX_SPEED / speed; vy *= THROW_MAX_SPEED / speed; }
+      const thrown = speed >= THROW_MIN_SPEED;
       const centre = avatarCentreX(bounds, side);
-      const nextSide = centre < workArea.x + workArea.width / 2 ? "left" : "right";
+      const half = centre < workArea.x + workArea.width / 2 ? "left" : "right";
+      const nextSide = thrown && Math.abs(vx) > 150 ? (vx < 0 ? "left" : "right") : half;
       const fromSide = nextSide === "left" ? centre - workArea.x : workArea.x + workArea.width - centre;
-      if (fromSide <= RELEASE_WALL_DISTANCE) return null;
+      if (!thrown && fromSide <= RELEASE_WALL_DISTANCE) return null;
       const g = petGeometry(bounds, nextSide, workArea);
       const x = nextSide === "left" ? centre - AVATAR_INSET : centre - (bounds.width - AVATAR_INSET);
-      return { side: nextSide, x: Math.round(x), y: Math.round(Math.min(bounds.y, g.floorY)) };
+      return { side: nextSide, x: Math.round(x), y: Math.round(Math.min(bounds.y, g.floorY)), vx: thrown ? Math.round(vx) : 0, vy: thrown ? Math.round(vy) : 0 };
     },
-    // Falls from where it was let go, the way it drops off its edge.
+    // Falls, or flies, from where it was let go.
     fallFrom(drop) {
       stopMotion();
       clearTimer(decisionTimer);
@@ -352,7 +409,7 @@ function createPetRoamer({
       pos = { x: drop.x, y: drop.y };
       awaySince = now();
       wake();
-      startFall();
+      startFall(drop.vx || 0, drop.vy || 0);
     },
     // A drag ended and the avatar flew to its edge: that is home now.
     landed(bounds) {

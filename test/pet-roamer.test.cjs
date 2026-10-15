@@ -163,3 +163,40 @@ test("let go near a side it takes that edge; let go in the open it falls to the 
   assert.equal(h.window.bounds.y, petGeometry(ORB, "left", workArea).floorY);
   assert.equal(h.rests.at(-1).free, true, "saved as a free spot on the floor");
 });
+
+test("thrown hard at its wall it splats against it; thrown softly it takes hold; a short drop barely lands", () => {
+  const throwAt = (speed) => {
+    const h = harness();
+    const start = { x: 900, y: 300, ...ORB };
+    h.window.bounds = { ...start };
+    // The pointer sped toward the right over the last 80 ms of the drag.
+    for (let step = 0; step <= 4; step += 1) {
+      h.roamer.trackDrag(1000 + step * speed * 0.02, 350);
+      h.advance(20);
+    }
+    const drop = h.roamer.release(start, workArea, "left");
+    assert.equal(drop.side, "right", "thrown right, its wall is the right one");
+    assert.ok(drop.vx > 0);
+    h.window.bounds.x = drop.x;
+    h.roamer.fallFrom(drop);
+    h.advance(4000);
+    return h;
+  };
+  const hard = throwAt(2400);
+  assert.ok(hard.sent.some((entry) => entry.action === "splat-wall" && entry.surface === "wall"), hard.actions().join());
+  assert.equal(hard.window.bounds.x, petGeometry(ORB, "right", workArea).wallX, "it ends on its wall");
+  const soft = throwAt(600);
+  assert.ok(!soft.sent.some((entry) => entry.action === "splat-wall"));
+  assert.ok(soft.sent.some((entry) => ["cling", "land"].includes(entry.action)), soft.actions().join());
+
+  const low = harness();
+  const g = petGeometry(ORB, "right", workArea);
+  const near = { x: 600, y: g.floorY - 40, ...ORB };
+  low.window.bounds = { ...near };
+  const drop = low.roamer.release(near, workArea, "right");
+  low.window.bounds.x = drop.x;
+  low.roamer.fallFrom(drop);
+  low.advance(2000);
+  const land = low.sent.find((entry) => entry.action === "land");
+  assert.ok(land.drop < 120, `a 40 px drop lands softly (drop ${land.drop})`);
+});

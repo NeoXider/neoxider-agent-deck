@@ -657,6 +657,7 @@ function registerIpcHandlers({
     if (getWindowMode() === "full" || !compactDragOrigin) return;
     const { x: screenX, y: screenY } = compactPointer(value);
     if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+    petRoamer?.trackDrag?.(screenX, screenY);
     // Edge keeps the line flush to a screen side while the SIDE follows the pointer, so
     // crossing the middle of the display moves it to the other edge. Freezing x here
     // instead did stop the drift it was aimed at, but it also left the opposite edge

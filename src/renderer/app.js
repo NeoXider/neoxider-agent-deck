@@ -7273,37 +7273,64 @@ function syncPetFace() {
 
 // A hard landing splats the slime: it flattens into a puddle, a handful of drops fly out and
 // land around it, and over three seconds the drops crawl back and it pulls itself together.
+// The harder it hit - the higher the drop, or the faster the throw - the more drops, the
+// farther they fly and the flatter the puddle. A short hop down just squashes it.
 const PET_SPLAT_MS = 3000;
-const PET_SPLAT_IMPACT = 0.5;
+const PET_SPLAT_MIN_DROP = 120; // px of fall (or the throw that hits as hard)
+const PET_SPLAT_FULL_DROP = 640;
 let petSplatTimer = 0;
-function splatPet(impact) {
+function splatPet({ strength, wall = false }) {
   if (prefersReducedMotion()) return false;
   const orb = $("#orbRestore");
+  const k = Math.max(0.12, Math.min(1, strength));
   orb.querySelector(".pet-splat")?.remove();
   const layer = document.createElement("span");
-  layer.className = "pet-splat";
+  layer.className = `pet-splat${wall ? " wall" : ""}`;
   layer.setAttribute("aria-hidden", "true");
   orb.append(layer);
-  const count = 7 + Math.round(Math.min(1, impact) * 4);
+  // The drops stay inside the window: room is measured from where they start.
+  const box = orb.getBoundingClientRect();
+  const right = document.body.classList.contains("side-left") ? -1 : 1;
+  const originX = box.left + box.width / 2 + (wall ? right * (38 + 16) : 0);
+  const originY = box.top + (wall ? box.height / 2 : box.height * 0.88);
+  const room = wall
+    ? { before: originY - 6, after: innerHeight - originY - 6, out: right > 0 ? originX - 6 : innerWidth - originX - 6 }
+    : { before: originX - 6, after: innerWidth - originX - 6, out: originY - 4 };
+  const count = 6 + Math.round(k * 8);
+  const reach = 16 + 74 * k;
   for (let index = 0; index < count; index += 1) {
     const piece = document.createElement("span");
     piece.className = "pet-piece";
-    const size = 6 + Math.random() * 9;
+    const size = 5 + Math.random() * (6 + 6 * k);
     Object.assign(piece.style, { width: `${size}px`, height: `${size}px`, left: `${-size / 2}px`, top: `${-size / 2}px` });
     layer.append(piece);
-    // Spread across both sides, farther and higher the harder it hit.
-    const spread = (-1 + (2 * (index + 0.5)) / count) * (24 + 22 * impact) + (Math.random() - 0.5) * 8;
-    const up = 8 + Math.random() * 16 * (0.5 + impact);
+    // Along the floor (or up and down the wall), farther and higher the harder it hit.
+    let along = (-1 + (2 * (index + 0.5)) / count) * reach + (Math.random() - 0.5) * 10 * k;
+    const margin = size / 2 + 2; // a whole drop stays inside the window
+    along = Math.max(-(room.before - margin), Math.min(room.after - margin, along));
+    const lift = Math.max(0, Math.min(room.out - margin, 6 + Math.random() * (10 + 30 * k)));
+    const at = (a, b) => (wall ? `translate(${-right * b}px, ${a}px)` : `translate(${a}px, ${-b}px)`);
+    // Where it settles over the body while the slime stands back up: the drops swell over it
+    // and hide the puddle unfolding, then melt into the finished slime.
+    const coverAlong = (Math.random() * 2 - 1) * 18;
+    const coverLift = 8 + Math.random() * 30;
+    const swell = 1.5 + Math.random() * 0.6 + 0.3 * k;
     piece.animate([
-      { transform: "translate(0, 0) scale(.5)" },
-      { offset: 0.07, transform: `translate(${spread * 0.55}px, ${-up}px) scale(1)`, easing: "cubic-bezier(.3,.6,.5,1)" },
-      { offset: 0.15, transform: `translate(${spread}px, 0) scale(1.25, .7)`, easing: "ease-out" },
-      { offset: 0.21, transform: `translate(${spread}px, 0) scale(1)` },
-      { offset: 0.48, transform: `translate(${spread}px, 0) scale(1.06, .94)` },
-      { offset: 0.8, transform: `translate(${spread * 0.35}px, 0) scale(.9, 1.06)`, easing: "ease-in" },
-      { offset: 1, transform: "translate(0, 0) scale(.35)", opacity: 0 },
+      { transform: `${at(0, 0)} scale(.5)` },
+      { offset: 0.07, transform: `${at(along * 0.55, lift)} scale(1)`, easing: "cubic-bezier(.3,.6,.5,1)" },
+      { offset: 0.15, transform: `${at(along, 0)} scale(1.25, .7)`, easing: "ease-out" },
+      { offset: 0.21, transform: `${at(along, 0)} scale(1)` },
+      { offset: 0.46, transform: `${at(along, 0)} scale(1.06, .94)`, easing: "ease-in" },
+      { offset: 0.58, transform: `${at(along * 0.25, 0)} scale(.95, 1)`, easing: "ease-out" },
+      { offset: 0.7, transform: `${at(coverAlong, coverLift)} scale(${swell})`, easing: "ease-in-out" },
+      { offset: 0.82, transform: `${at(coverAlong * 0.6, coverLift * 0.85)} scale(${swell * 0.9})`, opacity: 1 },
+      { offset: 0.9, transform: `${at(coverAlong * 0.3, coverLift * 0.6)} scale(.6)`, opacity: 0 },
+      { offset: 1, transform: `${at(0, 0)} scale(.3)`, opacity: 0 },
     ], { duration: PET_SPLAT_MS, fill: "both" });
   }
+  Object.assign(layer.style, { left: `${originX - box.left}px`, top: `${originY - box.top}px` });
+  orb.style.setProperty("--splat-x", String(1.45 + 0.5 * k));
+  orb.style.setProperty("--splat-y", String(0.34 - 0.16 * k));
   orb.classList.remove("pet-splatting");
   void orb.offsetWidth;
   orb.classList.add("pet-splatting");
@@ -7311,15 +7338,19 @@ function splatPet(impact) {
   petSplatTimer = setTimeout(() => {
     orb.classList.remove("pet-splatting");
     layer.remove();
+    // Done pulling itself together: the landing it came from must not play again.
+    if (["land", "splat-wall"].includes(orb.dataset.petAction)) orb.dataset.petAction = orb.dataset.petSurface === "wall" ? "cling" : "rest";
   }, PET_SPLAT_MS + 60);
   return true;
 }
 
 function applyPetState(pet) {
   const orb = $("#orbRestore");
-  if (pet?.action === "land" && pet.impact >= PET_SPLAT_IMPACT) splatPet(pet.impact);
+  const drop = Number.isFinite(pet?.drop) ? pet.drop : (pet?.impact || 0) * PET_SPLAT_FULL_DROP;
+  if (pet?.action === "land" && drop >= PET_SPLAT_MIN_DROP) splatPet({ strength: (drop - PET_SPLAT_MIN_DROP) / (PET_SPLAT_FULL_DROP - PET_SPLAT_MIN_DROP) });
+  if (pet?.action === "splat-wall") splatPet({ strength: pet.impact || 0.6, wall: true });
   // Startled for a moment by a hard landing or by being woken.
-  if ((pet?.action === "land" && pet.impact > 0.55) || pet?.action === "wake") {
+  if ((pet?.action === "land" && drop >= PET_SPLAT_MIN_DROP) || ["wake", "splat-wall"].includes(pet?.action)) {
     petFaceUntil = performance.now() + 800;
     clearTimeout(petFaceTimer);
     petFaceTimer = setTimeout(syncPetFace, 820);

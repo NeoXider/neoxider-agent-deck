@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Throw the pet. Grab it and fling it: it flies with the pointer's speed under gravity, bounces off the top of the screen, and hits its wall or the taskbar. Thrown hard at the wall it splats against it and pulls itself together clinging there; thrown softly it just takes hold.
+
+### Changed
+
+- The splat follows the hit: a short hop down only squashes the pet, and the higher the fall or the harder the throw, the more drops fly, the farther and higher they go and the flatter the puddle. The drops stay inside the window, gather over the puddle while it stands back up and melt into the finished slime, so the squashed picture is never seen unfolding.
+- The z's of a sleeping pet float up on their own; hearts, ? and ! keep their bubble, now above the pet's outer shoulder, clear of its buttons.
+
+### Fixed
+
+- A splat no longer ends with the landing squash playing a second time.
+
 ## [1.0.0] - 2026-10-16
 
 The avatar is a desktop pet now, which felt like reason enough for a 1.0.
