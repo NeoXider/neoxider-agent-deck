@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-15
+
+### Added
+
+- Answer the agent's questions in Deck. When the agent stops on `ask_user_question`, the question appears above the message box: options as rows with their explanation (the recommended one marked), a field for your own answer, Answer and Skip. Several questions in one batch are answered together. Deck takes the question from Harness's own event stream, the same one the browser uses, so whichever answers first wins and the other drops its card; questions asked before Deck connected arrive when it does. The tool card's button reads "Answer below", a chat waiting on a question shows a QUESTION badge in Agents, and in Avatar or Edge mode a question arrives as a notification. Tool approvals on the same stream are left to the browser.
+
+### Fixed
+
+- Quick reply in Avatar mode works on every row, and the close button works right after opening the panel. The panel's click areas were measured while it was still easing open and before the window had grown, so parts of it passed their clicks to the window behind; they are measured again after every move and resize.
+- The avatar no longer sulks on every collapse. Old failed sessions found on startup are no longer raised as unread (only failures from the last ten minutes are), opening the widget acknowledges every pending failure instead of only the selected chat's, and a chat that is working right now outranks an older failure elsewhere when the widget collapses.
+- The conversation no longer blinks out and back in half a second after the widget first appears.
+
+### Changed
+
+- Avatar mode is one quiet object. At rest it is the slime and its ring; the chat button is a small satellite on the avatar's rim that appears on hover, while the panel is open, or while agents work (it carries their count). New replies, questions and failures arrive as notifications beside the avatar that leave on their own (6, 12 and 8 seconds), hold while the pointer is on them, show the time left along their foot, and carry one action: reply, answer or open.
+- The recent-chats panel sits against the avatar and always has a message box under the list. Each row shows the chat's slime, name, how long ago and its last line; clicking a row addresses the message box to it, and its arrow opens the chat. Up to eight chats scroll; the panel folds away when the pointer leaves it, unless something is being written.
+- Background opacity is the opacity of everything but the text: bubbles, cards, docks and the message box fade with the panel. Menus, the settings panel and tooltips stay solid so they read over the conversation.
+- Folding and unfolding the widget. Collapsing into the avatar draws the panel into a shrinking circle with a lit edge that lands where the avatar appears; the avatar arrives with a squash-and-stretch, a ring of light and a burst of sparks. Opening it again blooms the panel out of the avatar's position. Collapsing to the edge slides the panel into the screen edge behind a line of light, and the edge line arrives as a drop of light that splashes into a line; opening slides the panel back out. The first paint opens out of the slime in the title bar. Subtle movement keeps the folds and drops the sparks, ring and streak; Motion effects off or reduced motion still switch instantly.
+- A compact Agents list: rows are 44 px instead of 66, with a smaller avatar, and the IDLE badge is gone (the meta line already says idle); working, error and question keep a smaller badge.
+
 ## [0.10.0] - 2026-10-15
 
 ### Fixed
