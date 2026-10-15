@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-15
+
+### Fixed
+
+- Never leave a blank band in the conversation. When a virtual spacer reaches the viewport — after arrivals, a resize, a folded tool card, a mode change or a long streaming answer — the rows that belong there are materialized at once, keeping the row being read in place. A per-row resize observer keeps this true while answers and images grow.
+- Keep following the newest message unless you scroll up by hand. Layout-only scrolls, live-answer paints and short tool-heavy windows no longer drop following; a reader within a row of the bottom keeps receiving arrivals. The jump pill counts only messages that arrived below the reading position, and the jump lands on the latest message.
+- Stop killing Harness on quit. An owned Harness that outlived Deck died on its first console write after Deck closed its output pipe; its output now goes to a spool file instead of a pipe.
+
+### Added
+
+- Harness supervision: an owned Harness that stops unexpectedly is restarted with backoff (1 s, 3 s, 10 s, then 30 s) and the banner says why — "Harness stopped unexpectedly (exit code …) — restarting in Xs…" with **Restart now** and **Open log**. After five crashes within ten minutes automatic restarts stop and the banner offers Restart and Open log. A Harness that Deck does not own is never killed.
+- Harness log: the owned Harness's output is kept in `logs/harness.log` under the app's data folder (rotated at 2 MB, three files, timestamped), with launch tokens, bearer values and provider keys redacted. Each crash records its exit code and the last 40 lines.
+- Model engine crash explanations: provider errors such as "the engine stopped unexpectedly (exit code 3221226505)" are shown as a readable card — which engine failed, the Windows status in hex (here `0xC0000409`, a native abort), that Deck and Harness are still running — with Retry and, for a large context, a hint to compact. The original message stays available under Details.
+
+### Changed
+
+- A calm redesign on solid surfaces. The panel uses quiet dark surfaces with thin borders and soft shadows instead of glows, and reads as solid from a background opacity of 0.9 up, so the window behind no longer bleeds through. The new-session, Harness and model row sits on the panel, so message text never shows under it. Header buttons have at least 28 px hit areas.
+- Conversation typography: assistant replies are unboxed 14 px prose with proper headings, lists, quotes and tables; code blocks get a language label and a copy button; your messages are right-aligned bubbles; tool runs are compact one-line rows with a status icon that open and close smoothly.
+- The Harness offline and crash card puts a long message on its own line above its actions and colour-codes its dot (amber offline, red failure, a violet pulse while restarting). Engine-crash and error cards share the app's Details disclosure.
+- Motion: 120–240 ms ease-out throughout. Up to three arrivals rise in turn, a catch-up batch simply appears; menus grow from their button; disclosures, the jump pill, toasts and the loading skeleton ease. Everything stands still with Motion effects off or reduced motion.
+- The two top reasoning efforts got new effects. The penultimate one drifts a slow liquid shimmer through the fill bar with a soft breathing glow and an occasional sheen. The highest runs a theme-aware two-colour flow with a crisp light sweep and twinkling sparks, light travels around the chip's border, and switching into it fires a short burst of light from the slider handle. Lower efforts are unchanged; chip text stays readable in every theme.
+- An owned Harness started from the installed runtime gets a V8 heap limit of a quarter of RAM between 4 and 8 GB, unless `NODE_OPTIONS` already sets one.
+- Refreshed README screenshots and cover.
+
+### Fixed (layout)
+
+- The live activity row no longer loses half its width to an empty time/agents counter, and the Harness status card no longer clips its own buttons in a short window.
+
 ## [0.9.23] - 2026-10-14
 
 ### Fixed

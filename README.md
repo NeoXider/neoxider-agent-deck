@@ -1,8 +1,8 @@
 <h1 align="center">NeoXider Agent Deck</h1>
 <p align="center"><strong>Your agents, within reach.</strong><br>A desktop chat, a live session board, a small companion, or just a glowing hinge.</p>
 <p align="center">
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.9.23-49e7c6" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.9.23-8b79ff" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v0.10.0-49e7c6" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.10.0-8b79ff" /></a>
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
 </p>
 <p align="center"><a href="https://github.com/NeoXider/neoxider-agent-deck/releases/latest"><strong>Download</strong></a> · <a href="#get-started">Get started</a> · <a href="CHANGELOG.md">What's new</a> · <a href="SECURITY.md">Security</a></p>
@@ -76,7 +76,7 @@ npm ci
 npm start
 ```
 
-Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 0.9.23 uses wide messages, a pointed user-message tail, and a slider-first model control with a separate model chooser. Connection recovery, remembered-session loading and output-limit reporting remain available. A virtualized history viewport that lands in an empty spacer after layout changes automatically restores visible rows without resetting normal scrollback. Automatic Harness installation uses the stable DSH 0.2.0-rc.2 runtime; separately installed preview runtimes are retained. Send now applies a queued message at the next agent step without erasing the in-flight answer. Accepted queued messages appear once in the queue, not as duplicate transcript receipts. Queued images can be sent or removed; the current DSH text-only editor requires reattaching an image to change its caption.
+Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 0.10.0 is a calm redesign on solid, readable surfaces with unboxed replies, right-aligned user bubbles, compact tool rows and quieter motion; the two top reasoning efforts get their own animated fill and chip. Deck now restarts a crashed owned Harness with backoff, keeps its output in a rotating, redacted `logs/harness.log`, and explains model-engine crashes by their exit code. The conversation never leaves a blank band: rows that belong in view are materialized at once, and following stops only when you scroll up by hand. Connection recovery, remembered-session loading and output-limit reporting remain available. A virtualized history viewport that lands in an empty spacer after layout changes automatically restores visible rows without resetting normal scrollback. Automatic Harness installation uses the stable DSH 0.2.0-rc.2 runtime; separately installed preview runtimes are retained. Send now applies a queued message at the next agent step without erasing the in-flight answer. Accepted queued messages appear once in the queue, not as duplicate transcript receipts. Queued images can be sent or removed; the current DSH text-only editor requires reattaching an image to change its caption.
 
 ## Verify and build
 
@@ -90,7 +90,7 @@ npm audit --audit-level=high
 npm run build
 ```
 
-The tests cover session contracts, streaming, attachments, window geometry and compact layouts. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction and continuation with your installed compaction preset. Release CI builds Windows, Intel/Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-0.9.23-windows-x64-portable.exe`.
+The tests cover session contracts, streaming, attachments, window geometry and compact layouts. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction and continuation with your installed compaction preset. Release CI builds Windows, Intel/Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-0.10.0-windows-x64-portable.exe`.
 
 ## Trust and integration
 
