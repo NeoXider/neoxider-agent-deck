@@ -3503,13 +3503,33 @@ function reconcileChildren(root, nodes) {
 // built in the meantime, and switching Motion effects back on slid the whole transcript in
 // at once. The timer covers any other animationend that never arrives.
 const TRANSCRIPT_ENTER_FALLBACK_MS = 600;
+// Blocks that arrive together rise one after another, a frame apart. A larger batch is a
+// catch-up rather than an arrival, so it simply appears: the batch is settled in a microtask,
+// before anything is painted, and loses its entrance there.
+const TRANSCRIPT_ENTER_STAGGER_MS = 40;
+const TRANSCRIPT_ENTER_STAGGER_MAX = 3;
+const TRANSCRIPT_ENTER_BATCH_MAX = 6;
+let transcriptEnterBatch = [];
+function settleTranscriptEnterBatch() {
+  const batch = transcriptEnterBatch;
+  transcriptEnterBatch = [];
+  if (batch.length <= TRANSCRIPT_ENTER_BATCH_MAX) return;
+  for (const node of batch) {
+    node.classList.remove("enter");
+    node.style.removeProperty("--enter-delay");
+  }
+}
 function markTranscriptEntry(node) {
   if (prefersReducedMotion()) return;
+  const position = transcriptEnterBatch.push(node) - 1;
+  if (position === 0) queueMicrotask(settleTranscriptEnterBatch);
+  node.style.setProperty("--enter-delay", `${Math.min(position, TRANSCRIPT_ENTER_STAGGER_MAX) * TRANSCRIPT_ENTER_STAGGER_MS}ms`);
   node.classList.add("enter");
   let timer = null;
   const settle = () => {
     clearTimeout(timer);
     node.classList.remove("enter");
+    node.style.removeProperty("--enter-delay");
     node.removeEventListener("animationend", onEnd);
   };
   const onEnd = (event) => { if (event.target === node) settle(); };
