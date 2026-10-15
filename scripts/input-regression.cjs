@@ -367,7 +367,8 @@ async function main() {
   const grip = await centerOf(contents, '#collapseHandle');
   if (!grip) throw new Error('collapseHandle not found');
   currentMode = 'full'; fullDragEvents.length = 0;
-  click(contents, grip.x, grip.y); await wait(250);
+  // The widget folds into the edge for MODE_FOLD_DURATION (290 ms) before the window changes.
+  click(contents, grip.x, grip.y); await wait(450);
   if (currentMode !== 'edge') failures.push('Upper grip click did not collapse');
   await contents.executeJavaScript('document.body.className = "mode-full"');
   currentMode = 'full'; fullDragEvents.length = 0;
@@ -408,7 +409,7 @@ async function main() {
     failures.push(`edge drag did not cross the native movement threshold: ${JSON.stringify(compactDragEvents)}`);
   }
 
-  // --- 3. a per-session chat icon replies inline without restoring full --
+  // --- 3. clicking a recent chat addresses the panel's message box to it --
   await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
     query: { screenshotFixture: "orb-recent-three", screenshotStatic: "1" },
   });
@@ -420,7 +421,7 @@ async function main() {
     document.body.classList.add("mode-orb", "side-right");
   })()`);
   currentMode = "orb";
-  const reply = await centerOf(contents, ".orb-session-row:first-child .orb-session-reply");
+  const reply = await centerOf(contents, ".orb-session-row:first-child .orb-session-pick");
   if (!reply) throw new Error("quick reply button not found");
   const replyHit = await hitAt(contents, reply);
   click(contents, reply.x, reply.y);
@@ -440,7 +441,7 @@ async function main() {
     failures.push(`quick reply routed incorrectly: ${JSON.stringify(sentPayloads)}`);
   }
 
-  // --- 4. clicking a non-selected reply preview opens that exact session ---
+  // --- 4. a recent chat's open arrow opens that exact session ---
   await win.loadFile(path.join(root, "src", "renderer", "index.html"), {
     query: { screenshotFixture: "orb-recent-three", screenshotStatic: "1" },
   });
@@ -481,7 +482,8 @@ async function main() {
   modeResponseDelays.set("full", 5);
   const rapidMode = await contents.executeJavaScript(`(async () => {
     const first = setWindowMode("orb");
-    await new Promise((resolve) => setTimeout(resolve, 175));
+    // Past the 290 ms fold, so the Orb request is in flight when Full supersedes it.
+    await new Promise((resolve) => setTimeout(resolve, 340));
     const second = setWindowMode("full");
     await Promise.all([first, second]);
     return { stateMode: state.windowMode, bodyMode: document.body.className };
@@ -861,7 +863,9 @@ async function main() {
 
   dashboardValue = { harness: true, sessions: [
     { sessionId: "error-a", title: "Selected", running: false, state: "idle", projections: { values: {} }, subagents: [] },
-    { sessionId: "error-b", title: "Background failure", running: false, state: "error", preview: "Needs attention", projections: { values: {} }, subagents: [] },
+    { sessionId: "error-b", title: "Background failure", running: false, state: "error", updatedAt: Date.now() - 60000, preview: "Needs attention", projections: { values: {} }, subagents: [] },
+    // A failure from yesterday is history: it must not make the avatar sulk on startup.
+    { sessionId: "error-old", title: "Old failure", running: false, state: "error", updatedAt: Date.now() - 24 * 3600 * 1000, preview: "Failed long ago", projections: { values: {} }, subagents: [] },
   ] };
   const initialBackgroundError = await contents.executeJavaScript(`(async () => {
     state.windowMode = "orb";
@@ -889,9 +893,11 @@ async function main() {
     document.querySelector("#edgeMode").click();
   })()`);
   await wait(620);
-  const edgeErrorTarget = await contents.executeJavaScript(`({ selected: state.selectedSessionId, mode: state.windowMode, notification: state.compactNotification })`);
-  if (currentMode !== "full" || edgeErrorTarget.mode !== "full" || edgeErrorTarget.selected !== "error-a" || edgeErrorTarget.notification?.sessionId !== "error-b") {
-    failures.push(`edge restore switched away from the selected chat or acknowledged another chat's error: ${JSON.stringify({ currentMode, edgeErrorTarget })}`);
+  const edgeErrorTarget = await contents.executeJavaScript(`({ selected: state.selectedSessionId, mode: state.windowMode, notification: state.compactNotification, pending: [...state.unacknowledgedErrorSessionIds], unread: state.compactErrorUnread })`);
+  // Opening the widget is the look the failure asked for: it stays on the selected chat, and
+  // every pending failure is acknowledged, so the next collapse is not angry about it again.
+  if (currentMode !== "full" || edgeErrorTarget.mode !== "full" || edgeErrorTarget.selected !== "error-a" || edgeErrorTarget.notification || edgeErrorTarget.pending.length || edgeErrorTarget.unread) {
+    failures.push(`edge restore switched away from the selected chat or left a failure unacknowledged: ${JSON.stringify({ currentMode, edgeErrorTarget })}`);
   }
 
   dashboardValue = { harness: true, sessions: [dashboardValue.sessions[0]] };

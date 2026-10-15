@@ -33,10 +33,10 @@
      popovers, toasts). Themes swap the ladder, never the structure. */
   --shell-rgb: 15,18,24;
   --bg: rgb(var(--shell-rgb));
-  --surface-1: #161a21;
-  --surface-2: #1c2129;
-  --surface-3: #242a34;
-  --code-bg: #0b0e13;
+  --surface-1-solid: #161a21;
+  --surface-2-solid: #1c2129;
+  --surface-3-solid: #242a34;
+  --code-bg-solid: #0b0e13;
   --surface: rgba(255, 255, 255, .04);
   --surface-strong: rgba(255, 255, 255, .08);
   --line-soft: rgba(255, 255, 255, .06);
@@ -86,6 +86,27 @@
   --edge-secondary:rgb(var(--status-idle-secondary));
   --edge-halo-color:rgba(72,193,255,.25);
   --edge-halo-opacity:.22;
+}
+
+/* Background opacity is the opacity of everything but the text. The panel used to fade on
+   its own while every bubble, card, dock and the composer stayed solid, so a see-through
+   widget was a set of opaque boxes floating on the desktop. Each surface is now its theme's
+   colour at the panel's own alpha. Themes set the -solid values; this is the one place the
+   alpha is applied, on body, where the theme rules set them too. */
+body {
+  --surface-1: color-mix(in srgb, var(--surface-1-solid) calc(var(--panel-alpha) * 100%), transparent);
+  --surface-2: color-mix(in srgb, var(--surface-2-solid) calc(var(--panel-alpha) * 100%), transparent);
+  --surface-3: color-mix(in srgb, var(--surface-3-solid) calc(var(--panel-alpha) * 100%), transparent);
+  --code-bg: color-mix(in srgb, var(--code-bg-solid) calc(var(--panel-alpha) * 100%), transparent);
+}
+/* What floats over the conversation stays solid: a see-through menu over text is two layers
+   of text and neither can be read. The compact avatar and edge stand alone on the desktop
+   and keep their own look. */
+:is(.picker-menu, .capture-menu, .command-menu, .toast-stack, .settings-panel, .chat-tooltip, .message-image-dialog, #reasoningMenu, #modelMenu, .orb-mode, .edge-mode) {
+  --surface-1: var(--surface-1-solid);
+  --surface-2: var(--surface-2-solid);
+  --surface-3: var(--surface-3-solid);
+  --code-bg: var(--code-bg-solid);
 }
 
 * { box-sizing: border-box; }
@@ -247,8 +268,8 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .session-list::-webkit-scrollbar-thumb, .messages::-webkit-scrollbar-thumb, .picker-options::-webkit-scrollbar-thumb, .attachment-list::-webkit-scrollbar-thumb, .settings-panel::-webkit-scrollbar-thumb, .composer textarea::-webkit-scrollbar-thumb { background:rgba(255,255,255,.12); border-radius:9px; }
 .session-list::-webkit-scrollbar-thumb:hover, .messages::-webkit-scrollbar-thumb:hover, .picker-options::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,.2); }
 .settings-panel::-webkit-scrollbar-track, .composer textarea::-webkit-scrollbar-track { background:transparent; }
-.session-group { min-width:0; margin-bottom:8px; }
-.session-group-heading { width:100%; min-width:0; height:28px; display:flex; align-items:center; gap:2px; margin-bottom:4px; padding:2px 2px 2px 4px; border:0; border-radius:var(--radius-sm); background:transparent; }
+.session-group { min-width:0; margin-bottom:4px; }
+.session-group-heading { width:100%; min-width:0; height:28px; display:flex; align-items:center; gap:2px; margin-bottom:2px; padding:2px 2px 2px 4px; border:0; border-radius:var(--radius-sm); background:transparent; }
 .session-group-toggle { min-width:0; height:24px; flex:1; display:flex; align-items:center; gap:7px; padding:0 6px; border:0; border-radius:6px; background:transparent; color:var(--muted); cursor:pointer; text-align:left; }
 .session-group-toggle > .ui-icon:first-child { width:14px; height:14px; flex:none; color:var(--dim); }
 .session-group-toggle > span { min-width:0; flex:1; overflow:hidden; color:var(--text-2); font-size:12px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
@@ -266,22 +287,22 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .picker-session-group .picker-option { min-height:32px; height:32px; }
 .picker-session-group .picker-option.state-working small { color:var(--mint); }
 .picker-session-group .picker-option.state-error small { color:#ff8aa2; }
-.session-card { width:100%; min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:12px; align-items:center; margin-bottom:6px; padding:10px 12px 10px 10px; border:1px solid var(--line-soft); border-radius:var(--radius-md); background:var(--surface-1); cursor:pointer; }
-.session-card:hover { border-color:var(--line-strong); background:var(--surface-2); }
-.session-card.selected { border-color:color-mix(in srgb,var(--mint) 34%,transparent); background:color-mix(in srgb,var(--mint) 6%,var(--surface-1)); }
-.session-card.state-working { border-color:color-mix(in srgb,var(--mint) 22%,transparent); }
-.session-card.state-error { border-color:rgba(255,115,143,.24); }
-.agent-avatar { position:relative; isolation:isolate; width:38px; height:38px; display:grid; place-items:center; border-radius:var(--radius-md); background:rgba(255,255,255,.045); }
-.agent-avatar::before { content:""; position:absolute; z-index:-1; inset:-1px; border-radius:13px; background:linear-gradient(145deg,var(--mint),var(--violet)); opacity:.12; }
-.agent-avatar img { width:34px; height:34px; object-fit:contain; filter:drop-shadow(0 3px 5px rgba(0,0,0,.35)); }
+.session-card { width:100%; min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:10px; align-items:center; margin-bottom:2px; padding:5px 8px 5px 5px; border:1px solid transparent; border-radius:10px; background:transparent; cursor:pointer; }
+.session-card:hover { border-color:var(--line-soft); background:var(--surface-1); }
+.session-card.selected { border-color:color-mix(in srgb,var(--mint) 30%,transparent); background:color-mix(in srgb,var(--mint) 7%,var(--surface-1)); }
+.session-card.state-working { border-color:color-mix(in srgb,var(--mint) 16%,transparent); background:color-mix(in srgb,var(--mint) 3%,transparent); }
+.session-card.state-error { border-color:rgba(255,115,143,.18); }
+.agent-avatar { position:relative; isolation:isolate; width:30px; height:30px; display:grid; place-items:center; border-radius:9px; background:rgba(255,255,255,.045); }
+.agent-avatar::before { content:""; position:absolute; z-index:-1; inset:-1px; border-radius:10px; background:linear-gradient(145deg,var(--mint),var(--violet)); opacity:.12; }
+.agent-avatar img { width:27px; height:27px; object-fit:contain; filter:drop-shadow(0 2px 4px rgba(0,0,0,.35)); }
 .agent-avatar.working::before { opacity:.55; animation:avatar-ring 1s linear infinite; }
 .agent-avatar.working img { animation:avatar-type .42s ease-in-out infinite alternate; }
 .agent-avatar.idle img { animation:avatar-breathe 3.4s ease-in-out infinite; }
 .agent-avatar.error::before { background:var(--danger); opacity:.55; }
 .agent-avatar.error img { animation:avatar-shake .35s linear 2; }
 .session-main { min-width:0; }
-.session-name { overflow:hidden; color:var(--text); text-overflow:ellipsis; white-space:nowrap; font-size:13.5px; font-weight:600; line-height:1.3; }
-.session-meta { margin-top:3px; min-width:0; display:flex; align-items:baseline; gap:6px; overflow:hidden; color:var(--muted); font-size:11.5px; line-height:15px; white-space:nowrap; }
+.session-name { overflow:hidden; color:var(--text); text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:600; line-height:17px; }
+.session-meta { margin-top:1px; min-width:0; display:flex; align-items:baseline; gap:6px; overflow:hidden; color:var(--muted); font-size:11px; line-height:14px; white-space:nowrap; }
 .session-meta-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 /* Tabular figures keep the clock from twitching sideways as the digits change, and the
    dot separator only appears when there is something to separate. */
@@ -297,7 +318,10 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .session-background .ui-icon { width:11px; height:11px; }
 .session-background b { font-size:10.5px; font-weight:700; font-variant-numeric:tabular-nums; }
 @keyframes background-count-in { from { opacity:0; transform:scale(.8); } to { opacity:1; transform:none; } }
-.session-state { min-width:52px; padding:4px 9px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.035); color:var(--muted); text-align:center; font-size:10px; font-weight:650; letter-spacing:.04em; text-transform:uppercase; }
+/* "idle" is already the first word of the meta line, so only a state worth a glance keeps
+   its pill: a column of identical IDLE badges was most of what the list showed. */
+.session-state { min-width:0; padding:2px 7px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.035); color:var(--muted); text-align:center; font-size:9.5px; font-weight:650; line-height:13px; letter-spacing:.04em; text-transform:uppercase; }
+.session-state.idle { display:none; }
 .session-state.working { border-color:color-mix(in srgb,var(--mint) 30%,transparent); background:color-mix(in srgb,var(--mint) 10%,transparent); color:#8ff0db; }
 .session-state.error { border-color:rgba(255,115,143,.3); background:rgba(255,115,143,.1); color:#ff9fb2; }
 
@@ -946,7 +970,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .primary-button:hover { background:rgba(255,255,255,.12); }
 .orb-mode, .edge-mode { display:none; border:0; outline:0; background:transparent; -webkit-app-region:no-drag; }
 .mode-orb .widget-shell, .mode-edge .widget-shell { display:none; }
-.mode-orb .orb-mode { width:100%; height:100%; display:flex; align-items:center; justify-content:flex-end; gap:7px; padding:0; overflow:visible; }
+.mode-orb .orb-mode { width:100%; height:100%; display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:0; overflow:visible; }
 /* The grab cursor belongs to the handle, not to the window: in Avatar mode only the circle
    drags, and showing "grab" over 172x128 of transparent space promised otherwise. */
 .mode-orb .orb-avatar, .mode-edge .edge-mode { touch-action:none; cursor:grab; }
@@ -954,7 +978,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .mode-orb .orb-avatar:active, .mode-edge .edge-mode:active { cursor:grabbing; }
 .position-unavailable .brand, .position-unavailable .mode-orb .orb-avatar, .position-unavailable .mode-edge .edge-mode { cursor:default; touch-action:auto; }
 .orb-mode img, .orb-mode .orb-glow, .orb-mode .orb-count, .edge-mode > span { pointer-events:none; user-select:none; -webkit-user-drag:none; }
-.orb-avatar { position:relative; isolation:isolate; width:68px; height:68px; flex:none; display:grid; place-items:center; margin:30px; padding:0; border:0; border-radius:50%; background:radial-gradient(circle at 35% 25%,rgba(73,231,198,.08),rgba(11,14,22,.97) 64%); box-shadow:inset 0 0 15px rgba(139,121,255,.08); cursor:pointer; transition:--orb-ring-primary .58s ease,--orb-ring-secondary .58s ease,--orb-halo-primary .58s ease,--orb-halo-secondary .58s ease,box-shadow .58s ease; }
+.orb-avatar { position:relative; isolation:isolate; width:68px; height:68px; flex:none; display:grid; place-items:center; margin:30px 30px 30px 6px; padding:0; border:0; border-radius:50%; background:radial-gradient(circle at 35% 25%,rgba(73,231,198,.08),rgba(11,14,22,.97) 64%); box-shadow:inset 0 0 15px rgba(139,121,255,.08); cursor:pointer; transition:--orb-ring-primary .58s ease,--orb-ring-secondary .58s ease,--orb-halo-primary .58s ease,--orb-halo-secondary .58s ease,box-shadow .58s ease; }
 .orb-avatar::before { content:""; position:absolute; z-index:-1; inset:-10px; border-radius:50%; background:transparent; opacity:0; }
 .orb-avatar img { position:relative; z-index:3; width:52px; height:52px; object-fit:contain; filter:drop-shadow(0 7px 10px rgba(0,0,0,.52)); animation:avatar-breathe 3.2s ease-in-out infinite; }
 .orb-glow { position:absolute; z-index:2; inset:2px; border-radius:50%; background:conic-gradient(from 0deg,var(--orb-ring-primary),var(--orb-ring-secondary),var(--orb-ring-primary)); opacity:var(--orb-ring-opacity); filter:drop-shadow(0 0 4px var(--orb-ring-primary)); animation:orb-ring-turn 3.2s linear infinite; transition:--orb-ring-primary .58s ease,--orb-ring-secondary .58s ease,opacity .58s ease,filter .58s ease; }
@@ -968,9 +992,21 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .mode-orb.state-done { --orb-ring-primary:rgb(var(--status-done-primary)); --orb-ring-secondary:rgb(var(--status-done-secondary)); --orb-halo-primary:rgba(var(--status-done-primary),.4); --orb-halo-secondary:rgba(var(--status-done-secondary),.22); --orb-ring-opacity:.86; }
 .mode-orb.state-offline { --orb-ring-primary:rgb(var(--status-offline-primary)); --orb-ring-secondary:rgb(var(--status-offline-secondary)); --orb-halo-primary:rgba(var(--status-offline-primary),.18); --orb-halo-secondary:rgba(var(--status-offline-secondary),.12); --orb-ring-opacity:.58; }
 .mode-orb.state-offline .orb-glow, .mode-orb.state-offline .orb-avatar img, .mode-orb.state-offline .orb-avatar::before { animation:none; }
-.orb-status { min-width:0; width:0; height:64px; display:flex; flex-direction:column; justify-content:center; overflow:hidden; padding:0; border:0 solid var(--line-strong); border-radius:var(--radius-lg); background:var(--surface-2); color:inherit; opacity:0; transform:translateX(12px) scale(.95); transition:width .22s cubic-bezier(.22,1,.36,1),height .22s cubic-bezier(.22,1,.36,1),padding .22s ease,opacity .16s ease,transform .22s cubic-bezier(.22,1,.36,1); }
-.orb-has-status .orb-status { width:196px; padding:0 12px; border-width:1px; opacity:1; transform:none; }
-.orb-has-notification .orb-status { border-color:color-mix(in srgb,var(--mint) 30%,transparent); background:color-mix(in srgb,var(--mint) 6%,var(--surface-2)); box-shadow:none; animation:orb-notification-in .3s var(--ease-out); }
+.orb-status { position:relative; z-index:1; min-width:0; width:0; height:56px; display:flex; flex-direction:column; justify-content:center; overflow:hidden; padding:0; border:0 solid var(--line-strong); border-radius:var(--radius-lg); background:var(--surface-2); color:inherit; opacity:0; transform:translateX(12px) scale(.95); transition:width .22s cubic-bezier(.22,1,.36,1),height .22s cubic-bezier(.22,1,.36,1),padding .22s ease,opacity .16s ease,transform .22s cubic-bezier(.22,1,.36,1); }
+.orb-has-status .orb-status { width:256px; padding:0 12px; border-width:1px; opacity:1; transform:none; }
+.orb-has-notification .orb-status { border-color:color-mix(in srgb,var(--mint) 26%,transparent); background:color-mix(in srgb,var(--mint) 5%,var(--surface-2)); box-shadow:none; animation:orb-notification-in .34s cubic-bezier(.2,.9,.25,1.12); }
+.orb-notification-question .orb-status { border-color:color-mix(in srgb,var(--violet) 40%,transparent); background:color-mix(in srgb,var(--violet) 8%,var(--surface-2)); }
+.orb-notification-error .orb-status { border-color:rgba(255,115,143,.36); background:color-mix(in srgb,#ff738f 7%,var(--surface-2)); }
+.orb-has-notification:not(.orb-history-open):not(.orb-reply-open) .orb-status-card { padding-right:30px; }
+.orb-status::after { content:""; position:absolute; right:14px; bottom:0; left:14px; height:2px; border-radius:2px; background:linear-gradient(90deg,var(--orb-ring-primary),var(--orb-ring-secondary)); opacity:0; transform:scaleX(0); transform-origin:left center; pointer-events:none; }
+.orb-has-notification.toast-timing:not(.orb-history-open):not(.orb-reply-open) .orb-status::after { opacity:.75; animation:toast-timer var(--toast-duration,6s) linear forwards; }
+.toast-paused .orb-status::after { animation-play-state:paused; }
+@keyframes toast-timer { from { transform:scaleX(1); } to { transform:scaleX(0); } }
+/* The notification's one action: reply to a reply, answer a question. */
+.orb-status-action { position:absolute; top:50%; right:8px; width:24px; height:24px; display:none; place-items:center; margin-top:-12px; padding:0; border:0; border-radius:7px; background:transparent; color:var(--muted); cursor:pointer; transition:background-color var(--dur-1) ease,color var(--dur-1) ease; }
+.orb-has-notification:not(.orb-history-open):not(.orb-reply-open) .orb-status-action { display:grid; }
+.orb-status-action:hover, .orb-status-action:focus-visible { background:color-mix(in srgb,var(--mint) 16%,transparent); color:var(--mint); }
+.orb-status-action .ui-icon { width:14px; height:14px; }
 .orb-status-closing .orb-status { width:0; padding-right:0; padding-left:0; border-width:0; opacity:0; transform:translateX(14px) scale(.96); }
 .orb-status-card { width:100%; height:100%; display:flex; flex-direction:column; justify-content:center; min-width:0; padding:0; border:0; background:transparent; color:inherit; cursor:pointer; }
 .orb-status-card[hidden], .orb-session-list[hidden], .orb-reply-form[hidden] { display:none; }
@@ -986,47 +1022,75 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .orb-status b, .orb-status small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
 .orb-status-card b { color:var(--text); font-size:12px; font-weight:600; letter-spacing:0; }
 .orb-status-card small { margin-top:3px; color:var(--muted); font-size:11.5px; }
-.orb-history-open .orb-status, .orb-reply-open .orb-status { width:268px; height:142px; justify-content:flex-start; padding:7px; border-color:var(--line-strong); background:var(--surface-2); box-shadow:none; }
-.orb-session-list { width:100%; display:grid; gap:4px; }
-.orb-session-row { min-width:0; height:40px; display:grid; grid-template-columns:minmax(0,1fr) 34px; gap:4px; border:1px solid var(--line-soft); border-radius:10px; background:rgba(255,255,255,.03); transition:background-color var(--dur-1) ease,border-color var(--dur-1) ease; }
-.orb-session-row:hover, .orb-session-row:focus-within, .orb-session-row.selected { border-color:var(--line-strong); background:rgba(255,255,255,.06); }
-.orb-session-open { min-width:0; display:flex; flex-direction:column; justify-content:center; padding:4px 3px 4px 10px; border:0; background:transparent; color:inherit; cursor:pointer; }
-.orb-session-open b, .orb-session-open small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
-.orb-session-open b { color:var(--text); font-size:12px; font-weight:600; line-height:15px; }
-.orb-session-open small { margin-top:1px; color:var(--muted); font-size:11px; line-height:14px; }
-.orb-session-reply { width:30px; height:30px; align-self:center; display:grid; place-items:center; padding:0; border:0; border-radius:var(--radius-sm); background:transparent; color:var(--muted); cursor:pointer; }
-.orb-session-reply:hover, .orb-session-reply:focus-visible { background:var(--surface-strong); color:var(--text); }
-.orb-session-reply .ui-icon { width:15px; height:15px; }
-.orb-session-empty { height:126px; display:grid; place-items:center; color:var(--muted); font-size:12px; }
-.orb-reply-form { width:100%; min-width:0; display:grid; gap:6px; padding:2px; }
-.orb-reply-heading { height:27px; display:grid; grid-template-columns:minmax(0,1fr) 26px; align-items:center; gap:6px; padding-left:6px; }
-.orb-reply-heading b { overflow:hidden; color:var(--text); font-size:12px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
-.orb-reply-heading button { width:26px; height:26px; display:grid; place-items:center; padding:0; border:0; border-radius:var(--radius-sm); background:transparent; color:var(--muted); cursor:pointer; }
-.orb-reply-heading button:hover { background:var(--surface-strong); color:var(--text); }
-.orb-reply-heading .ui-icon { width:14px; height:14px; }
-.orb-reply-compose { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 34px; gap:6px; align-items:end; }
-.orb-reply-compose textarea { width:100%; height:54px; max-height:54px; resize:none; padding:8px 10px; border:1px solid var(--line); border-radius:10px; outline:0; background:var(--surface-1); color:var(--text); font:inherit; font-size:12px; line-height:1.4; transition:border-color var(--dur-1) ease, box-shadow var(--dur-2) ease; }
-.orb-reply-compose textarea:focus { border-color:color-mix(in srgb,var(--mint) 50%,transparent); box-shadow:0 0 0 3px color-mix(in srgb,var(--mint) 12%,transparent); }
-.orb-reply-compose button { width:34px; height:34px; display:grid; place-items:center; padding:0; border:0; border-radius:50%; background:var(--mint); color:#06120f; cursor:pointer; }
+/* The panel: the recent chats over a message box, as tall as what it holds up to what the
+   window has room for, easing between those heights instead of keeping an empty band. */
+.orb-history-open .orb-status, .orb-reply-open .orb-status { interpolate-size:allow-keywords; width:316px; height:auto; max-height:168px; justify-content:flex-start; gap:5px; padding:5px; border-color:var(--line-strong); background:var(--surface-2); box-shadow:0 10px 28px rgba(0,0,0,.28); }
+/* Three and a half rows show, so the half says there is more; the list scrolls, its last
+   visible row fading until the end is reached. */
+.orb-session-list { width:100%; min-height:0; max-height:118px; flex:1 1 auto; display:grid; align-content:start; gap:2px; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; }
+.orb-session-list::-webkit-scrollbar { width:4px; }
+.orb-session-list::-webkit-scrollbar-thumb { background:rgba(255,255,255,.14); border-radius:4px; }
+.orb-session-list.scrollable:not(.at-end) { -webkit-mask-image:linear-gradient(#000 calc(100% - 16px),transparent); mask-image:linear-gradient(#000 calc(100% - 16px),transparent); }
+/* A row is a chat: its slime, its name and how long ago, its last line. Clicking it points
+   the message box at it; the arrow opens it. The addressed chat carries an accent bar. */
+.orb-session-row { position:relative; min-width:0; height:36px; display:grid; grid-template-columns:minmax(0,1fr) 26px; align-items:center; border-radius:9px; background:transparent; transition:background-color var(--dur-1) ease; }
+.orb-session-row:hover, .orb-session-row:focus-within { background:rgba(255,255,255,.05); }
+.orb-session-row.selected { background:color-mix(in srgb,var(--mint) 9%,transparent); }
+.orb-session-row.selected::before { content:""; position:absolute; top:8px; bottom:8px; left:0; width:3px; border-radius:3px; background:var(--mint); pointer-events:none; }
+.orb-session-pick { min-width:0; height:100%; display:flex; align-items:center; gap:8px; padding:0 4px 0 7px; border:0; border-radius:9px; background:transparent; color:inherit; cursor:pointer; text-align:left; }
+.orb-session-pick:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; }
+.orb-session-avatar { width:22px; height:22px; flex:none; object-fit:contain; filter:drop-shadow(0 1px 2px rgba(0,0,0,.4)); pointer-events:none; }
+.orb-session-row.running .orb-session-avatar { animation:avatar-type .42s ease-in-out infinite alternate; }
+.orb-session-copy { min-width:0; flex:1; display:flex; flex-direction:column; }
+.orb-session-heading { min-width:0; display:flex; align-items:baseline; gap:6px; }
+.orb-session-heading b { min-width:0; flex:1; overflow:hidden; color:var(--text); font-size:12px; font-weight:600; line-height:15px; text-overflow:ellipsis; white-space:nowrap; }
+.orb-session-heading time { flex:none; color:var(--dim); font-size:10.5px; font-variant-numeric:tabular-nums; }
+.orb-session-row.running .orb-session-heading time { color:var(--mint); }
+.orb-session-row.failed .orb-session-heading time { color:#ff8aa2; }
+.orb-session-copy small { overflow:hidden; color:var(--muted); font-size:11px; line-height:14px; text-overflow:ellipsis; white-space:nowrap; }
+.orb-session-open { width:24px; height:24px; display:grid; place-items:center; padding:0; border:0; border-radius:7px; background:transparent; color:var(--dim); opacity:0; cursor:pointer; transition:opacity var(--dur-1) ease,background-color var(--dur-1) ease,color var(--dur-1) ease; }
+.orb-session-row:hover .orb-session-open, .orb-session-row.selected .orb-session-open, .orb-session-open:focus-visible { opacity:1; }
+.orb-session-open:hover, .orb-session-open:focus-visible { background:var(--surface-strong); color:var(--text); }
+.orb-session-open .ui-icon { width:13px; height:13px; }
+.orb-session-empty { height:48px; display:grid; place-items:center; color:var(--muted); font-size:12px; }
+/* The message box is always there in the open panel: open it and you can write. Its
+   placeholder names the chat it writes to. */
+.orb-reply-form { width:100%; min-width:0; flex:none; display:grid; gap:3px; }
+.orb-reply-target { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.orb-reply-compose { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 30px; align-items:center; gap:4px; padding:3px 3px 3px 4px; border:1px solid var(--line); border-radius:12px; background:rgba(0,0,0,.2); transition:border-color var(--dur-1) ease,box-shadow var(--dur-2) ease; }
+.orb-reply-compose:focus-within { border-color:color-mix(in srgb,var(--mint) 50%,transparent); box-shadow:0 0 0 3px color-mix(in srgb,var(--mint) 12%,transparent); }
+.orb-reply-compose textarea { width:100%; height:28px; max-height:28px; resize:none; padding:5px 6px; border:0; outline:0; background:transparent; color:var(--text); font:inherit; font-size:12.5px; line-height:18px; }
+.orb-reply-compose textarea::placeholder { color:var(--dim); }
+.orb-reply-compose button { width:30px; height:28px; display:grid; place-items:center; padding:0; border:0; border-radius:9px; background:var(--mint); color:#06120f; cursor:pointer; transition:filter var(--dur-1) ease,opacity var(--dur-1) ease; }
+.orb-reply-compose button:hover:not(:disabled) { filter:brightness(1.1); }
 .orb-reply-compose button:disabled { opacity:.48; cursor:wait; }
-.orb-reply-compose .ui-icon { width:16px; height:16px; }
-.orb-reply-feedback { min-height:12px; padding:0 6px; color:#ffa3b5; font-size:11px; }
-.orb-history-button { position:relative; left:18px; isolation:isolate; width:38px; height:46px; flex:none; display:grid; place-items:center; padding:0; border:1px solid transparent; border-radius:50%; background:transparent; color:#b8c9d9; cursor:pointer; transition:transform .34s cubic-bezier(.18,.9,.24,1.1),color .17s ease; }
-.orb-history-button::before { content:""; position:absolute; z-index:-1; inset:6px 2px; border:1px solid color-mix(in srgb,var(--orb-ring-primary) 28%,transparent); border-radius:50%; background:var(--surface-2); box-shadow:inset 0 1px rgba(255,255,255,.05); pointer-events:none; transition:border-color .2s ease,background .2s ease; }
-.orb-history-button::after { content:""; position:absolute; inset:6px 2px; padding:1px; border-radius:50%; background:conic-gradient(from 0deg,var(--orb-ring-primary),transparent 22%,var(--orb-ring-secondary) 52%,transparent 76%,var(--orb-ring-primary)); mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); mask-composite:exclude; opacity:0; pointer-events:none; transition:opacity .35s ease; }
+.orb-reply-compose .ui-icon { width:15px; height:15px; }
+.orb-reply-feedback { padding:0 8px; color:#ffa3b5; font-size:11px; }
+.orb-reply-feedback:empty { display:none; }
+/* The chat button is a satellite on the avatar's inner lower rim, not a third object
+   floating between the panel and the circle. It shows while the pointer is on the avatar
+   or on itself, while the panel is open, and while agents are working (it carries their
+   count); otherwise the avatar is a circle and nothing else. Its centre sits 24 px in and
+   24 px down from the circle's: right 75 px = 30 px margin + 34 px radius + 24 px - 13 px. */
+.orb-history-button { position:absolute; z-index:6; top:calc(50% + 11px); right:75px; width:26px; height:26px; isolation:isolate; display:grid; place-items:center; padding:0; border:0; border-radius:50%; background:transparent; color:#cfe0ee; cursor:pointer; opacity:0; visibility:hidden; transform:scale(.5); transition:opacity .18s ease .55s,transform .28s cubic-bezier(.3,1.4,.5,1) .55s,visibility 0s linear .83s,color .17s ease; }
+.side-left .orb-history-button { right:auto; left:75px; }
+/* The count sits on the satellite's outer shoulder, away from the face it would cover. */
+.side-left .orb-panel-count { right:-9px; left:auto; }
+.mode-orb .orb-mode:has(.orb-avatar:hover) .orb-history-button, .orb-history-button:hover, .orb-history-button:focus-visible, .orb-history-open .orb-history-button, .orb-reply-open .orb-history-button, .orb-has-badge .orb-history-button { opacity:1; visibility:visible; transform:none; transition-delay:0s; }
+.orb-history-button::before { content:""; position:absolute; z-index:-1; inset:0; border:1px solid color-mix(in srgb,var(--orb-ring-primary) 34%,transparent); border-radius:50%; background:var(--surface-2); box-shadow:0 0 0 2px #0b0e16; pointer-events:none; transition:border-color .2s ease,background .2s ease; }
+.orb-history-button::after { content:""; position:absolute; inset:0; padding:1px; border-radius:50%; background:conic-gradient(from 0deg,var(--orb-ring-primary),transparent 22%,var(--orb-ring-secondary) 52%,transparent 76%,var(--orb-ring-primary)); mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); mask-composite:exclude; opacity:0; pointer-events:none; transition:opacity .35s ease; }
 .mode-orb:is(.state-working,.state-waiting,.activity-thinking,.activity-writing,.activity-tool):not(.state-offline) .orb-history-button::after { opacity:.92; animation:orb-ring-turn 3.4s linear infinite; }
-.side-left .orb-history-button { left:-18px; }
-.orb-history-button:active { transform:scale(.92); transition-duration:.08s; }
+.orb-history-button:active { transform:scale(.88); transition-duration:.08s; }
 /* The collapsed orb says everything it needs to with a circle and one number. The badge
    uses tabular figures so 1 -> 2 does not nudge the glyph sideways. */
-.orb-panel-count { position:absolute; top:-6px; right:-6px; min-width:17px; height:17px; display:none; place-items:center; padding:0 4px; border:2px solid #0b0e16; border-radius:9px; background:var(--mint); color:#06100e; font-size:10px; font-weight:800; font-variant-numeric:tabular-nums; pointer-events:none; }
+.orb-panel-count { position:absolute; top:-7px; right:auto; left:-9px; min-width:17px; height:17px; display:none; place-items:center; padding:0 4px; border:2px solid #0b0e16; border-radius:9px; background:var(--mint); color:#06100e; font-size:10px; font-weight:800; font-variant-numeric:tabular-nums; pointer-events:none; }
 .orb-panel-count.visible { display:grid; animation:orb-badge-pop .42s cubic-bezier(.18,.9,.22,1.16); }
 .mode-orb.state-working .orb-panel-count.visible { animation:orb-badge-pop .42s cubic-bezier(.18,.9,.22,1.16),orb-badge-breathe 2.1s ease-in-out .42s infinite; }
 @keyframes orb-badge-pop { 0% { opacity:0; transform:scale(.4) translateY(4px); } 60% { opacity:1; transform:scale(1.14) translateY(0); } 100% { opacity:1; transform:scale(1); } }
 @keyframes orb-badge-breathe { 0%,100% { transform:scale(1); } 50% { transform:scale(1.09); } }
 .orb-history-button:hover, .orb-history-button.active { color:white; }
 .orb-history-button:hover::before, .orb-history-button.active::before { border-color:color-mix(in srgb,var(--orb-ring-primary) 62%,transparent); background:var(--surface-3); }
-.orb-history-button .ui-icon { width:18px; height:18px; }
+.orb-history-button .ui-icon { width:13px; height:13px; }
 .orb-count { position:absolute; z-index:3; top:4px; right:3px; min-width:20px; height:20px; display:none; place-items:center; padding:0 5px; border:2px solid #0b0e16; border-radius:11px; background:var(--mint); color:#06100e; font-size:10px; font-weight:800; font-variant-numeric:tabular-nums; }
 .orb-count.visible { display:grid; animation:avatar-pop .55s cubic-bezier(.2,.9,.2,1); }
 .mode-edge .edge-mode { position:relative; width:100%; height:100%; display:block; padding:0; }
@@ -1043,8 +1107,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .edge-mode.edge-drop { animation:edge-drop-right .56s cubic-bezier(.18,.88,.24,1) both; }
 .side-left .edge-mode.edge-drop { animation-name:edge-drop-left; }
 .side-left .orb-mode { justify-content:flex-start; }
-.side-left .orb-avatar { order:-3; }
-.side-left .orb-history-button { order:-2; }
+.side-left .orb-avatar { order:-3; margin:30px 6px 30px 30px; }
 .side-left .orb-status { order:-1; }
 .edge-count { position:absolute; top:13px; right:1px; min-width:17px; height:17px; display:none; place-items:center; padding:0 3px; border-radius:9px; background:white; color:#111522; font-size:9px; font-weight:800; }
 .side-left .edge-count { right:auto; left:1px; }
@@ -1073,20 +1136,25 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .completion-celebration.mode-orb .orb-avatar::before { animation:completion-orb-halo 2.6s cubic-bezier(.18,.86,.22,1) both; }
 .completion-celebration.mode-orb .orb-avatar img { animation:completion-avatar-pop 2.6s cubic-bezier(.18,.86,.22,1) both; }
 .mode-transition-out.mode-full .widget-shell { animation:mode-exit-full .145s cubic-bezier(.32,0,.67,0) both; }
-.mode-transition-out.mode-orb .orb-mode { animation:mode-exit-orb .145s cubic-bezier(.32,0,.67,0) both; }
-.mode-transition-out.mode-edge .edge-mode { animation:mode-exit-edge .145s cubic-bezier(.32,0,.67,0) both; }
+/* Compact exits end invisible: main resizes the window a frame or more before the renderer
+   hears about it, and whatever the old mode last painted shows in the new window that long.
+   The folds, blooms and landings themselves live in motion.css. */
+.mode-transition-out.mode-orb .orb-mode { animation:mode-exit-orb .145s linear both; }
+.mode-transition-out.mode-edge .edge-mode { animation:mode-exit-edge .145s linear both; }
 .mode-transition-in.mode-full .widget-shell { animation:mode-enter-full .37s cubic-bezier(.16,1,.3,1) both; }
-.mode-transition-in.mode-orb .orb-mode { animation:mode-enter-orb .36s cubic-bezier(.16,1,.3,1) both; }
-.mode-transition-in.mode-edge .edge-mode { animation:mode-enter-edge .34s cubic-bezier(.16,1,.3,1) both; }
+.mode-transition-in.mode-orb .orb-mode { animation:mode-enter-orb .1s linear both; }
+.mode-transition-in.mode-edge .edge-mode { animation:mode-enter-edge .1s linear both; }
 .mode-transition-in.mode-full .titlebar { animation:mode-content-enter .28s .035s cubic-bezier(.16,1,.3,1) both; }
 .mode-transition-in.mode-full .chat-heading { animation:mode-content-enter .3s .065s cubic-bezier(.16,1,.3,1) both; }
 .mode-transition-in.mode-full .messages { animation:mode-content-enter .32s .095s cubic-bezier(.16,1,.3,1) both; }
 .mode-transition-in.mode-full .composer { animation:mode-content-enter .34s .125s cubic-bezier(.16,1,.3,1) both; }
-.first-visible-entry.mode-full .widget-shell { animation:first-visible-full .44s cubic-bezier(.16,1,.3,1) both; }
-.first-visible-entry.mode-orb .orb-mode { animation:first-visible-orb .42s cubic-bezier(.16,1,.3,1) both; }
-.first-visible-entry.mode-edge .edge-mode { animation:first-visible-edge .38s cubic-bezier(.16,1,.3,1) both; }
+.first-visible-entry.mode-full .widget-shell { animation:mode-bloom-full .62s cubic-bezier(.2,.86,.16,1) both; }
+.first-visible-entry.mode-orb .orb-mode { animation:mode-enter-orb .1s linear both; }
+.first-visible-entry.mode-edge .edge-mode { animation:mode-enter-edge .1s linear both; }
 .first-visible-entry.mode-full .titlebar { animation:mode-content-enter .28s .035s cubic-bezier(.16,1,.3,1) both; }
-.first-visible-entry.mode-full .panel.active { animation:mode-content-enter .32s .075s cubic-bezier(.16,1,.3,1) both; }
+/* Same name as the panel's own entrance: when the first-paint class comes off, a different
+   name restarted panel-enter and the whole conversation blinked out and back in. */
+.first-visible-entry.mode-full .panel.active { animation:panel-enter .32s .075s cubic-bezier(.16,1,.3,1) both; }
 .first-visible-entry.mode-full .composer { animation:mode-content-enter .34s .11s cubic-bezier(.16,1,.3,1) both; }
 .first-visible-entry.side-left { --mode-entry-x:-12px; }
 .first-visible-entry.side-right { --mode-entry-x:12px; }
@@ -1096,9 +1164,6 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .mode-transition-out.side-right { --mode-exit-x:12px; --mode-origin-x:right; }
 .mode-transition-in.mode-full .widget-shell, .mode-transition-in.mode-orb .orb-mode, .mode-transition-in.mode-edge .edge-mode, .mode-transition-out.mode-full .widget-shell, .mode-transition-out.mode-orb .orb-mode, .mode-transition-out.mode-edge .edge-mode { transform-origin:var(--mode-origin-x,right) center; backface-visibility:hidden; will-change:transform,opacity; }
 @keyframes orb-ring-turn { to{transform:rotate(360deg)} }
-@keyframes first-visible-full { from{opacity:0;transform:translateY(10px) scale(.975)} to{opacity:1;transform:none} }
-@keyframes first-visible-orb { from{opacity:0;transform:translateX(var(--mode-entry-x,12px)) scale(.82)} to{opacity:1;transform:none} }
-@keyframes first-visible-edge { from{opacity:0;transform:translateX(var(--mode-entry-x,10px)) scaleY(.72)} to{opacity:1;transform:none} }
 @keyframes orb-halo-pulse { 0%,100%{opacity:calc(var(--orb-ring-opacity) * .24);transform:scale(.96)} 50%{opacity:calc(var(--orb-ring-opacity) * .34);transform:scale(1.02)} }
 @keyframes edge-halo-pulse { 0%,100%{opacity:calc(var(--edge-halo-opacity) * .72);transform:scaleX(.92)} 50%{opacity:var(--edge-halo-opacity);transform:scaleX(1)} }
 @keyframes edge-flow { to{background-position:0 220%} }
@@ -1116,11 +1181,11 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 @keyframes completion-orb-halo { 0%,100%{opacity:calc(var(--orb-ring-opacity) * .2);transform:scale(.96)} 14%{opacity:.92;transform:scale(1.18)} 38%{opacity:calc(var(--orb-ring-opacity) * .42);transform:scale(1.01)} 61%{opacity:calc(var(--orb-ring-opacity) * .62);transform:scale(1.08)} }
 @keyframes completion-avatar-pop { 0%,100%{transform:translateY(0) scale(1)} 12%{transform:translateY(-5px) scale(1.1)} 27%{transform:translateY(1px) scale(.98)} 45%{transform:translateY(-2px) scale(1.035)} 68%{transform:translateY(0) scale(1.008)} }
 @keyframes mode-exit-full { to{opacity:.04;transform:translate3d(var(--mode-exit-x,0),0,0) scale(.988)} }
-@keyframes mode-exit-orb { to{opacity:.04;transform:translate3d(var(--mode-exit-x,12px),0,0) scale(.9)} }
-@keyframes mode-exit-edge { to{opacity:.03;transform:translate3d(var(--mode-exit-x,12px),0,0) scaleY(.88)} }
+@keyframes mode-exit-orb { 0%,55%{opacity:1} 100%{opacity:0} }
+@keyframes mode-exit-edge { 0%,55%{opacity:1} 100%{opacity:0} }
 @keyframes mode-enter-full { from{opacity:.03;transform:translate3d(var(--mode-entry-x,0),3px,0) scale(.986)} to{opacity:1;transform:none} }
-@keyframes mode-enter-orb { from{opacity:.03;transform:translate3d(var(--mode-entry-x,0),0,0) scale(.94)} to{opacity:1;transform:none} }
-@keyframes mode-enter-edge { from{opacity:0;transform:translate3d(var(--mode-entry-x,14px),0,0) scaleY(.94)} to{opacity:1;transform:none} }
+@keyframes mode-enter-orb { from{opacity:0} to{opacity:1} }
+@keyframes mode-enter-edge { from{opacity:0} to{opacity:1} }
 @keyframes mode-content-enter { from{opacity:0;transform:translate3d(0,7px,0)} to{opacity:1;transform:none} }
 @keyframes panel-enter { from{opacity:0;transform:translateY(4px) scale(.992)} to{opacity:1;transform:none} }
 @keyframes send-spring { from{transform:scale(.91) rotate(-3deg)} to{transform:scale(1.03) rotate(2deg)} }
@@ -1362,3 +1427,50 @@ body.screenshot-backdrop-checkerboard { background:conic-gradient(#eef2f7 25%,#2
 .engine-crash-actions { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
 .engine-crash-actions .ghost-button { width:auto; height:30px; min-height:28px; padding:0 12px; font-size:12px; font-weight:600; }
 .bubble.error.engine-crash details pre { max-height:120px; margin:6px 0 0; overflow:auto; padding:8px 10px; border:1px solid var(--line-soft); border-radius:var(--radius-sm); background:var(--code-bg); color:var(--text-2); font-family:var(--font-mono); font-size:11.5px; white-space:pre-wrap; }
+
+/* The agent's question (question-dock.js). It is the one dock above the composer that asks
+   something of the user, so it is the one with colour. Options are rows, not chips: a label
+   and its one-line consequence read together, and a long label wraps instead of being cut. */
+.question-dock { min-width:0; max-height:min(60%,380px); flex:none; display:flex; flex-direction:column; gap:9px; overflow:hidden; padding:10px 10px 9px; border:1px solid color-mix(in srgb,var(--violet) 38%,transparent); border-radius:var(--radius-md); background:linear-gradient(180deg,color-mix(in srgb,var(--violet) 10%,var(--surface-1)),var(--surface-1) 70%); box-shadow:0 8px 24px rgba(0,0,0,.22); animation:question-in .34s cubic-bezier(.2,.9,.25,1.08) both; }
+.question-dock[hidden] { display:none; }
+.question-dock.busy { opacity:.88; }
+.question-head { min-width:0; display:flex; align-items:center; gap:8px; color:var(--text); font-size:12px; }
+.question-head b { font-weight:650; }
+.question-head small { margin-left:auto; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+.question-pulse { width:8px; height:8px; flex:none; border-radius:50%; background:var(--violet); animation:question-pulse 1.8s ease-out infinite; }
+.question-body { min-height:0; display:flex; flex-direction:column; gap:12px; overflow-y:auto; overscroll-behavior:contain; padding-right:2px; }
+.question-body::-webkit-scrollbar { width:5px; }
+.question-body::-webkit-scrollbar-thumb { background:rgba(255,255,255,.14); border-radius:5px; }
+.question-item { min-width:0; display:flex; flex-direction:column; gap:6px; }
+.question-header { color:#cbc2ff; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+.question-text { margin:0; color:var(--text); font-size:13.5px; font-weight:550; line-height:1.42; overflow-wrap:anywhere; }
+.question-detail { margin:0; color:var(--text-2); font-size:12px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
+.question-options { min-width:0; display:flex; flex-direction:column; gap:4px; }
+.question-option { width:100%; min-width:0; display:flex; align-items:flex-start; gap:9px; padding:7px 10px; border:1px solid var(--line); border-radius:9px; background:rgba(255,255,255,.025); color:var(--text-2); font:inherit; text-align:left; cursor:pointer; transition:border-color var(--dur-1) ease,background-color var(--dur-1) ease,color var(--dur-1) ease; }
+.question-option:hover { border-color:var(--line-strong); background:rgba(255,255,255,.05); color:var(--text); }
+.question-option.selected { border-color:color-mix(in srgb,var(--violet) 70%,transparent); background:color-mix(in srgb,var(--violet) 15%,transparent); color:var(--text); }
+.question-option:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
+.question-mark { position:relative; width:14px; height:14px; flex:none; margin-top:2px; border:1.5px solid var(--dim); border-radius:50%; transition:border-color var(--dur-1) ease,background-color var(--dur-1) ease,box-shadow var(--dur-1) ease; }
+.question-mark.multi { border-radius:4px; }
+.question-option.selected .question-mark { border-color:var(--violet); background:var(--violet); box-shadow:inset 0 0 0 2.5px var(--surface-1); }
+.question-option.selected .question-mark.multi { box-shadow:none; }
+.question-option.selected .question-mark.multi::after { content:""; position:absolute; top:1px; left:3.5px; width:3.5px; height:7px; border:solid #fff; border-width:0 1.8px 1.8px 0; transform:rotate(45deg); }
+.question-option-text { min-width:0; display:flex; flex-direction:column; gap:1px; }
+.question-option-text b { color:inherit; font-size:12.5px; font-weight:600; line-height:1.35; overflow-wrap:anywhere; }
+.question-option-text small { color:var(--muted); font-size:11.5px; line-height:1.4; overflow-wrap:anywhere; }
+.question-recommended { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:99px; background:color-mix(in srgb,var(--mint) 15%,transparent); color:var(--mint); font-size:9.5px; font-style:normal; font-weight:700; letter-spacing:.04em; text-transform:uppercase; vertical-align:1px; }
+.question-custom { width:100%; height:32px; padding:0 10px; border:1px solid var(--line); border-radius:9px; outline:0; background:rgba(0,0,0,.18); color:var(--text); font:inherit; font-size:12.5px; transition:border-color var(--dur-1) ease,box-shadow var(--dur-2) ease; }
+.question-custom::placeholder { color:var(--dim); }
+.question-custom:focus { border-color:color-mix(in srgb,var(--violet) 60%,transparent); box-shadow:0 0 0 3px color-mix(in srgb,var(--violet) 14%,transparent); }
+.question-actions { min-width:0; display:flex; align-items:center; gap:8px; }
+.question-error { min-width:0; flex:1; overflow:hidden; color:#ffa3b5; font-size:11.5px; text-overflow:ellipsis; white-space:nowrap; }
+.question-skip { width:auto; height:30px; min-height:28px; padding:0 12px; font-size:12px; font-weight:600; }
+.question-submit { height:30px; padding:0 16px; border:0; border-radius:8px; background:var(--violet); color:#fff; font:inherit; font-size:12.5px; font-weight:650; cursor:pointer; transition:filter var(--dur-1) ease,opacity var(--dur-1) ease; }
+.question-submit:hover:not(:disabled) { filter:brightness(1.12); }
+.question-submit:disabled { opacity:.42; cursor:default; }
+.question-submit:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
+@keyframes question-in { from { opacity:0; transform:translateY(8px) scale(.985); } to { opacity:1; transform:none; } }
+@keyframes question-pulse { 0% { box-shadow:0 0 0 0 color-mix(in srgb,var(--violet) 65%,transparent); } 70%,100% { box-shadow:0 0 0 7px color-mix(in srgb,var(--violet) 0%,transparent); } }
+/* A chat stopped on a question, in Agents: waiting on the user, not working. */
+.session-state.asking { border-color:color-mix(in srgb,var(--violet) 42%,transparent); background:color-mix(in srgb,var(--violet) 14%,transparent); color:#d6cfff; }
+.session-card.asking { border-color:color-mix(in srgb,var(--violet) 24%,transparent); }

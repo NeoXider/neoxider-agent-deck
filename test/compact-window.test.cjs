@@ -19,7 +19,7 @@ test("the orb has one size per thing it is showing", () => {
 test("the saved anchor is kept in collapsed coordinates", () => {
   const saved = { x: 10, y: 400, side: "right" };
   assert.equal(compactAnchor("orb", {}, saved).y, 400, "collapsed is the stored frame");
-  assert.equal(compactAnchor("orb", { expanded: true }, saved).y, 385, "expanding grows both ways from the circle");
+  assert.equal(compactAnchor("orb", { expanded: true }, saved).y, 372, "expanding grows both ways from the circle: (184 - 128) / 2");
   assert.equal(compactAnchor("edge", { expanded: true }, saved).y, 400, "edge never changes height");
   assert.equal(compactAnchor("orb", { expanded: true }, null), null);
 });

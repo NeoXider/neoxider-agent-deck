@@ -79,6 +79,8 @@ const state = {
   compactStatusExpanded: false,
   compactResizeTimer: null,
   compactHitAreaSignature: "",
+  // Questions the agent is waiting on, as question-relay.cjs holds them, oldest first.
+  pendingQuestions: [],
   sessionTimerTick: null,
   // Deck's choice is independent of which chat Harness opens in its own browser.
   lastSelectedSessionId: null,
@@ -462,6 +464,63 @@ function compactPreviewEntry() {
   return null;
 }
 
+// Avatar notifications. A reply, a question or a failure slides out beside the avatar and
+// leaves on its own; the avatar itself stays a circle. The pointer on a notification holds
+// it, and the hairline along its foot shows the time it has left.
+const COMPACT_NOTIFICATION_MS = { notification: 6000, question: 12000, error: 8000 };
+let compactNotificationDeadline = 0;
+let compactNotificationRemaining = 0;
+
+function showCompactNotification(notification, duration = COMPACT_NOTIFICATION_MS[notification?.kind] || 6000) {
+  state.compactNotification = notification;
+  state.compactStatusClosing = false;
+  startCompactNotificationTimer(duration);
+  syncCompactStatus();
+}
+
+function startCompactNotificationTimer(duration) {
+  clearTimeout(state.compactNotificationTimer);
+  compactNotificationRemaining = duration;
+  compactNotificationDeadline = performance.now() + duration;
+  document.documentElement.style.setProperty("--toast-duration", `${duration}ms`);
+  // The hairline restarts with every notification, so the class comes off for one frame.
+  document.body.classList.remove("toast-timing", "toast-paused");
+  void document.body.offsetWidth;
+  document.body.classList.add("toast-timing");
+  state.compactNotificationTimer = setTimeout(dismissCompactNotification, duration);
+}
+
+function pauseCompactNotification() {
+  if (!state.compactNotification || !state.compactNotificationTimer) return;
+  clearTimeout(state.compactNotificationTimer);
+  state.compactNotificationTimer = null;
+  compactNotificationRemaining = Math.max(0, compactNotificationDeadline - performance.now());
+  document.body.classList.add("toast-paused");
+}
+
+function resumeCompactNotification() {
+  if (!state.compactNotification || state.compactNotificationTimer || !document.body.classList.contains("toast-paused")) return;
+  document.body.classList.remove("toast-paused");
+  // Never less than a beat after the pointer leaves, so it does not vanish under the eye.
+  const remaining = Math.max(1200, compactNotificationRemaining);
+  compactNotificationDeadline = performance.now() + remaining;
+  state.compactNotificationTimer = setTimeout(dismissCompactNotification, remaining);
+}
+
+function dismissCompactNotification() {
+  clearTimeout(state.compactNotificationTimer);
+  state.compactNotificationTimer = null;
+  document.body.classList.remove("toast-timing", "toast-paused");
+  if (!state.compactNotification) return;
+  state.compactNotification = null;
+  state.compactStatusClosing = !state.compactHistoryOpen && !state.compactReplyOpen;
+  syncCompactStatus();
+  if (state.compactStatusClosing) setTimeout(() => {
+    state.compactStatusClosing = false;
+    syncCompactStatus();
+  }, 240);
+}
+
 function modeFromCommand(value) {
   const match = String(value || "").trim().match(/^\/plan(?:\s+(off))?\s*$/i);
   if (!match) return null;
@@ -488,8 +547,21 @@ function setSessionAgentMode(sessionId, mode) {
   syncSelectedAgentMode();
 }
 
+// The panel scrolls, so it can hold more than the three rows it used to stop at.
+const COMPACT_RECENT_LIMIT = 8;
+
+// "now", "5m", "3h", "2d": how long ago, in the width of a timestamp.
+function compactAgo(value) {
+  const elapsed = Date.now() - (window.compactSessions.timestamp(value) || Date.now());
+  const minutes = Math.floor(elapsed / 60000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
+
 function recentCompactSessions() {
-  return window.compactSessions.recentReplySessions(state.dashboard?.sessions, 3);
+  return window.compactSessions.recentReplySessions(state.dashboard?.sessions, COMPACT_RECENT_LIMIT);
 }
 
 function renderCompactSessions() {
@@ -497,11 +569,13 @@ function renderCompactSessions() {
   const sessions = recentCompactSessions();
   const signature = JSON.stringify([
     state.compactReplySessionId,
-    ...sessions.map((session) => [session.sessionId, session.title, session.preview]),
+    ...sessions.map((session) => [session.sessionId, session.title, session.preview, session.running, session.failed]),
   ]);
   if (signature === state.compactSessionSignature && root.childElementCount) return sessions;
   state.compactSessionSignature = signature;
   root.replaceChildren();
+  root.classList.toggle("scrollable", sessions.length > 4);
+  root.classList.remove("at-end");
   if (!sessions.length) {
     const empty = document.createElement("div");
     empty.className = "orb-session-empty";
@@ -509,31 +583,47 @@ function renderCompactSessions() {
     root.append(empty);
     return sessions;
   }
-  for (const session of sessions) {
+  // A row is a chat: clicking it addresses the message box under the list to that chat,
+  // and its arrow opens the chat in the widget. The slime shows how the chat is doing.
+  sessions.forEach((session, index) => {
     const row = document.createElement("div");
-    row.className = `orb-session-row${session.sessionId === state.compactReplySessionId ? " selected" : ""}`;
+    const status = session.running ? " running" : session.failed ? " failed" : "";
+    row.className = `orb-session-row${status}${session.sessionId === state.compactReplySessionId ? " selected" : ""}`;
+    row.style.setProperty("--row-index", String(index));
     row.setAttribute("role", "listitem");
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "orb-session-pick";
+    pick.title = `Write to ${session.title}`;
+    pick.setAttribute("aria-label", `Write to ${session.title}`);
+    const avatar = document.createElement("img");
+    avatar.className = "orb-session-avatar";
+    avatar.alt = "";
+    avatar.src = AVATARS[session.running ? "working" : session.failed ? "error" : "idle"];
+    const copy = document.createElement("span");
+    copy.className = "orb-session-copy";
+    const heading = document.createElement("span");
+    heading.className = "orb-session-heading";
+    const title = document.createElement("b");
+    title.textContent = session.title;
+    const time = document.createElement("time");
+    time.textContent = session.running ? "now" : compactAgo(session.updatedAt);
+    heading.append(title, time);
+    const preview = document.createElement("small");
+    preview.textContent = compactText(session.preview, 90);
+    copy.append(heading, preview);
+    pick.append(avatar, copy);
+    pick.addEventListener("click", () => openCompactReply(session.sessionId));
     const open = document.createElement("button");
     open.type = "button";
     open.className = "orb-session-open";
     open.title = `Open ${session.title}`;
     open.setAttribute("aria-label", `Open ${session.title} in the widget`);
-    const title = document.createElement("b");
-    title.textContent = session.title;
-    const preview = document.createElement("small");
-    preview.textContent = compactText(session.preview, 74);
-    open.append(title, preview);
+    open.append(createIcon("open"));
     open.addEventListener("click", () => openCompactSession(session.sessionId));
-    const reply = document.createElement("button");
-    reply.type = "button";
-    reply.className = "orb-session-reply";
-    reply.title = `Quick reply to ${session.title}`;
-    reply.setAttribute("aria-label", `Quick reply to ${session.title}`);
-    reply.append(createIcon("chat"));
-    reply.addEventListener("click", () => openCompactReply(session.sessionId));
-    row.append(open, reply);
+    row.append(pick, open);
     root.append(row);
-  }
+  });
   return sessions;
 }
 
@@ -548,16 +638,19 @@ function syncCompactStatus() {
   // panel over the user's screen without being asked. They now show as the ring colour and
   // the count on the expand button; the panel is a deliberate act.
   const autoActive = Boolean(offline || preview || activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
-  const active = Boolean(expanded || state.compactStatusClosing || (state.compactAutoExpand && autoActive));
+  // Notifications always show and leave on their own; standing status (working, offline)
+  // only when the user asked the avatar to expand on activity.
+  const active = Boolean(expanded || state.compactStatusClosing || preview || (state.compactAutoExpand && autoActive));
   const label = offline ? "Harness offline" : preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
   const text = compactText(offline ? "Start Harness to reconnect." : preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
   const statusKind = offline ? "offline" : preview?.kind || "";
   const compactButton = $("#orbHistoryButton");
   const replySession = state.dashboard?.sessions?.find((session) => session.sessionId === state.compactReplySessionId);
   // What someone glancing at a collapsed circle wants to know: how many agents are working
-  // right now. With none running it falls back to how many replies are waiting to be read.
+  // right now. New replies are counted on the avatar itself, so the chat button carries
+  // only this, and with nothing running it steps out of sight until the avatar is hovered.
   const runningCount = (state.dashboard?.sessions || []).filter((session) => session.running).length;
-  const badgeCount = runningCount || compactSessions.length;
+  const badgeCount = runningCount;
   const compactButtonLabel = expanded ? "Close recent replies" : `Recent replies${compactSessions.length ? ` (${compactSessions.length})` : ""}`;
   const replyTitle = replySession?.title || "Quick reply";
   const domSignature = JSON.stringify([
@@ -579,17 +672,26 @@ function syncCompactStatus() {
   ]);
   if (domSignature !== state.compactStatusDomSignature) {
     document.body.classList.toggle("orb-has-status", active);
-    document.body.classList.toggle("orb-has-notification", statusKind === "notification");
+    // Every notification shares one look and one lifetime; its kind only tints it.
+    document.body.classList.toggle("orb-has-notification", ["notification", "question", "error"].includes(statusKind));
+    document.body.classList.toggle("orb-notification-error", statusKind === "error");
     document.body.classList.toggle("orb-status-closing", state.compactStatusClosing);
     document.body.classList.toggle("orb-history-open", state.compactHistoryOpen);
     document.body.classList.toggle("orb-reply-open", state.compactReplyOpen);
     document.body.classList.toggle("compact-error-unread", state.compactErrorUnread);
+    document.body.classList.toggle("orb-has-badge", !expanded && badgeCount > 0);
+    document.body.classList.toggle("orb-notification-question", statusKind === "question");
     $("#orbStatusLabel").textContent = label;
     $("#orbStatusText").textContent = text;
+    const actionLabel = statusKind === "question" ? "Answer the question" : statusKind === "error" ? "Open this session" : "Reply to this session";
+    $("#orbStatusAction").title = actionLabel;
+    $("#orbStatusAction").setAttribute("aria-label", actionLabel);
     $("#orbStatusCard").hidden = expanded;
     $("#orbStatusCard").disabled = !preview?.sessionId && !state.selectedSessionId;
-    $("#orbSessionList").hidden = !state.compactHistoryOpen;
-    $("#orbReplyForm").hidden = !state.compactReplyOpen;
+    // The list and the message box under it are one panel: open it and you can write.
+    $("#orbSessionList").hidden = !expanded;
+    $("#orbReplyForm").hidden = !expanded;
+    $("#orbReplyInput").placeholder = replySession ? `Message ${compactText(replySession.title, 40)}…` : "Message…";
     compactButton.classList.toggle("active", expanded);
     compactButton.setAttribute("aria-pressed", String(expanded));
     compactButton.title = compactButtonLabel;
@@ -606,6 +708,9 @@ function syncCompactStatus() {
     // the rest of the session, because every later call matched and returned early.
     state.compactStatusDomSignature = domSignature;
     publishCompactHitAreas();
+    // The panel is still easing to its new size here; see the transitionend listener on
+    // #orbMode for why one measurement taken now is not enough.
+    schedulePublishCompactHitAreas();
   }
   const compactStatus = { active, expanded, label, text };
   const ipcSignature = JSON.stringify([active, expanded, label, text]);
@@ -672,6 +777,7 @@ function schedulePublishCompactHitAreas() {
   compactHitAreaSettleTimer = setTimeout(() => {
     state.compactHitAreaSignature = "";
     publishCompactHitAreas();
+    rememberCompactAnchor();
   }, MODE_ENTER_DURATION + 40);
 }
 
@@ -681,6 +787,9 @@ function publishCompactHitAreas() {
   for (const selector of ["#orbRestore", "#orbHistoryButton", "#orbStatus"]) {
     const element = $(selector);
     if (!element || element.hidden || !element.offsetParent) continue;
+    // The chat button waits out of sight until the avatar is hovered; while hidden, its
+    // spot belongs to whatever is behind the window.
+    if (getComputedStyle(element).visibility === "hidden") continue;
     const rect = element.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) continue;
     areas.push({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
@@ -871,12 +980,14 @@ function signalSessionError(session, label = "model error", text = "The current 
   const visibleInFull = state.windowMode === "full" && (!sessionId || sessionId === state.selectedSessionId);
   if (sessionId && !visibleInFull) state.unacknowledgedErrorSessionIds.add(sessionId);
   if (sessionId && !visibleInFull) {
+    // The notification leaves after a while; the ring stays red until the failure is seen.
     state.compactNotification = {
       kind: "error",
       sessionId,
       title: session?.title || "Session needs attention",
       text: session?.preview || text,
     };
+    startCompactNotificationTimer(COMPACT_NOTIFICATION_MS.error);
   }
   syncUnacknowledgedErrors();
   if (chatVisual && sessionId) chatVisual.noteCompletion(sessionId, "error");
@@ -909,27 +1020,15 @@ function notifyCompletion(session) {
   setActivity({ active: true, kind: "done", label: "Done", text: "Agent finished the current task." });
   if (state.windowMode !== "full") {
     state.compactReplySessionId = session?.sessionId || state.compactReplySessionId;
-    state.compactNotification = {
+    state.unread += 1;
+    renderNotifications();
+    showCompactNotification({
       kind: "notification",
       sessionId: session?.sessionId || null,
       title: session?.title || "Agent finished",
       text: session?.preview || "A new reply is ready.",
-    };
-    clearTimeout(state.compactNotificationTimer);
-    state.compactStatusClosing = false;
-    state.compactNotificationTimer = setTimeout(() => {
-      state.compactNotification = null;
-      state.compactStatusClosing = !state.compactHistoryOpen && !state.compactReplyOpen;
-      syncCompactStatus();
-      if (state.compactStatusClosing) setTimeout(() => {
-        state.compactStatusClosing = false;
-        syncCompactStatus();
-      }, 240);
-    }, 2500);
-    state.unread += 1;
-    renderNotifications();
+    });
     window.widget.notifyAgentComplete();
-    syncCompactStatus();
   }
   state.completionSignalTimer = setTimeout(() => {
     document.body.classList.remove("completion-celebration");
@@ -947,8 +1046,14 @@ function notifyCompletion(session) {
 }
 
 const MODE_EXIT_DURATION = 145;
-const MODE_ENTER_DURATION = 390;
-const FIRST_VISIBLE_ENTRY_DURATION = 460;
+// Folding the whole widget into the avatar or the edge is the part of the move the eye
+// follows, so it gets twice the beat of a compact handle stepping aside (motion.css).
+const MODE_FOLD_DURATION = 290;
+// Long enough for the slime's landing and the full widget's bloom to finish.
+const MODE_ENTER_DURATION = 660;
+const FIRST_VISIBLE_ENTRY_DURATION = 720;
+// A failure older than this is history, not news, when the first poll finds it.
+const STARTUP_ERROR_RECENT_MS = 10 * 60 * 1000;
 // Upper bound on waiting for the native compact resize before showing the panel anyway.
 const COMPACT_RESIZE_SETTLE_TIMEOUT = 320;
 let compactResizeSequence = 0;
@@ -964,6 +1069,9 @@ function playFirstVisibleEntry() {
   firstVisibleEntryPlayed = true;
   document.body.classList.remove("pre-native-visible");
   if (prefersReducedMotion()) return false;
+  // The full widget opens out of the slime in its own title bar.
+  const brand = state.windowMode === "full" ? $("#avatarShell")?.getBoundingClientRect() : null;
+  if (brand?.width) setModeMorphOrigin(null, { x: brand.left + brand.width / 2, y: brand.top + brand.height / 2 });
   void document.body.offsetWidth;
   document.body.classList.add("first-visible-entry");
   setTimeout(() => document.body.classList.remove("first-visible-entry"), FIRST_VISIBLE_ENTRY_DURATION);
@@ -985,9 +1093,54 @@ function prefersReducedMotion() {
     || document.body.classList.contains("motion-off");
 }
 
+// Where the avatar and the edge line were last seen on screen. A fold aims at the handle it
+// is about to become and an unfold grows out of the one it was, so the widget looks like it
+// comes out of the slime and goes back into it. Recorded on the way out of a compact mode,
+// which is after any drag that moved it, and again whenever a compact layout settles.
+const compactAnchors = { orb: null, edge: null };
+
+function rememberCompactAnchor() {
+  const mode = state.windowMode;
+  const element = mode === "orb" ? $("#orbRestore") : mode === "edge" ? $("#edgeMode .edge-line") : null;
+  const rect = element?.getBoundingClientRect();
+  if (!rect?.width) return;
+  compactAnchors[mode] = { x: window.screenX + rect.left + rect.width / 2, y: window.screenY + rect.top + rect.height / 2 };
+}
+
+// --morph-x/--morph-y are in the window's own pixels and clamped inside it: an avatar parked
+// beyond the window is aimed at through the nearest point of the window's edge. Without an
+// anchor the dock side stands in for it.
+function setModeMorphOrigin(anchor, local = null) {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  if (!width || !height) return;
+  const point = local
+    || (anchor ? { x: anchor.x - window.screenX, y: anchor.y - window.screenY } : null)
+    || { x: document.body.classList.contains("side-left") ? 0 : width, y: height / 2 };
+  const x = Math.min(width - 18, Math.max(18, point.x));
+  const y = Math.min(height - 18, Math.max(18, point.y));
+  const cover = Math.ceil(Math.hypot(Math.max(x, width - x), Math.max(y, height - y))) + 2;
+  const style = document.body.style;
+  style.setProperty("--morph-x", `${Math.round(x)}px`);
+  style.setProperty("--morph-y", `${Math.round(y)}px`);
+  style.setProperty("--morph-cover", `${cover}px`);
+}
+
+// The native resize and the renderer's idea of its own window size and position do not
+// arrive on the same frame, so an unfold keeps re-aiming for its first frames. The keyframes
+// read these variables live, so a correction moves the animation already in flight.
+function followModeMorphOrigin(anchor, frames = 8) {
+  setModeMorphOrigin(anchor);
+  if (frames > 0) requestAnimationFrame(() => followModeMorphOrigin(anchor, frames - 1));
+}
+
 function animateModeExit(targetMode, requestSequence) {
   if (targetMode === state.windowMode || prefersReducedMotion()) return Promise.resolve(requestSequence === modeRequestSequence);
   const transitionSequence = ++modeTransitionSequence;
+  const folding = state.windowMode === "full";
+  if (!folding) rememberCompactAnchor();
+  else if (targetMode === "orb") setModeMorphOrigin(compactAnchors.orb);
+  const exitDuration = folding ? MODE_FOLD_DURATION : MODE_EXIT_DURATION;
   clearModeTransitionClasses("out");
   void document.body.offsetWidth;
   document.body.classList.add("mode-transition-out", `mode-transition-to-${targetMode}`);
@@ -999,13 +1152,14 @@ function animateModeExit(targetMode, requestSequence) {
       // takes them off once the new mode is on the body.
       const currentTransition = transitionSequence === modeTransitionSequence;
       resolve(currentTransition && requestSequence === modeRequestSequence);
-    }, MODE_EXIT_DURATION);
+    }, exitDuration);
   });
 }
 
 function animateModeEnter(previousMode) {
   if (prefersReducedMotion()) return;
   const sequence = ++modeTransitionSequence;
+  if (state.windowMode === "full" && previousMode === "orb") followModeMorphOrigin(compactAnchors.orb);
   clearModeTransitionClasses("in");
   void document.body.offsetWidth;
   document.body.classList.add("mode-transition-in", `mode-transition-from-${previousMode}`);
@@ -1035,11 +1189,18 @@ function applyWindowMode(mode) {
     window.widget.setEdgePointerActive(true);
   }
   if (mode === "full") {
+    // Opening the widget is the look a failure asks for. Acknowledging only the selected chat
+    // left a failure in any other session to make the avatar sulk again on every collapse,
+    // until that one chat had been opened. Its card in Agents still says it failed.
+    for (const sessionId of [...state.unacknowledgedErrorSessionIds]) acknowledgeSessionError(sessionId);
     acknowledgeSessionError(state.selectedSessionId);
     clearAcknowledgedErrorPresentation();
     state.unread = 0;
     renderNotifications();
-  } else if (state.compactErrorUnread && !state.harnessOffline) {
+  } else if (state.compactErrorUnread && !state.harnessOffline && !state.runningSessionIds.has(state.selectedSessionId)) {
+    // A chat that is working right now outranks an older failure elsewhere: collapsing
+    // mid-turn showed the angry face for a moment and then switched to thinking as soon as
+    // the next stream event arrived.
     const pendingSession = state.dashboard?.sessions?.find((session) => state.unacknowledgedErrorSessionIds.has(session.sessionId));
     setAvatar("error", "needs attention");
     setActivity({ active: true, kind: "error", label: "Turn failed", text: pendingSession?.preview || "A session needs attention." });
@@ -1505,8 +1666,11 @@ function updateSessionCard(card, session) {
   applyBackgroundTaskCount(card.querySelector(".session-background"), background);
   applySessionTime(card.querySelector(".session-time"), session);
   const status = card.querySelector(".session-state");
-  status.className = `session-state ${agentState}`;
-  status.textContent = agentState;
+  // A chat stopped on a question says so: the agent is waiting on the user, not working.
+  const asking = hasPendingQuestion(session.sessionId);
+  card.classList.toggle("asking", asking);
+  status.className = asking ? "session-state asking" : `session-state ${agentState}`;
+  status.textContent = asking ? "question" : agentState;
 }
 
 function createSessionCard(session) {
@@ -1628,7 +1792,7 @@ function renderSessions() {
     [...state.collapsedSessionGroupKeys].sort(),
     ...groups.map((group) => [group.key, group.label, group.path, ...group.sessions.map((session) => {
       const pressure = contextPressure(session);
-      return [session.sessionId, session.title || "", sessionAgentState(session), activeBackgroundTasks(session), pressure ? Math.round(pressure.percent) : null];
+      return [session.sessionId, session.title || "", sessionAgentState(session), activeBackgroundTasks(session), pressure ? Math.round(pressure.percent) : null, hasPendingQuestion(session.sessionId)];
     })]),
   ]);
   if (signature === state.sessionListSignature && root.childElementCount) return false;
@@ -2967,6 +3131,7 @@ async function selectSession(sessionId, openChat = false) {
   renderContext();
   renderWorkspaces();
   renderTodos();
+  renderQuestionDock();
   renderQueuedPrompts();
   if (openChat) setTab("chat");
   await Promise.all([refreshHistory({ force: true }), loadModels(), loadCommands(), loadWorkspaces(), loadQueue(sessionId)]);
@@ -2977,19 +3142,79 @@ function isWaitingUserQuestion(message) {
     && ["ask_user_question", "request_user_input"].includes(message.name);
 }
 
+// The card's action follows where the question can be answered: above the message box when
+// Deck holds it (question-relay.cjs), otherwise in Harness, as before.
+function syncQuestionHandoffButton(button) {
+  const here = hasPendingQuestion(button.dataset.sessionId);
+  button.textContent = here ? "Answer below" : "Answer in DSH";
+  button.title = here
+    ? "The agent is waiting for your answer: the question is above the message box."
+    : "The agent is waiting for your answer. Open this chat's question in Harness; queued messages wait until it is answered.";
+}
+
 function createQuestionHandoffButton() {
   const sessionId = state.selectedSessionId;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "question-handoff-button no-drag";
-  button.textContent = "Answer in DSH";
-  button.title = "The agent is waiting for your answer. Open this chat's question in Harness; queued messages wait until it is answered.";
+  button.dataset.sessionId = sessionId || "";
+  syncQuestionHandoffButton(button);
   button.disabled = !sessionId;
   button.addEventListener("click", event => {
     event.preventDefault(); event.stopPropagation();
-    if (sessionId) window.widget.openHarnessSession(sessionId).catch(showError);
+    if (!sessionId) return;
+    if (hasPendingQuestion(sessionId) && sessionId === state.selectedSessionId) questionDockView.focus();
+    else window.widget.openHarnessSession(sessionId).catch(showError);
   });
   return button;
+}
+
+// ---- The agent's questions (question-relay.cjs holds them, question-dock.js draws one) ----
+function pendingQuestionsFor(sessionId) {
+  if (!sessionId) return [];
+  return state.pendingQuestions.filter((entry) => entry.sessionId === sessionId).sort((left, right) => left.receivedAt - right.receivedAt);
+}
+
+function hasPendingQuestion(sessionId) {
+  return Boolean(sessionId) && state.pendingQuestions.some((entry) => entry.sessionId === sessionId);
+}
+
+const questionDockView = window.questionDock.mount($("#questionDock"), {
+  answer: (eventId, answer) => window.widget.answerQuestion(eventId, answer),
+  onAnswered: (_entry, skipped) => showToast(skipped ? "Questions skipped" : "Answer sent"),
+});
+
+function renderQuestionDock() {
+  const waiting = pendingQuestionsFor(state.selectedSessionId);
+  questionDockView.update(waiting[0] || null, waiting.length);
+  document.querySelectorAll(".question-handoff-button").forEach(syncQuestionHandoffButton);
+}
+
+// A question on the open chat announces itself with the card. Anywhere else - another chat,
+// the avatar, the edge - it is a notification, because the agent is stopped until someone
+// answers it.
+function signalQuestion(entry) {
+  if (state.windowMode === "full" && entry.sessionId === state.selectedSessionId) return;
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === entry.sessionId);
+  const title = session?.title || "The agent";
+  showCompactNotification({ kind: "question", sessionId: entry.sessionId, title: `${title} is asking`, text: entry.questions[0]?.question || "" });
+  if (state.windowMode !== "full" && !state.harnessOffline) setAvatar("waiting", "question");
+  if (state.windowMode === "full") showToast(`${title} is asking: ${compactText(entry.questions[0]?.question, 60)}`);
+  else window.widget.notifyAgentComplete();
+}
+
+function applyPendingQuestions(list) {
+  const next = Array.isArray(list) ? list.filter((entry) => entry?.eventId && Array.isArray(entry.questions)) : [];
+  const known = new Set(state.pendingQuestions.map((entry) => entry.eventId));
+  const arrived = next.filter((entry) => !known.has(entry.eventId));
+  const gone = state.pendingQuestions.filter((entry) => !next.some((item) => item.eventId === entry.eventId));
+  state.pendingQuestions = next;
+  renderQuestionDock();
+  renderSessions();
+  for (const entry of arrived) signalQuestion(entry);
+  // A question answered anywhere takes its notification with it.
+  if (gone.some((entry) => state.compactNotification?.kind === "question" && state.compactNotification.sessionId === entry.sessionId) && !hasPendingQuestion(state.compactNotification.sessionId)) dismissCompactNotification();
+  syncCompactStatus();
 }
 
 function createToolCard(message) {
@@ -5831,7 +6056,14 @@ function toggleCompactHistory() {
   state.compactReplyOpen = false;
   state.compactReplyBusy = false;
   state.compactReplyError = "";
-  if (state.compactHistoryOpen) state.compactNotification = null;
+  if (state.compactHistoryOpen) {
+    clearTimeout(state.compactNotificationTimer);
+    state.compactNotificationTimer = null;
+    state.compactNotification = null;
+    // Until another row is picked, the message box writes to the newest reply.
+    const recent = recentCompactSessions();
+    if (!recent.some((session) => session.sessionId === state.compactReplySessionId)) state.compactReplySessionId = recent[0]?.sessionId || state.selectedSessionId || null;
+  }
   syncCompactStatus();
 }
 
@@ -5862,7 +6094,7 @@ function openCompactReply(sessionId) {
   state.compactReplySessionId = sessionId;
   state.compactNotification = null;
   state.compactStatusClosing = false;
-  state.compactHistoryOpen = false;
+  state.compactHistoryOpen = true;
   state.compactReplyOpen = true;
   state.compactReplyBusy = false;
   state.compactReplyError = "";
@@ -5877,7 +6109,7 @@ function closeCompactReply({ showHistory = true } = {}) {
   state.compactReplyError = "";
   state.compactHistoryOpen = showHistory;
   syncCompactStatus();
-  if (showHistory) requestAnimationFrame(() => $("#orbSessionList .orb-session-reply")?.focus());
+  if (showHistory) requestAnimationFrame(() => $("#orbSessionList .orb-session-pick")?.focus());
 }
 
 function showAcceptedSendState(sessionId, queued = false) {
@@ -5925,24 +6157,13 @@ async function sendCompactReply() {
     state.compactHistoryOpen = false;
     state.compactReplyBusy = false;
     state.compactReplySessionId = null;
-    state.compactNotification = {
+    showCompactNotification({
       kind: "notification",
       sessionId,
       title: session?.title || "Reply sent",
       text: queueingBehindTurn ? "Queued behind the active turn." : "Reply sent to this session.",
-    };
-    clearTimeout(state.compactNotificationTimer);
-    state.compactNotificationTimer = setTimeout(() => {
-      state.compactNotification = null;
-      state.compactStatusClosing = true;
-      syncCompactStatus();
-      setTimeout(() => {
-        state.compactStatusClosing = false;
-        syncCompactStatus();
-      }, 240);
-    }, 2200);
+    }, 2600);
     showAcceptedSendState(sessionId, queueingBehindTurn);
-    syncCompactStatus();
     await refresh({ afterCurrent: true });
   } catch (error) {
     state.compactReplyBusy = false;
@@ -6001,7 +6222,16 @@ function detectCompletedSessions(nextSessions) {
       else if (session.preview && session.preview !== previous.preview) notifyCompletion(session);
     }
   } else {
-    for (const session of nextSessions) if (!session.running && session.state === "error") signalSessionError(session);
+    // On the first poll, only a failure from the last few minutes is news. Every older
+    // failed session in the list used to be raised as unread, so a Deck started next to a
+    // week of history put the angry avatar up on every collapse. The old ones are still
+    // marked on their cards in Agents.
+    const recent = Date.now() - STARTUP_ERROR_RECENT_MS;
+    for (const session of nextSessions) {
+      if (session.running || session.state !== "error") continue;
+      if (window.compactSessions.timestamp(session.replyAt ?? session.updatedAt) >= recent) signalSessionError(session);
+      else if (session.sessionId) state.errorSignalSessionIds.add(session.sessionId);
+    }
   }
   state.runningSessionIds = currentRunning;
   state.sessionSnapshotsById = new Map(nextSessions.map((session) => [session.sessionId, {
@@ -6159,6 +6389,7 @@ async function performRefresh() {
     renderContext();
     renderWorkspaces();
     renderTodos();
+    renderQuestionDock();
     renderQueuedPrompts();
     if (!dashboard.harness) return;
     if (state.selectedSessionId && !state.queuedPromptsBySession.has(state.selectedSessionId)) await loadQueue(state.selectedSessionId);
@@ -7492,8 +7723,53 @@ $("#collapseHandle").addEventListener("click", (event) => {
 });
 $("#orbRestore").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
 $("#orbHistoryButton").addEventListener("click", toggleCompactHistory);
+// The recent-replies panel eases open from a 64 px card to its full height, and the click
+// rectangles used to be measured during that move. Rows outside the half-grown panel were
+// left out, so their clicks went to the window behind the orb: Quick reply on the first
+// row did nothing at all. Whatever settles inside the orb now measures it again.
+for (const eventName of ["transitionend", "animationend"]) {
+  $("#orbMode").addEventListener(eventName, () => {
+    if (state.windowMode === "orb") publishCompactHitAreas();
+  });
+}
+// A notification the pointer rests on stays; it resumes its countdown when the pointer leaves.
+$("#orbStatus").addEventListener("mouseenter", pauseCompactNotification);
+$("#orbStatus").addEventListener("mouseleave", resumeCompactNotification);
+// Reply to a reply where it appeared; a question is answered in its chat, where the card is.
+$("#orbStatusAction").addEventListener("click", () => {
+  const notification = state.compactNotification;
+  if (!notification?.sessionId) return;
+  if (notification.kind === "question") openCompactSession(notification.sessionId).then(() => questionDockView.focus()).catch(showError);
+  else if (notification.kind === "error") openCompactSession(notification.sessionId).catch(showError);
+  else openCompactReply(notification.sessionId);
+});
+// The recent-replies panel is a glance. Once the pointer has been off the avatar and the
+// panel for a moment it folds away by itself - unless a reply is being written in it.
+const COMPACT_PANEL_LINGER_MS = 1600;
+let compactPanelLeaveTimer = null;
+function compactPointerInside() {
+  return ["#orbStatus", "#orbHistoryButton", "#orbRestore"].some((selector) => $(selector)?.matches(":hover"));
+}
+function compactComposing() {
+  const input = $("#orbReplyInput");
+  return Boolean(state.compactReplyBusy || document.activeElement === input || input?.value.trim());
+}
+function watchCompactPanelPointer() {
+  clearTimeout(compactPanelLeaveTimer);
+  if (state.windowMode !== "orb" || !state.compactHistoryOpen || compactComposing() || compactPointerInside()) return;
+  compactPanelLeaveTimer = setTimeout(() => {
+    if (state.windowMode === "orb" && state.compactHistoryOpen && !compactComposing() && !compactPointerInside()) toggleCompactHistory();
+  }, COMPACT_PANEL_LINGER_MS);
+}
+$("#orbMode").addEventListener("pointerout", watchCompactPanelPointer);
+$("#orbMode").addEventListener("pointerover", () => { if (compactPointerInside()) clearTimeout(compactPanelLeaveTimer); });
+document.documentElement.addEventListener("pointerleave", watchCompactPanelPointer);
+// The fade under the last visible row says "there is more"; at the end of the list it goes.
+$("#orbSessionList").addEventListener("scroll", (event) => {
+  const list = event.currentTarget;
+  list.classList.toggle("at-end", list.scrollTop + list.clientHeight >= list.scrollHeight - 2);
+}, { passive: true });
 $("#orbStatusCard").addEventListener("click", () => openCompactSession(compactPreviewEntry()?.sessionId).catch(showError));
-$("#orbReplyClose").addEventListener("click", () => closeCompactReply());
 $("#orbReplyForm").addEventListener("submit", (event) => {
   event.preventDefault();
   sendCompactReply().catch(() => {});
@@ -7531,7 +7807,11 @@ document.addEventListener("mouseleave", () => {
 window.addEventListener("blur", () => {
   if (!compactDrag) setEdgePointerActive(false);
 });
+// In Avatar mode the native resize after the chat button lands a frame or more after the
+// click. Rectangles measured before it describe the narrow window, so the close button, now
+// elsewhere in a wider one, took no clicks until the pointer left and came back.
 window.addEventListener("resize", () => {
+  if (state.windowMode === "orb") schedulePublishCompactHitAreas();
   hideChatTooltip();
   resizeMessageInput({ immediate: true });
   resizeCommandMenu();
@@ -8444,6 +8724,32 @@ if (screenshotFixture) {
         ...(screenshotFixture === "question-wait-group" ? [{ role: "tool", name: "read", callId: "question-read", status: "completed", result: "Ready" }] : []),
         { role: "tool", name: "ask_user_question", callId: "question-wait", status: "running", arguments: '{"questions":[{"header":"Service","question":"Which service do you mean?"}]}' },
       ]);
+    } else if (["question-dock", "question-dock-360"].includes(screenshotFixture)) {
+      // The agent stopped on two questions; Deck holds them (question-relay.cjs) and the
+      // dock above the composer answers them.
+      setTab("chat");
+      const sessionId = state.selectedSessionId || "demo-question";
+      state.selectedSessionId = sessionId;
+      renderMessages([
+        { role: "user", text: "Ship the release notes." },
+        { role: "tool", name: "ask_user_question", callId: "question-dock", status: "running", arguments: '{"questions":[{"id":"channel","question":"Where should the notes go?"}]}' },
+      ]);
+      applyPendingQuestions([{ eventId: "demo-event", sessionId, callId: "question-dock", receivedAt: Date.now(), questions: [
+        { id: "channel", header: "Channel", question: "Where should the release notes go?", detail: "", multiSelect: false, options: [
+          { label: "GitHub release (Recommended)", description: "Published with the installers, where the update check looks." },
+          { label: "CHANGELOG only", description: "Kept in the repository; nothing is published." },
+        ] },
+        { id: "platforms", header: "Platforms", question: "Which builds should it mention?", detail: "", multiSelect: true, options: [
+          { label: "Windows", description: "" }, { label: "macOS", description: "" }, { label: "Linux", description: "" },
+        ] },
+      ] }]);
+    } else if (screenshotFixture === "question-orb") {
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-ask", title: "Release notes", updatedAt: Date.now(), running: true, state: "working", preview: "", projections: { values: {} }, subagents: [] }] };
+      state.selectedSessionId = "demo-ask";
+      applyPendingQuestions([{ eventId: "demo-orb-event", sessionId: "demo-ask", callId: "c1", receivedAt: Date.now(), questions: [{ id: "q", header: "", question: "Where should the release notes go?", detail: "", multiSelect: false, options: [] }] }]);
+      // Held long enough for the capture; a real one leaves after twelve seconds.
+      showCompactNotification({ kind: "question", sessionId: "demo-ask", title: "Release notes is asking", text: "Where should the release notes go?" }, 60000);
+      setAvatar("waiting", "question");
     } else if (screenshotFixture === "mixed-tools") {
       setTab("chat");
       renderMessages([

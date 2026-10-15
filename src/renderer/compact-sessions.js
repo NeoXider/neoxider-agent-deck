@@ -22,6 +22,7 @@
         preview,
         updatedAt: timestamp(session?.replyAt ?? session?.updatedAt),
         running: Boolean(session?.running),
+        failed: session?.state === "error",
       };
       const current = unique.get(sessionId);
       if (!current || candidate.updatedAt >= current.updatedAt) unique.set(sessionId, candidate);
@@ -31,5 +32,5 @@
       .slice(0, Math.max(0, Number(limit) || 0));
   }
 
-  return { recentReplySessions };
+  return { recentReplySessions, timestamp };
 }));

@@ -27,55 +27,7 @@ const { harnessNeedsAuth: dashboardNeedsAuth, startHarnessConnection } = require
 const { QUEUE_CONTENT, editableQueueContent } = require("./queue-view.cjs");
 const { renderMarkdownBatch, renderMarkdownAsync } = require("./markdown-service.cjs");
 const { applyPlatformOpacity } = require("./platform-capabilities.cjs");
-
-const UNTRUSTED_SENDER_CODE = "untrusted-sender";
-
-class UntrustedSenderError extends Error {
-  constructor(channel) {
-    super(`Refused an IPC message on "${channel}" from an untrusted sender`);
-    this.name = "UntrustedSenderError";
-    this.code = UNTRUSTED_SENDER_CODE;
-    this.channel = channel;
-  }
-}
-
-// The widget is one window showing one local file, so the only legitimate sender is that
-// window's top frame. A second window, a subframe, a webview that slipped past
-// will-attach-webview, or a frame that has already been disposed are all refused before
-// the handler body runs.
-function createSenderCheck(getWindow) {
-  return function isTrustedSender(event) {
-    const target = typeof getWindow === "function" ? getWindow() : null;
-    if (!target || target.isDestroyed?.()) return false;
-    const contents = target.webContents;
-    if (!contents || !event || event.sender !== contents) return false;
-    let frame = null;
-    try {
-      frame = event.senderFrame;
-    } catch {
-      // Electron throws when the render frame is already gone. A message from a dead
-      // frame cannot be attributed to anyone, so it is not trusted either.
-      return false;
-    }
-    return !frame || !contents.mainFrame || frame === contents.mainFrame;
-  };
-}
-
-// Deny by default. The renderer loads local files under `default-src 'none'` and asks for
-// no web permission at all, so every request is either a bug or an injection attempt.
-// The checklist's position is that this handler exists before something needs it.
-function denyAllPermissions(session, onDenied = () => {}) {
-  if (!session) return false;
-  session.setPermissionRequestHandler?.((_contents, permission, callback) => {
-    onDenied(permission, "request");
-    callback(false);
-  });
-  session.setPermissionCheckHandler?.((_contents, permission) => {
-    onDenied(permission, "check");
-    return false;
-  });
-  return true;
-}
+const { UNTRUSTED_SENDER_CODE, UntrustedSenderError, createSenderCheck, denyAllPermissions } = require("./ipc-guard.cjs");
 
 // Session ids come from the renderer on many channels, so they are checked once here
 // instead of reaching Harness as undefined and surfacing as a TypeError.
@@ -126,6 +78,7 @@ function registerIpcHandlers({
   getAutoStartController,
   getHarnessLauncher,
   getHarnessSupervisor = () => null,
+  getQuestionRelay = () => null,
   getHotkeyManager,
   getCompactHitTracker,
   getScreenshotService,
@@ -201,6 +154,8 @@ function registerIpcHandlers({
       // Through the shared reader, not api.dashboard(): the Game Bar widget reads the same
       // snapshot, and two independent readers would poll Harness twice for one answer.
       const dashboard = await readDashboard(typeof selectedSessionId === "string" ? selectedSessionId : null);
+      // Harness answered, so the question stream can open now instead of after its backoff.
+      getQuestionRelay()?.kick();
       return { ok: true, harness: true, ...dashboard };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -374,6 +329,13 @@ function registerIpcHandlers({
     return result;
   });
   // Crash recovery for the owned Harness. Open log takes no argument from the renderer.
+  // The agent's questions (question-relay.cjs): the ones waiting now, and the user's answer.
+  handle("get-pending-questions", () => getQuestionRelay()?.list() || []);
+  handle("answer-question", async (_event, eventId, answer) => {
+    const relay = getQuestionRelay();
+    if (!relay) throw new Error("Questions are not available");
+    return relay.answer(String(eventId || ""), answer);
+  });
   handle("get-harness-supervisor-state", () => getHarnessSupervisor()?.getState() || null);
   handle("restart-harness-now", () => getHarnessSupervisor()?.restartNow() || { ok: false, started: false, reason: "unavailable" });
   handle("open-harness-log", () => getHarnessSupervisor()?.openLog() || { ok: false, error: "The Harness log is not available" });
@@ -565,7 +527,7 @@ function registerIpcHandlers({
     return compactStatus;
   });
   // The orb draws a 68 px circle and two small controls inside a window that is up to
-  // 460x158, and the renderer is the only place that knows where they currently are. It
+  // 460x184, and the renderer is the only place that knows where they currently are. It
   // measures them and reports window-relative rectangles; every other pixel of that window
   // forwards the mouse through to whatever is behind it.
   on("set-compact-hit-areas", (_event, areas) => {

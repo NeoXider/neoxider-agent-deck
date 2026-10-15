@@ -12,7 +12,7 @@ const { resizeCompactAnchor, restoreCompactBounds } = require("./window-state.cj
 const COMPACT_SIZES = {
   orb: { width: 172, height: 128 },
   orbStatus: { width: 400, height: 128 },
-  orbPanel: { width: 460, height: 158 },
+  orbPanel: { width: 460, height: 184 },
   // Wide enough for the edge glow to fade out; the line itself is still flush with the
   // screen edge.
   edge: { width: 88, height: 132 },

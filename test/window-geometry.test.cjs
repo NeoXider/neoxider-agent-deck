@@ -10,7 +10,7 @@ const {
 
 const workArea = { x: 0, y: 20, width: 1920, height: 1040 };
 const ORB = { width: 172, height: 128 };
-const ORB_PANEL = { width: 460, height: 158 };
+const ORB_PANEL = { width: 460, height: 184 };
 const EDGE = { width: 88, height: 132 };
 
 test("compact drag is clamped to the usable display", () => {

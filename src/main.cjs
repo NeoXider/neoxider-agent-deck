@@ -7,6 +7,7 @@ const { createAutoStartController } = require("./auto-start.cjs");
 const { createHarnessLauncher } = require("./harness-launcher.cjs");
 const { createHarnessOutputLog } = require("./harness-log.cjs");
 const { createHarnessSupervisor } = require("./harness-supervisor.cjs");
+const { createQuestionRelay } = require("./question-relay.cjs");
 const { createLaunchUrlRecorder, startHarnessConnection } = require("./harness-connection.cjs");
 const { createDesktopAccess, desktopHarnessUrl } = require("./desktop-access.cjs");
 const { createDeviceTrustStore } = require("./device-trust-store.cjs");
@@ -161,6 +162,7 @@ function cleanupApplication() {
   harnessSupervisor?.dispose();
   harnessLauncher?.dispose();
   remoteMux?.stop();
+  questionRelay.stop();
   gameLayerKeeper?.stop();
   compactHitTracker?.stop();
   hotkeyManager?.dispose();
@@ -318,6 +320,8 @@ remoteMux = createRemoteMuxClient({
   onQueue: publishQueue,
   onLiveEvent: publishLiveEvent,
 });
+// The agent's questions, answered in Deck instead of only in the browser (question-relay.cjs).
+const questionRelay = createQuestionRelay({ getTransport: () => api.ensureRemote(), publish: (list) => sendToRenderer("pending-questions", list) });
 
 function captureWindowBounds(mode, bounds, side = preferences.compactSide, setLastMode = true) {
   const previousMode = preferences.windowState.mode;
@@ -352,7 +356,7 @@ function setWindowLayerPreference(value) {
 }
 
 // Both compact modes forward the mouse through their empty space now. The orb window is up
-// to 460x158 for a 68 px circle, and all of that emptiness used to swallow clicks meant for
+// to 460x184 for a 68 px circle, and all of that emptiness used to swallow clicks meant for
 // the desktop behind it.
 function applyCompactPointerHit(active = false) {
   if (!windowRef || windowRef.isDestroyed()) return;
@@ -629,6 +633,7 @@ function registerWidgetIpc() {
     getAutoStartController: () => autoStartController,
     getHarnessLauncher: () => harnessLauncher,
     getHarnessSupervisor: () => harnessSupervisor,
+    getQuestionRelay: () => questionRelay,
     getHotkeyManager: () => hotkeyManager,
     getCompactHitTracker: () => compactHitTracker,
     getScreenshotService: () => screenshotService,
@@ -690,7 +695,7 @@ app.whenReady().then(() => {
   harnessSupervisor = createHarnessSupervisor({
     launcher: harnessLauncher, outputLog: harnessLauncher.outputLog, isQuitting: () => quitCoordinator.isQuitting(),
     openPath: (filePath) => shell.openPath(filePath), onState: (value) => sendToRenderer("harness-supervisor-state", value),
-    onRecovered: () => { dashboardReader.invalidate(); return api.reconnect().catch(() => {}); },
+    onRecovered: () => { dashboardReader.invalidate(); questionRelay.kick(); return api.reconnect().catch(() => {}); },
   });
   gameLayerKeeper = createGameLayerKeeper({
     getWindow: () => windowRef,
@@ -782,6 +787,7 @@ app.whenReady().then(() => {
     }).catch(error => console.error("Requested Harness startup failed", error));
     muxClient.connect();
     remoteMux.start();
+    questionRelay.start();
     desktopAccess = createDesktopAccess({ app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, productName: PRODUCT_NAME,
       getPreferences: () => preferences, savePreferences, harnessUrl: HARNESS_URL,
       trustStore: createDeviceTrustStore({ filePath: path.join(app.getPath("userData"), "trusted-devices.json") }),

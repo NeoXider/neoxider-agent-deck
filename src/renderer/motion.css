@@ -1,0 +1,164 @@
+/* Mode morphs: the widget folds into the avatar or the edge, and unfolds back out of it.
+
+   The window itself still snaps between sizes; what moves is the picture inside it. A fold
+   plays in the full window before it shrinks, and lands where the compact handle is about
+   to appear (app.js sets --morph-x/--morph-y from where the orb was last seen). An unfold
+   plays in the full window after it has grown, starting from where the handle was.
+
+   The clip itself is animated as clip-path, not through a custom property: a registered
+   property that inherits restyles the whole transcript on every frame. The light that rides
+   on the clip's edge is a separate childless layer that animates its own --morph-r and
+   --morph-inset with the same timing, so the two stay in step without either one paying
+   for the other. */
+@property --morph-r { syntax:"<length>"; inherits:false; initial-value:0px; }
+@property --morph-inset { syntax:"<percentage>"; inherits:false; initial-value:0%; }
+
+.mode-morph-rim { position:absolute; z-index:80; inset:0; display:none; border-radius:inherit; pointer-events:none; opacity:0; }
+
+/* The circle's light: a bright hairline on the clip edge, the state colours just inside it. */
+.mode-transition-out.mode-transition-to-orb.mode-full .mode-morph-rim,
+.mode-transition-in.mode-transition-from-orb.mode-full .mode-morph-rim,
+.first-visible-entry.mode-full .mode-morph-rim {
+  display:block;
+  background:radial-gradient(circle at var(--morph-x,50%) var(--morph-y,50%),
+    transparent calc(var(--morph-r) - 54px),
+    color-mix(in srgb,var(--chat-light-secondary) 16%,transparent) calc(var(--morph-r) - 26px),
+    color-mix(in srgb,var(--chat-light-primary) 58%,transparent) calc(var(--morph-r) - 6px),
+    rgba(255,255,255,.94) calc(var(--morph-r) - 1.5px),
+    transparent var(--morph-r));
+}
+/* The drawer's light: one vertical bar on the clip edge, fading toward the top and bottom. */
+.mode-transition-out.mode-transition-to-edge.mode-full .mode-morph-rim,
+.mode-transition-in.mode-transition-from-edge.mode-full .mode-morph-rim {
+  display:block;
+  background:linear-gradient(var(--morph-rim-direction,90deg),
+    transparent calc(var(--morph-inset) - 1px),
+    rgba(255,255,255,.95) var(--morph-inset),
+    color-mix(in srgb,var(--chat-light-primary) 70%,transparent) calc(var(--morph-inset) + 3px),
+    color-mix(in srgb,var(--chat-light-secondary) 22%,transparent) calc(var(--morph-inset) + 26px),
+    transparent calc(var(--morph-inset) + 72px));
+  -webkit-mask-image:linear-gradient(transparent,#000 16%,#000 84%,transparent);
+  mask-image:linear-gradient(transparent,#000 16%,#000 84%,transparent);
+}
+.side-left { --morph-rim-direction:270deg; }
+
+/* Full -> avatar: the widget is drawn into one point, faster the closer it gets. */
+.mode-transition-out.mode-transition-to-orb.mode-full .widget-shell {
+  transform-origin:var(--morph-x,50%) var(--morph-y,50%);
+  animation:mode-fold-orb .29s cubic-bezier(.5,0,.75,.3) both;
+}
+.mode-transition-out.mode-transition-to-orb.mode-full .mode-morph-rim { animation:mode-rim-fold .29s cubic-bezier(.5,0,.75,.3) both; }
+@keyframes mode-fold-orb {
+  0% { clip-path:circle(var(--morph-cover,1000px) at var(--morph-x,50%) var(--morph-y,50%)); transform:none; opacity:1; }
+  84% { opacity:1; }
+  100% { clip-path:circle(30px at var(--morph-x,50%) var(--morph-y,50%)); transform:scale(.88); opacity:0; }
+}
+@keyframes mode-rim-fold { 0% { --morph-r:var(--morph-cover,1000px); opacity:0; } 22% { opacity:1; } 100% { --morph-r:30px; opacity:1; } }
+
+/* Avatar -> full: the widget blooms out of where the circle was. */
+.mode-transition-in.mode-transition-from-orb.mode-full .widget-shell { animation:mode-bloom-full .56s cubic-bezier(.2,.86,.16,1) both; }
+.mode-transition-in.mode-transition-from-orb.mode-full .mode-morph-rim { animation:mode-rim-bloom .56s cubic-bezier(.2,.86,.16,1) both; }
+@keyframes mode-bloom-full {
+  0% { clip-path:circle(30px at var(--morph-x,50%) var(--morph-y,50%)); }
+  100% { clip-path:circle(var(--morph-cover,1000px) at var(--morph-x,50%) var(--morph-y,50%)); }
+}
+@keyframes mode-rim-bloom { 0% { --morph-r:30px; opacity:1; } 38% { opacity:.85; } 72%,100% { opacity:0; } 100% { --morph-r:var(--morph-cover,1000px); } }
+
+/* Full -> edge: the widget slides into the screen edge behind a line of light. */
+.mode-transition-out.mode-transition-to-edge.mode-full .widget-shell { animation:mode-retract-edge .27s cubic-bezier(.55,0,.78,.25) both; }
+.side-left.mode-transition-out.mode-transition-to-edge.mode-full .widget-shell { animation-name:mode-retract-edge-left; }
+.mode-transition-out.mode-transition-to-edge.mode-full .mode-morph-rim { animation:mode-rim-retract .27s cubic-bezier(.55,0,.78,.25) both; }
+@keyframes mode-retract-edge {
+  0% { clip-path:inset(0 0 0 0 round var(--radius-lg)); transform:none; }
+  100% { clip-path:inset(0 0 0 100% round var(--radius-lg)); transform:translate3d(var(--mode-exit-x,12px),0,0); }
+}
+@keyframes mode-retract-edge-left {
+  0% { clip-path:inset(0 0 0 0 round var(--radius-lg)); transform:none; }
+  100% { clip-path:inset(0 100% 0 0 round var(--radius-lg)); transform:translate3d(var(--mode-exit-x,-12px),0,0); }
+}
+@keyframes mode-rim-retract { 0% { --morph-inset:0%; opacity:0; } 18% { opacity:1; } 100% { --morph-inset:100%; opacity:1; } }
+
+/* Edge -> full: the drawer comes back out, its contents a beat behind the light. */
+.mode-transition-in.mode-transition-from-edge.mode-full .widget-shell { animation:mode-unfurl-edge .5s cubic-bezier(.2,.86,.16,1) both; }
+.side-left.mode-transition-in.mode-transition-from-edge.mode-full .widget-shell { animation-name:mode-unfurl-edge-left; }
+.mode-transition-in.mode-transition-from-edge.mode-full .mode-morph-rim { animation:mode-rim-unfurl .5s cubic-bezier(.2,.86,.16,1) both; }
+@keyframes mode-unfurl-edge { 0% { clip-path:inset(0 0 0 100% round var(--radius-lg)); } 100% { clip-path:inset(0 0 0 0 round var(--radius-lg)); } }
+@keyframes mode-unfurl-edge-left { 0% { clip-path:inset(0 100% 0 0 round var(--radius-lg)); } 100% { clip-path:inset(0 0 0 0 round var(--radius-lg)); } }
+@keyframes mode-rim-unfurl { 0% { --morph-inset:100%; opacity:1; } 34% { opacity:.9; } 66%,100% { opacity:0; } 100% { --morph-inset:0%; } }
+.mode-transition-in.mode-transition-from-edge.mode-full :is(.titlebar,.chat-heading,.messages,.composer) { animation-name:mode-content-slide; }
+@keyframes mode-content-slide { from { opacity:0; transform:translate3d(var(--mode-entry-x,14px),0,0); } to { opacity:1; transform:none; } }
+
+/* First paint of the full widget: it opens out of the slime in the title bar (the shell's
+   rule is in styles.css, next to the other first-paint entries). */
+.first-visible-entry.mode-full .mode-morph-rim { animation:mode-rim-bloom .62s cubic-bezier(.2,.86,.16,1) both; }
+
+/* The avatar lands like the slime it is: squash, stretch, settle, with a ring of light and a
+   handful of sparks thrown off the impact. */
+.orb-avatar::after { content:""; position:absolute; z-index:4; inset:0; border-radius:50%; pointer-events:none; opacity:0; }
+.orb-burst { position:absolute; z-index:5; top:50%; left:50%; width:4px; height:4px; margin:-2px 0 0 -2px; border-radius:50%; color:var(--orb-ring-primary); pointer-events:none; opacity:0;
+  box-shadow:0 -31px 1px currentColor,22px -22px 1px var(--orb-ring-secondary),31px 0 1px currentColor,22px 22px 1px var(--orb-ring-secondary),0 31px 1px currentColor,-22px 22px 1px var(--orb-ring-secondary),-31px 0 1px currentColor,-22px -22px 1px var(--orb-ring-secondary); }
+.mode-transition-in.mode-orb .orb-avatar, .first-visible-entry.mode-orb .orb-avatar { animation:orb-arrive .66s cubic-bezier(.33,1,.68,1) both; }
+.mode-transition-in.mode-orb .orb-avatar::after, .first-visible-entry.mode-orb .orb-avatar::after {
+  border:2px solid var(--orb-ring-primary);
+  box-shadow:0 0 18px 2px color-mix(in srgb,var(--orb-ring-primary) 70%,transparent),inset 0 0 14px color-mix(in srgb,var(--orb-ring-secondary) 60%,transparent);
+  animation:orb-shockwave .7s cubic-bezier(.16,1,.3,1) .07s both;
+}
+.mode-transition-in.mode-orb .orb-burst, .first-visible-entry.mode-orb .orb-burst { animation:orb-burst .72s cubic-bezier(.16,1,.3,1) .09s both; }
+.mode-transition-in.mode-orb.orb-has-badge .orb-history-button, .first-visible-entry.mode-orb.orb-has-badge .orb-history-button { animation:orb-satellite-in .46s cubic-bezier(.3,1.35,.5,1) .16s both; }
+@keyframes orb-arrive {
+  0% { transform:scale(.4); opacity:.3; }
+  20% { transform:scale(1.18,.84); opacity:1; }
+  37% { transform:scale(.9,1.11); }
+  54% { transform:scale(1.05,.96); }
+  72% { transform:scale(.985,1.015); }
+  100% { transform:none; opacity:1; }
+}
+@keyframes orb-shockwave { 0% { opacity:.95; transform:scale(.74); } 100% { opacity:0; transform:scale(1.78); } }
+@keyframes orb-burst { 0% { opacity:0; transform:scale(.45) rotate(0deg); } 14% { opacity:1; } 100% { opacity:0; transform:scale(1.85) rotate(38deg); } }
+@keyframes orb-satellite-in { 0% { opacity:0; transform:translateX(var(--satellite-from,16px)) scale(.3); } 100% { opacity:1; transform:none; } }
+.side-left { --satellite-from:-16px; }
+
+/* Leaving the avatar: the slime gathers itself, then the window takes over. */
+.mode-transition-out.mode-orb .orb-avatar { animation:orb-depart .145s cubic-bezier(.3,0,.6,1) both; }
+.mode-transition-out.mode-transition-to-edge.mode-orb .orb-avatar { animation:orb-to-edge .145s cubic-bezier(.5,0,.8,.3) both; }
+.mode-transition-out.mode-orb :is(.orb-history-button,.orb-status) { animation:orb-satellite-out .12s ease-in both; }
+@keyframes orb-depart { 0% { transform:none; } 55% { transform:scale(1.14,.88); filter:brightness(1.2); } 100% { transform:scale(1.22); filter:brightness(1.55); } }
+@keyframes orb-to-edge { 0% { transform:none; } 100% { transform:translateX(var(--mode-exit-x,12px)) scale(.14,1.12); opacity:.5; filter:brightness(1.6); } }
+@keyframes orb-satellite-out { to { opacity:0; transform:scale(.6); } }
+
+/* The edge line arrives as a drop of light that splashes into a line, behind a streak that
+   carries the eye in from where the widget was. */
+.edge-mode::before { content:""; position:absolute; top:50%; right:0; width:76px; height:2px; margin-top:-1px; border-radius:2px; pointer-events:none; opacity:0; background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--edge-primary) 75%,transparent),#fff); }
+.side-left .edge-mode::before { right:auto; left:0; background:linear-gradient(270deg,transparent,color-mix(in srgb,var(--edge-primary) 75%,transparent),#fff); }
+.mode-transition-in.mode-transition-from-full.mode-edge .edge-mode::before { animation:edge-streak .26s cubic-bezier(.5,0,.75,0) both; }
+.mode-transition-in.mode-edge .edge-line, .first-visible-entry.mode-edge .edge-line { animation:edge-arrive .62s cubic-bezier(.33,1,.68,1) .1s both,edge-flow 1.4s linear infinite; }
+.mode-transition-in.mode-edge .edge-line::before, .first-visible-entry.mode-edge .edge-line::before { animation:edge-arrive-halo .72s ease-out .1s both; }
+.mode-transition-in.mode-edge .edge-line::after, .first-visible-entry.mode-edge .edge-line::after { animation:edge-arrive-core .62s ease-out .1s both; }
+@keyframes edge-streak { 0% { opacity:0; transform:translateX(var(--streak-from,-64px)) scaleX(.35); } 30% { opacity:1; } 100% { opacity:0; transform:none; } }
+.side-left { --streak-from:64px; }
+@keyframes edge-arrive {
+  0% { transform:translateY(-50%) scale(2.6,.08); filter:brightness(2.4); }
+  26% { transform:translateY(-50%) scale(.72,1.24); filter:brightness(1.9); }
+  46% { transform:translateY(-50%) scale(1.28,.93); filter:brightness(1.4); }
+  66% { transform:translateY(-50%) scale(.94,1.03); }
+  100% { transform:translateY(-50%); filter:none; }
+}
+@keyframes edge-arrive-halo { 0% { opacity:0; transform:scaleX(.4); } 24% { opacity:1; transform:scaleX(1.55); } 100% { opacity:var(--edge-halo-opacity); transform:scaleX(.92); } }
+@keyframes edge-arrive-core { 0%,30% { width:4px; opacity:.95; } 100% { width:2px; opacity:.12; } }
+
+/* Leaving the edge: the line flares wide, and the window opens from that flare. */
+.mode-transition-out.mode-edge .edge-line { animation:edge-depart .145s cubic-bezier(.4,0,.7,.2) both; }
+@keyframes edge-depart { 0% { transform:translateY(-50%); } 100% { transform:translateY(-50%) scale(3.4,1.12); filter:brightness(1.8); } }
+
+/* The recent-replies panel: rows arrive one after another from the avatar's side, and the
+   chat button turns into its close glyph instead of swapping it. */
+.orb-history-open .orb-session-row { animation:orb-row-in .3s cubic-bezier(.2,.9,.25,1) both; animation-delay:calc(var(--row-index,0) * 26ms + 70ms); }
+@keyframes orb-row-in { from { opacity:0; transform:translateX(var(--satellite-from,16px)); } to { opacity:1; transform:none; } }
+.orb-history-button.active .ui-icon { animation:orb-icon-twist .32s cubic-bezier(.3,1.4,.5,1); }
+@keyframes orb-icon-twist { from { transform:rotate(-90deg) scale(.6); } to { transform:none; } }
+
+/* Subtle movement keeps the folds, which say where the widget went, and drops the flourishes:
+   no sparks, no shockwave, no streak, and the avatar fades in instead of bouncing. */
+body[data-motion="subtle"] .orb-burst, body[data-motion="subtle"] .orb-avatar::after, body[data-motion="subtle"] .edge-mode::before { animation:none !important; opacity:0 !important; }
+body[data-motion="subtle"].mode-transition-in .orb-avatar, body[data-motion="subtle"].first-visible-entry .orb-avatar { animation:mode-enter-orb .2s ease-out both; }
+body[data-motion="subtle"].mode-transition-in .edge-line, body[data-motion="subtle"].first-visible-entry .edge-line { animation:mode-enter-edge .2s ease-out both; }

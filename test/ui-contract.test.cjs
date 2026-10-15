@@ -436,16 +436,20 @@ test("live Think is a persistent optional overlay that cannot move the conversat
   assert.match(renderer, /applyShowThinking\(await window\.widget\.setShowThinking\(requested\)\)/);
 });
 
-test("collapsed pet exposes three exact recent sessions and inline quick reply without restoring full mode", () => {
+test("collapsed pet exposes a scrolling list of recent sessions and inline quick reply without restoring full mode", () => {
   assert.doesNotMatch(html, /id="orb(?:NewSession|Commands|Attach)"/);
   assert.match(html, /id="orbSessionList"[^>]+role="list"/);
   assert.match(html, /id="orbReplyForm"[^>]+aria-label="Quick reply"/);
   assert.match(html, /id="orbReplyInput"[^>]+aria-label="Quick reply message"/);
   assert.match(renderer, /compactNotificationTimer = setTimeout/);
-  assert.match(renderer, /\}, 2500\)/);
+  // Notifications leave on their own: six seconds for a reply, longer for a question.
+  assert.match(renderer, /const COMPACT_NOTIFICATION_MS = \{ notification: 6000, question: 12000, error: 8000 \};/);
   assert.match(renderer, /orb-status-closing/);
   assert.match(renderer, /else notifyCompletion\(session\)/);
-  assert.match(renderer, /recentReplySessions\(state\.dashboard\?\.sessions, 3\)/);
+  // Four rows show and the rest scroll; the chat button counts working agents only.
+  assert.match(renderer, /recentReplySessions\(state\.dashboard\?\.sessions, COMPACT_RECENT_LIMIT\)/);
+  assert.match(renderer, /const COMPACT_RECENT_LIMIT = 8;/);
+  assert.match(renderer, /const badgeCount = runningCount;/);
   assert.match(renderer, /openCompactSession\(session\.sessionId\)/);
   assert.match(renderer, /openCompactReply\(session\.sessionId\)/);
   assert.match(renderer, /await setWindowMode\("full"\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
@@ -464,7 +468,7 @@ test("collapsed pet exposes three exact recent sessions and inline quick reply w
   const compactWindow = readSource("src", "compact-window.cjs");
   assert.match(compactWindow, /orb: \{ width: 172, height: 128 \}/);
   assert.match(compactWindow, /orbStatus: \{ width: 400, height: 128 \}/);
-  assert.match(compactWindow, /orbPanel: \{ width: 460, height: 158 \}/);
+  assert.match(compactWindow, /orbPanel: \{ width: 460, height: 184 \}/);
   assert.match(compactWindow, /edge: \{ width: 88, height: 132 \}/);
   assert.match(ipc, /preserveCompactPosition: true/);
 });
@@ -1429,7 +1433,9 @@ test("shutdown releases the tray and guards a destroyed window", () => {
   // agent-complete is registered through the shared guard, and that guard refuses a
   // destroyed window before any handler body runs — for this channel and every other.
   assert.match(ipc, /\n\s*on\("agent-complete"/);
-  assert.match(ipc, /if \(!target \|\| target\.isDestroyed\?\.\(\)\) return false/);
+  // The guard itself lives in ipc-guard.cjs; ipc-handlers.cjs applies it to every channel.
+  assert.match(ipc, /const isTrustedSender = createSenderCheck\(getWindow\);/);
+  assert.match(readSource("src", "ipc-guard.cjs"), /if \(!target \|\| target\.isDestroyed\?\.\(\)\) return false/);
 });
 
 test("the settings swap never deletes the destination first", () => {
@@ -1645,7 +1651,9 @@ test("avatar mode is collapsed until the user opens it", () => {
   assert.match(settingsStore, /compactAutoExpand: source\.compactAutoExpand === true/);
   assert.match(ipc, /handle\("set-compact-auto-expand"/);
   assert.match(html, /id="compactAutoExpandToggle" type="checkbox" \/>/, "off by default, with no checked attribute");
-  assert.match(renderer, /const active = Boolean\(expanded \|\| state\.compactStatusClosing \|\| \(state\.compactAutoExpand && autoActive\)\)/);
+  // Standing status (working, offline) waits for the setting; a notification - a reply, a
+  // question, a failure - always shows, and leaves on its own.
+  assert.match(renderer, /const active = Boolean\(expanded \|\| state\.compactStatusClosing \|\| preview \|\| \(state\.compactAutoExpand && autoActive\)\)/);
   // The count moves onto the expand button so the collapsed orb still says something.
   assert.match(html, /id="orbPanelCount"/);
   assert.match(renderer, /badge\.classList\.toggle\("visible", !expanded && badgeCount > 0\)/);
@@ -1962,6 +1970,44 @@ test("the avatar's click rectangles follow its dock side and its settled layout"
   assert.match(schedule, /MODE_ENTER_DURATION \+ 40/);
 });
 
+test("the avatar's click rectangles are measured again once its panel has finished growing", () => {
+  // The recent-replies panel eases from a 64px card to 142px. Measured mid-move, the rows
+  // outside the half-grown panel forwarded their clicks to the desktop: Quick reply on the
+  // first row did nothing.
+  assert.match(renderer, /for \(const eventName of \["transitionend", "animationend"\]\) \{\s*\n\s*\$\("#orbMode"\)\.addEventListener\(eventName, \(\) => \{\s*\n\s*if \(state\.windowMode === "orb"\) publishCompactHitAreas\(\);/);
+  const sync = functionBody(renderer, "function syncCompactStatus()");
+  assert.match(sync, /publishCompactHitAreas\(\);\s*\n(?:\s*\/\/[^\n]*\n)*\s*schedulePublishCompactHitAreas\(\);/);
+});
+
+test("the avatar's mood is not held hostage by old failures", () => {
+  const apply = functionBody(renderer, "function applyWindowMode(mode)");
+  // Opening the widget acknowledges every pending failure, not only the selected chat's.
+  assert.match(apply, /for \(const sessionId of \[\.\.\.state\.unacknowledgedErrorSessionIds\]\) acknowledgeSessionError\(sessionId\);/);
+  // A chat working right now outranks an older failure when the widget collapses.
+  assert.match(apply, /state\.compactErrorUnread && !state\.harnessOffline && !state\.runningSessionIds\.has\(state\.selectedSessionId\)/);
+  // The first poll raises only recent failures.
+  const detect = functionBody(renderer, "function detectCompletedSessions(nextSessions)");
+  assert.match(detect, /const recent = Date\.now\(\) - STARTUP_ERROR_RECENT_MS;/);
+  assert.match(detect, /timestamp\(session\.replyAt \?\? session\.updatedAt\) >= recent\) signalSessionError\(session\)/);
+});
+
+test("folds and unfolds aim at the compact handle and animate the clip, not an inheriting property", () => {
+  const motion = readSource("src", "renderer", "motion.css");
+  assert.match(html, /<link rel="stylesheet" href="motion\.css" \/>/);
+  assert.match(html, /<div class="mode-morph-rim" aria-hidden="true"><\/div>\s*<\/main>/);
+  // An inheriting registered property restyles the whole transcript on every frame.
+  assert.match(motion, /@property --morph-r \{ syntax:"<length>"; inherits:false;/);
+  assert.match(motion, /@keyframes mode-fold-orb \{[\s\S]*?clip-path:circle\(/);
+  assert.match(motion, /@keyframes mode-bloom-full \{[\s\S]*?clip-path:circle\(/);
+  assert.match(motion, /@keyframes mode-retract-edge \{[\s\S]*?clip-path:inset\(/);
+  assert.match(motion, /@keyframes mode-unfurl-edge \{[\s\S]*?clip-path:inset\(/);
+  assert.doesNotMatch(motion, /@keyframes mode-(?:fold|bloom|retract|unfurl)[^{]*\{[^@]*filter:/);
+  const exit = functionBody(renderer, "function animateModeExit(targetMode, requestSequence)");
+  assert.match(exit, /if \(!folding\) rememberCompactAnchor\(\);/);
+  assert.match(exit, /const exitDuration = folding \? MODE_FOLD_DURATION : MODE_EXIT_DURATION;/);
+  assert.match(renderer, /if \(state\.windowMode === "full" && previousMode === "orb"\) followModeMorphOrigin\(compactAnchors\.orb\);/);
+});
+
 test("the release snap flies to the edge, with the side applied first", () => {
   const snap = main.slice(main.indexOf("function snapCurrentCompactWindow("), main.indexOf("function applyWindowMode("));
   const sideAt = snap.indexOf('sendToRenderer("compact-side"');
@@ -1975,7 +2021,7 @@ test("the release snap flies to the edge, with the side applied first", () => {
 
 test("mode transitions keep their fade across the IPC and honour the motion switch", () => {
   const exit = functionBody(renderer, "function animateModeExit(targetMode, requestSequence)");
-  const exitTimer = exit.slice(exit.indexOf("setTimeout(() => {"), exit.indexOf("MODE_EXIT_DURATION);"));
+  const exitTimer = exit.slice(exit.indexOf("setTimeout(() => {"), exit.indexOf("}, exitDuration);"));
   assert.ok(exitTimer.length > 0, "the exit timer is found");
   assert.doesNotMatch(exitTimer, /clearModeTransitionClasses/, "the timer must not clear the fade before the window changes");
   const set = functionBody(renderer, "async function setWindowMode(mode)");

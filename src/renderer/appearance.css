@@ -33,10 +33,10 @@ body[data-motion="subtle"] { --motion-control:120ms; --motion-panel:160ms; --dur
 
 /* Themes swap the token ladder - the window, its raised and floating surfaces, the hairlines
    and the two accents - and never the structure, so every component follows on its own. */
-body[data-design="graphite"] { --mint:#c4d1dd; --violet:#8a9aaf; --focus-ring:#dbe5ee; --shell-rgb:23,24,27; --shell-border:rgba(255,255,255,.12); --surface-1:#1e2024; --surface-2:#25272c; --surface-3:#2e3137; --code-bg:#121316; }
-body[data-design="midnight"] { --mint:#9ebaff; --violet:#b39aff; --focus-ring:#c4d3ff; --shell-rgb:12,17,34; --shell-border:rgba(151,179,255,.2); --surface-1:#141b31; --surface-2:#1a2340; --surface-3:#222c4d; --code-bg:#0a0f1f; --line-soft:rgba(151,179,255,.08); --line:rgba(151,179,255,.13); --line-strong:rgba(151,179,255,.2); }
-body[data-design="cave"] { --mint:#6ee7ee; --violet:#9c9bff; --focus-ring:#95f4f5; --shell-rgb:10,19,32; --shell-border:rgba(116,202,221,.24); --surface-1:#10202f; --surface-2:#15283a; --surface-3:#1b3146; --code-bg:#08131f; --line-soft:rgba(116,202,221,.09); --line:rgba(116,202,221,.14); --line-strong:rgba(116,202,221,.21); --surface:rgba(102,156,221,.05); --surface-strong:rgba(102,156,221,.13); }
-body[data-design="cyberpunk"] { --mint:#fcee09; --violet:#00e6e6; --focus-ring:#fcee09; --shell-rgb:9,13,17; --shell-border:rgba(252,238,9,.38); --surface-1:#0f1519; --surface-2:#141b20; --surface-3:#1b242b; --code-bg:#070b0e; --line-soft:rgba(252,238,9,.1); --line:rgba(252,238,9,.18); --line-strong:rgba(252,238,9,.28); --line-bright:#00e6e680; --surface:rgba(252,238,9,.04); --surface-strong:rgba(252,238,9,.09); --danger:#ff4964; --muted:#a4b8bd; --radius-md:8px; --radius-lg:12px; --status-thinking-primary:0,230,230; --status-thinking-secondary:252,238,9; --status-tool-primary:252,238,9; --status-tool-secondary:255,73,100; }
+body[data-design="graphite"] { --mint:#c4d1dd; --violet:#8a9aaf; --focus-ring:#dbe5ee; --shell-rgb:23,24,27; --shell-border:rgba(255,255,255,.12); --surface-1-solid:#1e2024; --surface-2-solid:#25272c; --surface-3-solid:#2e3137; --code-bg-solid:#121316; }
+body[data-design="midnight"] { --mint:#9ebaff; --violet:#b39aff; --focus-ring:#c4d3ff; --shell-rgb:12,17,34; --shell-border:rgba(151,179,255,.2); --surface-1-solid:#141b31; --surface-2-solid:#1a2340; --surface-3-solid:#222c4d; --code-bg-solid:#0a0f1f; --line-soft:rgba(151,179,255,.08); --line:rgba(151,179,255,.13); --line-strong:rgba(151,179,255,.2); }
+body[data-design="cave"] { --mint:#6ee7ee; --violet:#9c9bff; --focus-ring:#95f4f5; --shell-rgb:10,19,32; --shell-border:rgba(116,202,221,.24); --surface-1-solid:#10202f; --surface-2-solid:#15283a; --surface-3-solid:#1b3146; --code-bg-solid:#08131f; --line-soft:rgba(116,202,221,.09); --line:rgba(116,202,221,.14); --line-strong:rgba(116,202,221,.21); --surface:rgba(102,156,221,.05); --surface-strong:rgba(102,156,221,.13); }
+body[data-design="cyberpunk"] { --mint:#fcee09; --violet:#00e6e6; --focus-ring:#fcee09; --shell-rgb:9,13,17; --shell-border:rgba(252,238,9,.38); --surface-1-solid:#0f1519; --surface-2-solid:#141b20; --surface-3-solid:#1b242b; --code-bg-solid:#070b0e; --line-soft:rgba(252,238,9,.1); --line:rgba(252,238,9,.18); --line-strong:rgba(252,238,9,.28); --line-bright:#00e6e680; --surface:rgba(252,238,9,.04); --surface-strong:rgba(252,238,9,.09); --danger:#ff4964; --muted:#a4b8bd; --radius-md:8px; --radius-lg:12px; --status-thinking-primary:0,230,230; --status-thinking-secondary:252,238,9; --status-tool-primary:252,238,9; --status-tool-secondary:255,73,100; }
 body[data-design="graphite"] .widget-shell::before,body[data-design="graphite"] .widget-shell::after { opacity:0; animation:none; }
 body[data-design="cyberpunk"] .composer #sendButton { border-radius:8px; }
 body[data-design="cyberpunk"] .bubble.user { border-radius:10px 10px 3px 10px; }
@@ -97,7 +97,7 @@ body.motion-off .chat-activity-border { animation:none !important; transition:no
 .deck-backdrop[hidden],body:not(.mode-full) .deck-backdrop { display:none; }
 /* Over a picture the prose gets a plate of the window's own colour, so it stays as readable
    as it is over the plain surface. */
-body:not([data-background="none"]) .bubble.assistant { padding:8px 10px; background-color:rgba(var(--shell-rgb),.74); }
+body:not([data-background="none"]) .bubble.assistant { padding:8px 10px; background-color:rgba(var(--shell-rgb),calc(.74 * var(--panel-alpha))); }
 body[data-chat-state="background"] { --chat-light-primary:#79b6ff; --chat-light-secondary:#b59bfa; }
 body.mode-full:not([data-input-border="false"])[data-chat-state="background"] #chatPanel.active .composer > .chat-activity-border,
 body.mode-full[data-window-border="true"][data-chat-state="background"] .widget-shell:has(#chatPanel.active) > .window-activity-border { opacity:.5; animation:chat-border-orbit 18s linear infinite; }
@@ -261,7 +261,7 @@ body.mode-full .composer :is(.composer-view-stack,.composer-utility-stack) { ali
 .capture-menu b,.picker-search input,.model-picker-status b { font-size:calc(13px * var(--font-scale)); }
 .picker-group { font-size:calc(11px * var(--font-scale)); }
 .capture-menu small,.model-picker-status small { font-size:calc(11.5px * var(--font-scale)); }
-.session-state { font-size:calc(10px * var(--font-scale)); }
+.session-state { font-size:calc(9.5px * var(--font-scale)); }
 .offline-banner,.model-setup-card span { font-size:calc(12.5px * var(--font-scale)); }
 .composer-error small,.offline-banner button,.harness-connect input,.activity-card b,.activity-card small { font-size:calc(12px * var(--font-scale)); }
 .goal-objective { font-size:calc(12.5px * var(--font-scale)); }

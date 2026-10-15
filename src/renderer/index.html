@@ -10,6 +10,7 @@
     <title>NeoXider Agent Deck</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="appearance.css" />
+    <link rel="stylesheet" href="motion.css" />
   </head>
   <body class="mode-full pre-native-visible">
     <svg class="icon-defs" aria-hidden="true">
@@ -29,6 +30,7 @@
       <symbol id="icon-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"/></symbol>
       <symbol id="icon-paperclip" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
       <symbol id="icon-send" viewBox="0 0 24 24"><path d="m4 4 17 8-17 8 3-8zM7 12h14"/></symbol>
+      <symbol id="icon-open" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
       <symbol id="icon-close" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
       <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 20h18.4z"/><path d="M12 10v4M12 17.2v.1"/></symbol>
       <symbol id="icon-goal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
@@ -175,6 +177,8 @@
         <div id="commandMenu" class="command-menu no-drag" role="listbox" aria-label="Harness commands" aria-hidden="true"></div>
         <div id="commandHintBar" class="command-hint-bar no-drag" role="status" aria-live="polite" hidden></div>
 
+        <section id="questionDock" class="question-dock no-drag" aria-label="The agent is asking you" aria-live="polite" hidden></section>
+
         <div id="composerError" class="composer-error no-drag" role="alert" hidden>
           <svg class="ui-icon"><use href="#icon-alert"/></svg>
           <span><b id="composerErrorLabel">Message not sent</b><small id="composerErrorText"></small></span>
@@ -270,15 +274,17 @@
         <button id="openHarnessButton" class="primary-button" type="button">Open full Harness</button>
       </section>
 
+      <div class="mode-morph-rim" aria-hidden="true"></div>
     </main>
 
     <section id="orbMode" class="orb-mode no-drag" aria-label="Collapsed agent controls">
       <div id="orbStatus" class="orb-status" aria-live="polite">
         <button id="orbStatusCard" class="orb-status-card" type="button" title="Open this session" aria-label="Open this session"><b id="orbStatusLabel">Working</b><small id="orbStatusText">Waiting for the model…</small></button>
+        <button id="orbStatusAction" class="orb-status-action" type="button" title="Reply" aria-label="Reply to this session"><svg class="ui-icon"><use href="#icon-chat"/></svg></button>
         <div id="orbSessionList" class="orb-session-list" role="list" aria-label="Recent session replies"></div>
         <form id="orbReplyForm" class="orb-reply-form" aria-label="Quick reply" hidden>
-          <div class="orb-reply-heading"><b id="orbReplyTitle">Quick reply</b><button id="orbReplyClose" type="button" title="Back to recent replies" aria-label="Back to recent replies"><svg class="ui-icon"><use href="#icon-back"/></svg></button></div>
-          <div class="orb-reply-compose"><textarea id="orbReplyInput" rows="1" maxlength="12000" aria-label="Quick reply message" placeholder="Reply to this session…"></textarea><button id="orbReplySend" type="submit" title="Send reply" aria-label="Send reply"><svg class="ui-icon"><use href="#icon-send"/></svg></button></div>
+          <b id="orbReplyTitle" class="orb-reply-target">Quick reply</b>
+          <div class="orb-reply-compose"><textarea id="orbReplyInput" rows="1" maxlength="12000" aria-label="Quick reply message" placeholder="Message…"></textarea><button id="orbReplySend" type="submit" title="Send" aria-label="Send reply"><svg class="ui-icon"><use href="#icon-send"/></svg></button></div>
           <small id="orbReplyFeedback" class="orb-reply-feedback" role="status"></small>
         </form>
       </div>
@@ -286,6 +292,7 @@
       <button id="orbRestore" class="orb-avatar" type="button" aria-label="Restore widget">
         <span class="orb-glow"></span>
         <img data-avatar src="assets/neoxider-github.png" alt="NeoXider agent" draggable="false" />
+        <span class="orb-burst" aria-hidden="true"></span>
         <span data-notification class="orb-count">0</span>
       </button>
     </section>
@@ -300,6 +307,7 @@
     <script src="clipboard-attachments.js"></script>
     <script src="platform-presentation.js"></script>
     <script src="chat-visual-state.js"></script>
+    <script src="question-dock.js"></script>
     <script src="engine-crash.js"></script>
     <script src="appearance.js"></script>
     <script src="app.js"></script>
