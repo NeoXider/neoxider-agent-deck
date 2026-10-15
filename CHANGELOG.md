@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-16
+
+### Added
+
+- Back to the avatar after sending. In Avatar mode's recent chats the first click on a chat addresses the message box to it and a second click opens it in the full widget. A chat opened that way folds back into the avatar once its message is accepted, and the answer arrives there as a notification (Settings: "Back to the avatar after sending", on by default). With it off, an arrow in the chat heading returns to the avatar's panel.
+- Text opacity, a setting of its own beside background opacity, 100% by default and never below 20%. Menus, the settings panel and tooltips keep solid text.
+- The title-bar slime is the avatar. Folding, it crouches, hops out of the title bar and lands where the avatar appears, or dives flat into the screen edge; unfolding, it hops back to its place. It also hops once for every new tool call and every finished answer.
+- Arrivals in the conversation: a new tool call, a run of calls that gains one, and an answer that has just finished get one pass of light around their edge and a small spring in size.
+- Carrying the avatar lifts it off the desktop: it grows a little and leans into the pull, then lands with a squash, a stretch and a ring of light. The edge line swells and brightens while it is carried and throws a halo when it is set down.
+- Escape in a chat opened from the avatar goes back to the avatar, unless something is half written in the composer.
+
+### Fixed
+
+- Harness no longer grinds at two cores behind "Harness is responding slowly; retrying". DSH refuses some stored session logs as corrupt (for example "tool/ptc-dispatch is outside an open turn"), but only after decoding the whole log, and Deck reopened the live stream of every such session each 1.5 seconds, for good. DSH spent its time decoding the same tens of megabytes over and over, and listing sessions took 30 seconds. A stream now has to deliver something before its backoff starts over, a refused session is asked for again only every ten minutes or when it changes, and the session list stops re-reading a refused log on every poll.
+- The avatar no longer creeps right and down while it is held still. At 125% display scaling Electron grew the window by a pixel on every move, and every move made Chromium report the pointer again. The compact window now restates its size on each move and skips moves that change nothing.
+- Unfolding from the edge no longer appears already half open. The unfold starts once the grown window has painted, and the widget is scaled as one layer instead of repainted at every size.
+- Holding a button or a slider no longer starts dragging the widget's own pictures or label text: the DeepSeek logo in its button lit the "drop files" frame as if it were being dropped back in. The frame now lights up only for files dragged in from outside.
+- The title-bar slime's aura is no longer cut off in a straight line.
+
+### Changed
+
+- Folds move like a window on a Mac: the widget shrinks into the avatar, or into the middle of its screen edge, and grows back out on a spring, instead of being wiped away by a mask.
+- Buttons sink on press and spring back; menus, the settings panel and toasts open on a spring.
+- The avatar's notification is 196 px wide instead of 256, and its recent-chats panel 252 px instead of 316.
+
 ## [0.10.1] - 2026-10-15
 
 ### Added
