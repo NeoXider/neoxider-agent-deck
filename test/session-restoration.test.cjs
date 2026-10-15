@@ -126,7 +126,7 @@ test("a superseded backend revision is applied before matching-revision response
     historyRequestSequence: 0, historyLoadErrors: new Map(), liveStreamsBySession: new Map(), currentMessages: [{ text: "old R1" }],
   };
   const context = vm.createContext({
-    state, chatVisual: null,
+    state, chatVisual: null, historyWouldRegress: () => false,
     window: { widget: { history(sessionId, options) {
       requests.push({ sessionId, ...options });
       return new Promise((resolve) => pending.push(resolve));

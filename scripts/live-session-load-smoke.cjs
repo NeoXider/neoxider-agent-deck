@@ -36,6 +36,10 @@ async function main() {
     "get-preferences": () => ({ ...preferences, harnessLaunchUrl: undefined, lastSelectedSessionId: selected }),
     "dashboard": (_event, id) => reader.read(id),
     "models": (_event, id) => api.models(id),
+    "read-attachment": async (_event, payload) => {
+      const value = await api.readAttachment(payload.sessionId, payload.attachmentId);
+      return { data: value.data, mediaType: value.attachment.mediaType, name: value.attachment.name };
+    },
     "commands": (_event, id) => api.commandCatalog(id),
     "workspaces": () => api.workspaces(),
     "history": async (_event, id) => {

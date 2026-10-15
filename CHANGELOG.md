@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.23] - 2026-10-14
+
+### Fixed
+
+- Recover a spacer-only transcript viewport after programmatic layout/anchor changes, including unchanged history renders and full-mode restoration. The coalesced check only materializes rows when no real transcript row intersects the viewport; ordinary scrollback retains its reading position.
+- Add a deterministic regression for upper/lower blank virtual gaps and connection-error visibility, alongside real-history read-only checks and existing resize, attachments and compaction coverage.
+
+## [0.9.22] - 2026-10-13
+
+### Fixed
+
+- Transfer accepted queued sends to their editable queue rows instead of retaining a duplicate transcript receipt. Queue-before-ack races suppress one matching preview per new queue item, preserving deliberate identical submissions and chat isolation.
+- Keep queued screenshot ownership based on submit-time state and retire its temporary receipt after the queue handoff. Queue edit, delete and Send now no longer leave the old outgoing copy behind.
+
+### Added
+
+- Mark running user-question tools as waiting for a human answer, with a session-bound action to answer in Harness. This explains why queued messages are not admitted yet without fabricating an answer or bypassing the question.
+
+## [0.9.21] - 2026-10-11
+
+### Fixed
+
+- Keep following the latest message during layout-only scroll events, including delayed image or answer growth. Only user scrolling pauses following; scrollback and explicit question jumps remain respected.
+- Lazily render small referenced-image thumbnails with bounded concurrency and caching. Full-image preview and model inputs retain their originals; detached transcript rows release observation handles.
+
+### Added
+
+- An opt-in, separately labelled paid OpenRouter route for Muse Spark 1.3 Contributor with vision, its actual effort levels, explicit per-million pricing, and contributor data-use disclosure. It does not change the current/default route or credentials and performs no paid test inference.
+
+## [0.9.20] - 2026-10-11
+
+### Changed
+
+- Theme-coloured outlined user messages, wider conversation bubbles with a reserved navigation gutter, and calmer compact Markdown spacing.
+- Upper grip supports dragging; an unmoved click collapses, and cancelling a gesture performs no click action.
+- Model endpoints start collapsed, preserve disclosure state, and expand temporarily during search. Vision models have a distinct theme tint and a leading eye in the OpenRouter catalog.
+- OpenRouter free models use a dated Artificial Analysis intelligence ordering where comparable scores exist; unscored models and the dynamic router are identified separately.
+
+### Fixed
+
+- Render outgoing messages immediately with explicit sending/accepted/queued/failed receipts; reconcile confirmed history without duplicating repeated messages and retain failed screenshot attachments in the composer.
+- Reject stale or transient empty history responses and keep programmatic scrolling from silently disabling latest-message following.
+- Explain text-only image refusals and provider rate limits without enabling paid fallbacks or dropping original diagnostics.
+
 ## [0.9.19] - 2026-10-11
 
 ### Fixed

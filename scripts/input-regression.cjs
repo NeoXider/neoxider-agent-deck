@@ -17,7 +17,9 @@ let currentMode = "full";
 const sentPayloads = [];
 const commandPayloads = [];
 const selectedModelPayloads = [];
+const attachmentReadRequests = [];
 const openedSessionIds = [];
+const harnessOpenedSessionIds = [];
 const modeRequests = [];
 const compactStatusPayloads = [];
 const compactModeEchoes = [];
@@ -126,6 +128,10 @@ function registerStubs() {
     return deferredCommand?.promise || ({ result: { kind: "text", text: payload.line } });
   });
   ipcMain.handle("update-queue", () => deferredQueueUpdate?.promise || ({ ok: true }));
+  ipcMain.handle("read-attachment", (_event, payload) => {
+    attachmentReadRequests.push(payload);
+    return { mediaType:'image/png',name:'fixture.png',data:require('node:fs').readFileSync(path.join(root,'src/renderer/assets/neoxider-github.png')).toString('base64') };
+  });
   ipcMain.handle("cancel", () => deferredCancel?.promise || ({ accepted: true }));
   ipcMain.handle("dashboard", () => {
     dashboardCalls += 1;
@@ -148,6 +154,7 @@ function registerStubs() {
   });
   ipcMain.handle("commands", (_event, sessionId) => deferredSessionRequests.commands.get(sessionId)?.promise || []);
   ipcMain.handle("workspaces", () => []);
+  ipcMain.handle("open-harness-session", (_event, sessionId) => { harnessOpenedSessionIds.push(sessionId); return { ok: true }; });
   ipcMain.handle("get-queue", () => queueSnapshotValue);
   for (const channel of ["begin-compact-drag", "move-compact-drag", "begin-full-drag", "move-full-drag", "set-edge-pointer-active", "agent-complete"]) {
     ipcMain.on(channel, () => {
@@ -212,6 +219,51 @@ async function main() {
   await wait(1200);
 
   const failures = [];
+  const layoutScrollRegression = await contents.executeJavaScript(`(async () => {
+    state.selectedSessionId = 'layout-follow'; state.historyLoadedSessionId = 'layout-follow';
+    const history = Array.from({length:100}, (_,seq) => ({role:seq%2?'assistant':'user',text:'Message '+seq,seq:seq+1}));
+    renderMessages(history); jumpToLatestTranscript();
+    await new Promise(r => setTimeout(r, 350));
+    transcriptUserScrollIntentUntil = 0; transcriptUserPointerActive = false;
+    const log = document.querySelector('#messages');
+    const growth = document.createElement('div'); growth.style.height='400px'; log.lastElementChild.append(growth);
+    log.dispatchEvent(new Event('scroll'));
+    await new Promise(r => setTimeout(r, 40));
+    const followsLayout = state.messagesStickToBottom && messagesNearBottom();
+    renderMessages([...history,{role:'assistant',text:'LATEST ANSWER',seq:101}]);
+    const latestVisible = transcriptAtLatest() && document.querySelector('#messages').textContent.includes('LATEST ANSWER');
+    log.dispatchEvent(new WheelEvent('wheel',{deltaY:-100}));
+    log.scrollTop = Math.max(0,log.scrollTop-100); log.dispatchEvent(new Event('scroll'));
+    const respectsHand = !state.messagesStickToBottom;
+    return {followsLayout,latestVisible,respectsHand};
+  })()`);
+  if (Object.values(layoutScrollRegression).some(v => !v)) failures.push('Layout-only scroll regression: '+JSON.stringify(layoutScrollRegression));
+  await contents.executeJavaScript('state.selectedSessionId="demo-chat"; renderMessages([{role:"user",text:"Which suites ran in the last verification pass?"},{role:"assistant",text:"Unit, visual and packaged-launch — all three passed."}]);jumpToLatestTranscript();');
+  const speakerChecks = await contents.executeJavaScript(`(() => {
+    const original = document.body.dataset.design;
+    const results = [];
+    for (const theme of ['aurora', 'graphite', 'midnight', 'cyberpunk', 'cave']) {
+      document.body.dataset.design = theme;
+      const user = document.querySelector('.bubble.user');
+      const assistant = document.querySelector('.bubble.assistant');
+      const u = getComputedStyle(user), a = getComputedStyle(assistant);
+      const log = document.querySelector('#messages'), l = getComputedStyle(log);
+      const available = log.clientWidth - parseFloat(l.paddingLeft) - parseFloat(l.paddingRight);
+      const rail = document.querySelector('.message-marks');
+      const railBox = rail?.getBoundingClientRect();
+      const rightLimit = railBox?.width ? railBox.left - 2 : log.getBoundingClientRect().left + log.clientWidth - 2;
+      results.push({ theme, outline: parseFloat(u.borderTopWidth) >= .5 && u.borderTopStyle === 'solid',
+        distinct: u.backgroundImage !== a.backgroundImage,
+        clearOfRail: user.getBoundingClientRect().right + 6 <= rightLimit && assistant.getBoundingClientRect().right <= rightLimit,
+        userWidth: user.getBoundingClientRect().width / available,
+        assistantWidth: assistant.getBoundingClientRect().width / available });
+    }
+    document.body.dataset.design = original;
+    return results;
+  })()`);
+  if (speakerChecks.some(r => !r.outline || !r.distinct || !r.clearOfRail || r.userWidth < .95 || r.assistantWidth < .99)) {
+    failures.push('Speaker contrast/width failed: ' + JSON.stringify(speakerChecks));
+  }
   const restoredAppearance = await contents.executeJavaScript(`({ theme: document.body.dataset.design, motion: document.body.dataset.motion })`);
   if (restoredAppearance.theme !== 'graphite' || restoredAppearance.motion !== 'subtle') failures.push(`saved appearance was overwritten during startup: ${JSON.stringify(restoredAppearance)}`);
 
@@ -307,6 +359,24 @@ async function main() {
     failures.push(`brand movement did not use the complete custom full-drag path: ${JSON.stringify({ events: fullDragEvents, hit: dragStartHit })}`);
   }
   updateState = { status: "idle", currentVersion: "0.0.0", installMode: "manual" };
+
+  // The upper grip has two actions: a click collapses, movement only drags.
+  const grip = await centerOf(contents, '#collapseHandle');
+  if (!grip) throw new Error('collapseHandle not found');
+  currentMode = 'full'; fullDragEvents.length = 0;
+  click(contents, grip.x, grip.y); await wait(250);
+  if (currentMode !== 'edge') failures.push('Upper grip click did not collapse');
+  await contents.executeJavaScript('document.body.className = "mode-full"');
+  currentMode = 'full'; fullDragEvents.length = 0;
+  const gripBounds = win.getBounds();
+  contents.sendInputEvent({ type: 'mouseDown', x: grip.x, y: grip.y, globalX: gripBounds.x + grip.x, globalY: gripBounds.y + grip.y, button: 'left', clickCount: 1 });
+  for (let step = 1; step <= 3; step++) {
+    contents.sendInputEvent({ type: 'mouseMove', x: grip.x + step * 6, y: grip.y + step * 2, globalX: gripBounds.x + grip.x + step * 6, globalY: gripBounds.y + grip.y + step * 2, button: 'left' });
+    await wait(25);
+  }
+  contents.sendInputEvent({ type: 'mouseUp', x: grip.x + 18, y: grip.y + 6, globalX: gripBounds.x + grip.x + 18, globalY: gripBounds.y + grip.y + 6, button: 'left', clickCount: 1 });
+  await wait(200);
+  if (currentMode !== 'full' || !['begin', 'move', 'end'].every(e => fullDragEvents.includes(e))) failures.push('Upper grip drag collapsed or did not move: ' + JSON.stringify(fullDragEvents));
 
   // Back to full for the next case.
   await contents.executeJavaScript('document.body.className = "mode-full"');
@@ -590,6 +660,27 @@ async function main() {
   }
 
   for (const kind of Object.keys(deferredSessionRequests)) deferredSessionRequests[kind].set("clear-target", deferred());
+  const providerDisclosure = await contents.executeJavaScript(`(async () => {
+    localStorage.removeItem('deck.modelProviders.expanded'); expandedModelProviders = null;
+    state.modelCatalog = { groups: [
+      { id:'vision-test', name:'Vision endpoint', models:[{id:'vision',name:'👁 Vision model'}] },
+      { id:'text-test', name:'Text endpoint', models:[{id:'text',name:'Text model'}] }
+    ] };
+    renderModelOptions('');
+    const initiallyClosed = [...document.querySelectorAll('.model-provider-group')].every(d => !d.open);
+    document.querySelector('[data-provider="text-test"]').open = true;
+    await new Promise(r => setTimeout(r, 30));
+    const beforeSearch = localStorage.getItem('deck.modelProviders.expanded');
+    renderModelOptions('Vision'); await new Promise(r => setTimeout(r, 30));
+    const searchExpanded = [...document.querySelectorAll('.model-provider-group')].every(d => d.open);
+    const searchPreserved = localStorage.getItem('deck.modelProviders.expanded') === beforeSearch;
+    expandedModelProviders = null; renderModelOptions('');
+    const persisted = document.querySelector('[data-provider="text-test"]').open && !document.querySelector('[data-provider="vision-test"]').open;
+    const vision = document.querySelector('[data-vision="true"]');
+    return { initiallyClosed, searchExpanded, searchPreserved, persisted, highlighted: Boolean(vision && getComputedStyle(vision).boxShadow !== 'none') };
+  })()`);
+  if (Object.values(providerDisclosure).some(v => !v)) failures.push('Provider disclosure/vision highlight failed: ' + JSON.stringify(providerDisclosure));
+
   const immediateClear = await contents.executeJavaScript(`(() => {
     state.windowMode = "full";
     state.dashboard = { harness: true, sessions: [
@@ -1220,14 +1311,18 @@ async function main() {
   await wait(40);
   contents.send("queue-update", { sessionId: "queue-submit", items: [{ id: "server-1", text: "one queued request", preview: "one queued request" }] });
   await wait(40);
+  const beforeQueueAck = await contents.executeJavaScript(`({ rows: document.querySelectorAll("#queueList .queue-row").length, pending: document.querySelectorAll("#messages .pending-send").length })`);
+  if (beforeQueueAck.rows !== 1 || beforeQueueAck.pending !== 0) {
+    failures.push(`queue-before-ack displayed a second transcript copy: ${JSON.stringify(beforeQueueAck)}`);
+  }
   deferredSend.resolve({ sessionId: "queue-submit" });
   await wait(240);
   const queueSubmitRace = await contents.executeJavaScript(`(() => {
     const items = queuedPromptsFor("queue-submit");
-    return { ids: items.map((item) => item.id), optimistic: items.filter((item) => item.optimistic).length, rows: document.querySelectorAll("#queueList .queue-row").length };
+    return { ids: items.map((item) => item.id), optimistic: items.filter((item) => item.optimistic).length, rows: document.querySelectorAll("#queueList .queue-row").length, pending: pendingSendsFor("queue-submit").length, pendingBubbles: document.querySelectorAll("#messages .pending-send").length };
   })()`);
   deferredSend = null;
-  if (queueSubmitRace.ids.join() !== "server-1" || queueSubmitRace.optimistic || queueSubmitRace.rows !== 1) {
+  if (queueSubmitRace.ids.join() !== "server-1" || queueSubmitRace.optimistic || queueSubmitRace.rows !== 1 || queueSubmitRace.pending || queueSubmitRace.pendingBubbles) {
     failures.push(`authoritative queue snapshot raced into a duplicate optimistic row: ${JSON.stringify(queueSubmitRace)}`);
   }
   contents.send("queue-update", { sessionId: "queue-submit", items: [
@@ -1237,6 +1332,15 @@ async function main() {
   await wait(60);
   const identicalQueueItems = await contents.executeJavaScript(`queuedPromptsFor("queue-submit").map((item) => item.id)`);
   if (identicalQueueItems.join() !== "server-2,server-3") failures.push(`legitimate identical queue submissions were deduplicated: ${JSON.stringify(identicalQueueItems)}`);
+
+  contents.send("queue-update", { sessionId: "queue-submit", items: [{ id: "server-2", text: "edited queued request", preview: "edited queued request", placement: "steering" }] });
+  await wait(60);
+  const queueSteerOwnership = await contents.executeJavaScript(`({ steering: document.querySelectorAll("#messages .steering-message").length, pending: document.querySelectorAll("#messages .pending-send").length, oldText: document.querySelector("#messages").textContent.includes("one queued request") })`);
+  if (queueSteerOwnership.steering !== 1 || queueSteerOwnership.pending || queueSteerOwnership.oldText) failures.push(`steering resurrected the old queued preview: ${JSON.stringify(queueSteerOwnership)}`);
+  contents.send("queue-update", { sessionId: "queue-submit", items: [] });
+  await wait(60);
+  const deletedQueueOwnership = await contents.executeJavaScript(`({ rows: document.querySelectorAll("#queueList .queue-row").length, pending: pendingSendsFor("queue-submit").length, steering: document.querySelectorAll("#messages .steering-message").length })`);
+  if (deletedQueueOwnership.rows || deletedQueueOwnership.pending || deletedQueueOwnership.steering) failures.push(`queue deletion left a ghost transcript message: ${JSON.stringify(deletedQueueOwnership)}`);
 
   queueSnapshotValue = { revision: 7, items: [{ id: "server-recovered", text: "recovered", preview: "recovered", placement: "queued" }] };
   const recoveredQueue = await contents.executeJavaScript(`(async () => {
@@ -1341,6 +1445,18 @@ async function main() {
   if (!mixedTools.className.includes("partial-failure") || mixedTools.className.includes("tool-group failed") || mixedTools.meta !== "read · write · 1 completed · 1 failed" || mixedTools.failedRows !== 1) {
     failures.push(`one failed tool painted the whole group as failed: ${JSON.stringify(mixedTools)}`);
   }
+
+  const questionHandoff = await contents.executeJavaScript(`(() => {
+    state.selectedSessionId = "question-owner";
+    const card = createActivityRun([{ role: "tool", name: "ask_user_question", callId: "question-call", status: "running" }]);
+    document.querySelector("#messages").replaceChildren(card);
+    const label = card.querySelector(".tool-identity small").textContent;
+    state.selectedSessionId = "not-the-question-owner";
+    card.querySelector(".question-handoff-button").click();
+    return { label, opened: card.open, completedHasAction: Boolean(createToolCard({ name: "ask_user_question", status: "completed" }).querySelector(".question-handoff-button")), ordinaryHasAction: Boolean(createToolCard({ name: "read", status: "running" }).querySelector(".question-handoff-button")) };
+  })()`);
+  await wait(30);
+  if (questionHandoff.label !== "waiting for your answer" || questionHandoff.opened || questionHandoff.completedHasAction || questionHandoff.ordinaryHasAction || harnessOpenedSessionIds.at(-1) !== "question-owner") failures.push(`question action did not preserve its exact session or tool state: ${JSON.stringify(questionHandoff)}`);
 
   const steerPresentation = await contents.executeJavaScript(`(async () => {
     state.dashboard = { harness: true, sessions: [{ sessionId: "steer-session", title: "Steer", running: true, state: "working", projections: { values: {} }, subagents: [] }] };
@@ -1771,6 +1887,20 @@ async function main() {
       || boundedHistoryPreviews.images !== 1 || boundedHistoryPreviews.attachments !== 2) {
     failures.push(`history preview budget retained or decoded an unbounded aggregate: ${JSON.stringify(boundedHistoryPreviews)}`);
   }
+  const thumbnailReadsBefore = attachmentReadRequests.length;
+  await contents.executeJavaScript(`(() => {
+    state.selectedSessionId='thumbnail-test'; state.historyLoadedSessionId='thumbnail-test';
+    renderMessages([{role:'user',text:'',attachments:[{kind:'image',mediaType:'image/png',name:'fixture.png',attachmentId:'thumb-reference'}]}]);jumpToLatestTranscript();
+  })()`);
+  await wait(500);
+  const thumbnailReady = await contents.executeJavaScript(`Boolean(document.querySelector('.message-attachment-preview img[data-thumbnail]'))`);
+  await contents.executeJavaScript(`document.querySelector('.message-attachment').click()`); await wait(120);
+  const fullImageReady = await contents.executeJavaScript(`(() => {
+    const image=document.querySelector('.message-image-dialog img');
+    const result=Boolean(image?.src.startsWith('data:image/png;base64,'));
+    document.querySelector('.message-image-close')?.click();return result;
+  })()`);
+  if(!thumbnailReady || !fullImageReady || attachmentReadRequests.length < thumbnailReadsBefore+2) failures.push('Referenced image thumbnail/full-original separation failed');
 
   dashboardValue = { harness: true, sessions: [{ sessionId: "slash-session", title: "Slash", running: false, state: "idle", projections: { values: {} }, subagents: [] }] };
   deferredSessionRequests.commands.set("slash-session", { promise: Promise.resolve([
@@ -1891,6 +2021,11 @@ async function main() {
     document.querySelector("#chatForm").requestSubmit();
   })()`);
   await waitForSubmitted("send-a", "message for A");
+  const immediateReceipt = await contents.executeJavaScript(`(() => {
+    const bubble = document.querySelector('.pending-send[data-send-status="sending"]');
+    return Boolean(bubble && bubble.textContent.includes('message for A') && bubble.getBoundingClientRect().height > 0);
+  })()`);
+  if (!immediateReceipt) failures.push('Outgoing message was not visible while the send request was still awaiting acknowledgement');
   await contents.executeJavaScript(`(async () => {
     await selectSession("send-b", true);
     renderMessages([{ role: "assistant", text: "Selected B" }]);

@@ -156,6 +156,8 @@ function attachScreenshotHarness({
             bubbleFontPx: parseFloat(getComputedStyle(document.querySelector('.bubble') || document.body).fontSize),
             toolGroups: document.querySelectorAll('.tool-group').length,
             toolCalls: document.querySelectorAll('.tool-call').length,
+            questionHandoffVisible: Array.from(document.querySelectorAll('.question-handoff-button')).some(button => button.getBoundingClientRect().width > 0 && button.getBoundingClientRect().height > 0),
+            questionWaitVisible: Array.from(document.querySelectorAll('.tool-identity small, .tool-group-identity small')).some(label => label.textContent.includes('waiting for your answer') && label.getBoundingClientRect().height > 0),
             historicalReasoning: document.querySelectorAll('.reasoning-bubble').length,
             markdownLists: document.querySelectorAll('#messages ul, #messages ol').length,
             footer: document.querySelectorAll('footer').length,
@@ -647,10 +649,12 @@ function attachScreenshotHarness({
             reasoningTitle: document.querySelector('.reasoning-heading strong')?.textContent || '',
             reasoningEffortCount: document.querySelectorAll('.reasoning-dots i').length,
             compactModelOverlay: document.querySelector('.model-picker')?.classList.contains('compact-overlay') || false,
+            modelProviderStates: [...document.querySelectorAll('.model-provider-group')].map(d => ({id:d.dataset.provider,open:d.open})),
             visibleModelRows: [...document.querySelectorAll('#modelOptions .picker-option[data-model-option]')].filter((option) => {
+              if (option.closest('.model-provider-group')?.open === false) return false;
               const optionRect = option.getBoundingClientRect();
               const viewportRect = document.querySelector('#modelOptions')?.getBoundingClientRect();
-              return viewportRect && optionRect.top >= viewportRect.top - 1 && optionRect.bottom <= viewportRect.bottom + 1;
+              return viewportRect && optionRect.height > 0 && optionRect.top >= viewportRect.top - 1 && optionRect.bottom <= viewportRect.bottom + 1;
             }).length,
             selectedModelVisible: (() => {
               const selected = document.querySelector('#modelOptions .picker-option[data-model-option][aria-selected="true"]');

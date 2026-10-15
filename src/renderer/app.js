@@ -94,6 +94,8 @@ const state = {
   queueSnapshotRevisions: new Map(),
   queueHandoffEpochs: new Map(),
   nextQueuedPromptId: 1,
+  pendingSendsBySession: new Map(),
+  nextPendingSendId: 1,
   queueEditingId: null,
   queueEditingSessionId: null,
   queueExpandedId: null,
@@ -442,6 +444,7 @@ function scrollSelectedModelIntoView() {
   const selected = $("#modelOptions .picker-option[data-model-option][aria-selected='true']")
     || $("#modelOptions .picker-option[aria-selected='true']");
   if (selected) {
+    if (selected.closest?.(".model-provider-group")?.open === false) return;
     const list = $("#modelOptions");
     const row = selected.getBoundingClientRect();
     const bounds = list.getBoundingClientRect();
@@ -1152,6 +1155,7 @@ function syncRunningControls(running) {
 }
 
 function canStartFullDrag(event) {
+  if (event.currentTarget?.id === "collapseHandle" && event.target.closest?.("#collapseHandle")) return true;
   const titlebar = event.currentTarget;
   if (!titlebar?.classList?.contains("titlebar") || !event.target.closest?.(".titlebar")) return false;
   if (event.target.closest(".tabs, .window-actions, .picker, #headerUpdateButton")) return false;
@@ -1214,7 +1218,7 @@ function endFullDrag(event) {
   if (moved) {
     event.preventDefault();
     suppressBrandClickAfterDrag();
-  } else {
+  } else if (event.type !== "pointercancel") {
     activateBrandTarget(origin);
   }
   window.widget.endFullDrag().catch(() => null);
@@ -1223,7 +1227,8 @@ function endFullDrag(event) {
 // A tap that never turned into a drag still has to do what the button says.
 function activateBrandTarget(origin) {
   if (!origin || typeof origin.closest !== "function") return;
-  if (origin.closest("#avatarButton")) setWindowMode("orb");
+  if (origin.closest("#collapseHandle")) setWindowMode(state.platformPresentation?.edgeAvailable === false ? "orb" : "edge");
+  else if (origin.closest("#avatarButton")) setWindowMode("orb");
   else if (origin.closest("#projectLink")) window.widget.openProject();
 }
 
@@ -1825,6 +1830,16 @@ function updateControlsSummary() {
   $("#reasoningButton").setAttribute("aria-label", `Model and reasoning: ${fullLabel}`);
 }
 
+let expandedModelProviders = null;
+function savedModelProviderExpansion() {
+  if (expandedModelProviders) return expandedModelProviders;
+  try {
+    const values = JSON.parse(localStorage.getItem("deck.modelProviders.expanded") || "[]");
+    expandedModelProviders = new Set(Array.isArray(values) ? values.filter(x => typeof x === "string" && x.length <= 128).slice(0, 64) : []);
+  } catch { expandedModelProviders = new Set(); }
+  return expandedModelProviders;
+}
+
 function renderModelOptions(query = "") {
   const root = $("#modelOptions");
   const statusRoot = $("#modelStatus");
@@ -1877,10 +1892,27 @@ function renderModelOptions(query = "") {
   for (const group of groups) {
     const models = (group.models || []).filter((model) => !normalized || `${group.name || group.id} ${group.id} ${model.name || model.id} ${model.id}`.toLowerCase().includes(normalized));
     if (!models.length) continue;
-    const heading = document.createElement("div");
+    const section = document.createElement("details");
+    section.className = "model-provider-group"; section.dataset.provider = group.id;
+    section.open = Boolean(normalized) || savedModelProviderExpansion().has(group.id);
+    const heading = document.createElement("summary");
     heading.className = "picker-group";
-    heading.textContent = group.name || group.id;
-    root.append(heading);
+    heading.textContent = `${group.name || group.id} (${models.length})`;
+    section.append(heading); root.append(section);
+    const saveExpansion = open => {
+      const expanded = savedModelProviderExpansion();
+      if (open) expanded.add(group.id); else expanded.delete(group.id);
+      try { localStorage.setItem("deck.modelProviders.expanded", JSON.stringify([...expanded])); } catch {}
+    };
+    heading.addEventListener("click", event => {
+      if (normalized) event.preventDefault();
+      else saveExpansion(!section.open);
+    });
+    section.addEventListener("toggle", () => {
+      if (!section.isConnected) return;
+      if (normalized) { if (!section.open) section.open = true; return; }
+      saveExpansion(section.open);
+    });
     for (const model of models) {
       matches += 1;
       const option = pickerOption(model.name || model.id, {
@@ -1898,7 +1930,8 @@ function renderModelOptions(query = "") {
         },
       });
       option.dataset.modelOption = "true";
-      root.append(option);
+      option.dataset.vision = /👁/.test(model.name || "") || model.inputModalities?.includes("image") ? "true" : "false";
+      section.append(option);
     }
   }
   if (normalized && matches === 0) {
@@ -2904,6 +2937,26 @@ async function selectSession(sessionId, openChat = false) {
   await Promise.all([refreshHistory({ force: true }), loadModels(), loadCommands(), loadWorkspaces(), loadQueue(sessionId)]);
 }
 
+function isWaitingUserQuestion(message) {
+  return message?.status === "running" && !message.isError
+    && ["ask_user_question", "request_user_input"].includes(message.name);
+}
+
+function createQuestionHandoffButton() {
+  const sessionId = state.selectedSessionId;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "question-handoff-button no-drag";
+  button.textContent = "Answer in DSH";
+  button.title = "The agent is waiting for your answer. Open this chat's question in Harness; queued messages wait until it is answered.";
+  button.disabled = !sessionId;
+  button.addEventListener("click", event => {
+    event.preventDefault(); event.stopPropagation();
+    if (sessionId) window.widget.openHarnessSession(sessionId).catch(showError);
+  });
+  return button;
+}
+
 function createToolCard(message) {
   const details = document.createElement("details");
   details.className = `tool-call${message.isError ? " failed" : ""}${message.nested ? " nested" : ""}`;
@@ -2915,7 +2968,7 @@ function createToolCard(message) {
   const name = document.createElement("b");
   name.textContent = message.name || "Tool call";
   const status = document.createElement("small");
-  status.textContent = message.status === "running" ? "running" : message.isError ? "failed" : "completed";
+  status.textContent = isWaitingUserQuestion(message) ? "waiting for your answer" : message.status === "running" ? "running" : message.isError ? "failed" : "completed";
   identity.append(name, status);
   summary.append(identity);
   if (Number.isFinite(message.durationMs)) {
@@ -2923,6 +2976,7 @@ function createToolCard(message) {
     duration.textContent = message.durationMs < 1000 ? `${message.durationMs} ms` : `${(message.durationMs / 1000).toFixed(1)} s`;
     summary.append(duration);
   }
+  if (isWaitingUserQuestion(message)) summary.append(createQuestionHandoffButton());
   summary.append(createIcon("chevron", "ui-icon tool-chevron"));
   const body = document.createElement("div");
   body.className = "tool-body";
@@ -2966,7 +3020,8 @@ function createActivityRun(run) {
   label.textContent = `${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;
   const meta = document.createElement("small");
   const names = [...new Set(run.map((message) => message.name).filter(Boolean))].slice(0, 3).join(" · ");
-  const statusText = running
+  const waitingQuestion = run.some(isWaitingUserQuestion);
+  const statusText = waitingQuestion ? "waiting for your answer" : running
     ? `running${failedCount ? ` · ${failedCount} failed` : ""}`
     : allFailed
       ? "all failed"
@@ -2975,7 +3030,9 @@ function createActivityRun(run) {
         : "completed";
   meta.textContent = names ? `${names} · ${statusText}` : statusText;
   identity.append(label, meta);
-  summary.append(identity, createIcon("chevron", "ui-icon tool-chevron"));
+  summary.append(identity);
+  if (waitingQuestion) summary.append(createQuestionHandoffButton());
+  summary.append(createIcon("chevron", "ui-icon tool-chevron"));
   const body = document.createElement("div");
   body.className = "tool-group-body";
   for (const message of run) body.append(createToolCard(message));
@@ -3501,6 +3558,15 @@ function createMessageBubble(message, bubble = document.createElement("div")) {
   delete bubble.dataset.liveSeq;
   liveBubbleText.delete(bubble);
   bubble.replaceChildren();
+  if (message.role === "error" && /\b429\b/.test(message.text || "")) {
+    bubble.classList.add("provider-rate-limit");
+    const title = document.createElement("strong");
+    title.textContent = /:free|is_free_pool/.test(message.text) ? "Free provider is temporarily busy (429)" : "Provider rate limit (429)";
+    const hint = document.createElement("p"); hint.textContent = "Retry later or choose another model.";
+    const details = document.createElement("details"), summary = document.createElement("summary"), original = document.createElement("pre");
+    summary.textContent = "Provider details"; original.textContent = message.text;
+    details.append(summary, original); bubble.append(title, hint, details); return bubble;
+  }
   if (message.role === "warning" && message.code === "output-token-limit") {
     const title = document.createElement("strong");
     title.textContent = message.title || "Output token limit reached";
@@ -3861,7 +3927,9 @@ function openModelPicker({ retry = false } = {}) {
 }
 
 function modelOptionButtons() {
-  return $$("#modelOptions .picker-option:not(:disabled)");
+  return $$("#modelOptions .picker-option:not(:disabled), #modelOptions .model-provider-group > summary")
+    .filter(option => ($("#modelSearch").value.trim() ? option.dataset.modelOption === "true" : true)
+      && (option.matches("summary") || option.closest(".model-provider-group")?.open !== false));
 }
 
 function moveModelOptionFocus(key) {
@@ -4054,6 +4122,9 @@ let transcriptProgrammaticScrollAt = 0;
 let transcriptProgrammaticScrollTop = null;
 let transcriptReadingPosition = null;
 const TRANSCRIPT_PROGRAMMATIC_SCROLL_MS = 250;
+let transcriptUserScrollIntentUntil = 0;
+let transcriptUserPointerActive = false;
+let transcriptViewportRepairFrame = 0;
 
 // A grow restores the reading position with a programmatic scroll, and that scroll fires the
 // same event a hand does. When the rows that materialized were shorter than the spacer they
@@ -4347,18 +4418,39 @@ function restoreTranscriptAfterModeChange() {
     else {
       state.transcriptModeRestore = null;
       rememberTranscriptReadingPosition(root);
+      scheduleTranscriptViewportRepair();
     }
   };
   requestAnimationFrame(frame);
 }
 
-function maybeGrowTranscriptWindow() {
+function scheduleTranscriptViewportRepair() {
+  if (transcriptViewportRepairFrame) return;
+  transcriptViewportRepairFrame = requestAnimationFrame(() => {
+    transcriptViewportRepairFrame = 0;
+    const root = $("#messages");
+    if (state.windowMode !== "full" || state.transcriptModeRestore
+      || !root?.clientHeight || root.clientWidth < 250 || !state.currentMessages.length) return;
+    const viewport = root.getBoundingClientRect();
+    const rows = [...root.children].filter(node => node.dataset.transcriptKey);
+    if (!rows.length || rows.some(node => {
+      const rect = node.getBoundingClientRect();
+      return rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom;
+    })) return;
+    // A layout/anchor correction may land inside a virtual spacer. Its own
+    // scroll event is rightly ignored, but the blank viewport must not persist
+    // until the user scrolls again. Repair only when no real row is visible.
+    maybeGrowTranscriptWindow(true);
+  });
+}
+
+function maybeGrowTranscriptWindow(repairBlankViewport = false) {
   if (transcriptGrowing || activeMessageScrollPin() || state.scrollLatestAutoScrolling) return;
   const root = $("#messages");
   const ownScroll = transcriptProgrammaticScrollAt
     && Date.now() - transcriptProgrammaticScrollAt < TRANSCRIPT_PROGRAMMATIC_SCROLL_MS
     && Math.abs(root.scrollTop - transcriptProgrammaticScrollTop) < 1;
-  if (ownScroll) return;
+  if (ownScroll && !repairBlankViewport) return;
   if (!root || !root.clientHeight || !state.currentMessages.length) return;
   if (transcriptViewSessionId !== state.selectedSessionId) return;
   const rows = [...root.children].filter((node) => node.dataset.transcriptKey);
@@ -4468,6 +4560,66 @@ function openMessageImage(source, name) {
   dialog.showModal();
 }
 
+const messageThumbnailCache = new Map();
+const messageThumbnailJobs = [];
+let messageThumbnailActive = 0;
+let messageThumbnailObserver;
+const messageThumbnailObserved = new Set();
+
+function watchMessageThumbnail(preview, attachment, sessionId) {
+  if (!attachment.attachmentId || !sessionId || typeof window.widget.readAttachment !== "function") return;
+  const load = async () => {
+    const key = `${sessionId}:${attachment.attachmentId}`;
+    let source = messageThumbnailCache.get(key);
+    if (!source) {
+      const original = await window.widget.readAttachment({ sessionId, attachmentId: attachment.attachmentId });
+      const image = new Image();
+      await new Promise((resolve, reject) => {
+        image.onload = resolve; image.onerror = () => reject(new Error("Image preview unavailable"));
+        image.src = `data:${original.mediaType};base64,${original.data}`;
+      });
+      const scale = Math.min(1, 160 / image.naturalWidth, 120 / image.naturalHeight);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d"); if (!context) throw new Error("Image preview unavailable");
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      source = canvas.toDataURL("image/jpeg", .7); image.src = ""; canvas.width = canvas.height = 0;
+      if (source.length > 65536) throw new Error("Image preview exceeds budget");
+      messageThumbnailCache.set(key, source);
+      while (messageThumbnailCache.size > 32) messageThumbnailCache.delete(messageThumbnailCache.keys().next().value);
+    }
+    if (!preview.isConnected || state.selectedSessionId !== sessionId) return;
+    const image = document.createElement("img"); image.src = source; image.alt = ""; image.draggable = false; image.dataset.thumbnail = "true";
+    preview.replaceChildren(image);
+  };
+  const queue = () => {
+    if (preview.dataset.thumbnailRequested) return;
+    preview.dataset.thumbnailRequested = "true";
+    messageThumbnailJobs.push({ preview, load }); drainMessageThumbnails();
+  };
+  if (typeof IntersectionObserver === "function") {
+    if (!messageThumbnailObserver) messageThumbnailObserver = new IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.isIntersecting) {
+        messageThumbnailObserver.unobserve(entry.target); messageThumbnailObserved.delete(entry.target); entry.target.loadMessageThumbnail?.();
+      }
+    }, { root: $("#messages"), rootMargin: "100px" });
+    preview.loadMessageThumbnail = queue; messageThumbnailObserved.add(preview); messageThumbnailObserver.observe(preview);
+  } else requestAnimationFrame(queue);
+}
+
+function drainMessageThumbnails() {
+  while (messageThumbnailActive < 2 && messageThumbnailJobs.length) {
+    const job = messageThumbnailJobs.shift(); if (!job.preview.isConnected) continue;
+    messageThumbnailActive++;
+    job.load().catch(() => { delete job.preview.dataset.thumbnailRequested; }).finally(() => { messageThumbnailActive--; drainMessageThumbnails(); });
+  }
+}
+function pruneMessageThumbnailWatches() {
+  for (const preview of messageThumbnailObserved) if (!preview.isConnected) {
+    messageThumbnailObserver?.unobserve(preview); messageThumbnailObserved.delete(preview);
+  }
+}
+
 function createMessageAttachmentStrip(attachments) {
   const values = (Array.isArray(attachments) ? attachments : []).slice(0, 12);
   if (!values.length) return null;
@@ -4498,6 +4650,7 @@ function createMessageAttachmentStrip(attachments) {
 
     } else {
       preview.append(createIcon(displayKind === "file" ? "file" : "image"));
+      if (displayKind === "image") watchMessageThumbnail(preview, attachment, state.selectedSessionId);
     }
     if (displayKind === "image" && (preview.querySelector("img") || attachment.attachmentId)) {
       item.tabIndex = 0;
@@ -4510,7 +4663,7 @@ function createMessageAttachmentStrip(attachments) {
         loading = true;
         item.setAttribute("aria-busy", "true");
         try {
-          let source = preview.querySelector("img")?.src;
+          let source = preview.querySelector("img:not([data-thumbnail])")?.src;
           if (!source) {
             const original = await window.widget.readAttachment({ sessionId, attachmentId: attachment.attachmentId });
             source = `data:${original.mediaType};base64,${original.data}`;
@@ -4531,12 +4684,99 @@ function createMessageAttachmentStrip(attachments) {
   return strip;
 }
 
+function pendingSendsFor(sessionId = state.selectedSessionId) {
+  return state.pendingSendsBySession.get(sessionId || "new") || [];
+}
+
+function visiblePendingSendsFor(sessionId = state.selectedSessionId) {
+  const revision = queueSnapshotRevision(sessionId);
+  const queue = [...queuedPromptsFor(sessionId), ...steeringPromptsFor(sessionId)];
+  const consumed = new Set();
+  return pendingSendsFor(sessionId).filter(entry => {
+    if (entry.status === "failed" || revision <= entry.queueAfterRevision) return true;
+    // Queue frames can arrive before the send acknowledgement. Transfer visual
+    // ownership one-to-one, never deduplicating deliberate identical submissions.
+    const owner = queue.find(item => !consumed.has(item.id) && !entry.existingQueueIds.has(item.id)
+      && sendContentMatches(entry, { ...item, role: "user" }));
+    if (!owner) return true;
+    consumed.add(owner.id);
+    return false;
+  });
+}
+
+function sendContentMatches(entry, message) {
+  return message.role === "user" && (message.text || "").trim() === entry.text.trim()
+    && (message.attachments || []).length === entry.attachments.length;
+}
+
+function reconcilePendingSends(sessionId, messages) {
+  const consumed = new Set();
+  const kept = pendingSendsFor(sessionId).filter(entry => {
+    if (entry.status === "failed") return true;
+    const matches = messages.filter(message => (!Number.isFinite(message.seq) || message.seq > entry.afterSeq) && sendContentMatches(entry, message));
+    const receipt = matches.find(message => !consumed.has(message) && Number.isFinite(message.seq) && message.seq > entry.afterSeq)
+      || matches.filter(message => !Number.isFinite(message.seq)).slice(entry.previousUnsequencedCount).find(message => !consumed.has(message));
+    if (receipt) consumed.add(receipt);
+    return !receipt;
+  });
+  for (const entry of kept) for (const receipt of consumed) {
+    if (!sendContentMatches(entry, receipt)) continue;
+    if (Number.isFinite(receipt.seq)) entry.afterSeq = Math.max(entry.afterSeq, receipt.seq);
+    else entry.previousUnsequencedCount++;
+  }
+  if (kept.length) state.pendingSendsBySession.set(sessionId || "new", kept);
+  else state.pendingSendsBySession.delete(sessionId || "new");
+}
+
+function beginPendingSend(sessionId, text, attachments) {
+  const messages = sessionId === state.selectedSessionId ? state.currentMessages : [];
+  const entry = { id: `pending-send-${state.nextPendingSendId++}`, sessionId, text, attachments,
+    status: "sending", afterSeq: messages.reduce((seq, m) => Number.isFinite(m.seq) ? Math.max(seq, m.seq) : seq, 0),
+    queueAfterRevision: queueSnapshotRevision(sessionId),
+    existingQueueIds: new Set([...queuedPromptsFor(sessionId), ...steeringPromptsFor(sessionId)].map(item => item.id)),
+    previousUnsequencedCount: 0 };
+  entry.previousUnsequencedCount = messages.filter(m => !Number.isFinite(m.seq) && sendContentMatches(entry, m)).length;
+  state.pendingSendsBySession.set(sessionId || "new", [...pendingSendsFor(sessionId).filter(m => m.status !== "failed" || !sendContentMatches(entry, { ...m, role: "user" })), entry]);
+  if (sessionId === state.selectedSessionId) {
+    state.messagesStickToBottom = true; renderMessages(state.currentMessages); jumpToLatestTranscript();
+  }
+  return entry;
+}
+
+function settlePendingSend(entry, status, sessionId = entry?.sessionId) {
+  if (!entry || !pendingSendsFor(entry.sessionId).includes(entry)) return;
+  if (sessionId !== entry.sessionId) {
+    state.pendingSendsBySession.set(entry.sessionId || "new", pendingSendsFor(entry.sessionId).filter(m => m !== entry));
+    state.pendingSendsBySession.set(sessionId || "new", [...pendingSendsFor(sessionId), entry]);
+    entry.sessionId = sessionId;
+  }
+  entry.status = status;
+  if (status === "queued") {
+    // Once accepted into the queue, its editable queue row owns the message.
+    // Keeping a second transcript receipt here also survives edit/delete/steer.
+    const remaining = pendingSendsFor(sessionId).filter(item => item !== entry);
+    if (remaining.length) state.pendingSendsBySession.set(sessionId || "new", remaining);
+    else state.pendingSendsBySession.delete(sessionId || "new");
+  }
+  if (sessionId === state.selectedSessionId) renderMessages(state.currentMessages);
+}
+
+function historyWouldRegress(previous, incoming) {
+  if (!previous.length) return false;
+  if (!incoming.length) return true;
+  const tail = messages => messages.reduce((seq, m) => Number.isFinite(m.seq) ? Math.max(seq, m.seq) : seq, 0);
+  const next = tail(incoming);
+  return next > 0 && next < tail(previous);
+}
+
 function renderMessages(messages) {
   const root = $("#messages");
   const previousTop = root.scrollTop;
   let wasPinned = state.messagesStickToBottom;
   const anchor = transcriptViewSessionId === state.selectedSessionId ? captureTranscriptAnchor(root) : null;
   state.currentMessages = Array.isArray(messages) ? messages : [];
+  reconcilePendingSends(state.selectedSessionId, state.currentMessages);
+  const pendingSends = visiblePendingSendsFor();
   // Not `window`: that name shadowed the global for the rest of the hottest function in
   // the app, waiting for the first window.matchMedia or getSelection added below.
   const view = transcriptWindow(state.currentMessages.length);
@@ -4545,11 +4785,14 @@ function renderMessages(messages) {
   const liveAssistant = view.latest ? liveAssistantSnapshot() : null;
   const steering = view.latest ? steeringPromptsFor() : [];
   const awaitingHistory = transcriptAwaitingHistory();
-  const signature = `${state.selectedSessionId || "new"}::${awaitingHistory ? "loading" : "loaded"}::${view.start}:${view.end}:${view.total}::${visibleMessages.map(messageSignature).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}`;
+  const signature = `${state.selectedSessionId || "new"}::${awaitingHistory ? "loading" : "loaded"}::${view.start}:${view.end}:${view.total}::${visibleMessages.map(messageSignature).join("|")}::steering:${steering.map((item) => JSON.stringify([item.id, item.preview, item.text])).join("|")}::pending:${pendingSends.map(item => item.id + item.status).join("|")}`;
   const previousSignature = state.historySignature;
   const changed = Boolean(previousSignature && signature !== previousSignature);
   const unchanged = root.dataset.rendered === "true" && signature === previousSignature;
-  if (unchanged) return paintLiveAssistant();
+  if (unchanged) {
+    scheduleTranscriptViewportRepair();
+    return paintLiveAssistant();
+  }
   // Cleared until the DOM really matches: committing the new signature first meant a single
   // throw below froze the chat, because every later render matched it and returned early
   // without repairing the half-built transcript.
@@ -4570,7 +4813,7 @@ function renderMessages(messages) {
     blocks.push({ key: "window-top", signature: `top:${view.start}:${Math.round(topHeight)}`, count: 0, build: () => transcriptSpacer(topHeight, `${hidden} older messages`) });
     blocks.push({ key: "window-top-edge", signature: `edge:${view.start}`, count: 0, build: () => transcriptWindowEdge("Older messages load as you scroll up") });
   }
-  if (!state.currentMessages.length && !liveAssistant?.text && !steering.length) {
+  if (!state.currentMessages.length && !liveAssistant?.text && !steering.length && !pendingSends.length) {
     blocks.push(awaitingHistory
       ? { key: "skeleton", signature: "skeleton", build: transcriptSkeleton }
       : { key: "empty", signature: `empty:${Boolean(state.selectedSessionId)}`, build: transcriptEmptyState });
@@ -4612,6 +4855,15 @@ function renderMessages(messages) {
       blocks.push({ key: messageBlockKey(message, globalIndex), signature: messageSignature(message), count: 1, msgIndex: globalIndex, message, build: () => createMessageBubble(message) });
       index += 1;
     }
+    if (view.latest) for (const item of pendingSends) {
+      blocks.push({ key: item.id, signature: item.id + item.status, count: 0, build: () => {
+        const bubble = createMessageBubble({ role: "user", text: item.text, attachments: item.attachments });
+        bubble.classList.add("pending-send"); bubble.dataset.sendStatus = item.status;
+        const label = document.createElement("small"); label.className = "send-receipt";
+        label.textContent = { sending: "Sending…", accepted: "Sent · syncing history", queued: "Queued", failed: "Not sent · retry from the composer" }[item.status];
+        label.setAttribute("role", "status"); bubble.append(label); return bubble;
+      } });
+    }
     for (const item of steering) {
       blocks.push({ key: `steer:${item.id || item.preview || ""}`, signature: JSON.stringify([item.id, item.preview, item.text]), count: 0, build: () => createSteeringBubble(item) });
     }
@@ -4649,6 +4901,7 @@ function renderMessages(messages) {
   }
   state.transcriptCache = next;
   reconcileChildren(root, nodes);
+  pruneMessageThumbnailWatches();
   state.historySignature = signature;
   rememberTranscriptRowHeights(root, visibleMessages.length);
   syncLiveBubbleContent(root);
@@ -4672,6 +4925,7 @@ function renderMessages(messages) {
   renderMessageMarks();
   syncMessageMagnet();
   rememberTranscriptReadingPosition(root);
+  scheduleTranscriptViewportRepair();
   return true;
 }
 
@@ -4722,7 +4976,12 @@ function recordHistoryLoadError(sessionId, error) {
 // the composer's own surface: it stays until the user dismisses it or the next send works,
 // and no poll writes here.
 function showComposerError(error, label) {
-  const text = String(error?.message || error || "").trim();
+  const original = String(error?.message || error || "").trim();
+  const text = /does not support image input/i.test(original)
+    ? "This model accepts text only. Choose a model marked 👁 and retry.\n" + original
+    : /\b429\b/.test(original)
+      ? "The free provider is temporarily rate-limited. Retry later or choose another free model.\n" + original
+      : original;
   state.composerError = { label, text };
   $("#composerErrorLabel").textContent = label;
   $("#composerErrorText").textContent = text;
@@ -4736,6 +4995,11 @@ function clearComposerError() {
   $("#composerError").hidden = true;
   $("#composerErrorText").textContent = "";
   $("#composerError").title = "";
+  const pending = pendingSendsFor();
+  if (pending.some(entry => entry.status === "failed")) {
+    state.pendingSendsBySession.set(state.selectedSessionId || "new", pending.filter(entry => entry.status !== "failed"));
+    renderMessages(state.currentMessages);
+  }
 }
 
 function showTransientActivityError(error, label) {
@@ -4875,6 +5139,8 @@ async function refreshHistory({ priority = false, force = false } = {}) {
     const revision = state.historyLoadedSessionId === sessionId ? state.historyLoadedRevision : null;
     const view = await window.widget.history(sessionId, revision === null ? undefined : { revision });
     if (requestSequence !== state.historyRequestSequence || sessionId !== state.selectedSessionId) return "superseded";
+    if (!force && state.historyLoadedSessionId === sessionId && Array.isArray(view.messages)
+        && historyWouldRegress(state.currentMessages, view.messages)) return "stale";
     state.historyLoadErrors.delete(sessionId);
     renderHistoryLoadError();
     if (streamAtRequest?.disconnected && !streamAtRequest.active && state.liveStreamsBySession.get(sessionId) === streamAtRequest) {
@@ -5946,13 +6212,26 @@ async function captureAndSendScreenshot() {
   const sessionId = state.selectedSessionId;
   if (!sessionId) { showToast("Select a chat before sending a screenshot", "alert"); return; }
   screenshotSendInFlight = true;
+  let pendingSend;
   try {
     const result = await window.widget.captureScreenshot("display-send");
     if (result?.canceled) return;
     if (!result?.ok || !result.prepared?.attachments?.length) throw new Error(result?.error || "Screenshot capture failed");
+    const queueingBehindTurn = state.runningSessionIds.has(sessionId);
+    const queueRevisionAtSubmit = queueSnapshotRevision(sessionId);
+    pendingSend = beginPendingSend(sessionId, "", result.prepared.attachments);
     await window.widget.send({ sessionId, text: "", attachments: result.prepared.attachments, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
-    showToast("Screenshot sent", "check");
-  } catch (error) { showComposerError(error, "Screenshot not sent"); }
+    if (queueingBehindTurn) trackQueuedPrompt(sessionId, { text: "", attachmentCount: result.prepared.attachments.length, attachments: result.prepared.attachments }, queueRevisionAtSubmit);
+    settlePendingSend(pendingSend, queueingBehindTurn ? "queued" : "accepted");
+    showToast(queueingBehindTurn ? "Screenshot queued" : "Screenshot sent", "check");
+  } catch (error) {
+    settlePendingSend(pendingSend, "failed");
+    if (pendingSend && state.selectedSessionId === sessionId) {
+      state.pendingAttachments = [...state.pendingAttachments, ...pendingSend.attachments.filter(a => !state.pendingAttachments.includes(a))];
+      renderAttachments();
+    }
+    if (state.selectedSessionId === sessionId) showComposerError(error, "Screenshot not sent");
+  }
   finally { screenshotSendInFlight = false; }
 }
 
@@ -6452,6 +6731,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
   const queueRevisionAtSubmit = queueSnapshotRevision(targetSessionId);
   const attachmentCount = submittedAttachments.length;
   let submittedCommand = false;
+  let pendingSend;
   setSettingsOpen(false, { restoreFocus: false });
   setCommandMenuOpen(false);
   closePickers();
@@ -6478,6 +6758,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
       await executeHarnessCommand(text, targetSessionId, submittedAttachments, commandEntry);
       rememberSentMessage(targetSessionId, text);
     } else {
+      pendingSend = beginPendingSend(targetSessionId, text, submittedAttachments);
       if (chatVisual && !queueingBehindTurn) chatVisual.noteSendStart(targetSessionId);
       syncChatVisualState();
       if (!queueingBehindTurn) setAvatar("waiting", "sending");
@@ -6496,9 +6777,10 @@ $("#chatForm").addEventListener("submit", async (event) => {
         if (!targetSessionId) setSessionAgentMode(result.sessionId, "agent");
       }
       rememberSentMessage(result.sessionId, text);
-      syncChatVisualState();
       clearComposerError();
       if (queueingBehindTurn) trackQueuedPrompt(result.sessionId, { text, attachmentCount, attachments: submittedAttachments }, queueRevisionAtSubmit);
+      settlePendingSend(pendingSend, queueingBehindTurn ? "queued" : "accepted", result.sessionId);
+      syncChatVisualState();
       const submittedPaths = new Set(submittedAttachments.map((attachment) => attachment.path));
       state.pendingAttachments = state.pendingAttachments.filter((attachment) => !submittedPaths.has(attachment.path));
       renderAttachments();
@@ -6508,6 +6790,7 @@ $("#chatForm").addEventListener("submit", async (event) => {
       }
     }
   } catch (error) {
+    settlePendingSend(pendingSend, "failed");
     if (chatVisual && !queueingBehindTurn && !submittedCommand) {
       chatVisual.noteSendFailure(targetSessionId);
       if (targetSessionId) chatVisual.noteCompletion(targetSessionId, "error");
@@ -6602,7 +6885,11 @@ $("#messages").addEventListener("scroll", () => {
     // The bottom of the viewport is only the bottom of the conversation when the window
     // actually holds the newest message. Sticking to the foot of a spacer told every later
     // render to scroll to a blank region and call it "following the conversation".
-    state.messagesStickToBottom = nearBottom && transcriptAtLatest();
+    const ownScroll = transcriptProgrammaticScrollAt && Date.now() - transcriptProgrammaticScrollAt < TRANSCRIPT_PROGRAMMATIC_SCROLL_MS
+      && Math.abs(log.scrollTop - transcriptProgrammaticScrollTop) < 1;
+    const userScroll = transcriptUserPointerActive || Date.now() < transcriptUserScrollIntentUntil;
+    if (!ownScroll && (nearBottom || userScroll || !state.messagesStickToBottom)) state.messagesStickToBottom = nearBottom && transcriptAtLatest();
+    if (state.messagesStickToBottom && !nearBottom && !userScroll) settleTranscriptScroll(log, log.scrollHeight);
     if (state.messagesStickToBottom) state.unseenMessages = 0;
   }
   updateScrollLatestButton();
@@ -6641,14 +6928,19 @@ $("#messages").addEventListener("scrollend", () => {
 // from landing on top of a jump that is still in flight.
 for (const eventName of ["wheel", "pointerdown", "keydown"]) {
   $("#messages").addEventListener(eventName, (event) => {
+    const scrollKey = eventName === "keydown" && ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key);
+    if (eventName === "wheel" || scrollKey) transcriptUserScrollIntentUntil = Date.now() + 1200;
+    if (eventName === "pointerdown") transcriptUserPointerActive = true;
     state.transcriptModeRestore = null;
     releaseMessageScrollPin();
     transcriptProgrammaticScrollAt = 0;
     clearTimeout(state.scrollLatestAutoScrollTimer);
     state.scrollLatestAutoScrolling = false;
     if (eventName === "wheel" && event.deltaY < 0) state.messagesStickToBottom = false;
+    if (scrollKey && ["ArrowUp", "PageUp", "Home"].includes(event.key)) state.messagesStickToBottom = false;
   }, { passive: true });
 }
+for (const eventName of ["pointerup", "pointercancel", "blur"]) window.addEventListener(eventName, () => { transcriptUserPointerActive = false; });
 // The strips around the log ease open and shut, and the window itself is resized by hand
 // and by the size presets. Whatever moves the log's edges, a log that was following the end
 // of the conversation keeps following it - re-anchored after layout and before paint, so
@@ -6663,6 +6955,7 @@ if (typeof ResizeObserver === "function") {
       restoreTranscriptAnchor(root, transcriptReadingPosition.anchor);
     }
     if (!document.body.classList.contains("mode-transition-in") && !document.body.classList.contains("mode-transition-out")) rememberTranscriptReadingPosition(root);
+    scheduleTranscriptViewportRepair();
   }).observe($("#messages"));
 }
 $("#messageMarks").addEventListener("scroll", drawMessageMarks, { passive: true });
@@ -6792,7 +7085,10 @@ $("#subagentsButton").addEventListener("click", () => {
   if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId);
 });
 $("#dockButton").addEventListener("click", () => setWindowMode("edge"));
-$("#collapseHandle").addEventListener("click", () => setWindowMode(state.platformPresentation?.edgeAvailable === false ? "orb" : "edge"));
+$("#collapseHandle").addEventListener("click", (event) => {
+  // Pointer taps are resolved by endFullDrag; keyboard activation still works.
+  if (event.detail === 0 || state.platformPresentation?.positionAvailable === false) activateBrandTarget(event.currentTarget);
+});
 $("#orbRestore").addEventListener("click", (event) => { if (suppressCompactClick) event.preventDefault(); else setWindowMode("full"); });
 $("#orbHistoryButton").addEventListener("click", toggleCompactHistory);
 $("#orbStatusCard").addEventListener("click", () => openCompactSession(compactPreviewEntry()?.sessionId).catch(showError));
@@ -6841,7 +7137,7 @@ window.addEventListener("resize", () => {
   syncCrowdedChatState();
   $$(".picker.open").forEach(positionPickerMenu);
 });
-for (const target of [$(".titlebar")]) {
+for (const target of [$(".titlebar"), $("#collapseHandle")]) {
   target.addEventListener("pointerdown", beginFullDrag);
   target.addEventListener("pointermove", moveFullDrag);
   target.addEventListener("pointerup", endFullDrag);
@@ -7194,7 +7490,7 @@ if (screenshotFixture) {
       state.pendingSelection = state.modelCatalog.current;
       renderModels();
       togglePicker($("#reasoningButton"));
-    } else if (["model", "model-closed", "model-controls-open"].includes(screenshotFixture)) {
+    } else if (["model", "model-collapsed", "model-closed", "model-controls-open"].includes(screenshotFixture)) {
       setTab("chat");
       state.modelCatalog = {
         current: { provider: "lmstudio", model: "qwen3.5-9b", reasoningEffort: "medium" },
@@ -7206,8 +7502,9 @@ if (screenshotFixture) {
       };
       state.modelLoadState = "ready";
       state.pendingSelection = state.modelCatalog.current;
+      if (screenshotFixture === "model") for (const group of state.modelCatalog.groups) savedModelProviderExpansion().add(group.id);
       renderModels();
-      if (screenshotFixture === "model") {
+      if (["model", "model-collapsed"].includes(screenshotFixture)) {
         openModelPicker();
       }
     } else if (screenshotFixture === "model-empty") {
@@ -7270,6 +7567,7 @@ if (screenshotFixture) {
         text: index === 0 ? "Short message remains visible." : `Compact history message ${index + 1}.`,
       })));
       setActivity({ active: true, kind: "thinking", label: "Thinking", text: "Checking the compact layout budget…" });
+      state.messagesStickToBottom = false; // This fixture deliberately inspects the first row.
       $("#messages").scrollTop = 0;
     } else if (screenshotFixture === "todo") {
       setTab("chat");
@@ -7716,6 +8014,13 @@ if (screenshotFixture) {
         { role: "assistant", text: "Result", html: "<h3>Workspace checked</h3><p><strong>Build</strong> is clean and <em>visually verified</em>.</p><blockquote>Accent colors remain readable on the dark surface.</blockquote><pre><code class=\"language-js\"><span class=\"hljs-keyword\">const</span> status = <span class=\"hljs-string\">\"ready\"</span>; <span class=\"hljs-comment\">// verified</span></code></pre>" },
         { role: "tool", name: "read_file", arguments: "{\n  \"path\": \"src/main.cjs\"\n}", result: "Loaded 412 lines", status: "done", durationMs: 184 },
         { role: "tool", name: "run_tests", arguments: "{\n  \"suite\": \"widget\"\n}", result: "18 tests passed", status: "done", durationMs: 1260, nested: true },
+      ]);
+    } else if (["question-wait", "question-wait-group"].includes(screenshotFixture)) {
+      setTab("chat");
+      renderMessages([
+        { role: "assistant", text: "Please answer the question in Harness. Queued messages wait until your answer is received." },
+        ...(screenshotFixture === "question-wait-group" ? [{ role: "tool", name: "read", callId: "question-read", status: "completed", result: "Ready" }] : []),
+        { role: "tool", name: "ask_user_question", callId: "question-wait", status: "running", arguments: '{"questions":[{"header":"Service","question":"Which service do you mean?"}]}' },
       ]);
     } else if (screenshotFixture === "mixed-tools") {
       setTab("chat");

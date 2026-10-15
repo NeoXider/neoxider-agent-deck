@@ -49,6 +49,8 @@ function harness() {
   };
   const context = vm.createContext({
     state, root,
+    visiblePendingSendsFor: () => [], reconcilePendingSends: () => {}, pruneMessageThumbnailWatches: () => {},
+    scheduleTranscriptViewportRepair: () => {},
     document: { createElement: (tag) => domNode(tag), querySelector: () => null },
     requestAnimationFrame: (callback) => { callback(); return 0; },
     $: () => root,

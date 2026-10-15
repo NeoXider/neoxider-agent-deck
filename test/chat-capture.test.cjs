@@ -51,12 +51,32 @@ test('screenshot send freezes target session, ignores repeat shortcut and preser
   const source = fs.readFileSync(require('node:path').join(__dirname, '../src/renderer/app.js'), 'utf8');
   const snippet = source.slice(source.indexOf('let screenshotSendInFlight = false;'), source.indexOf('function handleScreenshotResult'));
   let resolveCapture; const sent = []; let captures = 0;
-  const state = { selectedSessionId: 'first', pendingAttachments: ['draft-image'] };
-  const context = vm.createContext({ state, Intl, showToast() {}, showComposerError() {}, window: { widget: { captureScreenshot: () => { captures++; return new Promise(resolve => { resolveCapture = resolve; }); }, send: async payload => sent.push(payload) } } });
+  const state = { selectedSessionId: 'first', pendingAttachments: ['draft-image'], runningSessionIds: new Set() };
+  const context = vm.createContext({ state, Intl, queueSnapshotRevision: () => 0, beginPendingSend() { return {}; }, settlePendingSend() {}, showToast() {}, showComposerError() {}, window: { widget: { captureScreenshot: () => { captures++; return new Promise(resolve => { resolveCapture = resolve; }); }, send: async payload => sent.push(payload) } } });
   vm.runInContext(snippet, context);
   const first = vm.runInContext('captureAndSendScreenshot()', context);
   state.selectedSessionId = 'second'; await vm.runInContext('captureAndSendScreenshot()', context);
   resolveCapture({ ok: true, prepared: { attachments: ['screenshot'] } }); await first;
   assert.equal(captures, 1); assert.equal(sent[0].sessionId, 'first'); assert.equal(sent[0].text, '');
   assert.deepEqual(sent[0].attachments, ['screenshot']); assert.deepEqual(state.pendingAttachments, ['draft-image']);
+});
+
+test('instant screenshot queue handoff uses submit-time state and preserves queue-before-ack ownership', async () => {
+  const vm = require('node:vm'), fs = require('node:fs');
+  const source = fs.readFileSync(require('node:path').join(__dirname, '../src/renderer/app.js'), 'utf8');
+  const snippet = source.slice(source.indexOf('let screenshotSendInFlight = false;'), source.indexOf('function handleScreenshotResult'));
+  const state = { selectedSessionId: 'first', pendingAttachments: ['draft-image'], runningSessionIds: new Set(['first']) };
+  const events = [];
+  const context = vm.createContext({ state, Intl, queueSnapshotRevision: () => 3,
+    beginPendingSend: () => (events.push('sending'), {}),
+    trackQueuedPrompt: (id, payload, revision) => events.push(['queue', id, payload.attachmentCount, revision]),
+    settlePendingSend: (_entry, status) => events.push(status), showToast: text => events.push(text),
+    showComposerError: error => { throw error; }, window: { widget: {
+      captureScreenshot: async () => ({ ok: true, prepared: { attachments: [{ kind: 'image' }] } }),
+      send: async () => { state.runningSessionIds.clear(); state.selectedSessionId = 'other'; },
+    } },
+  });
+  vm.runInContext(snippet, context); await vm.runInContext('captureAndSendScreenshot()', context);
+  assert.deepEqual(events, ['sending', ['queue', 'first', 1, 3], 'queued', 'Screenshot queued']);
+  assert.deepEqual(state.pendingAttachments, ['draft-image']);
 });

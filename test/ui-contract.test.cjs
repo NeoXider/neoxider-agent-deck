@@ -141,7 +141,7 @@ test("main composer starts on one line, grows to one third of the viewport, scro
   assert.match(renderer, /input\.value = text;\s*\n\s*resizeMessageInput\(\);/);
   // Sliced, not spanned by a greedy [\s\S]+: the same call appears 160 lines later, so
   // deleting it from the resize listener still matched the copy and the test stayed green.
-  const resizeListener = renderer.slice(renderer.indexOf('window.addEventListener("resize"'), renderer.indexOf('for (const target of [$(".titlebar")])'));
+  const resizeListener = renderer.slice(renderer.indexOf('window.addEventListener("resize"'), renderer.indexOf('for (const target of [$(".titlebar"), $("#collapseHandle")])'));
   assert.ok(resizeListener.length > 0 && resizeListener.length < 400, "the resize listener moved; re-anchor this test");
   assert.match(resizeListener, /resizeMessageInput\(\{ immediate: true \}\)/);
   assert.match(renderer, /function captureMessageLayoutSnapshot\(\)/);
@@ -637,7 +637,7 @@ test("the custom titlebar drag excludes header controls and avoids Chromium nati
   assert.match(renderer, /function canStartFullDrag\(event\)/);
   assert.match(renderer, /event\.target\.closest\("\.tabs, \.window-actions, \.picker, #headerUpdateButton"\)/);
   assert.match(renderer, /interactive\.closest\("#avatarButton, #projectLink"\)/);
-  assert.match(renderer, /for \(const target of \[\$\("\.titlebar"\)\]\)/);
+  assert.match(renderer, /for \(const target of \[\$\("\.titlebar"\), \$\("#collapseHandle"\)\]\)/);
   assert.match(css, /\.titlebar \{[^}]+user-select:none[^}]+-webkit-user-drag:none[^}]+-webkit-app-region:no-drag/);
   assert.doesNotMatch(css, /\.drag-region\s*\{[^}]+-webkit-app-region:drag/);
 });
@@ -893,7 +893,7 @@ test("a mark jump lands exactly even with skipped transcript rows", () => {
   // landing on an underestimated bottom used to stick the log there and hide the jump.
   // And the bottom only counts as the bottom of the conversation when the virtualized
   // window actually holds the newest message, or the log follows the foot of a spacer.
-  assert.match(renderer, /if \(!activeMessageScrollPin\(\)\) \{[\s\S]{0,320}?state\.messagesStickToBottom = nearBottom && transcriptAtLatest\(\);/);
+  assert.match(renderer, /if \(!activeMessageScrollPin\(\)\) \{[\s\S]{0,900}?if \(!ownScroll && \(nearBottom \|\| userScroll \|\| !state\.messagesStickToBottom\)\) state\.messagesStickToBottom = nearBottom && transcriptAtLatest\(\);/);
   assert.match(visualSmoke, /markJumpAligned: true, markJumpFlashed: 1/);
 });
 
@@ -1458,7 +1458,7 @@ test("a tap on the brand is resolved by the drag handler, not by a stolen click"
   assert.match(renderer, /origin\.closest\("#avatarButton"\)\) setWindowMode\("orb"\)/);
   assert.match(renderer, /origin\.closest\("#projectLink"\)\) window\.widget\.openProject\(\)/);
   const endFull = renderer.slice(renderer.indexOf("function endFullDrag"), renderer.indexOf("function activateBrandTarget"));
-  assert.match(endFull, /\} else \{\s*\n\s*activateBrandTarget\(origin\);/);
+  assert.match(endFull, /\} else if \(event\.type !== "pointercancel"\) \{\s*\n\s*activateBrandTarget\(origin\);/);
   // Keyboard activation must still work, and must not double-fire with the tap path.
   assert.match(renderer, /if \(event\.detail !== 0 \|\| suppressProjectClick\) return;\s*\n\s*setWindowMode\("orb"\);/);
 });
@@ -1791,7 +1791,8 @@ test("messages carry copy and reuse actions with a toast for feedback", () => {
   // Interior floats reserve text space without an invisible footer in small chats.
   assert.match(css, /\.bubble-actions \{ position:relative; float:right;[^}]*width:auto;[^}]*flex-direction:row;/);
   assert.match(renderer, /bubble\.prepend\(createBubbleActions\(message\)\)/);
-  assert.match(css, /\.bubble \{[^}]*width:calc\(100% - 12px\); max-width:none;/);
+  assert.match(css, /\.bubble \{[^}]*width:100%; max-width:none;/);
+  assert.match(css, /\.bubble\.user \{[^}]*width:calc\(100% - 8px\);/);
   assert.match(css, /\.bubble\.user::after \{[^}]*clip-path:polygon\(0 0,100% 100%,0 100%\);/);
   assert.match(css, /\.messages \{[^}]*overflow:hidden auto;/);
   // Goal and queue actions say what they did the same way.
@@ -1858,7 +1859,7 @@ test("the virtualized transcript grows towards the newest message, not only back
   // messages below it behind a spacer. Scrolling back down landed on the foot of that
   // spacer: a blank region where arrivals never appeared and the only way out was the pill.
   assert.match(renderer, /function growTranscriptWindowDown\(\)/);
-  const grow = functionBody(renderer, "function maybeGrowTranscriptWindow()");
+  const grow = functionBody(renderer, "function maybeGrowTranscriptWindow(repairBlankViewport = false)");
   assert.match(grow, /transcriptViewStart > 0/);
   assert.match(grow, /transcriptViewEnd < state\.currentMessages\.length/);
   assert.match(grow, /if \(towardsOlder\) growTranscriptWindowUp\(\);\s*\n\s*else growTranscriptWindowDown\(\);/);
@@ -1870,8 +1871,19 @@ test("the virtualized transcript grows towards the newest message, not only back
   // The scroll a grow causes is its own correction, not a request for another grow.
   const settle = functionBody(renderer, "function settleTranscriptScroll(root, top)");
   assert.match(settle, /if \(root\.scrollTop !== before\) transcriptProgrammaticScrollAt = Date\.now\(\);/);
-  assert.match(grow, /if \(ownScroll\) return;/);
+  assert.match(grow, /if \(ownScroll && !repairBlankViewport\) return;/);
   assert.match(down, /transcriptViewEnd = Math\.min\(total, transcriptViewEnd \+ TRANSCRIPT_WINDOW_GROW\);/);
+});
+
+test("a spacer-only viewport is repaired even when the history is unchanged without growing an ordinary reading view", () => {
+  const repair = functionBody(renderer, "function scheduleTranscriptViewportRepair()");
+  assert.match(repair, /transcriptViewportRepairFrame/);
+  assert.match(repair, /state\.windowMode !== "full"/);
+  assert.match(repair, /rows\.some/);
+  assert.match(repair, /rect\.height > 0 && rect\.bottom > viewport\.top && rect\.top < viewport\.bottom/);
+  assert.match(repair, /maybeGrowTranscriptWindow\(true\)/);
+  const render = functionBody(renderer, "function renderMessages(messages)");
+  assert.match(render, /if \(unchanged\) \{\s*scheduleTranscriptViewportRepair\(\);/);
 });
 
 test("a drag interrupted by a mode change, a reload or a hidden element still ends", () => {
