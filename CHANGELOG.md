@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-16
+
 ### Added
 
 - Chats that DSH cannot read are marked "unreadable" in Agents instead of looking idle. Their saved log is refused as corrupt by Harness; nothing was deleted, and the badge's tooltip says so.
