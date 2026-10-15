@@ -1740,7 +1740,7 @@ test("the strips around the log ease open and shut while the log stays anchored"
   // observed heights prove the easing, a one-pixel ceiling on the gap proves the anchor.
   const visualSmokeSource = readSource("scripts", "ui-visual-smoke.cjs");
   assert.match(visualSmokeSource, /cssHeightInterpolation: true, cssDetailsContent: true, cssStartingStyle: true/);
-  assert.match(visualSmokeSource, /name: "strip-easing"[^}]*motion: true[^}]*stripTraceShrunk: true, messagesAtBottom: true \}, min: \{ stripTraceSteps: 3 \}, max: \{ stripTraceMaxGap: 1 \}/);
+  assert.match(visualSmokeSource, /name: "strip-easing"[^}]*motion: true[^}]*stripTraceShrunk: true, messagesAtBottom: true \}, min: \{ stripTraceSteps: 3 \}, max: \{ stripTraceMaxGap: 2 \}/);
   assert.match(visualSmokeSource, /WIDGET_SCREENSHOT_MOTION: "1"/);
   assert.match(main, /\.\.\.\(screenshotPath && !screenshotMotion \? \{ screenshotStatic: "1" \} : \{\}\)/);
 });

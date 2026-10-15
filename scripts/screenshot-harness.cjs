@@ -71,7 +71,14 @@ function attachScreenshotHarness({
           for (const fraction of [0, .2, .4, .6, .8, 1]) {
             animation.currentTime = duration * fraction;
             await frame();
-            trace.push({ height: log.clientHeight, gap: Math.round(log.scrollHeight - log.scrollTop - log.clientHeight) });
+            // The gap is how much further the log could still scroll, asked of the browser itself.
+            // scrollHeight, scrollTop and clientHeight are each rounded to whole pixels, so their
+            // difference reads 1-2px on a log pinned to its true, fractional maximum.
+            const pinnedTop = log.scrollTop;
+            log.scrollTop = log.scrollHeight;
+            const slack = log.scrollTop - pinnedTop;
+            log.scrollTop = pinnedTop;
+            trace.push({ height: log.clientHeight, gap: Math.round(slack), top: pinnedTop, scroll: log.scrollHeight, stick: state.messagesStickToBottom, following: transcriptFollowing(), gliding: Boolean(state.scrollLatestAutoScrolling), pinned: Boolean(activeMessageScrollPin()), restoring: Boolean(state.transcriptModeRestore) });
           }
           animation.finish();
           window.__stripTrace = trace;
@@ -718,6 +725,7 @@ function attachScreenshotHarness({
             })(),
             composerValue: document.querySelector('#messageInput')?.value || '',
             // The strip-easing fixture records the log on every frame a strip moves it.
+            stripTrace: window.__stripTrace || null,
             stripTraceSteps: new Set((window.__stripTrace || []).map(step => step.height)).size,
             stripTraceMaxGap: Math.max(0, ...(window.__stripTrace || []).map((step) => step.gap)),
             stripTraceShrunk: (() => {
