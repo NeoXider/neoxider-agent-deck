@@ -245,11 +245,23 @@ function createHotkeyManager({ globalShortcut, handlers = {}, app = null, onErro
   return { apply, applyAvailable, dispose, getBindings, resetDefaults, update };
 }
 
+// The plain shape a hotkey failure takes on its way to the renderer.
+function hotkeyErrorView(error) {
+  return {
+    code: String(error?.code || "hotkey-error"),
+    message: String(error?.message || error),
+    action: error?.action ? String(error.action) : "",
+    conflictingAction: error?.conflictingAction ? String(error.conflictingAction) : "",
+    accelerator: error?.accelerator ? String(error.accelerator) : "",
+  };
+}
+
 module.exports = {
   DEFAULT_HOTKEYS,
   HOTKEY_ACTIONS,
   HotkeyConfigurationError,
   createHotkeyManager,
+  hotkeyErrorView,
   normalizeAccelerator,
   normalizeHotkeyBindings,
 };

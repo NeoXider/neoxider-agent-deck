@@ -5,13 +5,15 @@ const { HarnessApi } = require("./harness-api.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
 const { createAutoStartController } = require("./auto-start.cjs");
 const { createHarnessLauncher } = require("./harness-launcher.cjs");
-const { startHarnessConnection } = require("./harness-connection.cjs");
+const { createHarnessOutputLog } = require("./harness-log.cjs");
+const { createHarnessSupervisor } = require("./harness-supervisor.cjs");
+const { createLaunchUrlRecorder, startHarnessConnection } = require("./harness-connection.cjs");
 const { createDesktopAccess, desktopHarnessUrl } = require("./desktop-access.cjs");
 const { createDeviceTrustStore } = require("./device-trust-store.cjs");
 const { createGameLayerKeeper } = require("./game-layer-keeper.cjs");
 const { createGameBarController, createSharedDashboardReader } = require("./gamebar-controller.cjs");
 const { createCompactHitTracker } = require("./compact-hit-tracker.cjs");
-const { createHotkeyManager } = require("./hotkey-manager.cjs");
+const { createHotkeyManager, hotkeyErrorView } = require("./hotkey-manager.cjs");
 const { createQuitCoordinator } = require("./quit-coordinator.cjs");
 const { createRegionSelector } = require("./region-selector.cjs");
 const { createRendererRecoveryController } = require("./renderer-recovery.cjs");
@@ -110,6 +112,7 @@ let preferences = DEFAULT_PREFERENCES;
 let settingsStore;
 let autoStartController;
 let harnessLauncher;
+let harnessSupervisor;
 let gameLayerKeeper;
 let compactHitTracker;
 let hotkeyManager;
@@ -155,6 +158,7 @@ function cleanupApplication() {
   if (windowRef && !windowRef.isDestroyed()) captureWindowBounds(windowMode, windowRef.getBounds());
   if (settingsStore) savePreferences({ retryOnFailure: false });
   muxClient.stop();
+  harnessSupervisor?.dispose();
   harnessLauncher?.dispose();
   remoteMux?.stop();
   gameLayerKeeper?.stop();
@@ -265,16 +269,6 @@ async function captureScreenshotFromHotkey(kind) {
   } catch (error) {
     sendToRenderer("screenshot-captured", { ok: false, canceled: false, reason: error?.code || "capture-failed", error: String(error?.message || error) });
   }
-}
-
-function hotkeyErrorView(error) {
-  return {
-    code: String(error?.code || "hotkey-error"),
-    message: String(error?.message || error),
-    action: error?.action ? String(error.action) : "",
-    conflictingAction: error?.conflictingAction ? String(error.conflictingAction) : "",
-    accelerator: error?.accelerator ? String(error.accelerator) : "",
-  };
 }
 
 function registerConfiguredHotkeys(bindings) {
@@ -634,6 +628,7 @@ function registerWidgetIpc() {
     setHotkeyRegistrationError: (value) => { hotkeyRegistrationError = value; },
     getAutoStartController: () => autoStartController,
     getHarnessLauncher: () => harnessLauncher,
+    getHarnessSupervisor: () => harnessSupervisor,
     getHotkeyManager: () => hotkeyManager,
     getCompactHitTracker: () => compactHitTracker,
     getScreenshotService: () => screenshotService,
@@ -688,13 +683,14 @@ app.whenReady().then(() => {
     workingDirectory: path.join(app.getPath("userData"), "harness-workspace"),
     openPath: (filePath) => shell.openPath(filePath),
     requireBrowserUrl: true,
-    onBrowserUrl: (url) => {
-      if (preferences.harnessLaunchUrl === url) return;
-      preferences.harnessLaunchUrl = url;
-      savePreferences();
-      api.resetRemoteAuth();
-      dashboardReader.invalidate();
-    },
+    // stdout and stderr of the owned Harness, rotated under <userData>/logs.
+    outputLog: createHarnessOutputLog({ directory: path.join(app.getPath("userData"), "logs") }),
+    onBrowserUrl: createLaunchUrlRecorder({ getPreferences: () => preferences, savePreferences, api, invalidateDashboard: dashboardReader.invalidate }),
+  });
+  harnessSupervisor = createHarnessSupervisor({
+    launcher: harnessLauncher, outputLog: harnessLauncher.outputLog, isQuitting: () => quitCoordinator.isQuitting(),
+    openPath: (filePath) => shell.openPath(filePath), onState: (value) => sendToRenderer("harness-supervisor-state", value),
+    onRecovered: () => { dashboardReader.invalidate(); return api.reconnect().catch(() => {}); },
   });
   gameLayerKeeper = createGameLayerKeeper({
     getWindow: () => windowRef,

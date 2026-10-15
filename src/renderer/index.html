@@ -89,6 +89,7 @@
       <div id="offlineBanner" class="offline-banner no-drag" role="status" aria-live="polite">
         <span id="offlineBannerText">Harness is offline</span>
         <button id="startHarnessButton" type="button">Start</button>
+        <button id="harnessOpenLogButton" type="button" title="Open the Harness output log" hidden>Open log</button>
         <div id="harnessConnectRow" class="harness-connect" hidden>
           <input id="harnessLaunchUrlInput" type="text" placeholder="Paste the dsh web: URL…" aria-label="Harness launch URL" autocomplete="off" autocapitalize="off" spellcheck="false" />
           <button id="harnessConnectButton" type="button">Connect</button>
@@ -299,6 +300,7 @@
     <script src="clipboard-attachments.js"></script>
     <script src="platform-presentation.js"></script>
     <script src="chat-visual-state.js"></script>
+    <script src="engine-crash.js"></script>
     <script src="appearance.js"></script>
     <script src="app.js"></script>
   </body>

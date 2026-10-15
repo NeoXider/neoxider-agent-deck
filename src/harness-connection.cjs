@@ -24,4 +24,19 @@ async function startHarnessConnection({ api, launcher, persistCapturedLaunchUrl,
   return result;
 }
 
-module.exports = { harnessNeedsAuth, startHarnessConnection };
+// An owned launch prints a fresh launch token on every boot, including a restart after a
+// crash. It is saved as soon as it is printed — it is the only way back into a gated
+// Harness once the widget restarts — and the cookie minted from the old one is dropped.
+function createLaunchUrlRecorder({ getPreferences, savePreferences, api, invalidateDashboard }) {
+  return (url) => {
+    const preferences = getPreferences();
+    if (!url || preferences.harnessLaunchUrl === url) return false;
+    preferences.harnessLaunchUrl = url;
+    savePreferences();
+    api.resetRemoteAuth();
+    invalidateDashboard();
+    return true;
+  };
+}
+
+module.exports = { createLaunchUrlRecorder, harnessNeedsAuth, startHarnessConnection };

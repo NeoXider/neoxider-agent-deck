@@ -62,6 +62,8 @@ const state = {
   harnessStartingLabel: "",
   harnessConnectBusy: false,
   harnessConnectError: "",
+  harnessSupervisor: null,
+  harnessCrashTimer: null,
   completionSignalTimer: null,
   compactNotification: null,
   compactNotificationTimer: null,
@@ -3567,6 +3569,8 @@ function createMessageBubble(message, bubble = document.createElement("div")) {
     summary.textContent = "Provider details"; original.textContent = message.text;
     details.append(summary, original); bubble.append(title, hint, details); return bubble;
   }
+  const engineCrash = message.role === "error" ? describeSelectedEngineCrash(message.text) : null;
+  if (engineCrash) return createEngineCrashBubble(message, bubble, engineCrash);
   if (message.role === "warning" && message.code === "output-token-limit") {
     const title = document.createElement("strong");
     title.textContent = message.title || "Output token limit reached";
@@ -3606,6 +3610,66 @@ function createMessageBubble(message, bubble = document.createElement("div")) {
     bubble.append(attachmentStrip);
   }
   if (["user", "assistant"].includes(message.role) && message.text) bubble.prepend(createBubbleActions(message));
+  return bubble;
+}
+
+// A provider whose native engine died reports a raw process exit code. engine-crash.js
+// names it; the selected chat's context meter decides whether compacting is worth offering.
+function describeSelectedEngineCrash(text) {
+  const pressure = contextPressure(state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId));
+  return window.engineCrash?.describeEngineCrash(text, { contextUsed: pressure?.used, contextWindow: pressure?.total }) || null;
+}
+
+function createEngineCrashBubble(message, bubble, crash) {
+  bubble.classList.add("engine-crash");
+  const title = document.createElement("strong");
+  title.textContent = crash.title;
+  const summary = document.createElement("p");
+  summary.textContent = `${crash.summary} ${crash.explanation}${crash.restartsItself ? " The provider restarts it on the next request." : ""}`;
+  bubble.append(title, summary);
+  if (crash.contextText) {
+    const context = document.createElement("p");
+    context.textContent = crash.contextText;
+    bubble.append(context);
+  }
+  const sessionId = state.selectedSessionId;
+  const actions = document.createElement("div");
+  actions.className = "engine-crash-actions";
+  const retry = document.createElement("button");
+  const retryKey = `engine-crash:${sessionId}:${message.seq}`;
+  retry.type = "button";
+  retry.className = "ghost-button";
+  retry.disabled = !sessionId || state.continuedCutoffs.has(retryKey);
+  retry.textContent = state.continuedCutoffs.has(retryKey) ? "Retry sent" : "Retry";
+  retry.addEventListener("click", async () => {
+    if (retry.disabled) return;
+    retry.disabled = true;
+    try {
+      await window.widget.send({ sessionId, text: window.engineCrash.RETRY_PROMPT, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      state.continuedCutoffs.add(retryKey);
+      if (state.continuedCutoffs.size > 128) state.continuedCutoffs.delete(state.continuedCutoffs.values().next().value);
+      retry.textContent = "Retry sent";
+      if (sessionId === state.selectedSessionId) await refresh({ afterCurrent: true });
+    } catch (error) { retry.disabled = false; if (sessionId === state.selectedSessionId) showComposerError(error, "Retry failed"); }
+  });
+  actions.append(retry);
+  if (crash.compactSuggested && sessionId) {
+    const compact = document.createElement("button");
+    compact.type = "button";
+    compact.className = "ghost-button";
+    compact.textContent = "Compact context";
+    compact.title = "Run /compact to summarize older history before retrying";
+    compact.addEventListener("click", () => {
+      compact.disabled = true;
+      executeHarnessCommand("/compact", sessionId).catch(showError).finally(() => { compact.disabled = false; });
+    });
+    actions.append(compact);
+  }
+  const details = document.createElement("details"), detailsSummary = document.createElement("summary"), original = document.createElement("pre");
+  detailsSummary.textContent = "Provider message";
+  original.textContent = crash.original;
+  details.append(detailsSummary, original);
+  bubble.append(actions, details);
   return bubble;
 }
 
@@ -4977,11 +5041,14 @@ function recordHistoryLoadError(sessionId, error) {
 // and no poll writes here.
 function showComposerError(error, label) {
   const original = String(error?.message || error || "").trim();
+  const engineCrash = describeSelectedEngineCrash(original);
   const text = /does not support image input/i.test(original)
     ? "This model accepts text only. Choose a model marked 👁 and retry.\n" + original
     : /\b429\b/.test(original)
       ? "The free provider is temporarily rate-limited. Retry later or choose another free model.\n" + original
-      : original;
+      : engineCrash
+        ? `${engineCrash.title}. ${engineCrash.summary}${engineCrash.contextText ? ` ${engineCrash.contextText}` : ""}\n${original}`
+        : original;
   state.composerError = { label, text };
   $("#composerErrorLabel").textContent = label;
   $("#composerErrorText").textContent = text;
@@ -5893,14 +5960,18 @@ function renderOfflineBanner() {
   const restartButton = $("#harnessRestartButton");
   const startButton = $("#startHarnessButton");
   const input = $("#harnessLaunchUrlInput");
+  const crash = state.harnessOffline ? harnessCrashBanner() : null;
   const text = state.harnessStarting
     ? (state.harnessStartingLabel || "Launching Harness")
-    : state.harnessNeedsAuth
+    : crash
+      ? crash.text
+      : state.harnessNeedsAuth
       ? "Harness is running, but the widget lost access"
       : state.harnessDegraded
         ? "Harness is responding slowly; retrying…"
         : state.harnessStartError || "Harness is offline";
   if (label && label.textContent !== text) label.textContent = text;
+  if (label) label.title = crash?.detail || "";
   // A running gated Harness cannot reveal its process token to a second client.
   // Make the primary action an explicit restart instead of a Start that can only
   // repeat the failed token probe. Keep paste-and-connect for live turns.
@@ -5909,8 +5980,15 @@ function renderOfflineBanner() {
     startButton.title = state.harnessNeedsAuth
       ? "Stops the running Harness and any active turns, then reconnects"
       : state.harnessDegraded ? "Retry the connection without restarting Harness" : "Start or reconnect to Harness";
+    if (crash) {
+      startButton.textContent = crash.action;
+      startButton.title = "Restart Harness now instead of waiting";
+    }
+    startButton.disabled = Boolean(crash?.busy);
   }
-  if (connectRow) connectRow.hidden = !state.harnessNeedsAuth;
+  const openLogButton = $("#harnessOpenLogButton");
+  if (openLogButton) openLogButton.hidden = !crash && !state.harnessStartError;
+  if (connectRow) connectRow.hidden = !state.harnessNeedsAuth || Boolean(crash);
   if (connectError) {
     connectError.hidden = !state.harnessConnectError;
     if (state.harnessConnectError && connectError.textContent !== state.harnessConnectError) {
@@ -5923,8 +6001,64 @@ function renderOfflineBanner() {
   if (input) input.disabled = Boolean(busy);
 }
 
+// What the main process's supervisor says about the widget's own Harness, when it has
+// something to add to "offline": it crashed and a restart is pending or running, or it
+// kept crashing and restarts stopped. The exit code is the first thing worth knowing.
+function harnessCrashBanner() {
+  const supervisor = state.harnessSupervisor;
+  if (!["scheduled", "restarting", "gave-up"].includes(supervisor?.status)) return null;
+  const exit = supervisor.exitText ? ` (${supervisor.exitText})` : "";
+  const tail = Array.isArray(supervisor.tail) ? supervisor.tail.filter((line) => line && !line.startsWith("[deck]")) : [];
+  const detail = [supervisor.lastError, tail.at(-1)].filter(Boolean).join("\n");
+  if (supervisor.status === "gave-up") return { text: `Harness keeps crashing${exit}`, action: "Restart", busy: false, detail };
+  if (supervisor.status === "restarting") return { text: `Harness stopped unexpectedly${exit} — restarting…`, action: "Restarting…", busy: true, detail };
+  const seconds = Math.max(0, Math.ceil((Number(supervisor.restartAt) - Date.now()) / 1000));
+  return { text: `Harness stopped unexpectedly${exit} — restarting in ${seconds}s…`, action: "Restart now", busy: false, detail };
+}
+
+function applyHarnessSupervisorState(value) {
+  const previous = state.harnessSupervisor?.status || "idle";
+  state.harnessSupervisor = value && typeof value === "object" ? value : null;
+  const status = state.harnessSupervisor?.status || "idle";
+  // The countdown is the only thing that changes while a restart waits.
+  clearInterval(state.harnessCrashTimer);
+  state.harnessCrashTimer = status === "scheduled" ? setInterval(renderOfflineBanner, 1000) : null;
+  renderOfflineBanner();
+  if (previous !== "idle" && status === "idle") refresh({ afterCurrent: true }).catch(showError);
+}
+
+async function restartHarnessNowFromBanner() {
+  if (state.harnessConnectBusy || state.harnessStarting) return;
+  state.harnessConnectBusy = true;
+  state.harnessConnectError = "";
+  renderOfflineBanner();
+  try {
+    const result = await window.widget.restartHarnessNow();
+    // token-required: another Harness took the port; the refresh shows Connect for it.
+    if (!result?.ok && result?.reason !== "token-required") {
+      throw new Error(result?.error ? `Harness could not be restarted: ${result.error}` : harnessRestartFailure(result));
+    }
+    await refresh({ afterCurrent: true });
+  } catch (error) {
+    state.harnessConnectError = String(error?.message || error || "Harness could not be restarted");
+  } finally {
+    state.harnessConnectBusy = false;
+    renderOfflineBanner();
+  }
+}
+
+async function openHarnessLogFromBanner() {
+  const result = await window.widget.openHarnessLog().catch((error) => ({ ok: false, error: error?.message }));
+  state.harnessConnectError = result?.ok ? "" : `Could not open the Harness log: ${result?.error || "unknown error"}`;
+  renderOfflineBanner();
+}
+
 async function startHarnessFromBanner() {
   if (state.harnessStarting) return;
+  if (state.harnessOffline && harnessCrashBanner()) {
+    await restartHarnessNowFromBanner();
+    return;
+  }
   if (state.harnessDegraded) {
     await refresh({ afterCurrent: true });
     return;
@@ -7071,6 +7205,9 @@ $("#focusChatButton").addEventListener("click", () => setFocusMode(!state.focusM
 $("#startHarnessButton").addEventListener("click", startHarnessFromBanner);
 $("#harnessConnectButton")?.addEventListener("click", connectHarnessWithUrl);
 $("#harnessRestartButton")?.addEventListener("click", restartHarnessFromBanner);
+$("#harnessOpenLogButton")?.addEventListener("click", openHarnessLogFromBanner);
+window.widget.onHarnessSupervisorState(applyHarnessSupervisorState);
+window.widget.getHarnessSupervisorState().then(applyHarnessSupervisorState).catch(() => {});
 $("#harnessLaunchUrlInput")?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
@@ -7398,6 +7535,27 @@ if (screenshotFixture) {
       renderContext();
       renderMessages([]);
       if (screenshotFixture === "offline-agents") setTab("agents");
+    } else if (["harness-crash", "harness-crash-gave-up"].includes(screenshotFixture)) {
+      setTab("chat");
+      state.dashboard = { harness: false, sessions: [] };
+      state.harnessOffline = true;
+      document.body.classList.add("harness-offline");
+      setAvatar("offline");
+      renderMessages([]);
+      applyHarnessSupervisorState({
+        status: screenshotFixture === "harness-crash" ? "scheduled" : "gave-up", exitText: "exit code 0xC0000409",
+        restartAt: Date.now() + 9500, lastError: "", tail: ["dsh: fatal uncaught exception: RangeError: Invalid string length", "[deck] Harness exited (code 3221226505)"],
+      });
+    } else if (screenshotFixture === "engine-crash") {
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "demo-engine", title: "Parser refactor", running: false, projections: { values: { contextPressure: { projectedTokens: 153489, contextWindow: 262144 } } }, subagents: [] }] };
+      state.selectedSessionId = "demo-engine";
+      renderSessionToolbar();
+      renderContext();
+      renderMessages([
+        { role: "user", text: "Refactor the parser and keep the public API." },
+        { role: "error", seq: 2, text: "the engine stopped unexpectedly (exit code 3221226505); the next request restarts it" },
+      ]);
     } else if (screenshotFixture === "overview") {
       setTab("agents");
       state.dashboard = {

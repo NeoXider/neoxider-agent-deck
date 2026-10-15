@@ -1188,3 +1188,8 @@ body.screenshot-backdrop-checkerboard { background:conic-gradient(#eef2f7 25%,#2
 .bubble.warning strong { color:#f2bf5e; }
 .bubble.warning p { margin:6px 0 9px; }
 .bubble.warning .ghost-button { min-height:28px; padding:5px 10px; font-size:11px; }
+
+/* Model engine crash card (engine-crash.js). Scoped to its own classes; restyle freely. */
+.bubble.error.engine-crash p { margin:6px 0 9px; }
+.engine-crash-actions { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+.engine-crash-actions .ghost-button { min-height:28px; padding:5px 10px; font-size:11px; }
