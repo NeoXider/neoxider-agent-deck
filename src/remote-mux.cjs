@@ -3,8 +3,14 @@
 // session/follow channels for live events and assistant stream frames. Reconnect
 // and backoff mirror mux-client so a dead socket degrades exactly as it always has.
 
+const { STORED_SESSION_REFUSAL_RETRY_MS, isStoredSessionRefusal } = require("./harness-transport.cjs");
+
 const REMOTE_MUX_RECONNECT_MIN = 1500;
 const REMOTE_MUX_RECONNECT_MAX = 30000;
+// A session whose stored log DSH refuses is asked for again this rarely. Retrying it every
+// 1.5s made DSH decode four 10–27 MB logs back to back, forever, and starved every other
+// call: session/list took 30 s and the widget sat on "Harness is responding slowly".
+const REMOTE_MUX_REFUSED_RETRY = STORED_SESSION_REFUSAL_RETRY_MS;
 
 function defaultSleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
@@ -120,9 +126,12 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
     const abandoned = () => stopped || entry.closing || follows.get(sessionId) !== entry;
     while (!abandoned()) {
       let handle = null;
+      let delivered = false;
+      let failure = null;
       try {
         handle = await withChannel("session/follow", { request: { address: { kind: "session", sessionId }, assistantStream: true } }, (value) => {
           if (abandoned() || !value || typeof value !== "object") return;
+          delivered = true;
           if (value.type === "snapshot" && value.assistantStream?.activeAttempt) {
             const records = value.assistantStream.activeAttempt.stream || [];
             let text = "", reasoning = "";
@@ -144,7 +153,7 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
             onLiveEvent({ sessionId, event: { type: "assistant/chunk", seq: 0, data: { chunk } } });
           }
         }, abandoned);
-      } catch {}
+      } catch (error) { failure = error; }
       // untrack()/stop() close entry.handle, which is still null while the open is
       // pending. Without this check the freshly opened socket was stored and awaited
       // until the Harness dropped it, streaming live events for an untracked session.
@@ -154,16 +163,19 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
       }
       if (handle) {
         entry.handle = handle;
-        delay = REMOTE_MUX_RECONNECT_MIN;
-        try { await handle.closed; } catch {}
+        try { failure = await handle.closed; } catch (error) { failure = error; }
       }
       if (abandoned()) break;
       const finished = entry.handle;
       entry.handle = null;
       try { finished?.close(); } catch {}
+      // Only a stream that delivered something starts the backoff over. An open socket
+      // proves nothing: DSH accepts the stream, decodes the whole log and only then
+      // refuses it, so resetting on open retried a refused session every 1.5s forever.
+      if (delivered) delay = REMOTE_MUX_RECONNECT_MIN;
       // A null transport means the harness is not on the remote generation yet; the
       // backoff below re-enters withChannel once it is.
-      await sleep(delay);
+      await sleep(isStoredSessionRefusal(failure) ? REMOTE_MUX_REFUSED_RETRY : delay);
       delay = Math.min(delay * 2, REMOTE_MUX_RECONNECT_MAX);
     }
   }
@@ -218,5 +230,6 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
 module.exports = {
   REMOTE_MUX_RECONNECT_MAX,
   REMOTE_MUX_RECONNECT_MIN,
+  REMOTE_MUX_REFUSED_RETRY,
   createRemoteMuxClient,
 };

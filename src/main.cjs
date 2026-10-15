@@ -50,7 +50,7 @@ const {
   snapCompactBounds,
 } = require("./window-geometry.cjs");
 const { captureModeBounds, fitFullBounds, resizeCompactAnchor } = require("./window-state.cjs");
-const { COMPACT_SIZES, compactTargetBounds, compactWindowSize } = require("./compact-window.cjs");
+const { COMPACT_SIZES, compactTargetBounds, compactWindowSize, nearestCompactSize, placeCompactWindow } = require("./compact-window.cjs");
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
 const { isScreenshotMode, pinScreenshotRenderScale, screenshotRequest } = require("./screenshot-mode.cjs");
@@ -136,7 +136,7 @@ let compactDragTrace = [];
 // so Full reopens at a stale position for the rest of the session; a stranded compact one
 // keeps the orb from ever resizing again and leaves its transparent window eating clicks.
 function releaseDragOrigins() { compactDragOrigin = null; fullDragOrigin = null; compactGlide.stop(); }
-const compactGlide = createCompactGlide({ setPosition: (x, y) => (windowRef && !windowRef.isDestroyed() ? (windowRef.setPosition(x, y, false), true) : false) });
+const compactGlide = createCompactGlide({ setPosition: (x, y) => (windowRef && !windowRef.isDestroyed() ? (placeCompactWindow(windowRef, x, y), true) : false) });
 const queueSnapshots = new Map();
 let rendererRecovery;
 let remoteMux;
@@ -381,10 +381,10 @@ function moveWindowWithinNearestDisplay(bounds, candidate, preserveSize = false)
   if (!PLATFORM_CAPABILITIES.programmaticPosition) return bounds;
   const display = screen.getDisplayNearestPoint({ x: Math.round(candidate.x), y: Math.round(candidate.y) }).workArea;
   const compact = windowMode !== "full";
-  const size = compact ? windowRef.getBounds() : bounds;
+  const size = compact ? nearestCompactSize(windowRef.getBounds()) : bounds;
   const live = { ...bounds, width: size.width, height: size.height };
   const moved = moveCompactBounds(live, candidate, display, compact ? currentCompactInset(live) : null);
-  if (preserveSize) setPlatformBounds(windowRef, moved, false, PLATFORM_CAPABILITIES); else windowRef.setPosition(moved.x, moved.y, false);
+  if (preserveSize) setPlatformBounds(windowRef, moved, false, PLATFORM_CAPABILITIES); else if (compact) placeCompactWindow(windowRef, moved.x, moved.y); else windowRef.setPosition(moved.x, moved.y, false);
   return moved;
 }
 
@@ -394,7 +394,7 @@ function moveEdgeWindowToPointer(origin, pointer) {
   if (!PLATFORM_CAPABILITIES.programmaticPosition) return origin?.bounds || origin;
   const display = screen.getDisplayNearestPoint({ x: Math.round(pointer.x), y: Math.round(pointer.y) }).workArea;
   const placed = edgeDragPlacement(origin, pointer, display, preferences.compactSide);
-  if (windowRef.getBounds().x !== placed.x || windowRef.getBounds().y !== placed.y) windowRef.setPosition(placed.x, placed.y, false);
+  placeCompactWindow(windowRef, placed.x, placed.y);
   if (placed.side !== preferences.compactSide) {
     preferences.compactSide = placed.side;
     sendToRenderer("compact-side", placed.side);

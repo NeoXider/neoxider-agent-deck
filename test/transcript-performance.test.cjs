@@ -68,7 +68,7 @@ function harness() {
     transcriptSkeleton: () => ({ dataset: {} }),
     transcriptEmptyState: () => ({ dataset: {} }),
     createGoalResultCard: () => null, isMissingModelError: () => false,
-    markTranscriptEntry: () => {}, reconcileChildren: (_root, nodes) => { _root.nodes = nodes; },
+    markTranscriptEntry: () => {}, markTranscriptArrival: () => {}, transcriptRunGrew: () => false, reconcileChildren: (_root, nodes) => { _root.nodes = nodes; },
     syncLiveBubbleContent: () => false, restoreOpenToolKeys: () => {}, applyMessageScrollPin: () => false,
     paintMessageMarkFlash: () => {}, restoreMessageSelection: () => {}, syncActivityCard: () => {},
     updateScrollLatestButton: () => {}, renderMessageMarks: () => {}, syncMessageMagnet: () => {},

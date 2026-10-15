@@ -85,3 +85,23 @@ test("the display is chosen from where the window is going, not from where it ca
   assert.equal(probes[0].x, 3000, "probed with the saved position, not the source window");
   assert.equal(bounds.x, second.x + second.width - COMPACT_SIZES.orb.width - 8, "docked on the second monitor");
 });
+
+// Electron's setPosition re-derived the size from scaled pixels, so at 125% a compact window
+// grew on every move and a held avatar crept right and down under the still cursor.
+test("a compact window is moved with its intended size restated, and a no-op move is skipped", () => {
+  const { nearestCompactSize, placeCompactWindow } = require("../src/compact-window.cjs");
+  assert.deepEqual(nearestCompactSize({ width: 176, height: 128 }), { width: 172, height: 128 });
+  assert.deepEqual(nearestCompactSize({ width: 342, height: 129 }), { width: 340, height: 128 });
+  assert.deepEqual(nearestCompactSize({ width: 397, height: 185 }), { width: 396, height: 184 });
+  assert.deepEqual(nearestCompactSize({ width: 89, height: 132 }), { width: 88, height: 132 });
+  const calls = [];
+  let bounds = { x: 400, y: 300, width: 176, height: 128 };
+  const windowRef = { getBounds: () => ({ ...bounds }), setBounds: (next) => { calls.push(next); bounds = { ...next }; } };
+  placeCompactWindow(windowRef, 410, 305);
+  assert.deepEqual(calls, [{ x: 410, y: 305, width: 172, height: 128 }]);
+  placeCompactWindow(windowRef, 410, 305);
+  assert.equal(calls.length, 1, "a move to where the window already is, at its size, does nothing");
+  bounds = { ...bounds, width: 173 };
+  placeCompactWindow(windowRef, 410, 305);
+  assert.deepEqual(calls.at(-1), { x: 410, y: 305, width: 172, height: 128 }, "grown in place is shrunk back");
+});

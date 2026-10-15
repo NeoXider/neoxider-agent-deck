@@ -1,7 +1,14 @@
 const { randomUUID } = require("node:crypto");
 const { isMainThread } = require("node:worker_threads");
 const { createHistoryReader } = require("./history-reader.cjs");
-const { commandTimeoutMs, createRemoteTransport, detectGeneration } = require("./harness-transport.cjs");
+const {
+  channelFirstFrame,
+  commandTimeoutMs,
+  createRemoteTransport,
+  detectGeneration,
+  isStoredSessionRefusal,
+  storedSessionRefusalHolds,
+} = require("./harness-transport.cjs");
 const {
   activityFromHistory,
   sessionStateFromHistory,
@@ -108,52 +115,9 @@ class HarnessApi {
     return this._remoteTransport;
   }
 
-  // Wait for the opening frame of a channel that starts with one. Used for read-only
-  // surfaces where opening a live stream is just the cheapest way to get an
-  // authoritative snapshot. Workspace streams wrap theirs as {type:"baseline", value};
-  // session follow streams yield the raw {type:"snapshot"} record page instead.
+  // The first frame of a read-only stream; see channelFirstFrame in harness-transport.cjs.
   remoteChannelFirstFrame(remote, endpoint, args) {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      let handle = null;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        try { handle?.close(); } catch {}
-        reject(new Error(`Harness ${endpoint} timed out`));
-      }, 8000);
-      remote.openChannel({
-        endpoint,
-        args,
-        onFrame: (value) => {
-          if (!settled && value?.type === "baseline") {
-            settled = true;
-            clearTimeout(timer);
-            resolve(value.value ?? {});
-            try { handle?.close(); } catch {}
-          } else if (!settled && value?.type === "snapshot") {
-            settled = true;
-            clearTimeout(timer);
-            resolve(value);
-            try { handle?.close(); } catch {}
-          }
-        },
-      }).then((opened) => {
-        handle = opened;
-        if (!settled) {
-          // Frames can only arrive after the open resolves, so a channel that dies
-          // before delivering its baseline must reject instead of waiting out the timer.
-          opened.closed.then((error) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            reject(error instanceof Error ? error : new Error(`Harness ${endpoint} closed`));
-          });
-        }
-      }).catch((error) => {
-        if (!settled) { settled = true; clearTimeout(timer); reject(error); }
-      });
-    });
+    return channelFirstFrame(remote, endpoint, args);
   }
 
   // Drop the minted browser-session cookie so the next remote call re-mints it
@@ -336,18 +300,21 @@ class HarnessApi {
     {
       const cachedState = this.sessionStateCache.get(session.sessionId);
       const shouldEnrich = Boolean(session.running || index < 18 || session.sessionId === selectedSessionId);
+      const now = this.now();
+      // A refused log is not re-read on every poll: each attempt is a full decode in DSH.
+      const refusalHolds = storedSessionRefusalHolds(cachedState?.historyRefusal, session.updatedAt, now);
       // The selected session is always re-read: its preview, activity and clock
       // are what the open chat renders, and session.list does not promise to
       // bump updatedAt for every new message. Anything else keeps the cache.
-      const shouldReadState = shouldEnrich && (!cachedState || cachedState.updatedAt !== session.updatedAt
+      const shouldReadState = shouldEnrich && !refusalHolds && (!cachedState || cachedState.updatedAt !== session.updatedAt
         || session.sessionId === selectedSessionId);
       // Children can change activity without changing the parent's updatedAt.
       // Refresh their roster on a bounded cadence independent of history polling.
-      const now = this.now();
       const shouldReadSubagents = shouldEnrich && (shouldReadState
         || !Number.isFinite(cachedState?.subagentsReadAt)
         || now - cachedState.subagentsReadAt >= this.subagentRefreshMs);
-      let degraded = false;
+      let degraded = refusalHolds;
+      let historyRefusal = refusalHolds ? cachedState.historyRefusal : null;
       const [catalog, historyValue] = await Promise.all([
         shouldReadSubagents
           ? this.listSubagents(session.sessionId).catch(() => {
@@ -356,8 +323,9 @@ class HarnessApi {
             })
           : Promise.resolve(null),
         shouldReadState
-          ? this.readHistoryEvents(session.sessionId, session.running ? 120 : 12).catch(() => {
+          ? this.readHistoryEvents(session.sessionId, session.running ? 120 : 12).catch((error) => {
               degraded = true;
+              if (isStoredSessionRefusal(error)) historyRefusal = { updatedAt: session.updatedAt, at: now };
               return null;
             })
           : Promise.resolve(null),
@@ -389,6 +357,7 @@ class HarnessApi {
         subagentsReadAt: shouldReadSubagents ? now : cachedState?.subagentsReadAt,
         runningSince,
         lastRunMs,
+        ...(historyRefusal ? { historyRefusal } : {}),
       });
       return {
         ...session,

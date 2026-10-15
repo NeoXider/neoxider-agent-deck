@@ -1090,3 +1090,34 @@ test("retainSessions evicts per-session state for sessions no longer listed", ()
   assert.deepEqual([...api.historyCache.keys()], ["keep"]);
   assert.equal(api.retainSessions(new Set(["keep"])), 0);
 });
+
+test("the session list stops re-reading a log DSH refused until the session changes or the wait ends", async () => {
+  let now = 0;
+  let updatedAt = 10;
+  let historyCalls = 0;
+  const api = new HarnessApi(undefined, legacyFetch, { now: () => now });
+  api.rpc = async (method) => {
+    if (method === "host.describe") return { version: "test" };
+    if (method === "session.list") return { items: [{ sessionId: "refused-log", running: false, updatedAt, cwd: "C:\AI\refused" }] };
+    if (method === "subagent.list") return { entries: [] };
+    if (method === "session.history") {
+      historyCalls += 1;
+      throw new Error('stored session "refused-log" is corrupt: SessionFormatError: tool/ptc-dispatch is outside an open turn');
+    }
+    throw new Error(`Unexpected RPC ${method}`);
+  };
+
+  const first = await api.dashboard();
+  assert.equal(historyCalls, 1);
+  assert.equal(first.sessions[0].degraded, true);
+  now += 2500;
+  const second = await api.dashboard();
+  assert.equal(historyCalls, 1, "an unchanged refused session is not decoded again on the next poll");
+  assert.equal(second.sessions[0].degraded, true, "it still reports that its history is unavailable");
+  updatedAt = 11;
+  await api.dashboard();
+  assert.equal(historyCalls, 2, "a changed session is read again");
+  now += 10 * 60 * 1000;
+  await api.dashboard();
+  assert.equal(historyCalls, 3, "the refusal wait expires");
+});

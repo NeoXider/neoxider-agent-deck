@@ -42,6 +42,10 @@ const state = {
   showThinking: true,
   motionEffects: true,
   compactAutoExpand: false,
+  collapseAfterSend: true,
+  // The chat opened from the avatar's recent chats: its heading offers the way back, and
+  // sending to it folds the widget back into the avatar (see collapseAfterSend).
+  returnToAvatarSessionId: null,
   activityCardSignature: "",
   currentMode: "agent",
   agentModesBySessionId: new Map(),
@@ -569,6 +573,7 @@ function renderCompactSessions() {
   const sessions = recentCompactSessions();
   const signature = JSON.stringify([
     state.compactReplySessionId,
+    state.compactReplyOpen,
     ...sessions.map((session) => [session.sessionId, session.title, session.preview, session.running, session.failed]),
   ]);
   if (signature === state.compactSessionSignature && root.childElementCount) return sessions;
@@ -594,8 +599,11 @@ function renderCompactSessions() {
     const pick = document.createElement("button");
     pick.type = "button";
     pick.className = "orb-session-pick";
-    pick.title = `Write to ${session.title}`;
-    pick.setAttribute("aria-label", `Write to ${session.title}`);
+    // The first click addresses the message box to the chat; a second click on the chat
+    // already addressed opens it in the full widget.
+    const addressed = state.compactReplyOpen && session.sessionId === state.compactReplySessionId;
+    pick.title = addressed ? `Open ${session.title}` : `Write to ${session.title}`;
+    pick.setAttribute("aria-label", pick.title);
     const avatar = document.createElement("img");
     avatar.className = "orb-session-avatar";
     avatar.alt = "";
@@ -613,14 +621,17 @@ function renderCompactSessions() {
     preview.textContent = compactText(session.preview, 90);
     copy.append(heading, preview);
     pick.append(avatar, copy);
-    pick.addEventListener("click", () => openCompactReply(session.sessionId));
+    pick.addEventListener("click", () => {
+      if (state.compactReplyOpen && session.sessionId === state.compactReplySessionId) openCompactSession(session.sessionId, { fromAvatar: true }).catch(showError);
+      else openCompactReply(session.sessionId);
+    });
     const open = document.createElement("button");
     open.type = "button";
     open.className = "orb-session-open";
     open.title = `Open ${session.title}`;
     open.setAttribute("aria-label", `Open ${session.title} in the widget`);
     open.append(createIcon("open"));
-    open.addEventListener("click", () => openCompactSession(session.sessionId));
+    open.addEventListener("click", () => openCompactSession(session.sessionId, { fromAvatar: true }).catch(showError));
     row.append(pick, open);
     root.append(row);
   });
@@ -1080,7 +1091,7 @@ function playFirstVisibleEntry() {
 
 function clearModeTransitionClasses(kind) {
   const prefix = kind === "out" ? "mode-transition-to-" : "mode-transition-from-";
-  document.body.classList.remove(`mode-transition-${kind}`);
+  document.body.classList.remove(`mode-transition-${kind}`, "mode-transition-pending");
   [...document.body.classList].filter((name) => name.startsWith(prefix)).forEach((name) => document.body.classList.remove(name));
 }
 
@@ -1139,8 +1150,11 @@ function animateModeExit(targetMode, requestSequence) {
   const transitionSequence = ++modeTransitionSequence;
   const folding = state.windowMode === "full";
   if (!folding) rememberCompactAnchor();
-  else if (targetMode === "orb") setModeMorphOrigin(compactAnchors.orb);
+  // An edge fold aims at the middle of its side; a point left over from the last avatar fold
+  // would pull the widget toward where the avatar used to be.
+  else setModeMorphOrigin(targetMode === "orb" ? compactAnchors.orb : null);
   const exitDuration = folding ? MODE_FOLD_DURATION : MODE_EXIT_DURATION;
+  if (folding) flyTitleSlime("out", targetMode, exitDuration);
   clearModeTransitionClasses("out");
   void document.body.offsetWidth;
   document.body.classList.add("mode-transition-out", `mode-transition-to-${targetMode}`);
@@ -1159,13 +1173,91 @@ function animateModeExit(targetMode, requestSequence) {
 function animateModeEnter(previousMode) {
   if (prefersReducedMotion()) return;
   const sequence = ++modeTransitionSequence;
-  if (state.windowMode === "full" && previousMode === "orb") followModeMorphOrigin(compactAnchors.orb);
   clearModeTransitionClasses("in");
-  void document.body.offsetWidth;
-  document.body.classList.add("mode-transition-in", `mode-transition-from-${previousMode}`);
-  setTimeout(() => {
-    if (sequence === modeTransitionSequence) clearModeTransitionClasses("in");
-  }, MODE_ENTER_DURATION);
+  const start = () => {
+    if (sequence !== modeTransitionSequence) return;
+    document.body.classList.remove("mode-transition-pending");
+    if (state.windowMode === "full" && previousMode === "orb") followModeMorphOrigin(compactAnchors.orb);
+    if (state.windowMode === "full" && previousMode === "edge") setModeMorphOrigin(null);
+    // Measured here, before the unfold scales the shell: the title bar is where it will rest.
+    if (state.windowMode === "full" && ["orb", "edge"].includes(previousMode)) flyTitleSlime("in", previousMode, SLIME_FLIGHT_IN_DURATION);
+    void document.body.offsetWidth;
+    document.body.classList.add("mode-transition-in", `mode-transition-from-${previousMode}`);
+    setTimeout(() => {
+      if (sequence === modeTransitionSequence) clearModeTransitionClasses("in");
+    }, MODE_ENTER_DURATION);
+  };
+  if (state.windowMode !== "full") {
+    start();
+    return;
+  }
+  // Unfolding: the window grows a moment after this runs, and laying the conversation out at
+  // the new size held the first frame back by a quarter of a second. The unfold's clock ran
+  // through that unseen, so the widget appeared half open and the spring was mostly lost.
+  // It stays hidden until the grown window has painted once, and only then starts.
+  document.body.classList.add("mode-transition-pending");
+  waitForGrownViewport().then(() => requestAnimationFrame(() => requestAnimationFrame(start)));
+}
+
+// The slime in the title bar is the avatar. Folding, it crouches, hops out of the title bar
+// and lands where the avatar is about to appear, or dives flat into the screen edge;
+// unfolding, it hops from there back to its place and lands with a squash. It flies as a copy
+// above the shell, which is shrinking or growing at the same time, while the one in the title
+// bar waits hidden. Both directions measure the title bar before the shell is transformed.
+const SLIME_FLIGHT_IN_DURATION = 640;
+function flyTitleSlime(direction, compactMode, duration) {
+  if (prefersReducedMotion() || document.body.dataset.motion === "subtle") return;
+  const home = $("#avatarShell img");
+  const rect = home?.getBoundingClientRect();
+  const x = parseFloat(document.body.style.getPropertyValue("--morph-x"));
+  const y = parseFloat(document.body.style.getPropertyValue("--morph-y"));
+  if (!rect?.width || !Number.isFinite(x) || !Number.isFinite(y)) return;
+  const dx = x - (rect.left + rect.width / 2);
+  const dy = y - (rect.top + rect.height / 2);
+  const edge = compactMode === "edge";
+  const size = edge ? 0.8 : 52 / rect.width;
+  const mid = (1 + size) / 2;
+  const lift = Math.min(90, 26 + Math.hypot(dx, dy) * 0.18);
+  const tilt = dx > 0 ? 1 : -1;
+  const far = edge ? `translate(${dx}px, ${dy}px) scale(${size * 0.18}, ${size * 1.7})` : `translate(${dx}px, ${dy}px) scale(${size})`;
+  const frames = direction === "out" ? [
+    { transform: "none", easing: "cubic-bezier(.3,0,.5,1)" },
+    { offset: 0.16, transform: "translateY(3px) scale(1.18, .8)", easing: "cubic-bezier(.2,.6,.35,1)" },
+    { offset: 0.55, transform: `translate(${dx * 0.55}px, ${dy * 0.55 - lift}px) scale(${mid * 0.9}, ${mid * 1.14}) rotate(${14 * tilt}deg)`, easing: "cubic-bezier(.5,0,.75,.4)" },
+    { offset: 1, transform: far, opacity: edge ? 0 : 1 },
+  ] : [
+    { transform: far, opacity: edge ? 0 : 1, easing: "cubic-bezier(.3,0,.5,1)" },
+    { offset: 0.12, transform: `translate(${dx}px, ${dy}px) scale(${size * 1.15}, ${size * 0.82})`, opacity: 1, easing: "cubic-bezier(.2,.6,.35,1)" },
+    { offset: 0.55, transform: `translate(${dx * 0.45}px, ${dy * 0.45 - lift}px) scale(${mid * 0.92}, ${mid * 1.12}) rotate(${-12 * tilt}deg)`, easing: "cubic-bezier(.5,0,.75,.4)" },
+    { offset: 0.82, transform: "translateY(2px) scale(1.2, .78)", easing: "cubic-bezier(.3,1.4,.5,1)" },
+    { offset: 1, transform: "none" },
+  ];
+  const flyer = document.createElement("img");
+  flyer.className = "slime-flight";
+  flyer.src = home.currentSrc || home.src;
+  flyer.alt = "";
+  flyer.setAttribute("aria-hidden", "true");
+  Object.assign(flyer.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+  document.body.append(flyer);
+  home.style.visibility = "hidden";
+  const land = () => {
+    flyer.remove();
+    home.style.visibility = "";
+  };
+  flyer.animate(frames, { duration, fill: "forwards" }).finished.then(land, land);
+}
+
+// Resolves once the window is taller than any compact size (the avatar's panel is the
+// tallest, at 184), or after a bound so a window that never grows cannot stay hidden.
+function waitForGrownViewport(limitMs = 400) {
+  return new Promise((resolve) => {
+    const started = performance.now();
+    const check = () => {
+      if (window.innerHeight > 200 || performance.now() - started > limitMs) resolve();
+      else requestAnimationFrame(check);
+    };
+    check();
+  });
 }
 
 function applyWindowMode(mode) {
@@ -1177,7 +1269,11 @@ function applyWindowMode(mode) {
   clearModeTransitionClasses("out");
   hideChatTooltip();
   state.windowMode = mode;
-  if (mode !== "full") state.transcriptModeRestore = null;
+  if (mode !== "full") {
+    state.transcriptModeRestore = null;
+    state.returnToAvatarSessionId = null;
+  }
+  renderReturnToAvatarButton();
   document.body.classList.remove("mode-full", "mode-orb", "mode-edge");
   document.body.classList.add(`mode-${mode}`);
   syncCrowdedChatState();
@@ -1449,9 +1545,32 @@ function moveCompactDrag(event) {
     compactDrag.moved = true;
     compactDrag.target.setPointerCapture?.(event.pointerId);
     window.widget.beginCompactDrag({ x: compactDrag.startX, y: compactDrag.startY });
+    document.body.classList.add("compact-dragging");
   }
   event.preventDefault();
+  leanCompactDrag(event.movementX);
   scheduleCompactDragMove({ x: event.screenX, y: event.screenY });
+}
+
+// Carried, the avatar leans into the pull by how fast the pointer moves sideways, and
+// straightens up as soon as the pointer rests. movementX, not screenX: the window moves under
+// the pointer on every frame, so screen positions read here wobble.
+let compactDragLeanTimer = 0;
+function leanCompactDrag(movementX) {
+  const lean = Math.max(-14, Math.min(14, (Number(movementX) || 0) * 1.1));
+  document.body.style.setProperty("--drag-lean", `${lean.toFixed(1)}deg`);
+  clearTimeout(compactDragLeanTimer);
+  compactDragLeanTimer = setTimeout(() => document.body.style.setProperty("--drag-lean", "0deg"), 90);
+}
+
+// Set down, the avatar lands as the window finishes gliding to its edge: a squash, a
+// stretch and a ring of light.
+const ORB_LANDING_DELAY_MS = 150;
+function animateOrbLanding() {
+  if (prefersReducedMotion() || state.windowMode !== "orb") return;
+  const orb = $("#orbRestore");
+  orb.classList.add("orb-landing");
+  setTimeout(() => orb.classList.remove("orb-landing"), 720);
 }
 
 async function endCompactDrag(event) {
@@ -1461,6 +1580,8 @@ async function endCompactDrag(event) {
   const target = compactDrag.target;
   if (nativeStarted) flushCompactDragMove();
   compactDrag = null; // lostpointercapture may fire synchronously when capture is released.
+  document.body.classList.remove("compact-dragging");
+  document.body.style.setProperty("--drag-lean", "0deg");
   if (nativeStarted) target.releasePointerCapture?.(event.pointerId);
   // The click event fires synchronously right after pointerup, long before this IPC
   // round trip resolves. Arming the guard after the await let every drag release
@@ -1475,6 +1596,8 @@ async function endCompactDrag(event) {
   if (state.windowMode === "edge") {
     setEdgePointerActive(false);
     animateEdgeDrop();
+  } else if (state.windowMode === "orb") {
+    setTimeout(animateOrbLanding, ORB_LANDING_DELAY_MS);
   }
   setTimeout(() => { suppressCompactClick = false; }, 0);
 }
@@ -3067,6 +3190,7 @@ async function selectSession(sessionId, openChat = false) {
   const previousSessionId = state.selectedSessionId;
   state.selectedSessionId = sessionId || null;
   renderHistoryLoadError();
+  renderReturnToAvatarButton();
   rememberSelectedSession();
   // The error belongs to the message that failed, and that message stays behind with its
   // own session's composer content.
@@ -3771,9 +3895,50 @@ function settleTranscriptEnterBatch() {
   transcriptEnterBatch = [];
   if (batch.length <= TRANSCRIPT_ENTER_BATCH_MAX) return;
   for (const node of batch) {
-    node.classList.remove("enter");
+    node.classList.remove("enter", "arrive-pulse", "arrive-fresh");
     node.style.removeProperty("--enter-delay");
   }
+}
+// A new tool call, a run that just gained one, and an answer that just finished get one pass
+// of light around their edge and a small spring in size. A fresh node fades in as well; one
+// that takes the place of a node already on screen (a grown run, the bubble that streamed the
+// answer) must not blink, so it only springs.
+const TRANSCRIPT_ARRIVAL_MS = 1000;
+function markTranscriptArrival(node, { fresh = false } = {}) {
+  if (prefersReducedMotion()) return;
+  hopAvatar();
+  const position = transcriptEnterBatch.push(node) - 1;
+  if (position === 0) queueMicrotask(settleTranscriptEnterBatch);
+  const delay = Math.min(position, TRANSCRIPT_ENTER_STAGGER_MAX) * TRANSCRIPT_ENTER_STAGGER_MS;
+  node.style.setProperty("--enter-delay", `${delay}ms`);
+  node.classList.add("arrive-pulse");
+  node.classList.toggle("arrive-fresh", fresh);
+  setTimeout(() => {
+    node.classList.remove("arrive-pulse", "arrive-fresh");
+    node.style.removeProperty("--enter-delay");
+  }, TRANSCRIPT_ARRIVAL_MS + delay);
+}
+// The slime hops once for every new tool call and every finished answer, in the title bar or
+// as the avatar, at most once a beat: a burst of calls is one hop, not a seizure. Never during
+// a fold, whose own animation owns the avatar then.
+const AVATAR_HOP_MS = 620;
+let avatarHopAt = 0;
+function hopAvatar() {
+  const now = performance.now();
+  if (now - avatarHopAt < AVATAR_HOP_MS) return;
+  if (document.body.classList.contains("mode-transition-in") || document.body.classList.contains("mode-transition-out")) return;
+  const target = state.windowMode === "orb" ? $("#orbRestore") : state.windowMode === "full" ? $("#avatarShell") : null;
+  if (!target) return;
+  avatarHopAt = now;
+  target.classList.add("avatar-hop");
+  setTimeout(() => target.classList.remove("avatar-hop"), AVATAR_HOP_MS);
+}
+// Tool runs are keyed by every call in them, so a run that gained a call is a new key whose
+// old key is a prefix of it.
+function transcriptRunGrew(key, cache) {
+  if (!key.startsWith("tools:")) return false;
+  for (const previous of cache.keys()) if (previous.startsWith("tools:") && key.startsWith(`${previous}|`)) return true;
+  return false;
 }
 function markTranscriptEntry(node) {
   if (prefersReducedMotion()) return;
@@ -5423,9 +5588,13 @@ function renderMessages(messages) {
       // that has been on screen for a minute does not vanish and slide back in.
       node = createMessageBubble(block.message, liveBubble);
       cache.delete("live");
+      markTranscriptArrival(node);
     } else {
       node = block.build();
-      if (settled && !cached && !transcriptSilentGrow) markTranscriptEntry(node);
+      if (settled && !cached && !transcriptSilentGrow) {
+        if (key.startsWith("tools:") || block.message?.role === "assistant") markTranscriptArrival(node, { fresh: !transcriptRunGrew(key, cache) });
+        else markTranscriptEntry(node);
+      }
     }
     if (Number.isInteger(block.msgIndex)) {
       node.dataset.vmsg = String(block.msgIndex);
@@ -6067,10 +6236,11 @@ function toggleCompactHistory() {
   syncCompactStatus();
 }
 
-async function openCompactSession(requestedSessionId = null) {
+async function openCompactSession(requestedSessionId = null, { fromAvatar = false } = {}) {
   const sessionId = typeof requestedSessionId === "string"
     ? requestedSessionId
     : state.selectedSessionId || state.lastSelectedSessionId;
+  state.returnToAvatarSessionId = fromAvatar && sessionId ? sessionId : null;
   state.compactNotification = null;
   state.compactStatusClosing = false;
   state.compactHistoryOpen = false;
@@ -6085,6 +6255,7 @@ async function openCompactSession(requestedSessionId = null) {
   if (sessionId && sessionId !== state.selectedSessionId) await selectSession(sessionId, true);
   else setTab("chat");
   if (state.compactReplySessionId === sessionId) state.compactReplySessionId = null;
+  renderReturnToAvatarButton();
   $("#messageInput")?.focus();
   syncCompactStatus();
 }
@@ -6924,6 +7095,17 @@ function applyBackgroundOpacity(value) {
   return opacity;
 }
 
+let confirmedTextOpacity = 1;
+let textOpacitySaveSequence = 0;
+function applyTextOpacity(value) {
+  const numeric = Number(value);
+  const opacity = Number.isFinite(numeric) ? Math.max(0.2, Math.min(1, numeric)) : 1;
+  document.documentElement.style.setProperty("--panel-text-opacity", String(opacity));
+  if ($("#textOpacityRange")) $("#textOpacityRange").value = String(Math.round(opacity * 100));
+  if ($("#textOpacityValue")) $("#textOpacityValue").textContent = `${Math.round(opacity * 100)}%`;
+  return opacity;
+}
+
 function applyShowThinking(value) {
   state.showThinking = value !== false;
   $("#showThinkingToggle").checked = state.showThinking;
@@ -6952,6 +7134,29 @@ function applyCompactAutoExpand(value) {
   $("#compactAutoExpandToggle").checked = state.compactAutoExpand;
   syncCompactStatus();
   return state.compactAutoExpand;
+}
+
+function applyCollapseAfterSend(value) {
+  state.collapseAfterSend = value !== false;
+  $("#collapseAfterSendToggle").checked = state.collapseAfterSend;
+  return state.collapseAfterSend;
+}
+
+function renderReturnToAvatarButton() {
+  const button = $("#returnToAvatarButton");
+  const show = state.windowMode === "full" && Boolean(state.returnToAvatarSessionId) && state.returnToAvatarSessionId === state.selectedSessionId;
+  if (button && button.hidden === show) button.hidden = !show;
+}
+
+// Back into the avatar from a chat opened out of its recent chats. The arrow returns to the
+// panel with that chat addressed; a sent message returns to the bare avatar, where the
+// answer arrives as a notification.
+async function returnToAvatar({ panel = true } = {}) {
+  const sessionId = state.returnToAvatarSessionId;
+  state.returnToAvatarSessionId = null;
+  renderReturnToAvatarButton();
+  await setWindowMode("orb");
+  if (panel && sessionId && state.windowMode === "orb") openCompactReply(sessionId);
 }
 
 function setAutoStartStatus(text, error = false) {
@@ -7190,10 +7395,12 @@ async function hydratePreferences() {
     applyGlowIntensity(preferences.glowIntensity);
     applyFontScale(preferences.fontScale);
     confirmedBackgroundOpacity = applyBackgroundOpacity(preferences.backgroundOpacity ?? 0.9);
+    confirmedTextOpacity = applyTextOpacity(preferences.textOpacity ?? 1);
     applyShowThinking(preferences.showThinking);
     applyMotionEffects(preferences.motionEffects);
     window.deckAppearance?.apply(preferences.appearance);
     applyCompactAutoExpand(preferences.compactAutoExpand);
+    applyCollapseAfterSend(preferences.collapseAfterSend);
     syncPressed($$('#sizeSwitch button'), preferences.size, "size");
     applyPlatformCapabilities(preferences.platformCapabilities);
     applyCompactSide(preferences.compactSide || "right");
@@ -7267,12 +7474,18 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     const settingsOpen = $("#settingsPanel").classList.contains("open");
     const pickerOpen = Boolean($(".picker.open"));
+    const commandsOpen = $("#commandMenu").classList.contains("open");
     if (settingsOpen) setSettingsOpen(false);
     else if (pickerOpen) closePickers(null, { restoreFocus: true });
     setCommandMenuOpen(false);
     if (settingsOpen || pickerOpen) {
       event.preventDefault();
       event.stopPropagation();
+    } else if (!commandsOpen && !$("#returnToAvatarButton").hidden && !$("#messageInput").value.trim()) {
+      // Escape from a chat opened out of the avatar goes back to it, unless something is
+      // half written in the composer.
+      event.preventDefault();
+      returnToAvatar().catch(showError);
     }
   }
 });
@@ -7401,6 +7614,11 @@ $("#chatForm").addEventListener("submit", async (event) => {
       const submittedPaths = new Set(submittedAttachments.map((attachment) => attachment.path));
       state.pendingAttachments = state.pendingAttachments.filter((attachment) => !submittedPaths.has(attachment.path));
       renderAttachments();
+      // A chat opened from the avatar's recent chats was opened to say one thing: once it is
+      // accepted, the widget folds back into the avatar and the answer arrives there.
+      if (state.collapseAfterSend && state.windowMode === "full" && state.returnToAvatarSessionId === result.sessionId) {
+        returnToAvatar({ panel: false }).catch(() => {});
+      }
       if (stillOwnsVisibleSession) {
         showAcceptedSendState(result.sessionId, queueingBehindTurn);
         await refresh({ afterCurrent: true });
@@ -7868,6 +8086,20 @@ $("#showThinkingToggle").addEventListener("change", async (event) => {
     toggle.disabled = false;
   }
 });
+$("#collapseAfterSendToggle").addEventListener("change", async (event) => {
+  const toggle = event.currentTarget;
+  const previous = state.collapseAfterSend;
+  const requested = applyCollapseAfterSend(toggle.checked);
+  toggle.disabled = true;
+  try {
+    applyCollapseAfterSend(await window.widget.setCollapseAfterSend(requested));
+  } catch {
+    applyCollapseAfterSend(previous);
+  } finally {
+    toggle.disabled = false;
+  }
+});
+$("#returnToAvatarButton").addEventListener("click", () => returnToAvatar().catch(showError));
 $("#compactAutoExpandToggle").addEventListener("change", async (event) => {
   const toggle = event.currentTarget;
   const previous = state.compactAutoExpand;
@@ -7934,6 +8166,16 @@ $("#fontScaleRange").addEventListener("input", async (event) => {
   try { await window.widget.setFontScale(scale); }
   catch { showToast("Could not save text size", "alert"); }
 });
+$("#textOpacityRange")?.addEventListener("input", async (event) => {
+  const sequence = ++textOpacitySaveSequence;
+  const opacity = applyTextOpacity(Number(event.target.value) / 100);
+  try {
+    await window.widget.setTextOpacity(opacity);
+    if (sequence === textOpacitySaveSequence) confirmedTextOpacity = opacity;
+  } catch {
+    if (sequence === textOpacitySaveSequence) applyTextOpacity(confirmedTextOpacity);
+  }
+});
 $("#backgroundOpacityRange")?.addEventListener("input", async (event) => {
   const sequence = ++backgroundOpacitySaveSequence;
   const opacity = applyBackgroundOpacity(Number(event.target.value) / 100);
@@ -7953,14 +8195,27 @@ $("#installUpdateButton").addEventListener("click", () => runUpdateAction("insta
 $("#headerUpdateButton").addEventListener("click", () => runUpdateAction("install"));
 
 let dragDepth = 0;
+// Only files dragged in from outside are something to drop. A drag that began inside the
+// widget (text pulled out of the conversation) lit the "drop files" frame over the chat.
+const draggingFiles = (event) => [...(event.dataTransfer?.types || [])].includes("Files");
 document.addEventListener("dragenter", (event) => {
   event.preventDefault();
+  if (!draggingFiles(event)) return;
   dragDepth += 1;
   if (state.tab === "chat") $("#chatPanel").classList.add("dragging");
 });
 document.addEventListener("dragover", (event) => event.preventDefault());
+// Holding a button or a slider for a second turned into a drag of the widget's own pixels:
+// the DeepSeek logo in its button, or the label text a slider press had selected. The frame
+// that takes files lit up as if that image were being dropped back in. Only the conversation
+// and the composer hold text worth dragging into another app.
+document.addEventListener("dragstart", (event) => {
+  const node = event.target?.nodeType === Node.TEXT_NODE ? event.target.parentElement : event.target;
+  if (!node?.closest?.("#messages, #messageInput")) event.preventDefault();
+});
 document.addEventListener("dragleave", (event) => {
   event.preventDefault();
+  if (!draggingFiles(event)) return;
   dragDepth = Math.max(0, dragDepth - 1);
   if (dragDepth === 0) $("#chatPanel").classList.remove("dragging");
 });

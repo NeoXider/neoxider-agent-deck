@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { createRemoteMuxClient, REMOTE_MUX_RECONNECT_MIN, REMOTE_MUX_RECONNECT_MAX } = require("../src/remote-mux.cjs");
+const { createRemoteMuxClient, REMOTE_MUX_RECONNECT_MIN, REMOTE_MUX_RECONNECT_MAX, REMOTE_MUX_REFUSED_RETRY } = require("../src/remote-mux.cjs");
 
 function createFakeTransport() {
   const channels = [];
@@ -347,4 +347,41 @@ test("a follow untracked before its transport resolves never opens a channel", a
 test("reconnect constants are exported", () => {
   assert.equal(REMOTE_MUX_RECONNECT_MIN, 1500);
   assert.equal(REMOTE_MUX_RECONNECT_MAX, 30000);
+});
+
+// DSH accepts a follow stream, decodes the whole stored log and only then refuses it. Resetting
+// the backoff on open retried such a session every 1.5s, a full decode each time, for good.
+test("a follow that ends without delivering anything backs off, and one that delivered starts over", async () => {
+  const transport = createFakeTransport();
+  const calls = [];
+  const mux = createRemoteMuxClient({ getTransport: () => transport, sleep: async (ms) => { calls.push(ms); } });
+  mux.track("s1");
+  try {
+    await tick();
+    transport.channels.at(-1).close();
+    await tick();
+    transport.channels.at(-1).close();
+    await tick();
+    const healthy = transport.channels.at(-1);
+    healthy.onFrame({ type: "snapshot", records: [] });
+    healthy.close();
+    await tick();
+    assert.deepEqual(calls.slice(0, 3), [REMOTE_MUX_RECONNECT_MIN, REMOTE_MUX_RECONNECT_MIN * 2, REMOTE_MUX_RECONNECT_MIN]);
+  } finally { mux.stop(); }
+});
+
+test("a follow DSH refuses as corrupt is asked for again only after the long refusal wait", async () => {
+  const transport = createFakeTransport();
+  const calls = [];
+  const mux = createRemoteMuxClient({ getTransport: () => transport, sleep: (ms) => { calls.push(ms); return new Promise(() => {}); } });
+  mux.track("s1");
+  try {
+    await tick();
+    const refused = new Error('Harness session/follow: stored session "s1" is corrupt: SessionFormatError: tool/ptc-dispatch is outside an open turn');
+    for (const resolve of transport.channels[0].closedResolvers) resolve(refused);
+    await tick();
+    assert.deepEqual(calls, [REMOTE_MUX_REFUSED_RETRY]);
+    assert.ok(REMOTE_MUX_REFUSED_RETRY >= 5 * 60 * 1000, "a refused log must not be decoded again within minutes");
+    assert.equal(transport.channels.length, 1, "no second open while the refusal wait runs");
+  } finally { mux.stop(); }
 });

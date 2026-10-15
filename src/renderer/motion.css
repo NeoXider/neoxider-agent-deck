@@ -7,11 +7,12 @@
 
    The clip itself is animated as clip-path, not through a custom property: a registered
    property that inherits restyles the whole transcript on every frame. The light that rides
-   on the clip's edge is a separate childless layer that animates its own --morph-r and
-   --morph-inset with the same timing, so the two stay in step without either one paying
-   for the other. */
+   on the avatar fold's edge is a separate childless layer that animates its own --morph-r
+   with the same timing, so the two stay in step without either one paying for the other. */
 @property --morph-r { syntax:"<length>"; inherits:false; initial-value:0px; }
-@property --morph-inset { syntax:"<percentage>"; inherits:false; initial-value:0%; }
+
+/* The title-bar slime on its way to or from the avatar (flyTitleSlime in app.js). */
+.slime-flight { position:fixed; z-index:300; margin:0; object-fit:contain; pointer-events:none; transform-origin:50% 50%; will-change:transform,opacity; filter:drop-shadow(0 6px 10px rgba(0,0,0,.42)); }
 
 .mode-morph-rim { position:absolute; z-index:80; inset:0; display:none; border-radius:inherit; pointer-events:none; opacity:0; }
 
@@ -27,66 +28,77 @@
     rgba(255,255,255,.94) calc(var(--morph-r) - 1.5px),
     transparent var(--morph-r));
 }
-/* The drawer's light: one vertical bar on the clip edge, fading toward the top and bottom. */
-.mode-transition-out.mode-transition-to-edge.mode-full .mode-morph-rim,
-.mode-transition-in.mode-transition-from-edge.mode-full .mode-morph-rim {
-  display:block;
-  background:linear-gradient(var(--morph-rim-direction,90deg),
-    transparent calc(var(--morph-inset) - 1px),
-    rgba(255,255,255,.95) var(--morph-inset),
-    color-mix(in srgb,var(--chat-light-primary) 70%,transparent) calc(var(--morph-inset) + 3px),
-    color-mix(in srgb,var(--chat-light-secondary) 22%,transparent) calc(var(--morph-inset) + 26px),
-    transparent calc(var(--morph-inset) + 72px));
-  -webkit-mask-image:linear-gradient(transparent,#000 16%,#000 84%,transparent);
-  mask-image:linear-gradient(transparent,#000 16%,#000 84%,transparent);
-}
-.side-left { --morph-rim-direction:270deg; }
 
-/* Full -> avatar: the widget is drawn into one point, faster the closer it gets. */
+/* The folds move the way a window does on a Mac: the whole widget shrinks into where it is
+   going and grows back out of it, rather than being wiped away by a mask. Closing is one quick
+   curve with no bounce; opening is a spring that overshoots by a hair and settles.
+
+   --morph-x/--morph-y is the point the widget folds into (the avatar, or the middle of the
+   edge on its side). The clip radius is stated in unscaled pixels, so a 188px circle under
+   scale(.16) lands as the avatar's 30px. */
+:root {
+  --morph-close: cubic-bezier(.36,0,.12,1);
+  --morph-spring: linear(0, .209 5%, .414 10%, .592 15%, .735 20%, .843 25%, .919 30%, .97 35%, 1 40%, 1.017 45%, 1.024 50%, 1.025 55%, 1.022 60%, 1.018 65%, 1.014 70%, 1.01 75%, 1.007 80%, 1.004 85%, 1.003 90%, 1.001 95%, 1);
+}
+
+/* An unfold waits, hidden, for the grown window's first frame (see animateModeEnter). */
+.mode-transition-pending.mode-full .widget-shell { opacity:0; }
+/* The shell is its own layer before a fold starts, so each frame scales one finished texture
+   instead of painting the conversation again at every size: animating the corner radius and
+   re-rastering at each scale held the first frames of an unfold back by a quarter second. */
+:is(.mode-transition-pending,.mode-transition-in,.mode-transition-out).mode-full .widget-shell { will-change:transform,opacity; }
+
+/* Full -> avatar: the widget shrinks into the avatar, its corners rounding into the circle. */
 .mode-transition-out.mode-transition-to-orb.mode-full .widget-shell {
   transform-origin:var(--morph-x,50%) var(--morph-y,50%);
-  animation:mode-fold-orb .29s cubic-bezier(.5,0,.75,.3) both;
+  animation:mode-fold-orb .29s var(--morph-close) both;
 }
-.mode-transition-out.mode-transition-to-orb.mode-full .mode-morph-rim { animation:mode-rim-fold .29s cubic-bezier(.5,0,.75,.3) both; }
+.mode-transition-out.mode-transition-to-orb.mode-full .mode-morph-rim { animation:mode-rim-fold .29s var(--morph-close) both; }
 @keyframes mode-fold-orb {
   0% { clip-path:circle(var(--morph-cover,1000px) at var(--morph-x,50%) var(--morph-y,50%)); transform:none; opacity:1; }
-  84% { opacity:1; }
-  100% { clip-path:circle(30px at var(--morph-x,50%) var(--morph-y,50%)); transform:scale(.88); opacity:0; }
+  70% { opacity:1; }
+  100% { clip-path:circle(188px at var(--morph-x,50%) var(--morph-y,50%)); transform:scale(.16); opacity:0; }
 }
-@keyframes mode-rim-fold { 0% { --morph-r:var(--morph-cover,1000px); opacity:0; } 22% { opacity:1; } 100% { --morph-r:30px; opacity:1; } }
+@keyframes mode-rim-fold { 0% { --morph-r:var(--morph-cover,1000px); opacity:0; } 30% { opacity:.9; } 100% { --morph-r:30px; opacity:0; } }
 
-/* Avatar -> full: the widget blooms out of where the circle was. */
-.mode-transition-in.mode-transition-from-orb.mode-full .widget-shell { animation:mode-bloom-full .56s cubic-bezier(.2,.86,.16,1) both; }
+/* Avatar -> full: the widget grows out of the avatar and springs into place. */
+.mode-transition-in.mode-transition-from-orb.mode-full .widget-shell {
+  transform-origin:var(--morph-x,50%) var(--morph-y,50%);
+  animation:mode-bloom-full .56s var(--morph-spring) both,mode-bloom-fade .16s ease-out both;
+}
 .mode-transition-in.mode-transition-from-orb.mode-full .mode-morph-rim { animation:mode-rim-bloom .56s cubic-bezier(.2,.86,.16,1) both; }
 @keyframes mode-bloom-full {
-  0% { clip-path:circle(30px at var(--morph-x,50%) var(--morph-y,50%)); }
-  100% { clip-path:circle(var(--morph-cover,1000px) at var(--morph-x,50%) var(--morph-y,50%)); }
+  0% { clip-path:circle(188px at var(--morph-x,50%) var(--morph-y,50%)); transform:scale(.16); }
+  100% { clip-path:circle(var(--morph-cover,1000px) at var(--morph-x,50%) var(--morph-y,50%)); transform:none; }
 }
+@keyframes mode-bloom-fade { from { opacity:0; } 60% { opacity:1; } to { opacity:1; } }
 @keyframes mode-rim-bloom { 0% { --morph-r:30px; opacity:1; } 38% { opacity:.85; } 72%,100% { opacity:0; } 100% { --morph-r:var(--morph-cover,1000px); } }
 
-/* Full -> edge: the widget slides into the screen edge behind a line of light. */
-.mode-transition-out.mode-transition-to-edge.mode-full .widget-shell { animation:mode-retract-edge .27s cubic-bezier(.55,0,.78,.25) both; }
-.side-left.mode-transition-out.mode-transition-to-edge.mode-full .widget-shell { animation-name:mode-retract-edge-left; }
-.mode-transition-out.mode-transition-to-edge.mode-full .mode-morph-rim { animation:mode-rim-retract .27s cubic-bezier(.55,0,.78,.25) both; }
+/* Full -> edge: the widget is pulled into the middle of its screen edge, narrowing faster than
+   it shortens, the way a window is drawn into the Dock. */
+.mode-transition-out.mode-transition-to-edge.mode-full .widget-shell {
+  transform-origin:100% var(--morph-y,50%);
+  animation:mode-retract-edge .29s var(--morph-close) both;
+}
+.side-left.mode-transition-out.mode-transition-to-edge.mode-full .widget-shell { transform-origin:0 var(--morph-y,50%); }
 @keyframes mode-retract-edge {
-  0% { clip-path:inset(0 0 0 0 round var(--radius-lg)); transform:none; }
-  100% { clip-path:inset(0 0 0 100% round var(--radius-lg)); transform:translate3d(var(--mode-exit-x,12px),0,0); }
+  0% { transform:none; opacity:1; }
+  45% { transform:scale(.62,.86); }
+  70% { opacity:1; }
+  100% { transform:scale(.02,.2); opacity:0; }
 }
-@keyframes mode-retract-edge-left {
-  0% { clip-path:inset(0 0 0 0 round var(--radius-lg)); transform:none; }
-  100% { clip-path:inset(0 100% 0 0 round var(--radius-lg)); transform:translate3d(var(--mode-exit-x,-12px),0,0); }
-}
-@keyframes mode-rim-retract { 0% { --morph-inset:0%; opacity:0; } 18% { opacity:1; } 100% { --morph-inset:100%; opacity:1; } }
 
-/* Edge -> full: the drawer comes back out, its contents a beat behind the light. */
-.mode-transition-in.mode-transition-from-edge.mode-full .widget-shell { animation:mode-unfurl-edge .5s cubic-bezier(.2,.86,.16,1) both; }
-.side-left.mode-transition-in.mode-transition-from-edge.mode-full .widget-shell { animation-name:mode-unfurl-edge-left; }
-.mode-transition-in.mode-transition-from-edge.mode-full .mode-morph-rim { animation:mode-rim-unfurl .5s cubic-bezier(.2,.86,.16,1) both; }
-@keyframes mode-unfurl-edge { 0% { clip-path:inset(0 0 0 100% round var(--radius-lg)); } 100% { clip-path:inset(0 0 0 0 round var(--radius-lg)); } }
-@keyframes mode-unfurl-edge-left { 0% { clip-path:inset(0 100% 0 0 round var(--radius-lg)); } 100% { clip-path:inset(0 0 0 0 round var(--radius-lg)); } }
-@keyframes mode-rim-unfurl { 0% { --morph-inset:100%; opacity:1; } 34% { opacity:.9; } 66%,100% { opacity:0; } 100% { --morph-inset:0%; } }
-.mode-transition-in.mode-transition-from-edge.mode-full :is(.titlebar,.chat-heading,.messages,.composer) { animation-name:mode-content-slide; }
-@keyframes mode-content-slide { from { opacity:0; transform:translate3d(var(--mode-entry-x,14px),0,0); } to { opacity:1; transform:none; } }
+/* Edge -> full: the widget pours back out of the edge and springs into place. */
+.mode-transition-in.mode-transition-from-edge.mode-full .widget-shell {
+  transform-origin:100% var(--morph-y,50%);
+  animation:mode-unfurl-edge .56s var(--morph-spring) both,mode-bloom-fade .16s ease-out both;
+}
+.side-left.mode-transition-in.mode-transition-from-edge.mode-full .widget-shell { transform-origin:0 var(--morph-y,50%); }
+@keyframes mode-unfurl-edge {
+  0% { transform:scale(.02,.2); }
+  40% { transform:scale(.9,.97); }
+  100% { transform:none; }
+}
 
 /* First paint of the full widget: it opens out of the slime in the title bar (the shell's
    rule is in styles.css, next to the other first-paint entries). */
@@ -162,3 +174,78 @@
 body[data-motion="subtle"] .orb-burst, body[data-motion="subtle"] .orb-avatar::after, body[data-motion="subtle"] .edge-mode::before { animation:none !important; opacity:0 !important; }
 body[data-motion="subtle"].mode-transition-in .orb-avatar, body[data-motion="subtle"].first-visible-entry .orb-avatar { animation:mode-enter-orb .2s ease-out both; }
 body[data-motion="subtle"].mode-transition-in .edge-line, body[data-motion="subtle"].first-visible-entry .edge-line { animation:mode-enter-edge .2s ease-out both; }
+
+/* Arrivals in the conversation: a new tool call, a run that just gained one, an answer that
+   just finished. One pass of light runs around the edge and the block springs once in size.
+   The light is a masked ring on ::after, so it never touches the block's own border, and the
+   spring is a transform, so nothing below it reflows. app.js removes both after a second. */
+@property --arrive-sweep { syntax:"<angle>"; inherits:false; initial-value:0deg; }
+#messages > .arrive-pulse { position:relative; transform-origin:50% 50%; animation:arrive-spring .62s cubic-bezier(.2,.8,.25,1) var(--enter-delay,0ms) both; }
+#messages > .arrive-pulse.arrive-fresh { animation:arrive-fade .22s ease-out var(--enter-delay,0ms) both,arrive-spring .62s cubic-bezier(.2,.8,.25,1) var(--enter-delay,0ms) both; }
+#messages > .bubble.assistant.arrive-pulse { transform-origin:0 0; }
+#messages > .arrive-pulse::after { content:""; position:absolute; z-index:2; inset:-1px; padding:1.5px; border-radius:inherit; background:conic-gradient(from var(--arrive-sweep),transparent 0deg 210deg,color-mix(in srgb,var(--chat-light-secondary,var(--violet)) 55%,transparent) 290deg,var(--chat-light-primary,var(--mint)) 342deg,rgba(255,255,255,.9) 354deg,transparent 360deg); -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none; animation:arrive-sweep .92s cubic-bezier(.45,.05,.3,1) var(--enter-delay,0ms) both; }
+/* Replies are unboxed, so their ring stands a little off the text instead of hugging it. */
+#messages > .bubble.assistant.arrive-pulse::after { inset:-5px -7px; border-radius:12px; }
+@keyframes arrive-fade { from { opacity:0; } }
+@keyframes arrive-spring { 0% { transform:scale(.975); } 38% { transform:scale(1.016); } 64% { transform:scale(.996); } 82% { transform:scale(1.002); } 100% { transform:none; } }
+@keyframes arrive-sweep { 0% { --arrive-sweep:-40deg; opacity:0; } 14% { opacity:1; } 78% { opacity:1; } 100% { --arrive-sweep:340deg; opacity:0; } }
+/* Subtle movement keeps the light and drops the spring. */
+body[data-motion="subtle"] #messages > .arrive-pulse { animation:none; }
+body[data-motion="subtle"] #messages > .arrive-pulse.arrive-fresh { animation:arrive-fade .22s ease-out var(--enter-delay,0ms) both; }
+
+/* Controls answer the way they do on an iPhone: a press sinks quickly, the release springs back
+   a little past rest and settles; a menu grows out of the control that opened it and
+   overshoots by a hair; a toast drops in on a spring. The springs are linear() curves, so they
+   cost no more per frame than any other easing. Opacity always rides a plain curve beside the
+   spring: a timing function applies to every keyframe interval, so a spring cannot share a
+   keyframe list with a mid-way opacity stop. */
+:root {
+  --spring-pop: linear(0, .225 5%, .46 10%, .667 15%, .828 20%, .941 25%, 1.012 30%, 1.049 35%, 1.062 40%, 1.061 45%, 1.051 50%, 1.038 55%, 1.026 60%, 1.015 65%, 1.007 70%, 1.002 75%, .999 80%, .997 85%, .997 90%, .997 95%, 1);
+}
+button:not(.edge-mode):not(.orb-mode) { transition:transform .5s var(--spring-pop),background-color var(--dur-1) ease,border-color var(--dur-1) ease,color var(--dur-1) ease,box-shadow var(--dur-2) ease,opacity var(--dur-1) ease; }
+button:not(.edge-mode):not(.orb-mode):active { transform:scale(.92); transition-duration:.09s; transition-timing-function:cubic-bezier(.3,0,.6,1); }
+.picker-chevron, .tool-chevron { transition:transform .46s var(--spring-pop); }
+.picker.open .picker-menu { transform-origin:top center; animation:menu-fade .14s ease-out both,menu-spring .44s var(--spring-pop) both; }
+.picker.open .picker-menu.align-right, .picker.open .capture-menu { transform-origin:top right; }
+.picker.open-up .picker-menu { transform-origin:bottom center; animation-name:menu-fade,menu-spring-up; }
+@keyframes menu-fade { from { opacity:0; } }
+@keyframes menu-spring { from { transform:translateY(-8px) scale(.86); } to { transform:none; } }
+@keyframes menu-spring-up { from { transform:translateY(8px) scale(.86); } to { transform:none; } }
+.settings-panel { transform:translateY(-10px) scale(.9); transition:opacity var(--dur-2) ease,transform .5s var(--spring-pop); }
+.toast:not(.leaving) { animation:menu-fade .16s ease-out both,toast-spring .5s var(--spring-pop) both; }
+@keyframes toast-spring { from { transform:translateY(12px) scale(.9); } to { transform:none; } }
+body[data-motion="subtle"] { --spring-pop:cubic-bezier(.22,1,.36,1); }
+
+/* The slime hops when something new lands in the conversation (hopAvatar in app.js): it
+   crouches, springs up, lands with a squash and settles. */
+#avatarShell.avatar-hop, #orbRestore.avatar-hop { animation:avatar-hop .6s cubic-bezier(.3,.7,.4,1) both; }
+@keyframes avatar-hop {
+  0% { transform:none; }
+  16% { transform:translateY(1px) scale(1.12,.86); }
+  44% { transform:translateY(-7px) scale(.94,1.08); }
+  68% { transform:translateY(0) scale(1.07,.93); }
+  84% { transform:translateY(-1px) scale(.985,1.015); }
+  100% { transform:none; }
+}
+body[data-motion="subtle"] :is(#avatarShell,#orbRestore).avatar-hop { animation-duration:.4s; }
+
+/* Carrying the avatar lifts it off the desktop: it grows a little, its shadow falls away and
+   it leans into the pull (--drag-lean, from leanCompactDrag in app.js). Set down, it lands
+   with a squash, a stretch and a ring. The edge line swells and brightens while it is carried
+   and throws a halo when it is set down. */
+.mode-orb .orb-avatar { transition:transform .45s var(--spring-pop); }
+.compact-dragging.mode-orb .orb-avatar { transform:translateY(-4px) scale(1.09) rotate(var(--drag-lean,0deg)); transition:transform .22s var(--spring-pop); }
+.compact-dragging.mode-orb .orb-avatar img { filter:drop-shadow(0 16px 14px rgba(0,0,0,.5)); }
+.mode-orb .orb-avatar.orb-landing { animation:orb-landing .64s cubic-bezier(.33,1,.68,1) both; }
+.mode-orb .orb-avatar.orb-landing::after { border:2px solid var(--orb-ring-primary); box-shadow:0 0 16px 2px color-mix(in srgb,var(--orb-ring-primary) 60%,transparent); animation:orb-shockwave .62s cubic-bezier(.16,1,.3,1) .05s both; }
+@keyframes orb-landing {
+  0% { transform:translateY(-4px) scale(1.09); }
+  20% { transform:translateY(1px) scale(1.17,.83); }
+  42% { transform:translateY(-2px) scale(.93,1.08); }
+  64% { transform:scale(1.04,.97); }
+  82% { transform:scale(.99,1.01); }
+  100% { transform:none; }
+}
+.mode-edge .edge-line { transition:transform .4s var(--spring-pop),filter .25s ease; }
+.compact-dragging.mode-edge .edge-line { transform:translateY(-50%) scale(1.6,1.12); filter:brightness(1.35); transition:transform .22s var(--spring-pop),filter .2s ease; }
+.edge-mode.edge-drop .edge-line::before { animation:edge-arrive-halo .7s ease-out both; }

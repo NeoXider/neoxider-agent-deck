@@ -43,15 +43,15 @@
   --line: rgba(255, 255, 255, .09);
   --line-strong: rgba(255, 255, 255, .13);
   --line-bright: rgba(73, 231, 198, .42);
-  --text: #eceff4;
-  --text-2: #c3cad5;
-  --muted: #98a2b2;
+  --text-solid: #eceff4;
+  --text-2-solid: #c3cad5;
+  --muted-solid: #98a2b2;
   --mint: #49e7c6;
   --violet: #8b79ff;
   --danger: #ff738f;
   --warning: #f3c06b;
   /* Every dimmed label sits at 4.5:1 or better against the widget surfaces. */
-  --dim: #8b97a9;
+  --dim-solid: #8b97a9;
   --focus-ring: #7defd2;
   --control: 36px;
   /* Radius and spacing scales: 8/12/16/20 and multiples of four. */
@@ -98,6 +98,12 @@ body {
   --surface-2: color-mix(in srgb, var(--surface-2-solid) calc(var(--panel-alpha) * 100%), transparent);
   --surface-3: color-mix(in srgb, var(--surface-3-solid) calc(var(--panel-alpha) * 100%), transparent);
   --code-bg: color-mix(in srgb, var(--code-bg-solid) calc(var(--panel-alpha) * 100%), transparent);
+  /* Text has its own opacity, 100% unless the user lowers it, separate from the background's. */
+  --text-alpha: var(--panel-text-opacity, 1);
+  --text: color-mix(in srgb, var(--text-solid) calc(var(--text-alpha) * 100%), transparent);
+  --text-2: color-mix(in srgb, var(--text-2-solid) calc(var(--text-alpha) * 100%), transparent);
+  --muted: color-mix(in srgb, var(--muted-solid) calc(var(--text-alpha) * 100%), transparent);
+  --dim: color-mix(in srgb, var(--dim-solid) calc(var(--text-alpha) * 100%), transparent);
 }
 /* What floats over the conversation stays solid: a see-through menu over text is two layers
    of text and neither can be read. The compact avatar and edge stand alone on the desktop
@@ -107,6 +113,7 @@ body {
   --surface-2: var(--surface-2-solid);
   --surface-3: var(--surface-3-solid);
   --code-bg: var(--code-bg-solid);
+  --text-alpha: 1;
 }
 
 * { box-sizing: border-box; }
@@ -115,6 +122,8 @@ body { padding:0; font-size:13px; line-height:1.45; -webkit-font-smoothing:antia
 button, textarea, input, select { font:inherit; }
 button { color:inherit; }
 button, textarea, input, .no-drag { -webkit-app-region:no-drag; }
+/* The widget's own pictures (logos, icons, avatars) are not something to drag away. */
+button img, .titlebar img, .chat-heading img { -webkit-user-drag:none; }
 button:not(.edge-mode):not(.orb-mode) { transition:transform var(--dur-2) var(--ease-out),background-color var(--dur-1) ease,border-color var(--dur-1) ease,color var(--dur-1) ease,box-shadow var(--dur-2) ease,opacity var(--dur-1) ease; }
 button:not(.edge-mode):not(.orb-mode):active { transform:scale(.96); transition-duration:.08s; }
 /* Rows answer a press with their tint, not by shrinking a whole line of text. */
@@ -165,7 +174,9 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .titlebar { min-height:44px; justify-content:space-between; gap:8px; cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-user-drag:none; -webkit-app-region:no-drag; }
 .titlebar:active { cursor:grabbing; }
 .titlebar button, .titlebar a, .titlebar input, .titlebar select, .titlebar summary, .titlebar [role="tab"], .titlebar [role="menuitem"] { cursor:pointer; touch-action:auto; }
-.brand { min-width:0; flex:1 1 0; overflow:hidden; gap:10px; }
+/* Clipped with a margin: the title's own button ellipsizes it, and a hard clip here cut the
+   slime's blurred aura off in a straight line. */
+.brand { min-width:0; flex:1 1 0; overflow:clip; overflow-clip-margin:10px; gap:10px; }
 .brand *, .brand-copy-button * { user-select:none; -webkit-user-select:none; -webkit-user-drag:none; }
 .avatar-button, .brand-copy-button { flex:none; margin:0; padding:0; border:0; background:transparent; color:inherit; cursor:pointer; }
 .avatar-button { border-radius:15px; }
@@ -338,6 +349,10 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 /* The session toolbar is chrome, not content: it sits on the panel's own solid surface and a
    hairline closes it off, so the conversation always starts below it and never shows through. */
 .chat-heading { position:relative; z-index:4; display:grid; grid-template-columns:36px 36px minmax(0,1fr); gap:6px; align-items:center; width:100%; padding-bottom:8px; border-bottom:1px solid var(--line-soft); }
+/* The way back to the avatar, only for a chat opened from its recent chats. */
+.chat-heading:has(#returnToAvatarButton:not([hidden])) { grid-template-columns:36px 36px 36px minmax(0,1fr); }
+#returnToAvatarButton { color:var(--mint); }
+#returnToAvatarButton[hidden] { display:none; }
 .picker { position:relative; min-width:0; }
 .picker-button { width:100%; min-width:0; height:var(--control); display:flex; align-items:center; gap:8px; padding:0 10px; border:1px solid var(--line); border-radius:10px; background:var(--surface-1); color:var(--text); cursor:pointer; text-align:left; }
 .picker-button:hover, .picker.open .picker-button { border-color:var(--line-strong); background:var(--surface-2); }
@@ -538,7 +553,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
    the things that are not prose - your own messages, notices and failures. A row's height
    never depends on the window's width class: crossing a breakpoint while reading must not
    move every row above the anchor and slide the conversation out from under the reader. */
-.bubble { position:relative; display:flow-root; width:100%; max-width:none; margin:0 0 12px; padding:1px 2px; border-radius:var(--radius-md); background:transparent; color:#e4e8ee; font-size:14px; line-height:1.55; overflow-wrap:anywhere; }
+.bubble { position:relative; display:flow-root; width:100%; max-width:none; margin:0 0 12px; padding:1px 2px; border-radius:var(--radius-md); background:transparent; color:color-mix(in srgb,#e4e8ee calc(var(--text-alpha,1) * 100%),transparent); font-size:14px; line-height:1.55; overflow-wrap:anywhere; }
 /* Wide messages leave no exterior action gutter. Float controls inside the
    first line so short messages do not gain an invisible 24px footer. The float is a line
    tall, not a button tall: at 24px it also pushed in the second line of every answer, and
@@ -554,7 +569,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .bubble.plain, .reasoning-text.plain { white-space:pre-wrap; }
 /* Your own messages are soft bubbles hugging the right edge. Their actions wait in the room
    the bubble leaves to its left, so they never cover a word or reserve a footer. */
-.bubble.user { width:fit-content; max-width:calc(100% - 60px); margin-left:auto; margin-right:2px; padding:8px 12px; border:1px solid rgba(255,255,255,.075); border-radius:16px 16px 6px 16px; background-color:var(--surface-2); background-image:linear-gradient(135deg,color-mix(in srgb,var(--mint) 9%,transparent),color-mix(in srgb,var(--violet) 11%,transparent)); color:#f3f6fa; }
+.bubble.user { width:fit-content; max-width:calc(100% - 60px); margin-left:auto; margin-right:2px; padding:8px 12px; border:1px solid rgba(255,255,255,.075); border-radius:16px 16px 6px 16px; background-color:var(--surface-2); background-image:linear-gradient(135deg,color-mix(in srgb,var(--mint) 9%,transparent),color-mix(in srgb,var(--violet) 11%,transparent)); color:color-mix(in srgb,#f3f6fa calc(var(--text-alpha,1) * 100%),transparent); }
 .bubble.user > .bubble-actions { position:absolute; top:auto; right:calc(100% + 6px); bottom:2px; float:none; margin:0; }
 .send-receipt { display:block; clear:both; margin-top:4px; color:var(--text-2); opacity:.85; font-size:11px; text-align:right; }
 .pending-send[data-send-status="failed"] .send-receipt { color:#ff9aaf; opacity:1; }
@@ -906,6 +921,10 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .settings-head .icon-button { width:28px; height:28px; }
 .settings-panel label, .setting-block { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 2px; color:var(--text); font-size:13px; }
 .settings-panel input { accent-color:var(--mint); }
+/* A press on a slider must not select the label around it (and then drag the selection). */
+.settings-panel { user-select:none; -webkit-user-select:none; }
+.settings-panel :is(input[type="text"],input[type="search"],input[type="url"],textarea) { user-select:text; -webkit-user-select:text; }
+input[type="range"] { -webkit-user-drag:none; touch-action:none; }
 .autostart-setting > span, .toggle-setting > span { display:flex; flex-direction:column; gap:3px; }
 .autostart-setting small, .toggle-setting small { color:var(--muted); font-size:11.5px; line-height:1.35; }
 .autostart-setting small.error { color:#ff9fb2; }
@@ -993,7 +1012,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .mode-orb.state-offline { --orb-ring-primary:rgb(var(--status-offline-primary)); --orb-ring-secondary:rgb(var(--status-offline-secondary)); --orb-halo-primary:rgba(var(--status-offline-primary),.18); --orb-halo-secondary:rgba(var(--status-offline-secondary),.12); --orb-ring-opacity:.58; }
 .mode-orb.state-offline .orb-glow, .mode-orb.state-offline .orb-avatar img, .mode-orb.state-offline .orb-avatar::before { animation:none; }
 .orb-status { position:relative; z-index:1; min-width:0; width:0; height:56px; display:flex; flex-direction:column; justify-content:center; overflow:hidden; padding:0; border:0 solid var(--line-strong); border-radius:var(--radius-lg); background:var(--surface-2); color:inherit; opacity:0; transform:translateX(12px) scale(.95); transition:width .22s cubic-bezier(.22,1,.36,1),height .22s cubic-bezier(.22,1,.36,1),padding .22s ease,opacity .16s ease,transform .22s cubic-bezier(.22,1,.36,1); }
-.orb-has-status .orb-status { width:256px; padding:0 12px; border-width:1px; opacity:1; transform:none; }
+.orb-has-status .orb-status { width:196px; padding:0 12px; border-width:1px; opacity:1; transform:none; }
 .orb-has-notification .orb-status { border-color:color-mix(in srgb,var(--mint) 26%,transparent); background:color-mix(in srgb,var(--mint) 5%,var(--surface-2)); box-shadow:none; animation:orb-notification-in .34s cubic-bezier(.2,.9,.25,1.12); }
 .orb-notification-question .orb-status { border-color:color-mix(in srgb,var(--violet) 40%,transparent); background:color-mix(in srgb,var(--violet) 8%,var(--surface-2)); }
 .orb-notification-error .orb-status { border-color:rgba(255,115,143,.36); background:color-mix(in srgb,#ff738f 7%,var(--surface-2)); }
@@ -1024,7 +1043,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .orb-status-card small { margin-top:3px; color:var(--muted); font-size:11.5px; }
 /* The panel: the recent chats over a message box, as tall as what it holds up to what the
    window has room for, easing between those heights instead of keeping an empty band. */
-.orb-history-open .orb-status, .orb-reply-open .orb-status { interpolate-size:allow-keywords; width:316px; height:auto; max-height:168px; justify-content:flex-start; gap:5px; padding:5px; border-color:var(--line-strong); background:var(--surface-2); box-shadow:0 10px 28px rgba(0,0,0,.28); }
+.orb-history-open .orb-status, .orb-reply-open .orb-status { interpolate-size:allow-keywords; width:252px; height:auto; max-height:168px; justify-content:flex-start; gap:5px; padding:5px; border-color:var(--line-strong); background:var(--surface-2); box-shadow:0 10px 28px rgba(0,0,0,.28); }
 /* Three and a half rows show, so the half says there is more; the list scrolls, its last
    visible row fading until the end is reached. */
 .orb-session-list { width:100%; min-height:0; max-height:118px; flex:1 1 auto; display:grid; align-content:start; gap:2px; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; }
@@ -1205,6 +1224,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
   .icon-button { width:32px; height:32px; }
   .tabs { width:66px; height:32px; }
   .chat-heading { grid-template-columns:34px 34px minmax(0,1fr); gap:5px; padding-bottom:6px; }
+  .chat-heading:has(#returnToAvatarButton:not([hidden])) { grid-template-columns:34px 34px 34px minmax(0,1fr); }
   .context-meter { width:28px; height:17px; }
   .context-meter svg { width:15px; height:15px; }
   .picker-button { padding:0 8px; gap:6px; }

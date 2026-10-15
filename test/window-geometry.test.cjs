@@ -10,7 +10,7 @@ const {
 
 const workArea = { x: 0, y: 20, width: 1920, height: 1040 };
 const ORB = { width: 172, height: 128 };
-const ORB_PANEL = { width: 460, height: 184 };
+const ORB_PANEL = { width: 396, height: 184 };
 const EDGE = { width: 88, height: 132 };
 
 test("compact drag is clamped to the usable display", () => {
@@ -50,12 +50,12 @@ test("the visible inset follows the docked side", () => {
   assert.deepEqual(compactVisibleInset("edge", "left", EDGE), { top: 28, right: 80, bottom: 28, left: 0 });
 });
 
-// "The avatar moves to the right on its own." With the panel open the window is 460 px wide
+// "The avatar moves to the right on its own." With the panel open the window is 396 px wide
 // and the circle sits at one end of it, so a drop that plainly ended on the left half was
 // judged by a window centre still sitting on the right, and snapped back.
 test("the snapped side is decided by the circle, not by the window around it", () => {
-  // Docked left with the panel open, the circle sits at the left end of a 460 px window, so
-  // it is 166 px left of the centre the old rule measured.
+  // Docked left with the panel open, the circle sits at the left end of a 396 px window, so
+  // it is 134 px left of the centre the old rule measured.
   const panel = { ...ORB_PANEL, x: 800, y: 400 };
   const inset = compactVisibleInset("orb", "left", panel);
   const rect = compactVisibleRect(panel, inset);

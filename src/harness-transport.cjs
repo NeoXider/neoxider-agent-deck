@@ -329,12 +329,80 @@ function normalizeHarnessLaunchUrl(value, baseUrl = "http://127.0.0.1:3080") {
   return url.href;
 }
 
+// Wait for the opening frame of a channel that starts with one. Used for read-only
+// surfaces where opening a live stream is just the cheapest way to get an
+// authoritative snapshot. Workspace streams wrap theirs as {type:"baseline", value};
+// session follow streams yield the raw {type:"snapshot"} record page instead.
+function channelFirstFrame(remote, endpoint, args) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let handle = null;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { handle?.close(); } catch {}
+      reject(new Error(`Harness ${endpoint} timed out`));
+    }, 8000);
+    remote.openChannel({
+      endpoint,
+      args,
+      onFrame: (value) => {
+        if (!settled && value?.type === "baseline") {
+          settled = true;
+          clearTimeout(timer);
+          resolve(value.value ?? {});
+          try { handle?.close(); } catch {}
+        } else if (!settled && value?.type === "snapshot") {
+          settled = true;
+          clearTimeout(timer);
+          resolve(value);
+          try { handle?.close(); } catch {}
+        }
+      },
+    }).then((opened) => {
+      handle = opened;
+      if (!settled) {
+        // Frames can only arrive after the open resolves, so a channel that dies
+        // before delivering its baseline must reject instead of waiting out the timer.
+        opened.closed.then((error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(error instanceof Error ? error : new Error(`Harness ${endpoint} closed`));
+        });
+      }
+    }).catch((error) => {
+      if (!settled) { settled = true; clearTimeout(timer); reject(error); }
+    });
+  });
+}
+
+// DSH decodes and validates a session's whole stored log before it serves any of it, and
+// refuses one it cannot accept ("stored session … is corrupt", a SessionFormatError, an
+// unsupported or malformed header). Asking again cannot change the file, and every attempt
+// costs DSH a full decode of what can be tens of megabytes.
+function isStoredSessionRefusal(error) {
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return /stored (?:session|log)\b[^]*\bis corrupt\b|\bSessionFormat(?:Unsupported)?Error\b|stored log has a malformed header/i.test(message);
+}
+
+// So a refused session is asked for again only this rarely, unless it changes first.
+const STORED_SESSION_REFUSAL_RETRY_MS = 10 * 60 * 1000;
+
+function storedSessionRefusalHolds(refusal, updatedAt, now) {
+  return Boolean(refusal && refusal.updatedAt === updatedAt && now - refusal.at < STORED_SESSION_REFUSAL_RETRY_MS);
+}
+
 module.exports = {
   GATED_BODY_MARKER,
+  STORED_SESSION_REFUSAL_RETRY_MS,
+  channelFirstFrame,
   commandTimeoutMs,
   createRemoteTransport,
   detectGeneration,
   isSameHarnessOrigin,
+  isStoredSessionRefusal,
   mintBrowserCookie,
+  storedSessionRefusalHolds,
   normalizeHarnessLaunchUrl,
 };

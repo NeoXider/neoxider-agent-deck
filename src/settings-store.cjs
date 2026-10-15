@@ -6,6 +6,8 @@ const { DEFAULT_HOTKEYS, normalizeHotkeyBindings } = require("./hotkey-manager.c
 const DEFAULT_PREFERENCES = Object.freeze({
   opacity: 0.96,
   backgroundOpacity: 0.90,
+  // Text keeps its own opacity, never below a fifth so it can always be found again.
+  textOpacity: 1,
   glowIntensity: 0.82,
   fontScale: 1,
   showThinking: true,
@@ -17,6 +19,9 @@ const DEFAULT_PREFERENCES = Object.freeze({
   // every turn is what made the orb cover a slab of the screen the user never asked for,
   // so the panel is now opened by the user and this restores the old behaviour opt-in.
   compactAutoExpand: false,
+  // A chat opened from the avatar's recent chats folds back into the avatar once its
+  // message is sent.
+  collapseAfterSend: true,
   size: "standard",
   windowLayer: "above",
   compactSide: "right",
@@ -98,6 +103,7 @@ function normalizePreferences(raw = {}) {
   return {
     opacity: boundedNumber(source.opacity, DEFAULT_PREFERENCES.opacity, 0.65, 1),
     backgroundOpacity: boundedNumber(source.backgroundOpacity, DEFAULT_PREFERENCES.backgroundOpacity, 0, 1),
+    textOpacity: boundedNumber(source.textOpacity, DEFAULT_PREFERENCES.textOpacity, 0.2, 1),
     glowIntensity: boundedNumber(source.glowIntensity, DEFAULT_PREFERENCES.glowIntensity, 0, 1),
     fontScale: boundedNumber(source.fontScale, DEFAULT_PREFERENCES.fontScale, 0.85, 1.35),
     showThinking: source.showThinking !== false,
@@ -111,6 +117,7 @@ function normalizePreferences(raw = {}) {
       profiles: normalizeDesignProfiles(source.appearance?.profiles),
     },
     compactAutoExpand: source.compactAutoExpand === true,
+    collapseAfterSend: source.collapseAfterSend !== false,
     size: ["compact", "standard", "large"].includes(source.size) ? source.size : DEFAULT_PREFERENCES.size,
     windowLayer,
     compactSide,

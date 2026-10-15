@@ -4,6 +4,7 @@ const {
   createRemoteTransport,
   detectGeneration,
   isSameHarnessOrigin,
+  isStoredSessionRefusal,
   mintBrowserCookie,
   normalizeHarnessLaunchUrl,
 } = require("../src/harness-transport.cjs");
@@ -299,4 +300,17 @@ test("a socket failure rejects channel opening so callers can reconnect", async 
   sockets[0].emit("error");
   await rejected;
   assert.equal(sockets[0].closed, true);
+});
+
+test("a stored-log refusal is told apart from a transient failure", () => {
+  // The exact message DSH 0.2.1 sends when it cannot accept a session's log.
+  const corrupt = new Error('Harness session/follow: stored session "session-2af6" is corrupt: session "session-2af6": stored log is corrupt: SessionFormatError: tool/ptc-dispatch is outside an open turn');
+  assert.equal(isStoredSessionRefusal(corrupt), true);
+  assert.equal(isStoredSessionRefusal(new Error('session "s": stored log has a malformed header')), true);
+  assert.equal(isStoredSessionRefusal(new Error("SessionFormatUnsupportedError: version 9")), true);
+  assert.equal(isStoredSessionRefusal(new Error("Harness session/follow open timed out")), false);
+  assert.equal(isStoredSessionRefusal(new Error("Harness session/follow closed")), false);
+  assert.equal(isStoredSessionRefusal(new Error("temporary history outage")), false);
+  assert.equal(isStoredSessionRefusal(undefined), false);
+  assert.equal(isStoredSessionRefusal(null), false);
 });

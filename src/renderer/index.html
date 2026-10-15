@@ -108,6 +108,7 @@
 
       <section id="chatPanel" class="panel chat-panel active" role="tabpanel" aria-labelledby="chatTab">
         <div class="chat-heading no-drag">
+          <button id="returnToAvatarButton" class="ghost-button icon-only" type="button" title="Back to the avatar" aria-label="Back to the avatar" hidden><svg class="ui-icon"><use href="#icon-back"/></svg></button>
           <button id="newSessionButton" class="ghost-button icon-only" type="button" title="New session" aria-label="New session"><svg class="ui-icon"><use href="#icon-plus"/></svg></button>
           <button id="openSessionButton" class="ghost-button icon-only harness-button" type="button" title="Open current session in DeepSeek Harness" aria-label="Open current session in DeepSeek Harness" disabled><img src="assets/deepseek.svg" alt="" /></button>
             <div class="picker model-picker no-drag">
@@ -243,9 +244,11 @@
         <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>
         <label class="range-label"><span>Text size <b id="fontScaleValue">100%</b></span><input id="fontScaleRange" type="range" min="85" max="135" step="5" aria-label="Widget text size" /></label>
         <label class="range-label"><span>Background opacity <b id="backgroundOpacityValue">90%</b></span><input id="backgroundOpacityRange" type="range" min="0" max="100" step="1" /><small class="setting-hint">Panel background only; text and controls stay clear</small></label>
+        <label class="range-label"><span>Text opacity <b id="textOpacityValue">100%</b></span><input id="textOpacityRange" type="range" min="20" max="100" step="1" /></label>
         <label class="toggle-setting"><span><span>Show live activity</span><small>Thinking, tool and working status above the chat</small></span><input id="showThinkingToggle" type="checkbox" checked /></label>
         <label class="toggle-setting"><span><span>Motion effects</span><small>Aurora, easing strips, message entrances, hover and press feedback</small></span><input id="motionEffectsToggle" type="checkbox" checked /></label>
         <label class="toggle-setting"><span><span>Expand avatar on activity</span><small>Off: the orb stays a circle and counts on its button</small></span><input id="compactAutoExpandToggle" type="checkbox" /></label>
+        <label class="toggle-setting"><span><span>Back to the avatar after sending</span><small>For a chat opened from the avatar's recent chats</small></span><input id="collapseAfterSendToggle" type="checkbox" /></label>
         <div class="setting-block"><span>Size</span><div id="sizeSwitch" class="size-switch" role="group" aria-label="Widget size"><button data-size="compact" type="button" aria-pressed="false">S</button><button data-size="standard" type="button" aria-pressed="true">M</button><button data-size="large" type="button" aria-pressed="false">L</button></div></div>
         <div id="updateSettings" class="update-settings setting-block">
           <div class="update-heading"><span><b>Updates</b><small id="updateVersion">Current version</small></span><span id="updateBadge" class="update-badge" hidden>New</span></div>

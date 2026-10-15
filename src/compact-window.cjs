@@ -11,8 +11,8 @@ const { resizeCompactAnchor, restoreCompactBounds } = require("./window-state.cj
 // taller — a status line fits beside the avatar.
 const COMPACT_SIZES = {
   orb: { width: 172, height: 128 },
-  orbStatus: { width: 400, height: 128 },
-  orbPanel: { width: 460, height: 184 },
+  orbStatus: { width: 340, height: 128 },
+  orbPanel: { width: 396, height: 184 },
   // Wide enough for the edge glow to fade out; the line itself is still flush with the
   // screen edge.
   edge: { width: 88, height: 132 },
@@ -51,4 +51,28 @@ function compactTargetBounds({ mode, status = {}, saved, source, side, getWorkAr
   });
 }
 
-module.exports = { COMPACT_SIZES, compactAnchor, compactTargetBounds, compactWindowSize };
+// The compact size a window was given, read back from bounds Windows has rounded. A compact
+// window is only ever one of COMPACT_SIZES, so the closest one is the one it is meant to be.
+function nearestCompactSize(bounds) {
+  let best = COMPACT_SIZES.orb;
+  let bestDistance = Infinity;
+  for (const size of Object.values(COMPACT_SIZES)) {
+    const distance = Math.abs(size.width - Number(bounds?.width)) + Math.abs(size.height - Number(bounds?.height));
+    if (distance < bestDistance) { best = size; bestDistance = distance; }
+  }
+  return { width: best.width, height: best.height };
+}
+
+// Moves a compact window without letting it grow. Electron's setPosition re-derives the size
+// from scaled pixels on every call, so at 125% scaling the window gained a pixel or more per
+// move. Holding the avatar still made it creep right and down: each move made Chromium
+// re-fire pointermove under the unmoved cursor, which moved the window again. Restating the
+// size breaks the growth, and skipping a move that changes nothing breaks the loop.
+function placeCompactWindow(windowRef, x, y) {
+  const live = windowRef.getBounds();
+  const size = nearestCompactSize(live);
+  if (live.x === x && live.y === y && live.width === size.width && live.height === size.height) return;
+  windowRef.setBounds({ x, y, ...size }, false);
+}
+
+module.exports = { COMPACT_SIZES, compactAnchor, compactTargetBounds, compactWindowSize, nearestCompactSize, placeCompactWindow };

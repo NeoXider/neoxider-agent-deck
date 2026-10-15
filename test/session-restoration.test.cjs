@@ -84,7 +84,7 @@ function compactRestoreHarness() {
     state, clearTimeout() {}, $(selector) { return { focus() {} }; },
     setWindowMode: async () => opened.push("full"),
     selectSession: async (id) => { state.selectedSessionId = id; opened.push(id); },
-    setTab: () => opened.push("chat"), syncCompactStatus() {},
+    setTab: () => opened.push("chat"), syncCompactStatus() {}, renderReturnToAvatarButton() {},
   });
   const start = renderer.indexOf("async function openCompactSession(");
   vm.runInContext(renderer.slice(start, renderer.indexOf("function openCompactReply(", start)), context);
@@ -135,7 +135,7 @@ test("a superseded backend revision is applied before matching-revision response
     commandFeedbackFor: () => null,
     setActivity() {}, modeFromMessages: () => null,
     renderMessages(messages) { state.currentMessages = messages; },
-    paintLiveAssistant() {}, renderHistoryLoadError() {},
+    paintLiveAssistant() {}, renderHistoryLoadError() {}, renderReturnToAvatarButton() {},
     showError(error) { throw error; },
   });
   const start = renderer.indexOf("async function refreshHistory({");

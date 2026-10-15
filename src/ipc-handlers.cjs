@@ -387,6 +387,13 @@ function registerIpcHandlers({
     schedulePreferenceSave();
     return preferences.fontScale;
   });
+  handle("set-text-opacity", (_event, value) => {
+    const preferences = getPreferences();
+    const numeric = Number(value);
+    preferences.textOpacity = Number.isFinite(numeric) ? Math.max(0.2, Math.min(1, numeric)) : 1;
+    schedulePreferenceSave();
+    return preferences.textOpacity;
+  });
   handle("set-background-opacity", (_event, value) => {
     const preferences = getPreferences();
     const numeric = Number(value);
@@ -431,6 +438,12 @@ function registerIpcHandlers({
     preferences.compactAutoExpand = Boolean(value);
     schedulePreferenceSave();
     return preferences.compactAutoExpand;
+  });
+  handle("set-collapse-after-send", (_event, value) => {
+    const preferences = getPreferences();
+    preferences.collapseAfterSend = Boolean(value);
+    schedulePreferenceSave();
+    return preferences.collapseAfterSend;
   });
   handle("set-size", (_event, preset) => {
     const preferences = getPreferences();
@@ -482,12 +495,14 @@ function registerIpcHandlers({
       autoStartAvailable: autoStart.available,
       opacity: preferences.opacity,
       backgroundOpacity: preferences.backgroundOpacity,
+      textOpacity: preferences.textOpacity ?? 1,
       glowIntensity: preferences.glowIntensity,
       fontScale: preferences.fontScale,
       showThinking: preferences.showThinking !== false,
       motionEffects: preferences.motionEffects !== false,
       appearance: preferences.appearance,
       compactAutoExpand: preferences.compactAutoExpand === true,
+      collapseAfterSend: preferences.collapseAfterSend !== false,
       size: preferences.size,
       windowMode: getWindowMode(),
       compactSide: preferences.compactSide,

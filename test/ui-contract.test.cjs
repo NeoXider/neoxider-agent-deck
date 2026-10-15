@@ -450,7 +450,11 @@ test("collapsed pet exposes a scrolling list of recent sessions and inline quick
   assert.match(renderer, /recentReplySessions\(state\.dashboard\?\.sessions, COMPACT_RECENT_LIMIT\)/);
   assert.match(renderer, /const COMPACT_RECENT_LIMIT = 8;/);
   assert.match(renderer, /const badgeCount = runningCount;/);
-  assert.match(renderer, /openCompactSession\(session\.sessionId\)/);
+  // The arrow opens the chat; so does a second click on the chat already addressed. Either way
+  // the chat remembers it came from the avatar, so it can fold back into it.
+  assert.match(renderer, /openCompactSession\(session\.sessionId, \{ fromAvatar: true \}\)/);
+  assert.match(renderer, /if \(state\.compactReplyOpen && session\.sessionId === state\.compactReplySessionId\) openCompactSession\(session\.sessionId, \{ fromAvatar: true \}\)/);
+  assert.match(renderer, /if \(state\.collapseAfterSend && state\.windowMode === "full" && state\.returnToAvatarSessionId === result\.sessionId\)/);
   assert.match(renderer, /openCompactReply\(session\.sessionId\)/);
   assert.match(renderer, /await setWindowMode\("full"\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
   const quickReply = renderer.slice(renderer.indexOf("async function sendCompactReply"), renderer.indexOf("function detectCompletedSessions"));
@@ -467,8 +471,8 @@ test("collapsed pet exposes a scrolling list of recent sessions and inline quick
   assert.match(renderer, /target\.closest\("#orbStatus, #orbHistoryButton"\) \? null : target/);
   const compactWindow = readSource("src", "compact-window.cjs");
   assert.match(compactWindow, /orb: \{ width: 172, height: 128 \}/);
-  assert.match(compactWindow, /orbStatus: \{ width: 400, height: 128 \}/);
-  assert.match(compactWindow, /orbPanel: \{ width: 460, height: 184 \}/);
+  assert.match(compactWindow, /orbStatus: \{ width: 340, height: 128 \}/);
+  assert.match(compactWindow, /orbPanel: \{ width: 396, height: 184 \}/);
   assert.match(compactWindow, /edge: \{ width: 88, height: 132 \}/);
   assert.match(ipc, /preserveCompactPosition: true/);
 });
@@ -1363,7 +1367,9 @@ test("remote content can never replace the widget or open its own window", () =>
 
 test("every dimmed label and focus ring keeps a readable contrast token", () => {
   const styles = readSource("src", "renderer", "styles.css");
-  assert.match(styles, /--dim: #8b97a9;/);
+  // The readable grey is the solid token; --dim is that grey at the text opacity, 100% by default.
+  assert.match(styles, /--dim-solid: #8b97a9;/);
+  assert.match(styles, /--dim: color-mix\(in srgb, var\(--dim-solid\) calc\(var\(--text-alpha\) \* 100%\), transparent\);/);
   assert.match(styles, /--focus-ring: #7defd2;/);
   assert.match(styles, /:focus-visible \{ outline:2px solid var\(--focus-ring\); outline-offset:2px; \}/);
   // The low-contrast greys these replaced must not come back.
@@ -1704,7 +1710,7 @@ test("the transcript is reconciled by key instead of rebuilt on every change", (
   // Only newcomers slide in, and only once the log is already on screen for this session.
   // History grown by scrolling up arrives silently: eighty rows sliding in at once
   // is a wave, not a signal.
-  assert.match(body, /if \(settled && !cached && !transcriptSilentGrow\) markTranscriptEntry\(node\);/);
+  assert.match(body, /if \(settled && !cached && !transcriptSilentGrow\) \{\s*if \(key\.startsWith\("tools:"\) \|\| block\.message\?\.role === "assistant"\) markTranscriptArrival\(node, \{ fresh: !transcriptRunGrew\(key, cache\) \}\);\s*else markTranscriptEntry\(node\);/);
   const css = readSource("src", "renderer", "styles.css");
   assert.match(css, /#messages > \.enter \{ animation:transcript-enter/);
   // The bubble that streamed the answer becomes the answer, rather than vanishing and
@@ -1991,7 +1997,7 @@ test("the avatar's mood is not held hostage by old failures", () => {
   assert.match(detect, /timestamp\(session\.replyAt \?\? session\.updatedAt\) >= recent\) signalSessionError\(session\)/);
 });
 
-test("folds and unfolds aim at the compact handle and animate the clip, not an inheriting property", () => {
+test("folds and unfolds aim at the compact handle and animate the clip or a transform, not an inheriting property", () => {
   const motion = readSource("src", "renderer", "motion.css");
   assert.match(html, /<link rel="stylesheet" href="motion\.css" \/>/);
   assert.match(html, /<div class="mode-morph-rim" aria-hidden="true"><\/div>\s*<\/main>/);
@@ -1999,8 +2005,14 @@ test("folds and unfolds aim at the compact handle and animate the clip, not an i
   assert.match(motion, /@property --morph-r \{ syntax:"<length>"; inherits:false;/);
   assert.match(motion, /@keyframes mode-fold-orb \{[\s\S]*?clip-path:circle\(/);
   assert.match(motion, /@keyframes mode-bloom-full \{[\s\S]*?clip-path:circle\(/);
-  assert.match(motion, /@keyframes mode-retract-edge \{[\s\S]*?clip-path:inset\(/);
-  assert.match(motion, /@keyframes mode-unfurl-edge \{[\s\S]*?clip-path:inset\(/);
+  // The widget shrinks into where it goes and grows back out, the way a Mac window does,
+  // instead of being wiped by a mask: a scale toward the avatar, and toward the edge.
+  assert.match(motion, /@keyframes mode-fold-orb \{[\s\S]*?transform:scale\(\.16\)/);
+  assert.match(motion, /@keyframes mode-bloom-full \{[\s\S]*?transform:scale\(\.16\)/);
+  assert.match(motion, /@keyframes mode-retract-edge \{[\s\S]*?transform:scale\(\.02,\.2\)/);
+  assert.match(motion, /@keyframes mode-unfurl-edge \{[\s\S]*?transform:scale\(\.02,\.2\)/);
+  // Opening springs; the spring is a linear() curve, so it costs nothing per frame.
+  assert.match(motion, /--morph-spring: linear\(/);
   assert.doesNotMatch(motion, /@keyframes mode-(?:fold|bloom|retract|unfurl)[^{]*\{[^@]*filter:/);
   const exit = functionBody(renderer, "function animateModeExit(targetMode, requestSequence)");
   assert.match(exit, /if \(!folding\) rememberCompactAnchor\(\);/);
