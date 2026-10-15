@@ -1,6 +1,23 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { harnessNeedsAuth, startHarnessConnection } = require("../src/harness-connection.cjs");
+const { createLaunchUrlRecorder, harnessNeedsAuth, startHarnessConnection } = require("../src/harness-connection.cjs");
+
+test("a printed launch URL is saved once and drops the cookie minted from the old one", () => {
+  const preferences = { harnessLaunchUrl: "http://127.0.0.1:3080/?token=old" };
+  const actions = [];
+  const record = createLaunchUrlRecorder({
+    getPreferences: () => preferences,
+    savePreferences: () => actions.push("save"),
+    api: { resetRemoteAuth: () => actions.push("reset-auth") },
+    invalidateDashboard: () => actions.push("invalidate"),
+  });
+  assert.equal(record("http://127.0.0.1:3080/?token=new"), true);
+  assert.equal(preferences.harnessLaunchUrl, "http://127.0.0.1:3080/?token=new");
+  assert.deepEqual(actions, ["save", "reset-auth", "invalidate"]);
+  assert.equal(record("http://127.0.0.1:3080/?token=new"), false, "the same banner twice changes nothing");
+  assert.equal(record(""), false);
+  assert.equal(actions.length, 3);
+});
 
 test("authentication classification separates access failures from ordinary network failures", () => {
   for (const text of ["Harness launch URL is unknown", "token exchange returned 401", "unauthorized", "no session cookie"]) {

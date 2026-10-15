@@ -125,6 +125,7 @@ function registerIpcHandlers({
   setHotkeyRegistrationError,
   getAutoStartController,
   getHarnessLauncher,
+  getHarnessSupervisor = () => null,
   getHotkeyManager,
   getCompactHitTracker,
   getScreenshotService,
@@ -372,6 +373,10 @@ function registerIpcHandlers({
     invalidateDashboard();
     return result;
   });
+  // Crash recovery for the owned Harness. Open log takes no argument from the renderer.
+  handle("get-harness-supervisor-state", () => getHarnessSupervisor()?.getState() || null);
+  handle("restart-harness-now", () => getHarnessSupervisor()?.restartNow() || { ok: false, started: false, reason: "unavailable" });
+  handle("open-harness-log", () => getHarnessSupervisor()?.openLog() || { ok: false, error: "The Harness log is not available" });
   // Connect a foreign gated Harness with the `dsh web:` URL pasted from its
   // terminal. The URL is verified (cookie minted and one dashboard read) before
   // it is persisted, so a typo cannot lock the widget to a dead secret.

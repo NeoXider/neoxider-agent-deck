@@ -673,6 +673,28 @@ test("a captured owned launch URL is persisted on start and restart", async () =
   assert.equal(saves, 1);
 });
 
+test("crash recovery is reachable over IPC and Open log ignores whatever the renderer sends", async () => {
+  const calls = [];
+  const supervisor = {
+    getState: () => ({ status: "scheduled", exitCode: 3221225477, restartAt: 1000 }),
+    restartNow: async (...args) => { calls.push(["restartNow", args]); return { ok: true, started: true }; },
+    openLog: async (...args) => { calls.push(["openLog", args]); return { ok: true }; },
+  };
+  const { ipcMain, window } = register({ getHarnessSupervisor: () => supervisor });
+  const event = { sender: window.webContents };
+  assert.deepEqual(await ipcMain.invoke("get-harness-supervisor-state", event), { status: "scheduled", exitCode: 3221225477, restartAt: 1000 });
+  assert.deepEqual(await ipcMain.invoke("restart-harness-now", event), { ok: true, started: true });
+  assert.deepEqual(await ipcMain.invoke("open-harness-log", event, "C:\\Windows\\System32\\calc.exe"), { ok: true });
+  assert.deepEqual(calls, [["restartNow", []], ["openLog", []]], "no renderer argument reaches the supervisor");
+
+  // Without a supervisor (screenshot and smoke runs) every channel still answers.
+  const bare = register();
+  const bareEvent = { sender: bare.window.webContents };
+  assert.equal(await bare.ipcMain.invoke("get-harness-supervisor-state", bareEvent), null);
+  assert.equal((await bare.ipcMain.invoke("restart-harness-now", bareEvent)).ok, false);
+  assert.equal((await bare.ipcMain.invoke("open-harness-log", bareEvent)).ok, false);
+});
+
 test("Start reconnects to an inherited authenticated Harness without spawning or restarting it", async () => {
   let connects = 0, starts = 0, invalidations = 0;
   const { ipcMain, window } = register({

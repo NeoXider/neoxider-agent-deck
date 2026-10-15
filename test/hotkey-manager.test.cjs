@@ -4,9 +4,18 @@ const assert = require("node:assert/strict");
 const {
   HOTKEY_ACTIONS,
   createHotkeyManager,
+  hotkeyErrorView,
   normalizeAccelerator,
   normalizeHotkeyBindings,
 } = require("../src/hotkey-manager.cjs");
+
+test("a hotkey failure reaches the renderer as plain strings", () => {
+  const error = Object.assign(new Error("Ctrl+Space is taken"), { code: "hotkey-conflict", action: "showRestore", accelerator: "Ctrl+Space" });
+  assert.deepEqual(hotkeyErrorView(error), {
+    code: "hotkey-conflict", message: "Ctrl+Space is taken", action: "showRestore", conflictingAction: "", accelerator: "Ctrl+Space",
+  });
+  assert.deepEqual(hotkeyErrorView("plain"), { code: "hotkey-error", message: "plain", action: "", conflictingAction: "", accelerator: "" });
+});
 
 function disabledBindings(overrides = {}) {
   return Object.fromEntries(HOTKEY_ACTIONS.map((action) => [action, overrides[action] || false]));

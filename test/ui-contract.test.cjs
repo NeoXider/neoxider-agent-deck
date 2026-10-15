@@ -1995,6 +1995,32 @@ test("a refused Harness restart says what to do next", () => {
   assert.match(renderer, /if \(!result\?\.ok\) throw new Error\(harnessRestartFailure\(result\)\);/);
 });
 
+test("a crashed owned Harness says why it is offline and offers Restart now and Open log", () => {
+  assert.match(html, /id="harnessOpenLogButton"[^>]*hidden>Open log<\/button>/);
+  const banner = functionBody(renderer, "function harnessCrashBanner()");
+  assert.match(banner, /`Harness keeps crashing\$\{exit\}`, action: "Restart"/);
+  assert.match(banner, /`Harness stopped unexpectedly\$\{exit\} — restarting in \$\{seconds\}s…`, action: "Restart now"/);
+  assert.match(banner, /`Harness stopped unexpectedly\$\{exit\} — restarting…`, action: "Restarting…", busy: true/);
+  const render = functionBody(renderer, "function renderOfflineBanner()");
+  // Only ever an explanation of "offline", never a banner of its own over a working Harness.
+  assert.match(render, /const crash = state\.harnessOffline \? harnessCrashBanner\(\) : null;/);
+  assert.match(render, /openLogButton\.hidden = !crash && !state\.harnessStartError;/);
+  assert.match(functionBody(renderer, "async function startHarnessFromBanner()"), /if \(state\.harnessOffline && harnessCrashBanner\(\)\) \{\s+await restartHarnessNowFromBanner\(\);/);
+  assert.match(renderer, /await window\.widget\.restartHarnessNow\(\)/);
+  assert.match(renderer, /window\.widget\.openHarnessLog\(\)/);
+  assert.match(renderer, /window\.widget\.onHarnessSupervisorState\(applyHarnessSupervisorState\);/);
+  assert.match(renderer, /window\.widget\.getHarnessSupervisorState\(\)\.then\(applyHarnessSupervisorState\)/);
+  const preload = readSource("src", "preload.cjs");
+  assert.match(preload, /getHarnessSupervisorState: \(\) => ipcRenderer\.invoke\("get-harness-supervisor-state"\)/);
+  assert.match(preload, /restartHarnessNow: \(\) => ipcRenderer\.invoke\("restart-harness-now"\)/);
+  assert.match(preload, /openHarnessLog: \(\) => ipcRenderer\.invoke\("open-harness-log"\)/);
+  // The push channel main sends on must be the one the preload listens to.
+  assert.match(preload, /onHarnessSupervisorState: \(listener\) => ipcRenderer\.on\("harness-supervisor-state"/);
+  assert.match(main, /onState: \(value\) => sendToRenderer\("harness-supervisor-state", value\)/);
+  assert.match(main, /harnessSupervisor\?\.dispose\(\);\n  harnessLauncher\?\.dispose\(\);/);
+  assert.match(ipc, /handle\("open-harness-log", \(\) => getHarnessSupervisor\(\)\?\.openLog\(\)/);
+});
+
 test("the visual runner forgives one flaky frame, loudly, and never a repeatable failure", () => {
   const runner = readSource("scripts", "ui-visual-smoke.cjs");
   // A case is booted and photographed on a timer, so a loaded machine can capture it before
