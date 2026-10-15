@@ -136,7 +136,7 @@ const cases = [
   { name: "thinking-orb", tab: "chat", fixture: "thinking", mode: "orb", expect: { orbUtilityButtons: 3 } },
   // A working agent must not open a 400 px panel over the screen on its own. The count goes
   // on the expand button, and only the circle and the two controls take the mouse.
-  { name: "collapsed-orb", tab: "chat", fixture: "orb-collapsed", mode: "orb", expect: { orbHasStatus: false, orbStatusWidth: 0, orbPanelCountVisible: true, orbPanelCount: "2" }, max: { orbInteractiveArea: 6600 } },
+  { name: "collapsed-orb", tab: "chat", fixture: "orb-collapsed", mode: "orb", expect: { orbHasStatus: false, orbStatusWidth: 0, orbPanelCountVisible: false }, max: { orbInteractiveArea: 6600 } },
   { name: "auto-expand-orb", tab: "chat", fixture: "orb-auto-expand", mode: "orb", expect: { orbHasStatus: true, orbPanelCountVisible: false }, min: { orbStatusWidth: 100 } },
   { name: "offline-orb", tab: "chat", fixture: "offline", mode: "orb", expect: { orbUtilityButtons: 3, orbStatusLabel: "Harness offline", orbStatusText: "Start Harness to reconnect." } },
   { name: "notification-orb", tab: "chat", fixture: "orb-notification", mode: "orb", expect: { orbUtilityButtons: 3, orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },

@@ -9182,6 +9182,9 @@ if (screenshotFixture) {
       applyCompactAutoExpand(true);
       setAvatar("working", "working");
       setActivity({ active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" });
+      // Status on: a message the agent writes slides out beside the avatar.
+      state.windowMode = "orb";
+      announceAssistantMessage("demo-auto", { content: [{ type: "text", text: "Found the failing test; patching the parser now." }] });
       syncCompactStatus();
     } else if (screenshotFixture === "session-times") {
       setTab("agents");
