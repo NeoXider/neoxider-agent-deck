@@ -92,7 +92,7 @@ function harness() {
     const TRANSCRIPT_PROGRAMMATIC_SCROLL_MS = 250;
     let transcriptSilentGrow = false;
     let transcriptPreviewCache = { source: [], messages: [] };
-    ${["transcriptWindow", "transcriptAtLatest", "transcriptHiddenNewerCount", "transcriptArrivedCount", "jumpToLatestTranscript", "growTranscriptWindowUp", "growTranscriptWindowDown", "settleTranscriptScroll", "maybeGrowTranscriptWindow", "transcriptSpacer", "transcriptWindowEdge", "rememberTranscriptRowHeights", "visibleMessagePreviews", "boundedMessagePreviews", "messagePreviewBytes", "messageSignature", "messageBlockKey", "transcriptCache", "commandResultName", "renderMessages", "releaseMessageScrollPin", "captureTranscriptAnchor", "restoreTranscriptAnchor", "rememberTranscriptReadingPosition"].map(declaration).join("\n")}
+    ${["transcriptWindow", "transcriptAtLatest", "transcriptFollowing", "transcriptReaderAtFoot", "messagesNearBottom", "noteTranscriptSeen", "observeTranscriptRows", "transcriptHiddenNewerCount", "transcriptArrivedCount", "jumpToLatestTranscript", "growTranscriptWindowUp", "growTranscriptWindowDown", "settleTranscriptScroll", "maybeGrowTranscriptWindow", "transcriptSpacer", "transcriptWindowEdge", "rememberTranscriptRowHeights", "visibleMessagePreviews", "boundedMessagePreviews", "messagePreviewBytes", "messageSignature", "messageBlockKey", "transcriptCache", "commandResultName", "renderMessages", "releaseMessageScrollPin", "captureTranscriptAnchor", "restoreTranscriptAnchor", "rememberTranscriptReadingPosition"].map(declaration).join("\n")}
   `, context);
   return { context, root, state, builds: () => builds, run: code => vm.runInContext(code, context) };
 }
@@ -330,6 +330,60 @@ test("scrolling back down grows the window towards the newest message", () => {
   assert.equal(app.run("transcriptHiddenNewerCount()"), 0);
   // At the newest message there is nothing further to grow into.
   assert.equal(app.run("growTranscriptWindowDown()"), false);
+});
+
+// The v0.9.23 report: a reader sitting at the newest message, the follow flag lowered by
+// something that was not their hand, and 91 arrivals frozen behind a spacer under one row.
+test("arrivals reach a reader at the foot of the newest message whatever lowered the flag", () => {
+  const app = harness();
+  app.state.windowMode = "full";
+  app.root.clientWidth = 400;
+  app.state.currentMessages = Array.from({ length: 500 }, (_, seq) => ({ role: "user", text: `${seq}`, seq: seq + 1 }));
+  app.run("renderMessages(state.currentMessages)");
+  assert.equal(app.run("messagesNearBottom(root)"), true, "the render left the reader at the foot");
+  app.state.messagesStickToBottom = false;
+  for (let seq = 501; seq <= 591; seq += 1) app.state.currentMessages.push({ role: "assistant", text: `${seq}`, seq });
+  app.run("renderMessages(state.currentMessages)");
+  assert.equal(app.run("transcriptViewEnd"), 591, "the window slides with the arrivals instead of freezing");
+  assert.equal(app.run("transcriptHiddenNewerCount()"), 0);
+  assert.equal(app.state.messagesStickToBottom, true, "following continues");
+  assert.equal(app.run("transcriptArrivedCount()"), 0, "nothing is unread below a follower");
+  assert.equal(app.root.scrollTop, app.root.scrollHeight);
+});
+
+test("a reader who scrolled up keeps the window, and arrivals stay new until they are on screen", () => {
+  const app = harness();
+  app.state.windowMode = "full";
+  app.root.clientWidth = 400;
+  app.state.currentMessages = Array.from({ length: 500 }, (_, seq) => ({ role: "user", text: `${seq}`, seq: seq + 1 }));
+  app.run("renderMessages(state.currentMessages)");
+  // A deliberate scroll up: away from the foot, flag lowered by the hand.
+  app.state.messagesStickToBottom = false;
+  app.root.scrollTop = 200;
+  for (let seq = 501; seq <= 591; seq += 1) app.state.currentMessages.push({ role: "assistant", text: `${seq}`, seq });
+  app.run("renderMessages(state.currentMessages)");
+  assert.equal(app.run("transcriptViewEnd"), 500, "the text being read does not move");
+  assert.equal(app.state.messagesStickToBottom, false);
+  assert.equal(app.run("transcriptArrivedCount()"), 91);
+  // Filling the viewport materializes the arrivals below the reader. Being in the DOM is
+  // not being read: the count used to drop to zero the moment the window reached them.
+  app.run("growTranscriptWindowDown()");
+  app.run("growTranscriptWindowDown()");
+  assert.equal(app.run("transcriptHiddenNewerCount()"), 0);
+  assert.equal(app.run("transcriptArrivedCount()"), 91);
+  app.run("jumpToLatestTranscript()");
+  assert.equal(app.run("transcriptArrivedCount()"), 0);
+});
+
+test("a window too short for the viewport grows up under a follower without unloading the newest rows", () => {
+  const app = harness();
+  app.state.currentMessages = Array.from({ length: 1000 }, (_, seq) => ({ role: "user", text: `${seq}`, seq: seq + 1 }));
+  app.run("renderMessages(state.currentMessages)");
+  for (let grown = 0; grown < 6; grown += 1) app.run("growTranscriptWindowUp(true)");
+  assert.equal(app.run("transcriptViewEnd"), 1000, "the newest rows stay materialized");
+  assert.equal(app.run("transcriptViewStart"), 680, "the DOM cap is paid from the top");
+  assert.equal(app.state.messagesStickToBottom, true, "following is untouched");
+  assert.equal(app.run("growTranscriptWindowUp(true)"), false, "a full window has nothing left to grow");
 });
 
 test("only messages that arrived while away count as new", () => {

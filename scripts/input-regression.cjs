@@ -1768,11 +1768,15 @@ async function main() {
     updateScrollLatestButton();
     messages.dispatchEvent(new Event("scroll"));
     const during = { hidden: document.querySelector("#scrollLatestButton").hidden, pinned: state.messagesStickToBottom };
+    // The glide ends short of the foot here, as when rows formatted or arrived during the
+    // flight. No hand interrupted it (that cancels the glide before it finishes), so it
+    // lands on the newest message and keeps following instead of offering the pill again.
     finishScrollLatestAutoScroll();
-    return { during, afterHidden: document.querySelector("#scrollLatestButton").hidden };
+    return { during, afterHidden: document.querySelector("#scrollLatestButton").hidden,
+      landed: messagesNearBottom(messages) && state.messagesStickToBottom };
   })()`);
-  if (!latestAutoScroll.during.hidden || !latestAutoScroll.during.pinned || latestAutoScroll.afterHidden) {
-    failures.push(`Latest button flickered during its own smooth scroll: ${JSON.stringify(latestAutoScroll)}`);
+  if (!latestAutoScroll.during.hidden || !latestAutoScroll.during.pinned || !latestAutoScroll.afterHidden || !latestAutoScroll.landed) {
+    failures.push(`Latest button flickered during its own smooth scroll or the glide did not land: ${JSON.stringify(latestAutoScroll)}`);
   }
 
   const sentBeforePaste = sentPayloads.length;

@@ -243,15 +243,17 @@ function restoreMessageLayoutSnapshot(snapshot) {
     return;
   }
   if (snapshot.pinned) {
-    snapshot.root.scrollTop = snapshot.root.scrollHeight;
+    settleTranscriptScroll(snapshot.root, snapshot.root.scrollHeight);
     state.messagesStickToBottom = true;
     state.unseenMessages = 0;
   } else {
-    snapshot.root.scrollTop = Math.min(snapshot.scrollTop, Math.max(0, snapshot.root.scrollHeight - snapshot.root.clientHeight));
-    state.messagesStickToBottom = messagesNearBottom(snapshot.root);
+    settleTranscriptScroll(snapshot.root, Math.min(snapshot.scrollTop, Math.max(0, snapshot.root.scrollHeight - snapshot.root.clientHeight)));
+    // The foot of a spacer is not the foot of the conversation.
+    state.messagesStickToBottom = messagesNearBottom(snapshot.root) && transcriptAtLatest();
     if (state.messagesStickToBottom) state.unseenMessages = 0;
   }
   updateScrollLatestButton();
+  scheduleTranscriptViewportRepair();
 }
 
 function restoreMessageInputViewport(input, snapshot) {
@@ -3410,14 +3412,23 @@ function updateScrollLatestButton() {
   return true;
 }
 
+// The glide was aimed at the foot it saw when the pill was pressed. Rows that formatted,
+// decoded or arrived during the flight moved that foot, and the glide landing short of it
+// used to lower the follow flag for a reader who had just asked for the latest. Nothing
+// but a hand interrupts the glide (wheel, pointer and keys cancel it before this runs), so
+// it ends at the newest message, following it.
 function finishScrollLatestAutoScroll() {
   clearTimeout(state.scrollLatestAutoScrollTimer);
   state.scrollLatestAutoScrollTimer = null;
   state.scrollLatestAutoScrolling = false;
-  const nearBottom = messagesNearBottom();
+  const root = $("#messages");
+  if (state.messagesStickToBottom && transcriptAtLatest() && !messagesNearBottom(root)) settleTranscriptScroll(root, root.scrollHeight);
+  const nearBottom = messagesNearBottom(root) && transcriptAtLatest();
   state.messagesStickToBottom = nearBottom;
   if (nearBottom) state.unseenMessages = 0;
+  noteTranscriptSeen(root);
   updateScrollLatestButton();
+  scheduleTranscriptViewportRepair();
 }
 
 function animateScrollLatestCompletion(sessionId) {
@@ -3891,20 +3902,23 @@ function syncLiveBubbleContent(root) {
 function paintLiveAssistant() {
   const root = $("#messages");
   const previousTop = root.scrollTop;
-  const wasPinned = state.messagesStickToBottom;
+  const wasPinned = transcriptAtLatest() && (state.messagesStickToBottom || transcriptReaderAtFoot(root));
   const liveChanged = syncLiveBubbleContent(root);
   if (!liveChanged) return false;
   // A mark the caller just clicked outranks the offset captured before this repaint. The
   // live stream repaints on every poll, and writing scrollTop back also cancels a smooth
   // scroll mid-flight - which is precisely the mark press that "did nothing" while the
   // agent was answering.
+  // These are corrections, not a hand: settleTranscriptScroll marks them as the log's own,
+  // so the scroll they fire does not grow the window or reconsider following.
   if (applyMessageScrollPin()) {
     if (liveChanged) state.unseenMessages = 1;
   } else if (wasPinned) {
-    root.scrollTop = root.scrollHeight;
+    state.messagesStickToBottom = true;
+    settleTranscriptScroll(root, root.scrollHeight);
     state.unseenMessages = 0;
   } else {
-    root.scrollTop = Math.min(previousTop, Math.max(0, root.scrollHeight - root.clientHeight));
+    settleTranscriptScroll(root, Math.min(previousTop, Math.max(0, root.scrollHeight - root.clientHeight)));
     if (liveChanged) state.unseenMessages = 1;
   }
   syncActivityCard();
@@ -4125,6 +4139,11 @@ const TRANSCRIPT_PROGRAMMATIC_SCROLL_MS = 250;
 let transcriptUserScrollIntentUntil = 0;
 let transcriptUserPointerActive = false;
 let transcriptViewportRepairFrame = 0;
+let transcriptFilling = false;
+let transcriptFillStall = "";
+let transcriptLastScrollTop = 0;
+let transcriptRowObserver = null;
+let transcriptObservedRows = new Set();
 
 // A grow restores the reading position with a programmatic scroll, and that scroll fires the
 // same event a hand does. When the rows that materialized were shorter than the spacer they
@@ -4152,17 +4171,24 @@ function visibleMessagePreviews(messages, start, end) {
 // half-open [start, end) over the full message list, tool runs never cut.
 function transcriptWindow(total) {
   let recovered = false;
+  let refollowed = false;
   if (transcriptViewSessionId !== state.selectedSessionId) {
     transcriptViewSessionId = state.selectedSessionId;
     transcriptViewStart = Math.max(0, total - TRANSCRIPT_WINDOW_INITIAL);
     transcriptViewEnd = total;
     transcriptViewTotal = total;
-    transcriptSeenTotal = 0;
+    transcriptSeenTotal = total;
     transcriptAverageRowHeight = TRANSCRIPT_ROW_ESTIMATE_PX;
   } else if (total !== transcriptViewTotal) {
     const previousTotal = transcriptViewTotal;
     transcriptViewTotal = total;
     if (total > previousTotal && transcriptViewEnd >= previousTotal) {
+      // The window held the newest message, so a reader at its foot is following it
+      // whatever lowered the flag. See transcriptReaderAtFoot.
+      if (!state.messagesStickToBottom && transcriptReaderAtFoot($("#messages"))) {
+        state.messagesStickToBottom = true;
+        refollowed = true;
+      }
       if (state.messagesStickToBottom) {
         // Following the bottom: slide the window with the arrivals so the DOM
         // stays bounded instead of growing by one row per message.
@@ -4200,13 +4226,57 @@ function transcriptWindow(total) {
   while (end < total && messages[end - 1]?.role === "tool" && messages[end]?.role === "tool") end += 1;
   transcriptViewStart = start;
   transcriptViewEnd = end;
-  if (end === total) transcriptSeenTotal = total;
-  return { start, end, total, latest: end === total, recovered };
+  // Reaching the newest message is not reading it. Rows materialized below a reader who
+  // scrolled away stay unread until they are on screen; see noteTranscriptSeen.
+  transcriptSeenTotal = Math.min(transcriptSeenTotal, total);
+  if (end === total && state.messagesStickToBottom) transcriptSeenTotal = total;
+  return { start, end, total, latest: end === total, recovered, refollowed };
 }
 
 function transcriptAtLatest() {
   return transcriptViewSessionId === state.selectedSessionId
     && transcriptViewEnd >= state.currentMessages.length;
+}
+
+function transcriptFollowing() {
+  return state.messagesStickToBottom && transcriptAtLatest();
+}
+
+// The flag is only a record of the reader's intent, and several things that are not a
+// reader used to lower it: a growth of a short window, a scrollbar seek misreading a long
+// streaming answer as a spacer, a jump glide that landed short of a foot that had moved.
+// Arrivals then froze the window behind a spacer for someone still sitting at the newest
+// message. Only a deliberate scroll up pauses following, so a reader whose viewport is at
+// the foot of the log - the same 44px the scroll handler uses - is following it, provided
+// the caller knows the window holds the newest message.
+function transcriptReaderAtFoot(root) {
+  return state.windowMode === "full" && !state.transcriptModeRestore && !activeMessageScrollPin()
+    && root?.clientHeight > 0 && root.clientWidth >= 250 && messagesNearBottom(root);
+}
+
+// The pill counts what arrived below the reading position, so "seen" advances with what has
+// actually been on screen: everything when following, otherwise every message before the
+// first row that is still below the viewport.
+function noteTranscriptSeen(root) {
+  if (transcriptViewSessionId !== state.selectedSessionId) return;
+  const total = state.currentMessages.length;
+  if (transcriptFollowing()) {
+    transcriptSeenTotal = total;
+    return;
+  }
+  if (!root?.clientHeight || typeof root.getBoundingClientRect !== "function") return;
+  const bottom = root.getBoundingClientRect().bottom;
+  const rows = [...root.children].filter(node => node.dataset.transcriptKey);
+  let low = 0;
+  let high = rows.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (rows[middle].getBoundingClientRect().top < bottom - 0.5) low = middle + 1;
+    else high = middle;
+  }
+  if (!low) return;
+  const seen = low < rows.length ? Number(rows[low].dataset.vmsg) : transcriptViewEnd;
+  if (Number.isFinite(seen)) transcriptSeenTotal = Math.min(total, Math.max(transcriptSeenTotal, seen));
 }
 
 function transcriptHiddenNewerCount() {
@@ -4217,9 +4287,11 @@ function transcriptHiddenNewerCount() {
 // The part of the hidden rows that actually arrived while the user was away from the
 // newest message. Counting every hidden row instead labelled a scrolled-away history
 // "160 new" with nothing new in it, and did the same after every jump to an old message.
+// Rows that arrived and were materialized below the viewport are still unread, so the
+// window's end is no longer part of this: filling the viewport must not zero the count.
 function transcriptArrivedCount() {
   if (transcriptViewSessionId !== state.selectedSessionId) return 0;
-  return Math.max(0, state.currentMessages.length - Math.max(transcriptSeenTotal, transcriptViewEnd));
+  return Math.max(0, state.currentMessages.length - transcriptSeenTotal);
 }
 
 function jumpToLatestTranscript() {
@@ -4234,20 +4306,26 @@ function jumpToLatestTranscript() {
   state.messagesStickToBottom = true;
   state.unseenMessages = 0;
   renderMessages(state.currentMessages);
-  $("#messages").scrollTop = $("#messages").scrollHeight;
+  settleTranscriptScroll($("#messages"), $("#messages").scrollHeight);
 }
 
 // Scrolling up towards the top edge materializes the next older chunk above
 // the reading position. The added height is restored under the viewport, so
 // the message being read does not move.
-function growTranscriptWindowUp() {
+// A window shorter than the viewport also grows up to cover it, and a follower is
+// watching the newest rows: keepFollowing pays the DOM cap from the top instead of
+// unloading those, and leaves the follow flag alone.
+function growTranscriptWindowUp(keepFollowing = false) {
   const root = $("#messages");
   if (!root || transcriptViewSessionId !== state.selectedSessionId || transcriptViewStart <= 0) return false;
-  transcriptViewStart = Math.max(0, transcriptViewStart - TRANSCRIPT_WINDOW_GROW);
+  const start = Math.max(0, transcriptViewStart - TRANSCRIPT_WINDOW_GROW,
+    keepFollowing ? transcriptViewEnd - TRANSCRIPT_WINDOW_MAX : 0);
+  if (start >= transcriptViewStart) return false;
+  transcriptViewStart = start;
   if (transcriptViewEnd - transcriptViewStart > TRANSCRIPT_WINDOW_MAX) {
     transcriptViewEnd = transcriptViewStart + TRANSCRIPT_WINDOW_MAX;
   }
-  state.messagesStickToBottom = false;
+  if (!keepFollowing) state.messagesStickToBottom = false;
   transcriptSilentGrow = true;
   try {
     renderMessages(state.currentMessages);
@@ -4284,18 +4362,24 @@ function growTranscriptWindowDown() {
 
 // Capture a real visible row, including tool groups. An index alone is not
 // enough when a history refresh inserts entries ahead of the viewport.
+// A long streaming answer or a spacer can fill the whole viewport with no keyed row in it.
+// The last keyed row above the viewport still pins everything after it, so growth on
+// either side cannot move what is on screen.
 function captureTranscriptAnchor(root) {
   if (typeof root.getBoundingClientRect !== "function") return null;
   const viewport = root.getBoundingClientRect();
   const scale = root.clientHeight > 0 && viewport.height > 0 ? viewport.height / root.clientHeight : 1;
+  let above = null;
   for (const node of root.children) {
     if (!node.dataset.transcriptKey) continue;
     const rect = node.getBoundingClientRect();
     if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
       return { key: node.dataset.transcriptKey, offset: (rect.top - viewport.top) / scale };
     }
+    if (rect.bottom <= viewport.top) above = { key: node.dataset.transcriptKey, offset: (rect.top - viewport.top) / scale };
+    else break;
   }
-  return null;
+  return above;
 }
 
 function restoreTranscriptAnchor(root, anchor) {
@@ -4424,24 +4508,69 @@ function restoreTranscriptAfterModeChange() {
   requestAnimationFrame(frame);
 }
 
+// Called after every render, resize, row resize, scroll and mode change. A frame, not a
+// synchronous pass: the rows a render just built are measured once layout settles, and
+// the fill still lands before that frame is painted.
 function scheduleTranscriptViewportRepair() {
-  if (transcriptViewportRepairFrame) return;
+  if (transcriptViewportRepairFrame || transcriptFilling) return;
   transcriptViewportRepairFrame = requestAnimationFrame(() => {
     transcriptViewportRepairFrame = 0;
-    const root = $("#messages");
-    if (state.windowMode !== "full" || state.transcriptModeRestore
-      || !root?.clientHeight || root.clientWidth < 250 || !state.currentMessages.length) return;
-    const viewport = root.getBoundingClientRect();
-    const rows = [...root.children].filter(node => node.dataset.transcriptKey);
-    if (!rows.length || rows.some(node => {
-      const rect = node.getBoundingClientRect();
-      return rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom;
-    })) return;
-    // A layout/anchor correction may land inside a virtual spacer. Its own
-    // scroll event is rightly ignored, but the blank viewport must not persist
-    // until the user scrolls again. Repair only when no real row is visible.
-    maybeGrowTranscriptWindow(true);
+    fillTranscriptViewport();
   });
+}
+
+// The viewport shows rows, never a spacer.
+//
+// Rows outside the window were only materialized by a hand scrolling towards them, and the
+// repair acted only when no row at all was visible. Anything else that moved a spacer into
+// view left it there: arrivals frozen below a reader, a window grown taller, a banner or
+// the composer easing shut, a tool card folding up, the live answer giving way to history
+// that had not been loaded. One row at the top, a screen of blank under it and "91 new" on
+// the pill stayed until the next wheel tick. Now whichever spacer shows is replaced by the
+// rows that belong there, anchored on the row being read so the text does not move. When a
+// full window still cannot cover the viewport, the pass stops at that geometry instead of
+// trading rows between the two edges every frame.
+function fillTranscriptViewport() {
+  const root = $("#messages");
+  if (transcriptGrowing || transcriptFilling || state.windowMode !== "full" || state.transcriptModeRestore
+    || state.scrollLatestAutoScrolling || activeMessageScrollPin()
+    || !root?.clientHeight || root.clientWidth < 250 || !state.currentMessages.length
+    || transcriptViewSessionId !== state.selectedSessionId) return false;
+  const geometry = () => [state.selectedSessionId, transcriptViewStart, transcriptViewEnd, state.currentMessages.length,
+    Math.round(root.scrollTop), root.clientHeight, root.scrollHeight].join(":");
+  let grew = false;
+  transcriptFilling = true;
+  try {
+    for (let pass = 0; pass < 8; pass += 1) {
+      const before = geometry();
+      if (before === transcriptFillStall) break;
+      const viewport = root.getBoundingClientRect();
+      const shows = (node, rect = node.getBoundingClientRect()) => rect.height > 0 && rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1;
+      const spacer = node => node?.classList.contains("transcript-spacer") && shows(node);
+      const newer = transcriptViewEnd < state.currentMessages.length && spacer(root.lastElementChild);
+      const older = transcriptViewStart > 0 && spacer(root.firstElementChild);
+      if (!newer && !older) break;
+      if (newer && older && transcriptViewEnd - transcriptViewStart >= TRANSCRIPT_WINDOW_MAX) {
+        transcriptFillStall = before;
+        break;
+      }
+      // A layout or anchor correction may land wholly inside a spacer: seek its destination.
+      const rows = [...root.children].filter(node => node.dataset.transcriptKey);
+      if (!rows.some(node => shows(node))) maybeGrowTranscriptWindow(true);
+      else if (newer) growTranscriptWindowDown();
+      else growTranscriptWindowUp(transcriptFollowing());
+      if (geometry() === before) {
+        transcriptFillStall = before;
+        break;
+      }
+      grew = true;
+    }
+  } finally {
+    transcriptFilling = false;
+  }
+  noteTranscriptSeen(root);
+  updateScrollLatestButton();
+  return grew;
 }
 
 function maybeGrowTranscriptWindow(repairBlankViewport = false) {
@@ -4458,7 +4587,12 @@ function maybeGrowTranscriptWindow(repairBlankViewport = false) {
   const viewport = root.getBoundingClientRect();
   const first = rows[0].getBoundingClientRect();
   const last = rows[rows.length - 1].getBoundingClientRect();
-  const towardsOlder = first.top > viewport.top - TRANSCRIPT_TOP_LOAD_PX && transcriptViewStart > 0;
+  const total = state.currentMessages.length;
+  // A follower sits at the newest message. A short window - reasoning renders nothing and
+  // a tool run folds into one row - put the top edge within reach of every scroll there,
+  // including the ones the live answer and the resize observer make, and growing up
+  // dropped the follow flag for a reader who never moved.
+  const towardsOlder = !transcriptFollowing() && first.top > viewport.top - TRANSCRIPT_TOP_LOAD_PX && transcriptViewStart > 0;
   const towardsNewer = !towardsOlder && last.bottom < viewport.bottom + TRANSCRIPT_TOP_LOAD_PX
     && transcriptViewEnd < state.currentMessages.length;
   if (!towardsOlder && !towardsNewer) return;
@@ -4466,12 +4600,15 @@ function maybeGrowTranscriptWindow(repairBlankViewport = false) {
   try {
     // A scrollbar drag can skip thousands of rows. Materialize that destination
     // directly instead of leaving the viewport in a spacer until the next scroll.
-    if (first.top > viewport.bottom || last.bottom < viewport.top) {
+    // Only a spacer is such a place. Below the newest row sit the live answer, the
+    // pending sends and the steering notes: a long streaming answer filled the viewport
+    // with no keyed row in it, and the seek read that as a spacer, dropped the follow flag
+    // and snapped back to the last tool row - the blank band of the report.
+    if ((first.top > viewport.bottom && transcriptViewStart > 0) || (last.bottom < viewport.top && transcriptViewEnd < total)) {
       const average = Math.max(8, transcriptAverageRowHeight);
       const index = first.top > viewport.bottom
         ? Math.floor(root.scrollTop / average)
         : transcriptViewEnd + Math.floor((viewport.top - last.bottom) / average);
-      const total = state.currentMessages.length;
       const target = Math.max(0, Math.min(total - 1, index));
       transcriptViewStart = Math.max(0, target - TRANSCRIPT_WINDOW_GROW);
       transcriptViewEnd = Math.min(total, transcriptViewStart + TRANSCRIPT_WINDOW_MAX);
@@ -4502,6 +4639,30 @@ function transcriptWindowEdge(text) {
   edge.setAttribute("aria-hidden", "true");
   edge.textContent = text;
   return edge;
+}
+
+// Rows change height after they are built: markdown formats, images decode, a tool card
+// opens or folds shut. The log's own box stays the same size, so the observer on #messages
+// never hears of it - a card folding up pulled the bottom spacer into view with nothing to
+// replace it, and a follower's foot slid out of view until the next render. Only rows of
+// the current window are observed; the ones a render drops are released.
+function observeTranscriptRows(nodes) {
+  if (typeof ResizeObserver !== "function") return;
+  transcriptRowObserver ||= new ResizeObserver(transcriptRowsResized);
+  const current = new Set(nodes);
+  for (const node of transcriptObservedRows) if (!current.has(node)) transcriptRowObserver.unobserve(node);
+  for (const node of current) if (!transcriptObservedRows.has(node)) transcriptRowObserver.observe(node);
+  transcriptObservedRows = current;
+}
+
+function transcriptRowsResized() {
+  const root = $("#messages");
+  if (!root?.clientHeight || root.clientWidth < 250 || state.windowMode !== "full" || state.transcriptModeRestore
+    || state.scrollLatestAutoScrolling || activeMessageScrollPin()) return;
+  // A hand dragging a selection or the scrollbar owns the scroll until it lets go.
+  if (transcriptFollowing() && !transcriptUserPointerActive
+    && root.scrollHeight - root.scrollTop - root.clientHeight > 1) settleTranscriptScroll(root, root.scrollHeight);
+  scheduleTranscriptViewportRepair();
 }
 
 // The average rendered row keeps both spacers honest without measuring every
@@ -4780,7 +4941,7 @@ function renderMessages(messages) {
   // Not `window`: that name shadowed the global for the rest of the hottest function in
   // the app, waiting for the first window.matchMedia or getSelection added below.
   const view = transcriptWindow(state.currentMessages.length);
-  wasPinned ||= view.recovered;
+  wasPinned ||= view.recovered || view.refollowed;
   const visibleMessages = visibleMessagePreviews(state.currentMessages, view.start, view.end);
   const liveAssistant = view.latest ? liveAssistantSnapshot() : null;
   const steering = view.latest ? steeringPromptsFor() : [];
@@ -4901,6 +5062,7 @@ function renderMessages(messages) {
   }
   state.transcriptCache = next;
   reconcileChildren(root, nodes);
+  observeTranscriptRows(nodes);
   pruneMessageThumbnailWatches();
   state.historySignature = signature;
   rememberTranscriptRowHeights(root, visibleMessages.length);
@@ -4921,6 +5083,7 @@ function renderMessages(messages) {
   paintMessageMarkFlash();
   restoreMessageSelection(root, selection);
   syncActivityCard();
+  noteTranscriptSeen(root);
   updateScrollLatestButton();
   renderMessageMarks();
   syncMessageMagnet();
@@ -6871,6 +7034,8 @@ $("#messages").addEventListener("click", (event) => {
 $("#messages").addEventListener("scroll", () => {
   scheduleMessageMarksUpdate();
   const log = $("#messages");
+  const movedUp = log.scrollTop < transcriptLastScrollTop - 0.5;
+  transcriptLastScrollTop = log.scrollTop;
   if (!log.clientHeight || log.clientWidth < 250 || state.windowMode !== "full"
       || state.transcriptModeRestore || document.body.classList.contains("mode-transition-in") || document.body.classList.contains("mode-transition-out")) return;
   const nearBottom = messagesNearBottom();
@@ -6888,12 +7053,17 @@ $("#messages").addEventListener("scroll", () => {
     const ownScroll = transcriptProgrammaticScrollAt && Date.now() - transcriptProgrammaticScrollAt < TRANSCRIPT_PROGRAMMATIC_SCROLL_MS
       && Math.abs(log.scrollTop - transcriptProgrammaticScrollTop) < 1;
     const userScroll = transcriptUserPointerActive || Date.now() < transcriptUserScrollIntentUntil;
-    if (!ownScroll && (nearBottom || userScroll || !state.messagesStickToBottom)) state.messagesStickToBottom = nearBottom && transcriptAtLatest();
+    // Only a hand moving up pauses following. A hand moving down towards a foot that grew
+    // away from it is still on its way there, not leaving.
+    const leaving = nearBottom || (userScroll && movedUp) || !state.messagesStickToBottom;
+    if (!ownScroll && leaving) state.messagesStickToBottom = nearBottom && transcriptAtLatest();
     if (state.messagesStickToBottom && !nearBottom && !userScroll) settleTranscriptScroll(log, log.scrollHeight);
     if (state.messagesStickToBottom) state.unseenMessages = 0;
   }
-  updateScrollLatestButton();
   maybeGrowTranscriptWindow();
+  noteTranscriptSeen(log);
+  updateScrollLatestButton();
+  scheduleTranscriptViewportRepair();
   syncMessageMagnet();
   const root = $("#messages");
   // A resize can also emit scroll before ResizeObserver restores the old row.
@@ -6941,6 +7111,9 @@ for (const eventName of ["wheel", "pointerdown", "keydown"]) {
   }, { passive: true });
 }
 for (const eventName of ["pointerup", "pointercancel", "blur"]) window.addEventListener(eventName, () => { transcriptUserPointerActive = false; });
+// A press on the scrollbar delivers pointerdown but no pointerup, which left every later
+// layout correction looking like a hand. Moving with no button down proves it let go.
+window.addEventListener("pointermove", event => { if (!event.buttons) transcriptUserPointerActive = false; }, { passive: true });
 // The strips around the log ease open and shut, and the window itself is resized by hand
 // and by the size presets. Whatever moves the log's edges, a log that was following the end
 // of the conversation keeps following it - re-anchored after layout and before paint, so
@@ -6950,7 +7123,9 @@ if (typeof ResizeObserver === "function") {
     const root = $("#messages");
     scheduleMessageMarksUpdate();
     if (!root.clientHeight || root.clientWidth < 250 || state.windowMode !== "full" || state.scrollLatestAutoScrolling || activeMessageScrollPin()) return;
-    if (state.messagesStickToBottom) root.scrollTop = root.scrollHeight;
+    // The log's own correction: its scroll event must not grow the window or reconsider
+    // following, and the foot of a spacer is not the foot of the conversation.
+    if (transcriptFollowing()) settleTranscriptScroll(root, root.scrollHeight);
     else if (transcriptReadingPosition?.sessionId === state.selectedSessionId) {
       restoreTranscriptAnchor(root, transcriptReadingPosition.anchor);
     }
