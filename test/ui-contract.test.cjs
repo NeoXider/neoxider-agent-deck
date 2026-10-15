@@ -1367,6 +1367,39 @@ test("remote content can never replace the widget or open its own window", () =>
   assert.match(externalLinks, /function parseExternalUrl/);
 });
 
+test("the pet sleeps, wonders and blushes with faces of its own", () => {
+  const app = readSource("src", "renderer", "app.js");
+  for (const face of ["delighted", "sleep", "curious", "surprised", "effort"]) {
+    assert.ok(require("node:fs").existsSync(path.join(root, "src", "renderer", "assets", `avatar-${face}.png`)), face);
+  }
+  assert.match(app, /happy: "assets\/avatar-delighted\.png"/);
+  assert.match(app, /if \(document\.body\.classList\.contains\("orb-notification-question"\)\) return "curious";\s+if \(action === "sleep"\) return "sleep";/);
+  // A question arriving changes the face at once, not at the pet's next move.
+  assert.match(app, /classList\.toggle\("orb-notification-question", statusKind === "question"\);\s+syncPetFace\(\);/);
+});
+
+// The pet walked away from a pointer that stayed still and kept its hover: satellites and the
+// stroked face stayed up while it walked off. Main reports the pointer leaving the pet.
+test("a pet that walks out from under a still pointer drops its hover", () => {
+  const main = readSource("src", "main.cjs");
+  const preload = readSource("src", "preload.cjs");
+  const app = readSource("src", "renderer", "app.js");
+  const styles = readSource("src", "renderer", "styles.css");
+  const motion = readSource("src", "renderer", "motion.css");
+  assert.match(main, /setActive: \(active\) => \{ applyCompactPointerHit\(active\); if \(!active\) sendToRenderer\("compact-pointer-away"\); \}/);
+  assert.match(preload, /onCompactPointerAway: \(listener\) => ipcRenderer\.on\("compact-pointer-away"/);
+  assert.match(app, /onCompactPointerAway\?\.\(\(\) => \{\s+document\.body\.classList\.add\("pointer-away"\);\s+setPetHovered\(false\);/);
+  assert.match(app, /classList\.remove\("pointer-away"\);\s+setPetHovered\(Boolean\(event\.target\.closest\?\.\(PET_HOVER_TARGETS\)\)\);/);
+  // Every reveal that hangs on the avatar's :hover is void while the pointer is away.
+  for (const css of [styles, motion]) {
+    for (const rule of css.match(/[^{}]*:has\(\.orb-avatar:hover\)[^{}]*\{/g) || []) {
+      for (const selector of rule.replace("{", "").split(",").filter((part) => part.includes(".orb-avatar:hover"))) {
+        assert.match(selector, /:not\(\.pointer-away\)/, selector.trim());
+      }
+    }
+  }
+});
+
 test("every dimmed label and focus ring keeps a readable contrast token", () => {
   const styles = readSource("src", "renderer", "styles.css");
   // The readable grey is the solid token; --dim is that grey at the text opacity, 100% by default.
@@ -1378,8 +1411,13 @@ test("every dimmed label and focus ring keeps a readable contrast token", () => 
   for (const retired of ["#6f7b8d", "#697487", "#6f7b8e", "#657387"]) {
     assert.doesNotMatch(styles, new RegExp(retired), `${retired} fails WCAG AA on the widget surface`);
   }
-  // Focus must stay visible on controls that only tinted their background before.
-  assert.doesNotMatch(styles, /:focus-visible \{[^}]*outline:none/);
+  // Focus must stay visible on controls that only tinted their background before. The pet is
+  // the one control without a ring (it would hang where the slime no longer is): its focus is
+  // its own bloom, brighter.
+  const pet = /\.orb-avatar:focus-visible \{ outline:none; \}/;
+  assert.match(styles, pet);
+  assert.match(styles, /\.orb-avatar:focus-visible \.orb-glow \{ --orb-ring-opacity:1; filter:[^}]*brightness/);
+  assert.doesNotMatch(styles.replace(pet, ""), /:focus-visible \{[^}]*outline:none/);
 });
 
 test("the conversation is announced to assistive technology", () => {

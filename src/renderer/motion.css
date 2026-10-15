@@ -319,7 +319,7 @@ body[data-motion="subtle"] :is(#avatarShell,#orbRestore).avatar-hop { animation-
 /* Being stroked, and being looked at. */
 .pet-mode .orb-avatar.pet-happy .pet-act { animation:pet-happy .9s cubic-bezier(.3,.7,.4,1) both; }
 @keyframes pet-happy { 0% { transform:none; } 20% { transform:scale(1.18,.82); } 40% { transform:translateY(-8px) scale(.9,1.12) rotate(-6deg); } 60% { transform:scale(1.1,.9) rotate(5deg); } 80% { transform:scale(.97,1.03); } 100% { transform:none; } }
-.pet-mode .orb-mode:has(.orb-avatar:hover) .orb-avatar:not(.pet-happy) .pet-act { transform:translateY(-2px) scale(1.04); }
+.pet-mode:not(.pointer-away) .orb-mode:has(.orb-avatar:hover) .orb-avatar:not(.pet-happy) .pet-act { transform:translateY(-2px) scale(1.04); }
 /* Waiting on the user (a question, a failure): a nudge hop every ten seconds. */
 .pet-mode:is(.compact-error-unread,.orb-notification-question) .orb-avatar:not(.pet-happy) .pet-act { animation:pet-nudge 10s ease-in-out infinite; }
 @keyframes pet-nudge { 0%,10%,100% { transform:none; } 2% { transform:scale(1.12,.88); } 4.5% { transform:translateY(-12px) scale(.94,1.07) rotate(-6deg); } 6.5% { transform:translateY(-3px) rotate(6deg); } 8% { transform:scale(1.06,.95); } }

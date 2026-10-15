@@ -84,6 +84,7 @@ contextBridge.exposeInMainWorld("widget", {
   onWindowMode: (listener) => ipcRenderer.on("window-mode", (_event, mode) => listener(mode)),
   onFirstVisible: (listener) => ipcRenderer.on("first-visible-entry", () => listener()),
   onCompactSide: (listener) => ipcRenderer.on("compact-side", (_event, side) => listener(side)),
+  onCompactPointerAway: (listener) => ipcRenderer.on("compact-pointer-away", () => listener()),
   onEdgeBounce: (listener) => ipcRenderer.on("edge-bounce", () => listener()),
   onQueueUpdate: (listener) => ipcRenderer.on("queue-update", (_event, value) => listener(value)),
   onLiveEvent: (listener) => ipcRenderer.on("live-event", (_event, value) => listener(value)),

@@ -707,7 +707,8 @@ app.whenReady().then(() => {
       // docked side and the panel changes size. Edge falls back to its own constants.
       getAreas: () => (windowMode === "orb" ? compactHitAreas : null),
       isDragging: () => Boolean(compactDragOrigin),
-      setActive: applyCompactPointerHit,
+      // Off the pet: the page is told too, since it keeps :hover until the mouse next moves.
+      setActive: (active) => { applyCompactPointerHit(active); if (!active) sendToRenderer("compact-pointer-away"); },
     });
   }
   selectRegion = createRegionSelector({ BrowserWindow, screen, platform: process.platform });

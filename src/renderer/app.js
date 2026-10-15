@@ -191,11 +191,14 @@ const AVATARS = {
   error: "assets/avatar-error.png",
   done: "assets/avatar-done.png",
 };
-// Faces for what the pet is doing, from the classic slime set: stroked, startled, straining.
+// Faces for what the pet is doing, from the classic slime set: stroked (blushing), startled,
+// straining, asleep, and curious while an agent waits on an answer.
 const PET_FACES = {
-  happy: "assets/avatar-happy.png",
+  happy: "assets/avatar-delighted.png",
   surprised: "assets/avatar-surprised.png",
   effort: "assets/avatar-effort.png",
+  sleep: "assets/avatar-sleep.png",
+  curious: "assets/avatar-curious.png",
 };
 const AVATAR_LABELS = {
   offline: "Offline",
@@ -716,6 +719,7 @@ function syncCompactStatus() {
     document.body.classList.toggle("compact-error-unread", state.compactErrorUnread);
     document.body.classList.toggle("orb-has-badge", !expanded && badgeCount > 0);
     document.body.classList.toggle("orb-notification-question", statusKind === "question");
+    syncPetFace();
     $("#orbStatusLabel").textContent = label;
     $("#orbStatusText").textContent = text;
     const actionLabel = statusKind === "question" ? "Answer the question" : statusKind === "error" ? "Open this session" : "Reply to this session";
@@ -7259,6 +7263,8 @@ function petFaceFor(orb) {
   const action = orb.dataset.petAction;
   if (action === "climb") return "effort";
   if (action === "fall" || performance.now() < petFaceUntil) return "surprised";
+  if (document.body.classList.contains("orb-notification-question")) return "curious";
+  if (action === "sleep") return "sleep";
   return "";
 }
 
@@ -8435,10 +8441,23 @@ window.widget.onQuestionRelayStatus?.((status) => {
 });
 window.widget.getPendingQuestions().then(applyPendingQuestions).catch(() => {});
 // The pointer on the pet or one of its buttons holds it still.
-$("#orbMode").addEventListener("pointerover", (event) => {
-  const over = Boolean(event.target.closest?.(".orb-avatar, .orb-satellite, .orb-history-button"));
+const PET_HOVER_TARGETS = ".orb-avatar, .orb-satellite, .orb-history-button";
+function setPetHovered(over) {
   if (over !== petHovered) { petHovered = over; publishPetContext(); }
+}
+$("#orbMode").addEventListener("pointerover", (event) => setPetHovered(Boolean(event.target.closest?.(PET_HOVER_TARGETS))));
+// The pet walked (or fell) out from under a pointer that stayed still. Chromium keeps the old
+// :hover until the mouse moves, and the satellites and the stroked face stayed up while it
+// walked off; main sees the pointer is off it, and until the mouse moves the hover is void.
+window.widget.onCompactPointerAway?.(() => {
+  document.body.classList.add("pointer-away");
+  setPetHovered(false);
 });
+document.addEventListener("pointermove", (event) => {
+  if (!document.body.classList.contains("pointer-away")) return;
+  document.body.classList.remove("pointer-away");
+  setPetHovered(Boolean(event.target.closest?.(PET_HOVER_TARGETS)));
+}, { passive: true });
 $("#orbMode").addEventListener("pointerleave", () => { if (petHovered) { petHovered = false; publishPetContext(); } });
 $("#orbRestore").addEventListener("pointermove", strokePet);
 $("#compactAutoExpandToggle").addEventListener("change", async (event) => {
