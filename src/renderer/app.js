@@ -7271,8 +7271,53 @@ function syncPetFace() {
   orb.style.setProperty("--avatar-mask", `url("${source}")`);
 }
 
+// A hard landing splats the slime: it flattens into a puddle, a handful of drops fly out and
+// land around it, and over three seconds the drops crawl back and it pulls itself together.
+const PET_SPLAT_MS = 3000;
+const PET_SPLAT_IMPACT = 0.5;
+let petSplatTimer = 0;
+function splatPet(impact) {
+  if (prefersReducedMotion()) return false;
+  const orb = $("#orbRestore");
+  orb.querySelector(".pet-splat")?.remove();
+  const layer = document.createElement("span");
+  layer.className = "pet-splat";
+  layer.setAttribute("aria-hidden", "true");
+  orb.append(layer);
+  const count = 7 + Math.round(Math.min(1, impact) * 4);
+  for (let index = 0; index < count; index += 1) {
+    const piece = document.createElement("span");
+    piece.className = "pet-piece";
+    const size = 6 + Math.random() * 9;
+    Object.assign(piece.style, { width: `${size}px`, height: `${size}px`, left: `${-size / 2}px`, top: `${-size / 2}px` });
+    layer.append(piece);
+    // Spread across both sides, farther and higher the harder it hit.
+    const spread = (-1 + (2 * (index + 0.5)) / count) * (24 + 22 * impact) + (Math.random() - 0.5) * 8;
+    const up = 8 + Math.random() * 16 * (0.5 + impact);
+    piece.animate([
+      { transform: "translate(0, 0) scale(.5)" },
+      { offset: 0.07, transform: `translate(${spread * 0.55}px, ${-up}px) scale(1)`, easing: "cubic-bezier(.3,.6,.5,1)" },
+      { offset: 0.15, transform: `translate(${spread}px, 0) scale(1.25, .7)`, easing: "ease-out" },
+      { offset: 0.21, transform: `translate(${spread}px, 0) scale(1)` },
+      { offset: 0.48, transform: `translate(${spread}px, 0) scale(1.06, .94)` },
+      { offset: 0.8, transform: `translate(${spread * 0.35}px, 0) scale(.9, 1.06)`, easing: "ease-in" },
+      { offset: 1, transform: "translate(0, 0) scale(.35)", opacity: 0 },
+    ], { duration: PET_SPLAT_MS, fill: "both" });
+  }
+  orb.classList.remove("pet-splatting");
+  void orb.offsetWidth;
+  orb.classList.add("pet-splatting");
+  clearTimeout(petSplatTimer);
+  petSplatTimer = setTimeout(() => {
+    orb.classList.remove("pet-splatting");
+    layer.remove();
+  }, PET_SPLAT_MS + 60);
+  return true;
+}
+
 function applyPetState(pet) {
   const orb = $("#orbRestore");
+  if (pet?.action === "land" && pet.impact >= PET_SPLAT_IMPACT) splatPet(pet.impact);
   // Startled for a moment by a hard landing or by being woken.
   if ((pet?.action === "land" && pet.impact > 0.55) || pet?.action === "wake") {
     petFaceUntil = performance.now() + 800;
@@ -9183,9 +9228,9 @@ if (screenshotFixture) {
       applyCompactAutoExpand(true);
       setAvatar("working", "working");
       setActivity({ active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" });
-      // Status on: a message the agent writes slides out beside the avatar.
-      state.windowMode = "orb";
-      announceAssistantMessage("demo-auto", { content: [{ type: "text", text: "Found the failing test; patching the parser now." }] });
+      // Status on: a message the agent writes slides out beside the avatar (what
+      // announceAssistantMessage shows once the window is the avatar; the harness folds it).
+      showCompactNotification({ kind: "notification", sessionId: "demo-auto", title: "Agent", text: "Found the failing test; patching the parser now." }, 60000);
       syncCompactStatus();
     } else if (screenshotFixture === "session-times") {
       setTab("agents");

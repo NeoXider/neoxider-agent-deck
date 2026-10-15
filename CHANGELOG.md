@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- Put the pet down anywhere. Let go of it in the open and it drops to the taskbar right where it was let go; only near a screen side does it take hold of that edge as before. The side its panel opens toward follows the half of the screen it was put down in.
-- The pet's glow shows the agents at work: it breathes faster and brighter while one works, and when a turn ends it flares warm yellow twice and settles back.
-
 ## [1.0.0] - 2026-10-16
 
 The avatar is a desktop pet now, which felt like reason enough for a 1.0.
@@ -20,6 +15,9 @@ The avatar is a desktop pet now, which felt like reason enough for a 1.0.
 
 - Pet mode, on by default. The folded avatar is a slime that lives on the desktop, built the way the classic desktop pets are (Shimeji, eSheep, oneko): a small state machine picks each next move by weight from what its surface allows, gravity is real, and it rests far more than it moves. It clings to its screen edge and inches up and down it, drops to the taskbar and lands with a squash, hops along the taskbar, sits, looks around, scoots, climbs back home, and naps with z's after a minute and a half of quiet. Stroking it (the pointer back and forth over it) makes it squish happily with a heart. It holds still while the pointer is on it, a notification or the panel is open, an agent is working or waiting on you, a drag is under way or motion is reduced; it nudges you with a ? or ! when an agent asks or fails. It never wanders past the middle of the screen, so the panel always opens toward the room. Settings: "Pet mode".
 - The slime's glow is its own silhouette in the state colours, instead of a ring and a disc around it.
+- Put the pet down anywhere. Let go of it in the open and it drops to the taskbar right where it was let go; only near a screen side does it take hold of that edge. The side its panel opens toward follows the half of the screen it was put down in.
+- A hard landing splats it: it flattens into a puddle, throws a handful of drops around, and over three seconds the drops crawl back and it pulls itself together.
+- The glow shows the agents at work: it breathes faster and brighter while one works, and when a turn ends it flares warm yellow twice and settles back.
 - The pet has faces of its own from the classic slime set: it strains while it climbs, is startled by a fall, a hard landing or being woken, and laughs when stroked.
 - Three small buttons around the avatar on hover: recent chats, status (the eye) and fold into the screen edge. Hovering the hinge brings a little slime out above it that turns the hinge back into the avatar; the hinge window takes the pointer over it once the line has been reached, and leaves that corner to the desktop otherwise.
 - Status, the eye beside the chat button and the setting "Every message beside the avatar": on, each message the agent writes slides out beside the avatar for a few seconds; off, only the finished reply. Tool calls and thinking never show there.
