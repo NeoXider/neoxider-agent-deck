@@ -1691,6 +1691,30 @@ function reasoningIntensity(index, count) {
   return index === count - 2 ? "deep" : "normal";
 }
 
+// Choosing the top effort is worth one moment of light: a burst from the slider's handle and a
+// flash behind the chip's label. It plays when the level changes into the top one, never when a
+// render merely shows it again, and not at all with Motion effects off or reduced motion on.
+// The menu is rebuilt when the choice is saved, part-way through the burst, so the new track
+// picks it up where the old one was instead of cutting it off or starting it again.
+const EFFORT_BURST_MS = 760;
+const effortBurstTimers = new WeakMap();
+let effortTrackBurstAt = -Infinity;
+function playEffortBurst(node, startedAt = performance.now()) {
+  if (prefersReducedMotion() || performance.now() - startedAt >= EFFORT_BURST_MS) return;
+  clearTimeout(effortBurstTimers.get(node));
+  node.classList.remove("effort-burst");
+  requestAnimationFrame(() => {
+    const elapsed = performance.now() - startedAt;
+    if (elapsed >= EFFORT_BURST_MS || !node.isConnected) return;
+    node.style.setProperty("--burst-delay", `${-Math.round(elapsed)}ms`);
+    node.classList.add("effort-burst");
+    effortBurstTimers.set(node, setTimeout(() => {
+      node.classList.remove("effort-burst");
+      node.style.removeProperty("--burst-delay");
+    }, EFFORT_BURST_MS - elapsed));
+  });
+}
+
 function createReasoningStars() {
   const field = document.createElement("span");
   field.className = "reasoning-starfield";
@@ -1750,7 +1774,12 @@ function renderReasoning() {
     title.textContent = efforts.length ? (automatic ? autoLabel : label) : "No thinking modes";
     range.setAttribute("aria-valuetext", automatic ? autoLabel : label);
     const intensity = reasoningIntensity(Number(range.value), efforts.length);
+    const previousIntensity = track.dataset.intensity;
     track.dataset.intensity = intensity;
+    if (intensity === "peak" && previousIntensity !== "peak") {
+      if (previousIntensity) effortTrackBurstAt = performance.now();
+      playEffortBurst(track, effortTrackBurstAt);
+    }
     $("#reasoningMenu").dataset.intensity = intensity;
     track.style.setProperty("--effort-fill", `calc(14px + (100% - 28px) * ${efforts.length > 1 ? Number(range.value) / (efforts.length - 1) : 0})`);
     dots.querySelectorAll("i").forEach((dot, index) => {
@@ -1764,7 +1793,9 @@ function renderReasoning() {
     state.automaticModelRoute = false;
     state.pendingSelection = { provider: base.provider, model: base.model, ...(id ? { reasoningEffort: id } : {}) };
     const sliderFocused = document.activeElement === range;
+    const wasPeak = $("#reasoningButton").dataset.intensity === "peak";
     renderReasoning(); updateControlsSummary();
+    if (!wasPeak && $("#reasoningButton").dataset.intensity === "peak") playEffortBurst($("#reasoningButton"));
     if (sliderFocused) root.querySelector("input")?.focus();
     try { await applyModelSelection(); } catch (error) { showToast(error.message || "Could not change reasoning effort"); }
   };

@@ -2138,3 +2138,30 @@ test("visual cases write their output to a file, never through a pipe", () => {
   assert.doesNotMatch(runner, /stdio: \["ignore", "pipe", "pipe"\]/);
   assert.doesNotMatch(runner, /child\.stdout\.on\("data"/);
 });
+
+test("the two top efforts move only cheap properties, hold still without motion and burst once", () => {
+  const appearance = readSource("src", "renderer", "appearance.css");
+  // Every effort keyframe moves a background, an opacity or a transform: no filter, no
+  // shadow, no size or position that would repaint the menu or lay anything out again.
+  const frames = [...appearance.matchAll(/@keyframes (reasoning-[\w-]+) \{((?:\s*[^{}]+\{[^}]*\})+)\s*\}/g)];
+  assert.ok(frames.length >= 10, "the effort keyframes are found");
+  for (const [, name, body] of frames) {
+    const properties = [...body.matchAll(/([\w-]+)\s*:/g)].map((match) => match[1]);
+    for (const property of properties) assert.ok(["background-position", "opacity", "transform"].includes(property), `${name} animates ${property}`);
+  }
+  for (const name of ["reasoning-tide", "reasoning-sheen", "reasoning-breathe", "reasoning-current", "reasoning-sweep", "reasoning-spark", "reasoning-rim", "reasoning-badge-flow", "reasoning-burst"]) {
+    assert.ok(frames.some(([, frameName]) => frameName === name), `${name} exists`);
+  }
+  // Sparks belong to the top effort alone, and on the chip they never cross the text line.
+  assert.match(appearance, /\.reasoning-track\[data-intensity="peak"\] \.reasoning-starfield i,#reasoningButton\[data-intensity="peak"\] > \.reasoning-starfield i \{ display:block; animation:reasoning-spark/);
+  // Still means still: with reduced motion every effort layer drops its animation.
+  assert.match(appearance, /@media\(prefers-reduced-motion:reduce\) \{\s*\.reasoning-fill::before,[^{]*\.reasoning-starfield i,[^{]*\{ animation:none !important; \}/);
+  assert.match(appearance, /body\.motion-off \.reasoning-starfield i \{ opacity:\.7;/);
+  // The burst is a single moment: entering the top level, never a re-render of it, never
+  // with motion off; a menu rebuilt mid-burst carries it on rather than replaying it.
+  assert.match(renderer, /function playEffortBurst\(node, startedAt = performance\.now\(\)\) \{\s+if \(prefersReducedMotion\(\) \|\| performance\.now\(\) - startedAt >= EFFORT_BURST_MS\) return;/);
+  assert.match(renderer, /if \(intensity === "peak" && previousIntensity !== "peak"\) \{\s+if \(previousIntensity\) effortTrackBurstAt = performance\.now\(\);\s+playEffortBurst\(track, effortTrackBurstAt\);/);
+  assert.match(renderer, /if \(!wasPeak && \$\("#reasoningButton"\)\.dataset\.intensity === "peak"\) playEffortBurst\(\$\("#reasoningButton"\)\);/);
+  assert.match(appearance, /\.reasoning-track\.effort-burst::after \{[^}]*animation:reasoning-burst \.76s[^;]*var\(--burst-delay,0ms\) both;/);
+  assert.match(renderer, /const EFFORT_BURST_MS = 760;/);
+});
