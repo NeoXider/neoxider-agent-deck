@@ -146,3 +146,20 @@ test("before a notification widens the window it stops and saves where it is", (
   assert.equal(h.roamer.snapshot().motion, null);
   assert.equal(h.rests.at(-1).x, h.window.bounds.x, "saved exactly where it stopped");
 });
+
+test("let go near a side it takes that edge; let go in the open it falls to the taskbar right there", () => {
+  const h = harness();
+  const nearRight = { x: 1920 - 172 - 30, y: 300, ...ORB };
+  assert.equal(h.roamer.release(nearRight, workArea, "right"), null, "the usual flight to the edge");
+  const middleLeft = { x: 500, y: 300, ...ORB };
+  const drop = h.roamer.release(middleLeft, workArea, "right");
+  assert.equal(drop.side, "left", "the panel opens toward the room from the left half");
+  assert.equal(avatarCentreX({ ...middleLeft, x: drop.x }, "left"), avatarCentreX(middleLeft, "right"), "the avatar stays exactly where it was let go");
+  h.window.bounds.x = drop.x;
+  h.roamer.fallFrom(drop);
+  h.advance(3000);
+  const land = h.sent.find((entry) => entry.action === "land");
+  assert.ok(land && land.surface === "floor");
+  assert.equal(h.window.bounds.y, petGeometry(ORB, "left", workArea).floorY);
+  assert.equal(h.rests.at(-1).free, true, "saved as a free spot on the floor");
+});

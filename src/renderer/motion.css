@@ -324,6 +324,21 @@ body[data-motion="subtle"] :is(#avatarShell,#orbRestore).avatar-hop { animation-
 .pet-mode:is(.compact-error-unread,.orb-notification-question) .orb-avatar:not(.pet-happy) .pet-act { animation:pet-nudge 10s ease-in-out infinite; }
 @keyframes pet-nudge { 0%,10%,100% { transform:none; } 2% { transform:scale(1.12,.88); } 4.5% { transform:translateY(-12px) scale(.94,1.07) rotate(-6deg); } 6.5% { transform:translateY(-3px) rotate(6deg); } 8% { transform:scale(1.06,.95); } }
 
+/* Its glow tells what the agents are doing. At work it breathes faster and brighter; when a
+   turn ends it flares warm yellow twice and settles back over the next seconds, as the
+   colours ease back to idle. */
+.mode-orb:is(.state-working,.activity-thinking,.activity-writing,.activity-tool):not(.state-offline) .orb-glow { animation:pet-glow-busy 1.3s ease-in-out infinite; }
+@keyframes pet-glow-busy { 0%,100% { transform:scale(1.22); opacity:calc(var(--orb-ring-opacity) * .85); } 50% { transform:scale(1.44); opacity:1; } }
+.mode-orb.state-done .orb-glow::after { background:linear-gradient(160deg,rgb(255,229,112),rgb(255,170,58)); }
+.mode-orb.completion-celebration .orb-glow { animation:pet-glow-done 2.6s cubic-bezier(.2,.8,.3,1) both; }
+@keyframes pet-glow-done {
+  0% { transform:scale(1.1); opacity:.45; }
+  10% { transform:scale(1.75); opacity:1; }
+  24% { transform:scale(1.32); opacity:.85; }
+  38% { transform:scale(1.6); opacity:1; }
+  100% { transform:scale(1.2); opacity:calc(var(--orb-ring-opacity) * .8); }
+}
+
 /* Its thoughts: z's while it sleeps, a heart when stroked, ? and ! when it needs the user. */
 .pet-bubble { position:absolute; z-index:6; top:-6px; left:2px; min-width:18px; height:18px; display:grid; place-items:center; padding:0 4px; border:1px solid color-mix(in srgb,var(--orb-ring-primary) 55%,transparent); border-radius:9px 9px 3px 9px; background:rgba(14,18,28,.9); color:#e9f6ff; font-size:11px; font-weight:800; line-height:1; opacity:0; transform:translateY(4px) scale(.5); pointer-events:none; transition:opacity .2s ease,transform .32s var(--spring-pop); }
 .side-left .pet-bubble { right:2px; left:auto; border-radius:9px 9px 9px 3px; }

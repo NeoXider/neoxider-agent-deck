@@ -1650,7 +1650,8 @@ async function endCompactDrag(event) {
   if (state.windowMode === "edge") {
     setEdgePointerActive(false);
     animateEdgeDrop();
-  } else if (state.windowMode === "orb") {
+  } else if (state.windowMode === "orb" && !result?.petDrop) {
+    // A pet let go in the open lands on the taskbar instead (its own "land").
     setTimeout(animateOrbLanding, ORB_LANDING_DELAY_MS);
   }
   setTimeout(() => { suppressCompactClick = false; }, 0);

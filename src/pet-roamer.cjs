@@ -27,6 +27,9 @@ const MAX_REACH = 600; // farthest along the floor from its own edge
 const SLEEP_AFTER_MS = 90_000;
 const HOME_AFTER_MS = 10 * 60_000;
 const FRAME_MS = 16;
+// Let go this close to a screen side, the pet takes hold of that side; anywhere else it
+// drops where it was let go and lands on the taskbar.
+const RELEASE_WALL_DISTANCE = 110;
 
 // [name, weight, minimum ms, maximum ms]; a travel's length comes from its distance.
 const WALL_BEHAVIOURS = [
@@ -327,6 +330,29 @@ function createPetRoamer({
       stopMotion();
       persist();
       pos = null;
+    },
+    // A drag was let go. Near a side the usual flight to that edge follows (null); anywhere
+    // else the pet drops where it is: the window it should be in for the side of the screen
+    // it was let go on, keeping the avatar exactly where the pointer left it.
+    release(bounds, workArea, side) {
+      if (!enabled) return null;
+      const centre = avatarCentreX(bounds, side);
+      const nextSide = centre < workArea.x + workArea.width / 2 ? "left" : "right";
+      const fromSide = nextSide === "left" ? centre - workArea.x : workArea.x + workArea.width - centre;
+      if (fromSide <= RELEASE_WALL_DISTANCE) return null;
+      const g = petGeometry(bounds, nextSide, workArea);
+      const x = nextSide === "left" ? centre - AVATAR_INSET : centre - (bounds.width - AVATAR_INSET);
+      return { side: nextSide, x: Math.round(x), y: Math.round(Math.min(bounds.y, g.floorY)) };
+    },
+    // Falls from where it was let go, the way it drops off its edge.
+    fallFrom(drop) {
+      stopMotion();
+      clearTimer(decisionTimer);
+      decisionTimer = null;
+      pos = { x: drop.x, y: drop.y };
+      awaySince = now();
+      wake();
+      startFall();
     },
     // A drag ended and the avatar flew to its edge: that is home now.
     landed(bounds) {

@@ -389,6 +389,14 @@ function snapCurrentCompactWindow({ traceEnd = false } = {}) {
   // The side is decided by where the CIRCLE was dropped, not by the window's centre. With
   // the panel open the circle sits ~300 px from that centre, so a drag that ended plainly
   // on the left used to snap back to the right — the orb "moving on its own".
+  // A pet let go away from the screen sides drops to the taskbar right there (pet-roamer.cjs).
+  const drop = windowMode === "orb" && preferences.petMode ? petRoamer.release(bounds, display, preferences.compactSide) : null;
+  if (drop) {
+    if (drop.side !== preferences.compactSide) { preferences.compactSide = drop.side; sendToRenderer("compact-side", drop.side); }
+    placeCompactWindow(windowRef, drop.x, drop.y);
+    petRoamer.fallFrom(drop);
+    return { ...windowRef.getBounds(), side: preferences.compactSide, petDrop: true };
+  }
   const snapped = snapCompactBounds(bounds, display, windowMode, currentCompactInset(bounds));
   if (traceEnd) traceCompactDrag("end", { before: bounds, snapped });
   preferences.compactSide = snapped.side;

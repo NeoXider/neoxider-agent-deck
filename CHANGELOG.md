@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Put the pet down anywhere. Let go of it in the open and it drops to the taskbar right where it was let go; only near a screen side does it take hold of that edge as before. The side its panel opens toward follows the half of the screen it was put down in.
+- The pet's glow shows the agents at work: it breathes faster and brighter while one works, and when a turn ends it flares warm yellow twice and settles back.
+
 ## [1.0.0] - 2026-10-16
 
 The avatar is a desktop pet now, which felt like reason enough for a 1.0.
