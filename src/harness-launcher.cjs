@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { spawn, execFile } = require("node:child_process");
 
@@ -15,6 +16,8 @@ const COMMAND_TIMEOUT_MS = 5000;
 // How long a "token-required" verdict is reused. Each Start click used to spawn a whole
 // npx/dsh tree just to learn the same answer again.
 const TOKEN_PROBE_CACHE_MS = 30000;
+const HARNESS_HEAP_MIN_MB = 4096;
+const HARNESS_HEAP_MAX_MB = 8192;
 
 function isLocalHarnessUrl(value) {
   try {
@@ -71,16 +74,31 @@ function resolveDshNodeExecutable({ platform = process.platform, env = process.e
   return configured || (platform === "win32" ? "node.exe" : "node");
 }
 
-function resolveHarnessLaunchSpec({ platform = process.platform, env = process.env, harnessUrl = "http://127.0.0.1:3080", installedEntry = "" } = {}) {
+// V8 sizes the old generation from physical memory and stops near 4 GB, so a Harness
+// holding a huge session can die with "JavaScript heap out of memory" while the machine
+// still has plenty free. The limit is raised to a quarter of RAM, between 4 and 8 GB, and
+// is never below what V8 picks on its own. It is a flag to the node that runs dsh — never
+// NODE_OPTIONS, which every tool process the agent starts would inherit — and a limit the
+// user already set in NODE_OPTIONS wins.
+function harnessHeapArgs({ env = process.env, totalMemoryBytes = os.totalmem() } = {}) {
+  if (/--max[-_]old[-_]space[-_]size/.test(String(env?.NODE_OPTIONS || ""))) return [];
+  const quarter = Math.floor(Number(totalMemoryBytes) / 4 / 1048576);
+  const megabytes = Math.min(HARNESS_HEAP_MAX_MB, Math.max(HARNESS_HEAP_MIN_MB, Number.isFinite(quarter) ? quarter : 0));
+  return [`--max-old-space-size=${megabytes}`];
+}
+
+function resolveHarnessLaunchSpec({ platform = process.platform, env = process.env, harnessUrl = "http://127.0.0.1:3080", installedEntry = "", totalMemoryBytes = os.totalmem() } = {}) {
   const configured = typeof env.DSH_WIDGET_HARNESS_EXECUTABLE === "string"
     ? env.DSH_WIDGET_HARNESS_EXECUTABLE.trim()
     : "";
   const directArgs = appendHarnessAddressArgs(HARNESS_DIRECT_ARGS, harnessUrl);
+  // A configured executable is not known to be node, and the npx route below runs dsh
+  // under npx's own node, so only the installed-runtime route takes node flags.
   if (configured) return { command: configured, args: directArgs, displayCommand: configured };
   if (installedEntry) {
     return {
       command: resolveDshNodeExecutable({ platform, env }),
-      args: [installedEntry, ...directArgs],
+      args: [...harnessHeapArgs({ env, totalMemoryBytes }), installedEntry, ...directArgs],
       displayCommand: installedEntry,
     };
   }
@@ -268,9 +286,13 @@ function createHarnessLauncher({
   stopAttempts = 20,
   stopInterval = 250,
   tokenProbeCacheMs = TOKEN_PROBE_CACHE_MS,
+  // Where the Harness's stdout and stderr go (see harness-log.cjs). Without one, stdout is
+  // piped only for the banner and stderr is discarded, as before.
+  outputLog = null,
+  totalMemoryBytes = os.totalmem(),
 } = {}) {
   const installedEntry = resolveInstalledDshEntry({ platform, env, workingDirectory, fileSystem });
-  const launchSpec = resolveHarnessLaunchSpec({ platform, env, harnessUrl, installedEntry });
+  const launchSpec = resolveHarnessLaunchSpec({ platform, env, harnessUrl, installedEntry, totalMemoryBytes });
   // This path only ever describes a Windows desktop, so it must be built with the
   // win32 rules even when the process resolving it runs on POSIX.
   const legacyBatchPath = platform === "win32" && desktopPath
@@ -289,6 +311,22 @@ function createHarnessLauncher({
   const liveLaunches = new Set();
   let tokenRequiredUntil = 0;
   let disposed = false;
+  const exitListeners = new Set();
+  outputLog?.start?.();
+
+  // Every exit is reported; "unexpected" is the one a supervisor may act on: a server
+  // launch that had served, that nobody here asked to stop, while the app was not quitting.
+  function reportExit(launch, code, signal) {
+    const event = {
+      code: code ?? null,
+      signal: signal ?? null,
+      ready: launch.ready,
+      probe: launch.probe,
+      requested: launch.stopRequested || disposed,
+      unexpected: launch.ready && !launch.probe && !launch.stopRequested && !disposed,
+    };
+    for (const listener of exitListeners) { try { listener(event); } catch {} }
+  }
 
   // A launch that dies (or never serves) before becoming ready has a token nobody can
   // use, and the captured token outranks the saved launch URL in every reader, so a dead
@@ -311,6 +349,7 @@ function createHarnessLauncher({
   async function killLaunchTree(launch, { detached = false } = {}) {
     const child = launch?.child;
     if (!child || launch.exited) return;
+    launch.stopRequested = true;
     const pid = Number(child.pid);
     if (Number.isInteger(pid) && pid > 0) {
       if (platform === "win32") {
@@ -328,6 +367,7 @@ function createHarnessLauncher({
   // twice the advertised timeout with no answer and no progress for the renderer.
   async function waitUntilReady(getLaunchError, deadline = Number.POSITIVE_INFINITY) {
     for (let attempt = 0; attempt < readinessAttempts; attempt += 1) {
+      outputLog?.ingest?.();
       const launchError = getLaunchError?.();
       if (launchError) throw launchError;
       if (await probeReady()) return true;
@@ -350,44 +390,69 @@ function createHarnessLauncher({
     // A start that was already under way when the app quit must not leave a new tree.
     if (disposed) throw new Error("Harness launcher is disposed");
     if (workingDirectory) fileSystem.mkdirSync(workingDirectory, { recursive: true });
-    const launch = { child: null, error: null, exited: false, ready: false, browserUrl: "", probe };
+    const launch = { child: null, error: null, exited: false, ready: false, browserUrl: "", probe, stopRequested: false };
     const childEnv = { ...env };
     delete childEnv.ELECTRON_RUN_AS_NODE;
-    const child = spawnProcess(launchSpec.command, launchSpec.args, {
-      ...(workingDirectory ? { cwd: workingDirectory } : {}),
-      detached: true,
-      env: childEnv,
-      shell: false,
-      // stdout stays piped (not ignored) so the launch URL with the browser
-      // token can be captured; the drain below keeps the pipe from ever
-      // blocking the child once the URL is known.
-      stdio: ["ignore", "pipe", "ignore"],
-      windowsHide: true,
-    });
-    launch.child = child;
-    if (child.stdout && typeof child.stdout.on === "function") {
-      let buffered = "";
-      child.stdout.on("data", (chunk) => {
-        if (launch.browserUrl) return;
-        buffered = `${buffered}${String(chunk)}`.slice(-4096);
-        const found = extractCompleteLaunchBrowserUrl(buffered);
-        if (found) {
-          launch.browserUrl = found;
-          capturedBrowserUrl = found;
-          try { onBrowserUrl(found); } catch {}
-        }
+    // A server launch writes into a file, not a pipe. A ready Harness is meant to outlive
+    // the widget, and Node kills a process with EPIPE on its first console write after the
+    // reader of its stdout pipe has gone — so a piped Harness died some time after every
+    // quit of the widget that left it running. A token probe exits within seconds and
+    // keeps the pipes; so does a launch whose spool file cannot be opened.
+    const spool = probe ? null : outputLog?.openSpool?.() || null;
+    let child;
+    try {
+      child = spawnProcess(launchSpec.command, launchSpec.args, {
+        ...(workingDirectory ? { cwd: workingDirectory } : {}),
+        detached: true,
+        env: childEnv,
+        shell: false,
+        // Piped output is drained for as long as the child lives, so a full pipe can never
+        // block it once the launch URL is known.
+        stdio: spool ? ["ignore", spool.fd, spool.fd] : ["ignore", "pipe", outputLog ? "pipe" : "ignore"],
+        windowsHide: true,
       });
+    } finally {
+      spool?.close();
     }
+    launch.child = child;
+    let buffered = "";
+    const readBanner = (chunk) => {
+      if (launch.browserUrl) return;
+      buffered = `${buffered}${String(chunk)}`.slice(-4096);
+      const found = extractCompleteLaunchBrowserUrl(buffered);
+      if (found) {
+        launch.browserUrl = found;
+        capturedBrowserUrl = found;
+        try { onBrowserUrl(found); } catch {}
+      }
+    };
+    const stopReading = spool ? outputLog.subscribe(readBanner) : () => {};
+    // Decoded as streams, so a character split across two chunks survives.
+    child.stdout?.setEncoding?.("utf8");
+    child.stderr?.setEncoding?.("utf8");
+    if (typeof child.stdout?.on === "function") {
+      child.stdout.on("data", (chunk) => { outputLog?.write?.(chunk); readBanner(chunk); });
+    }
+    if (typeof child.stderr?.on === "function") child.stderr.on("data", (chunk) => outputLog?.write?.(chunk));
+    outputLog?.note?.(`${probe ? "Token probe" : "Harness"} started: ${launchSpec.displayCommand}${child.pid ? ` (pid ${child.pid})` : ""}`);
     liveLaunches.add(launch);
     child.once?.("error", (error) => {
       launch.error = error;
       launch.exited = true;
       liveLaunches.delete(launch);
+      stopReading();
+      outputLog?.note?.(`${probe ? "Token probe" : "Harness"} could not be started: ${error?.message || error}`);
       dropLaunchToken(launch);
     });
-    child.once?.("exit", (code) => {
+    child.once?.("exit", (code, signal) => {
       launch.exited = true;
       liveLaunches.delete(launch);
+      // The child's last words are already in the spool; read them before anyone asks.
+      if (spool) outputLog.ingest?.({ flush: true });
+      else outputLog?.write?.("", { flush: true });
+      stopReading();
+      outputLog?.note?.(`${probe ? "Token probe" : "Harness"} exited (code ${code ?? "none"}${signal ? `, signal ${signal}` : ""})`);
+      reportExit(launch, code, signal);
       if (launch.ready) return;
       launch.error = new Error(`Harness launcher exited before becoming ready (code ${code})`);
       dropLaunchToken(launch);
@@ -518,6 +583,8 @@ function createHarnessLauncher({
 
   async function waitForBrowserUrl(launch, deadline) {
     while (!launch.browserUrl) {
+      outputLog?.ingest?.();
+      if (launch.browserUrl) return;
       if (launch.error) throw launch.error;
       if (now() >= deadline) throw new Error("DeepSeek Harness opened its port but did not print a launch URL");
       await delay(readinessInterval);
@@ -528,6 +595,7 @@ function createHarnessLauncher({
     launchSpec,
     legacyBatchPath,
     workingDirectory,
+    outputLog,
     // Browser URL of the owned launch, token included when the host prints
     // one. Empty for foreign (already-running) instances whose token was
     // never observed, and once the owned child exits.
@@ -542,6 +610,13 @@ function createHarnessLauncher({
       capturedBrowserUrl = "";
       if (ownedLaunch) ownedLaunch.browserUrl = "";
       return true;
+    },
+    // Whether anything answers on the Harness port right now. Never spawns or kills.
+    probeReady: () => probeReady(),
+    // Exit reports for every child this launcher spawns; returns the unsubscribe.
+    onExit(listener) {
+      exitListeners.add(listener);
+      return () => exitListeners.delete(listener);
     },
     start() {
       if (disposed) return Promise.resolve({ ok: false, started: false, reason: "disposed" });
@@ -564,6 +639,7 @@ function createHarnessLauncher({
     // killing it would end live turns the user can see in the browser.
     dispose({ stopOwnedHarness = false } = {}) {
       disposed = true;
+      outputLog?.stop?.();
       const doomed = [...liveLaunches].filter((launch) => launch.probe || !launch.ready || stopOwnedHarness);
       for (const launch of doomed) {
         liveLaunches.delete(launch);
@@ -581,6 +657,7 @@ module.exports = {
   HARNESS_NPX_PACKAGE,
   createHarnessLauncher,
   defaultProbeReady,
+  harnessHeapArgs,
   extractLaunchBrowserUrl,
   imageNameFromTasklist,
   isLocalHarnessUrl,

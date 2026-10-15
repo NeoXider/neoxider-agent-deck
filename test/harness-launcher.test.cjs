@@ -9,6 +9,7 @@ const {
   createHarnessLauncher,
   defaultProbeReady,
   extractLaunchBrowserUrl,
+  harnessHeapArgs,
   imageNameFromTasklist,
   isLocalHarnessUrl,
   killProcessOnPort,
@@ -62,9 +63,10 @@ test("an installed Harness runtime is preferred over network npx", () => {
     env: {},
     installedEntry: entry,
     nodeExecutable: "C:\\AI\\apps\\NeoXider Agent Deck\\NeoXider Agent Deck.exe",
+    totalMemoryBytes: 16 * 1024 ** 3,
   }), {
     command: "node.exe",
-    args: [entry, ...HARNESS_DIRECT_ARGS],
+    args: ["--max-old-space-size=4096", entry, ...HARNESS_DIRECT_ARGS],
     displayCommand: entry,
   });
   assert.equal(resolveHarnessLaunchSpec({ platform: "linux", env: {}, installedEntry: "/runtime/dsh/lib/bin.js" }).command, "node");
@@ -87,6 +89,7 @@ test("the installed runtime uses explicit external Node and never packaged Elect
     platform: "win32",
     env,
     nodeExecutable: widgetExecutable,
+    totalMemoryBytes: 64 * 1024 ** 3,
     workingDirectory: "C:\\Users\\User\\AppData\\Roaming\\NeoXider\\AgentDeck\\harness-workspace",
     fileSystem: {
       existsSync: (candidate) => path.win32.normalize(candidate) === path.win32.normalize(entry),
@@ -95,7 +98,7 @@ test("the installed runtime uses explicit external Node and never packaged Elect
     spawnProcess(command, args, options) {
       assert.equal(command, externalNode);
       assert.notEqual(command, widgetExecutable);
-      assert.deepEqual(args, [entry, ...HARNESS_DIRECT_ARGS]);
+      assert.deepEqual(args, ["--max-old-space-size=8192", entry, ...HARNESS_DIRECT_ARGS]);
       spawnOptions = options;
       return fakeChild();
     },
@@ -836,4 +839,167 @@ test("forgetting the browser URL drops a dead banner token that would shadow a p
   assert.equal(launcher.browserUrl(), "http://127.0.0.1:3080/?token=dead");
   assert.equal(launcher.forgetBrowserUrl(), true);
   assert.equal(launcher.browserUrl(), "", "Connect must mint from the pasted URL, not the dead banner");
+});
+
+test("the Harness heap limit is raised to a quarter of RAM within 4-8 GB and never overrides the user", () => {
+  const gb = 1024 ** 3;
+  assert.deepEqual(harnessHeapArgs({ env: {}, totalMemoryBytes: 8 * gb }), ["--max-old-space-size=4096"]);
+  assert.deepEqual(harnessHeapArgs({ env: {}, totalMemoryBytes: 24 * gb }), ["--max-old-space-size=6144"]);
+  assert.deepEqual(harnessHeapArgs({ env: {}, totalMemoryBytes: 128 * gb }), ["--max-old-space-size=8192"]);
+  assert.deepEqual(harnessHeapArgs({ env: {}, totalMemoryBytes: Number.NaN }), ["--max-old-space-size=4096"]);
+  assert.deepEqual(harnessHeapArgs({ env: { NODE_OPTIONS: "--max-old-space-size=2048" }, totalMemoryBytes: 64 * gb }), []);
+  assert.deepEqual(harnessHeapArgs({ env: { NODE_OPTIONS: "--trace-warnings --max_old_space_size=12000" } }), []);
+  // Only the route that runs node itself takes node flags: npx runs dsh under its own node,
+  // and a configured executable is not known to be node at all.
+  assert.ok(!resolveHarnessLaunchSpec({ platform: "win32", env: {} }).args.some((arg) => /max-old-space/.test(arg)));
+  assert.ok(!resolveHarnessLaunchSpec({ platform: "linux", env: { DSH_WIDGET_HARNESS_EXECUTABLE: "/opt/dsh" } }).args.some((arg) => /max-old-space/.test(arg)));
+});
+
+// Stands in for harness-log.cjs: emit() is the child writing into the spool file, ingest()
+// is the widget reading what was appended.
+function fakeOutputLog() {
+  const subscribers = new Set();
+  let pending = "";
+  const log = {
+    notes: [], written: [], closed: 0, started: 0, stopped: 0,
+    openSpool: () => ({ fd: 42, close: () => { log.closed += 1; } }),
+    subscribe(listener) { subscribers.add(listener); return () => subscribers.delete(listener); },
+    emit(text) { pending += text; },
+    ingest() {
+      const text = pending;
+      pending = "";
+      if (text) for (const listener of subscribers) listener(text);
+      return text;
+    },
+    write: (text) => { if (String(text)) log.written.push(String(text)); },
+    note: (text) => log.notes.push(text),
+    start: () => { log.started += 1; },
+    stop: () => { log.stopped += 1; },
+  };
+  return log;
+}
+
+test("a server launch writes into the spool file, so it survives the widget, and its banner is read from there", async () => {
+  const log = fakeOutputLog();
+  let options;
+  let clock = 0;
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://127.0.0.1:3080",
+    platform: "win32",
+    env: {},
+    fileSystem: { existsSync: () => false, mkdirSync: () => {} },
+    outputLog: log,
+    requireBrowserUrl: true,
+    readinessAttempts: 4,
+    readinessInterval: 500,
+    now: () => clock,
+    spawnProcess: (_command, _args, spawnOptions) => { options = spawnOptions; const child = fakeChild(); child.pid = 900; return child; },
+    probeReady: scriptedProbe([false, true]),
+    delay: async (ms) => {
+      clock += ms;
+      if (clock === 500) log.emit("booting\ndsh web: http://127.0.0.1:3080/?token=spooled\n");
+    },
+    runCommand: recordingRunCommand([]),
+  });
+  assert.equal(log.started, 1, "the spool is tailed for as long as the launcher lives");
+  assert.equal((await launcher.start()).ok, true);
+  assert.deepEqual(options.stdio, ["ignore", 42, 42], "stdout and stderr go to the file, not a pipe");
+  assert.equal(log.closed, 1, "the widget's own copy of the descriptor is closed after spawn");
+  assert.equal(launcher.browserUrl(), "http://127.0.0.1:3080/?token=spooled");
+  assert.match(log.notes[0], /Harness started: npx\.cmd \(pid 900\)/);
+  await launcher.dispose();
+  assert.equal(log.stopped, 1, "quit drains the spool one last time");
+});
+
+test("a token probe keeps its pipes and both of its streams reach the log", async () => {
+  const log = fakeOutputLog();
+  let options;
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://127.0.0.1:3080",
+    platform: "win32",
+    env: {},
+    fileSystem: { existsSync: () => false, mkdirSync: () => {} },
+    outputLog: log,
+    spawnProcess: (_command, _args, spawnOptions) => {
+      options = spawnOptions;
+      const child = fakeChild();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      queueMicrotask(() => {
+        child.stderr.emit("data", "listen EADDRINUSE: address already in use 127.0.0.1:3080\n");
+        child.stdout.emit("data", "dsh web: http://127.0.0.1:3080/?token=probe\n");
+      });
+      return child;
+    },
+    probeReady: async () => true,
+    delay: async () => {},
+    runCommand: recordingRunCommand([]),
+  });
+  assert.deepEqual(await launcher.start(), { ok: true, started: false, alreadyRunning: true });
+  assert.deepEqual(options.stdio, ["ignore", "pipe", "pipe"]);
+  assert.equal(log.closed, 0, "a probe never opens the spool");
+  assert.deepEqual(log.written, [
+    "listen EADDRINUSE: address already in use 127.0.0.1:3080\n",
+    "dsh web: http://127.0.0.1:3080/?token=probe\n",
+  ]);
+  assert.match(log.notes[0], /^Token probe started/);
+});
+
+test("only a ready server launch that nobody stopped exits unexpectedly", async () => {
+  const { children, spawnProcess } = pidChildren(4000);
+  const events = [];
+  const log = fakeOutputLog();
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://127.0.0.1:3080",
+    platform: "win32",
+    env: {},
+    fileSystem: { existsSync: () => false, mkdirSync: () => {} },
+    outputLog: log,
+    spawnProcess,
+    // start: down, then up. Each restart: gone after the kill, then the new one is up.
+    probeReady: scriptedProbe([false, true, false, true, false, true]),
+    delay: async () => {},
+    runCommand: recordingRunCommand([]),
+  });
+  launcher.onExit((event) => events.push(event));
+
+  assert.equal((await launcher.start()).started, true);
+  log.emit("FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n");
+  children[0].emit("exit", 134, null);
+  assert.deepEqual(events.at(-1), { code: 134, signal: null, ready: true, probe: false, requested: false, unexpected: true });
+  assert.match(log.notes.at(-1), /Harness exited \(code 134\)/);
+
+  // A restart the widget asked for is not a crash, even though the child dies.
+  assert.equal((await launcher.restart()).started, true);
+  assert.equal((await launcher.restart()).started, true);
+  children[1].emit("exit", 1, null);
+  assert.equal(events.at(-1).unexpected, false);
+  assert.equal(events.at(-1).requested, true);
+
+  // Neither is anything that exits while the app quits.
+  await launcher.dispose();
+  children[2].emit("exit", null, "SIGTERM");
+  assert.deepEqual(events.at(-1), { code: null, signal: "SIGTERM", ready: true, probe: false, requested: true, unexpected: false });
+});
+
+test("a launch that dies before serving is not reported as a crash", async () => {
+  const events = [];
+  const launcher = createHarnessLauncher({
+    harnessUrl: "http://127.0.0.1:3080",
+    platform: "win32",
+    env: {},
+    fileSystem: { existsSync: () => false, mkdirSync: () => {} },
+    spawnProcess() {
+      const child = fakeChild();
+      queueMicrotask(() => child.emit("exit", 1));
+      return child;
+    },
+    probeReady: async () => false,
+    delay: () => new Promise((resolve) => setImmediate(resolve)),
+    readinessAttempts: 5,
+    runCommand: recordingRunCommand([]),
+  });
+  launcher.onExit((event) => events.push(event));
+  await assert.rejects(launcher.start(), /exited before becoming ready/);
+  assert.deepEqual(events, [{ code: 1, signal: null, ready: false, probe: false, requested: false, unexpected: false }]);
 });
