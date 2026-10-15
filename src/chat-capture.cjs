@@ -1,4 +1,7 @@
-async function captureForChat(kind, { service, gate, window, mode, captureProtected = false, displayPoint, cursorPoint, prepareFiles, prepareImage, applyWindowMode, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+// A whole-display capture keeps Deck on screen and only excludes it from the pixels when the
+// platform can (Windows capture exclusion), so the 3-5 s capture shows progress instead of a
+// vanished window. A region pick still hides Deck: the user must see what lies under it.
+async function captureForChat(kind, { service, gate, window, mode, captureProtected = false, shieldFromCapture = null, displayPoint, cursorPoint, prepareFiles, prepareImage, applyWindowMode, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
   if (!service || !["display", "region", "display-send"].includes(kind)) return { ok: false, canceled: false, reason: "screenshot-service-unavailable" };
   return gate.run(async () => {
     const background = kind === "display-send";
@@ -6,8 +9,10 @@ async function captureForChat(kind, { service, gate, window, mode, captureProtec
     const point = background ? cursorPoint() : displayPoint();
     let restoredToFull = false;
     let hiddenForCapture = false;
+    let shielded = false;
     try {
-      if (wasVisible && !captureProtected) { window.hide(); hiddenForCapture = true; await wait(100); }
+      if (wasVisible && !captureProtected && kind !== "region" && typeof shieldFromCapture === "function") { shieldFromCapture(true); shielded = true; }
+      else if (wasVisible && !captureProtected) { window.hide(); hiddenForCapture = true; await wait(100); }
       const inMemory = typeof prepareImage === "function";
       const result = kind === "region" ? await service.captureRegion({ inMemory }) : await service.captureDisplay({ point, inMemory });
       if (!result.ok) return result;
@@ -21,6 +26,7 @@ async function captureForChat(kind, { service, gate, window, mode, captureProtec
       const { png, ...publicResult } = result; // Do not copy raw pixels over IPC a second time.
       return { ...publicResult, prepared };
     } finally {
+      if (shielded) shieldFromCapture(false);
       if (window && !window.isDestroyed()) {
         if (background) { if (hiddenForCapture) window.showInactive(); }
         else if (hiddenForCapture && !restoredToFull) applyWindowMode(mode, { captureCurrent: false, persist: false });

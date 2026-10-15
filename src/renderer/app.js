@@ -1792,8 +1792,11 @@ function updateSessionCard(card, session) {
   // A chat stopped on a question says so: the agent is waiting on the user, not working.
   const asking = hasPendingQuestion(session.sessionId);
   card.classList.toggle("asking", asking);
-  status.className = asking ? "session-state asking" : `session-state ${agentState}`;
-  status.textContent = asking ? "question" : agentState;
+  // A chat whose saved log DSH refuses to read would otherwise sit there looking idle.
+  const unreadable = !asking && session.unreadable === true;
+  status.className = asking ? "session-state asking" : unreadable ? "session-state unreadable" : `session-state ${agentState}`;
+  status.textContent = asking ? "question" : unreadable ? "unreadable" : agentState;
+  status.title = unreadable ? "DSH cannot read this chat's saved log. Nothing was deleted; open it for details." : "";
 }
 
 function createSessionCard(session) {
@@ -1915,7 +1918,7 @@ function renderSessions() {
     [...state.collapsedSessionGroupKeys].sort(),
     ...groups.map((group) => [group.key, group.label, group.path, ...group.sessions.map((session) => {
       const pressure = contextPressure(session);
-      return [session.sessionId, session.title || "", sessionAgentState(session), activeBackgroundTasks(session), pressure ? Math.round(pressure.percent) : null, hasPendingQuestion(session.sessionId)];
+      return [session.sessionId, session.title || "", sessionAgentState(session), activeBackgroundTasks(session), pressure ? Math.round(pressure.percent) : null, hasPendingQuestion(session.sessionId), session.unreadable === true];
     })]),
   ]);
   if (signature === state.sessionListSignature && root.childElementCount) return false;
@@ -7000,6 +7003,7 @@ async function captureAndSendScreenshot() {
   const sessionId = state.selectedSessionId;
   if (!sessionId) { showToast("Select a chat before sending a screenshot", "alert"); return; }
   screenshotSendInFlight = true;
+  hopAvatar();
   let pendingSend;
   try {
     const result = await window.widget.captureScreenshot("display-send");
@@ -7042,9 +7046,16 @@ function handleScreenshotResult(result) {
   return true;
 }
 
+// Deck stays on screen during a display capture now, so it says so at once (and the avatar
+// hops) instead of leaving a 3-5 s pause that looks like the click was lost.
+function showCaptureProgress(kind) {
+  setActivity({ active: true, kind: "capture", label: "Screen capture", text: kind === "region" ? "Select an area · Esc cancels" : "Capturing the current display…" });
+  hopAvatar();
+}
+
 async function captureScreenshot(kind) {
   closePickers();
-  setActivity({ active: true, kind: "capture", label: "Screen capture", text: kind === "region" ? "Select an area · Esc cancels" : "Capturing the current display…" });
+  showCaptureProgress(kind);
   try {
     return handleScreenshotResult(await window.widget.captureScreenshot(kind));
   } catch (error) {
@@ -8245,6 +8256,7 @@ window.widget.onHotkeyAction((action) => {
   if (action === "newSession") createNewSession();
   else if (action === "toggleFocusChat") setFocusMode(!state.focusMode);
   else if (action === "captureDisplaySend") void captureAndSendScreenshot();
+  else if (action === "captureStarted:display" || action === "captureStarted:region") showCaptureProgress(action.slice(15));
 });
 window.widget.onHotkeyError((error) => setHotkeyStatus(error?.message || "Shortcut failed", true));
 window.widget.onScreenshotCaptured((result) => {

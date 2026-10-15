@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Chats that DSH cannot read are marked "unreadable" in Agents instead of looking idle. Their saved log is refused as corrupt by Harness; nothing was deleted, and the badge's tooltip says so.
+
+### Changed
+
+- A whole-display screenshot keeps Deck on screen. On Windows Deck is left out of the captured pixels instead of being hidden for the three to five seconds Windows takes to hand over the screen, so the widget says "Capturing the current display…" at once and the avatar hops; a capture shortcut does the same. Picking a region still hides Deck, so what lies under it can be selected.
+
 ## [0.11.0] - 2026-10-16
 
 ### Added

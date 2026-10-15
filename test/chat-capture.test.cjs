@@ -37,6 +37,23 @@ test('ordinary capture still opens review when a full widget was already hidden'
   await captureForChat('display', f);
   assert.equal(f.events.at(-1), 'full'); assert.equal(f.events.includes('hide'), false);
 });
+test('a display capture shields Deck from the pixels instead of hiding it, and lifts the shield after', async () => {
+  for (const kind of ['display', 'display-send']) {
+    const f = fixture(); f.mode = 'full'; f.shieldFromCapture = on => f.events.push(on ? 'shield' : 'unshield');
+    await captureForChat(kind, f);
+    assert.deepEqual(f.events.filter(event => typeof event === 'string'), ['shield', 'removed', 'unshield']);
+  }
+  const failing = fixture(); failing.shieldFromCapture = on => failing.events.push(on ? 'shield' : 'unshield');
+  failing.prepareFiles = async () => { throw new Error('prepare'); };
+  await assert.rejects(captureForChat('display-send', failing), /prepare/);
+  assert.equal(failing.events.at(-1), 'unshield');
+});
+test('a region pick still hides Deck so the user sees what lies under it', async () => {
+  const f = fixture(); f.shieldFromCapture = on => f.events.push(on ? 'shield' : 'unshield');
+  f.service.captureRegion = async () => { f.events.push('region'); return { ok: true, path: 'region.png' }; };
+  await captureForChat('region', f);
+  assert.equal(f.events.includes('shield'), false); assert.deepEqual(f.events.slice(0, 3), ['hide', 'frame', 'region']);
+});
 test('memory capture preserves PNG bytes without disk roundtrip or duplicate IPC pixels', async () => {
   const f = fixture(); const png = Buffer.from('original lossless pixels');
   f.service.captureDisplay = async options => { assert.equal(options.inMemory, true); return { ok: true, png }; };
@@ -52,7 +69,7 @@ test('screenshot send freezes target session, ignores repeat shortcut and preser
   const snippet = source.slice(source.indexOf('let screenshotSendInFlight = false;'), source.indexOf('function handleScreenshotResult'));
   let resolveCapture; const sent = []; let captures = 0;
   const state = { selectedSessionId: 'first', pendingAttachments: ['draft-image'], runningSessionIds: new Set() };
-  const context = vm.createContext({ state, Intl, queueSnapshotRevision: () => 0, beginPendingSend() { return {}; }, settlePendingSend() {}, showToast() {}, showComposerError() {}, window: { widget: { captureScreenshot: () => { captures++; return new Promise(resolve => { resolveCapture = resolve; }); }, send: async payload => sent.push(payload) } } });
+  const context = vm.createContext({ state, Intl, hopAvatar() {}, queueSnapshotRevision: () => 0, beginPendingSend() { return {}; }, settlePendingSend() {}, showToast() {}, showComposerError() {}, window: { widget: { captureScreenshot: () => { captures++; return new Promise(resolve => { resolveCapture = resolve; }); }, send: async payload => sent.push(payload) } } });
   vm.runInContext(snippet, context);
   const first = vm.runInContext('captureAndSendScreenshot()', context);
   state.selectedSessionId = 'second'; await vm.runInContext('captureAndSendScreenshot()', context);
@@ -67,7 +84,7 @@ test('instant screenshot queue handoff uses submit-time state and preserves queu
   const snippet = source.slice(source.indexOf('let screenshotSendInFlight = false;'), source.indexOf('function handleScreenshotResult'));
   const state = { selectedSessionId: 'first', pendingAttachments: ['draft-image'], runningSessionIds: new Set(['first']) };
   const events = [];
-  const context = vm.createContext({ state, Intl, queueSnapshotRevision: () => 3,
+  const context = vm.createContext({ state, Intl, hopAvatar() {}, queueSnapshotRevision: () => 3,
     beginPendingSend: () => (events.push('sending'), {}),
     trackQueuedPrompt: (id, payload, revision) => events.push(['queue', id, payload.attachmentCount, revision]),
     settlePendingSend: (_entry, status) => events.push(status), showToast: text => events.push(text),

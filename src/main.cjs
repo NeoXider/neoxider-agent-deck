@@ -259,12 +259,14 @@ function captureScreenshotForChat(kind) {
     service: screenshotService, gate: screenshotCaptureGate, window: windowRef,
     mode: windowMode, displayPoint: screenshotDisplayPoint, cursorPoint: () => screen.getCursorScreenPoint(),
     captureProtected: preferences.windowLayer === "private" && PLATFORM_CAPABILITIES.captureExclusion && typeof windowRef?.setContentProtection === "function",
+    shieldFromCapture: PLATFORM_CAPABILITIES.captureExclusion ? on => { if (windowRef && !windowRef.isDestroyed()) windowRef.setContentProtection(on || preferences.windowLayer === "private"); } : null,
     prepareImage: png => attachmentRegistry.registerPrepared({ attachments: [{ kind: "image", mediaType: "image/png", data: png.toString("base64"), name: "screenshot.png" }] }),
     prepareFiles, applyWindowMode,
   });
 }
 
 async function captureScreenshotFromHotkey(kind) {
+  sendToRenderer("hotkey-action", `captureStarted:${kind}`);
   try {
     const result = await captureScreenshotForChat(kind);
     sendToRenderer("screenshot-captured", result);

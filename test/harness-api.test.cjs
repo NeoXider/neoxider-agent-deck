@@ -1114,6 +1114,8 @@ test("the session list stops re-reading a log DSH refused until the session chan
   const second = await api.dashboard();
   assert.equal(historyCalls, 1, "an unchanged refused session is not decoded again on the next poll");
   assert.equal(second.sessions[0].degraded, true, "it still reports that its history is unavailable");
+  assert.equal(first.sessions[0].unreadable, true, "the list can say the chat cannot be read");
+  assert.equal(second.sessions[0].unreadable, true, "and keeps saying it while the refusal holds");
   updatedAt = 11;
   await api.dashboard();
   assert.equal(historyCalls, 2, "a changed session is read again");

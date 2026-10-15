@@ -335,6 +335,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .session-state.idle { display:none; }
 .session-state.working { border-color:color-mix(in srgb,var(--mint) 30%,transparent); background:color-mix(in srgb,var(--mint) 10%,transparent); color:#8ff0db; }
 .session-state.error { border-color:rgba(255,115,143,.3); background:rgba(255,115,143,.1); color:#ff9fb2; }
+.session-state.unreadable { display:inline-flex; border-color:rgba(255,179,107,.32); background:rgba(255,179,107,.1); color:#ffc58f; }
 
 .chat-panel.active { position:relative; display:flex; flex-direction:column; gap:7px; }
 .chat-panel > * { min-width:0; max-width:100%; }

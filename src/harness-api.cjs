@@ -372,6 +372,8 @@ class HarnessApi {
         preview,
         runningSince: effectiveRunning ? runningSince : null,
         lastRunMs,
+        // DSH refuses this chat's saved log; the list says so instead of showing it idle.
+        ...(historyRefusal ? { unreadable: true } : {}),
       };
     }
   }
