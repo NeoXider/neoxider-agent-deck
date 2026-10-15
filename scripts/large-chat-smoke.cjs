@@ -62,10 +62,14 @@ async function main() {
     };
     // Dragging to the absolute top materializes the oldest history immediately.
     // Nearby window-edge growth and reading anchors have a separate regression.
+    // The drag is a hand on the scrollbar: a scroll with no hand on the log is a layout
+    // correction, and a follower stays at the newest message through those.
+    log.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     for (let i = 0; i < 5; i++) {
       log.scrollTop = 0;
       await frames();
     }
+    window.dispatchEvent(new PointerEvent("pointerup"));
     await new Promise((resolve) => setTimeout(resolve, 120));
     result.grownStart = transcriptViewStart;
     result.grownEnd = transcriptViewEnd;

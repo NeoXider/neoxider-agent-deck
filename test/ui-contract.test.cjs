@@ -146,7 +146,9 @@ test("main composer starts on one line, grows to one third of the viewport, scro
   assert.match(resizeListener, /resizeMessageInput\(\{ immediate: true \}\)/);
   assert.match(renderer, /function captureMessageLayoutSnapshot\(\)/);
   assert.match(renderer, /function restoreMessageLayoutSnapshot\(snapshot\)/);
-  assert.match(renderer, /snapshot\.pinned[\s\S]+snapshot\.root\.scrollTop = snapshot\.root\.scrollHeight/);
+  assert.match(renderer, /snapshot\.pinned[\s\S]+settleTranscriptScroll\(snapshot\.root, snapshot\.root\.scrollHeight\)/);
+  // The foot of a spacer is not the foot of the conversation.
+  assert.match(functionBody(renderer, "function restoreMessageLayoutSnapshot(snapshot)"), /state\.messagesStickToBottom = messagesNearBottom\(snapshot\.root\) && transcriptAtLatest\(\);/);
   assert.match(renderer, /function renderAttachments\(\) \{\s*const messageLayout = captureMessageLayoutSnapshot\(\)/);
 });
 
@@ -822,7 +824,7 @@ test("the transcript is a Telegram-style window, not pages", () => {
   assert.match(renderer, /Older messages load as you scroll up/);
   assert.match(renderer, /const TRANSCRIPT_WINDOW_MAX = 320;/);
   assert.match(renderer, /function transcriptWindow\(total\)/);
-  assert.match(renderer, /function growTranscriptWindowUp\(\)/);
+  assert.match(renderer, /function growTranscriptWindowUp\(keepFollowing = false\)/);
   assert.match(renderer, /function jumpToLatestTranscript\(\)/);
   assert.match(renderer, /function transcriptSpacer\(height, label\)/);
   assert.match(renderer, /function ensureMessageRendered\(msgIndex\)/);
@@ -893,7 +895,9 @@ test("a mark jump lands exactly even with skipped transcript rows", () => {
   // landing on an underestimated bottom used to stick the log there and hide the jump.
   // And the bottom only counts as the bottom of the conversation when the virtualized
   // window actually holds the newest message, or the log follows the foot of a spacer.
-  assert.match(renderer, /if \(!activeMessageScrollPin\(\)\) \{[\s\S]{0,900}?if \(!ownScroll && \(nearBottom \|\| userScroll \|\| !state\.messagesStickToBottom\)\) state\.messagesStickToBottom = nearBottom && transcriptAtLatest\(\);/);
+  assert.match(renderer, /if \(!activeMessageScrollPin\(\)\) \{[\s\S]{0,1100}?if \(!ownScroll && leaving\) state\.messagesStickToBottom = nearBottom && transcriptAtLatest\(\);/);
+  // Only a hand moving up pauses following; a layout correction or a hand moving down does not.
+  assert.match(renderer, /const leaving = nearBottom \|\| \(userScroll && movedUp\) \|\| !state\.messagesStickToBottom;/);
   assert.match(visualSmoke, /markJumpAligned: true, markJumpFlashed: 1/);
 });
 
@@ -1875,15 +1879,50 @@ test("the virtualized transcript grows towards the newest message, not only back
   assert.match(down, /transcriptViewEnd = Math\.min\(total, transcriptViewEnd \+ TRANSCRIPT_WINDOW_GROW\);/);
 });
 
-test("a spacer-only viewport is repaired even when the history is unchanged without growing an ordinary reading view", () => {
+test("a spacer in the viewport is replaced by its rows even when the history is unchanged", () => {
   const repair = functionBody(renderer, "function scheduleTranscriptViewportRepair()");
   assert.match(repair, /transcriptViewportRepairFrame/);
-  assert.match(repair, /state\.windowMode !== "full"/);
-  assert.match(repair, /rows\.some/);
-  assert.match(repair, /rect\.height > 0 && rect\.bottom > viewport\.top && rect\.top < viewport\.bottom/);
-  assert.match(repair, /maybeGrowTranscriptWindow\(true\)/);
+  assert.match(repair, /fillTranscriptViewport\(\)/);
+  // The repair used to act only when no row at all was visible, so one row over a screen
+  // of spacer - the "91 new" report - stayed blank until the next wheel tick.
+  const fill = functionBody(renderer, "function fillTranscriptViewport()");
+  assert.match(fill, /state\.windowMode !== "full"/);
+  assert.match(fill, /const newer = transcriptViewEnd < state\.currentMessages\.length && spacer\(root\.lastElementChild\);/);
+  assert.match(fill, /const older = transcriptViewStart > 0 && spacer\(root\.firstElementChild\);/);
+  assert.match(fill, /if \(!rows\.some\(node => shows\(node\)\)\) maybeGrowTranscriptWindow\(true\);\s*\n\s*else if \(newer\) growTranscriptWindowDown\(\);\s*\n\s*else growTranscriptWindowUp\(transcriptFollowing\(\)\);/);
+  // Bounded: a full window that still cannot cover the viewport stops instead of trading
+  // rows between its edges every frame, and so does a pass that changed nothing.
+  assert.match(fill, /for \(let pass = 0; pass < 8; pass \+= 1\)/);
+  assert.match(fill, /transcriptViewEnd - transcriptViewStart >= TRANSCRIPT_WINDOW_MAX\) \{\s*\n\s*transcriptFillStall = before;/);
+  assert.match(fill, /if \(geometry\(\) === before\) \{\s*\n\s*transcriptFillStall = before;/);
   const render = functionBody(renderer, "function renderMessages(messages)");
   assert.match(render, /if \(unchanged\) \{\s*scheduleTranscriptViewportRepair\(\);/);
+  assert.match(render, /reconcileChildren\(root, nodes\);\s*\n\s*observeTranscriptRows\(nodes\);/);
+  // Rows that change height on their own (a tool card folding, markdown, images) reach the
+  // fill through their own observer; the log's box observer never hears of them.
+  const resized = functionBody(renderer, "function transcriptRowsResized()");
+  assert.match(resized, /scheduleTranscriptViewportRepair\(\);/);
+  const scroll = renderer.slice(renderer.indexOf('$("#messages").addEventListener("scroll"'), renderer.indexOf('$("#messages").addEventListener("scrollend"'));
+  assert.match(scroll, /scheduleTranscriptViewportRepair\(\);/);
+});
+
+test("only a hand scrolling up stops following the conversation", () => {
+  // A short window - reasoning renders nothing and tool runs fold into one row - put the top
+  // edge in reach of every scroll at the foot, and growing up dropped the follow flag.
+  const grow = functionBody(renderer, "function maybeGrowTranscriptWindow(repairBlankViewport = false)");
+  assert.match(grow, /const towardsOlder = !transcriptFollowing\(\) && first\.top > viewport\.top - TRANSCRIPT_TOP_LOAD_PX/);
+  // A long streaming answer below the newest row is real content, not a spacer to seek out of.
+  assert.match(grow, /if \(\(first\.top > viewport\.bottom && transcriptViewStart > 0\) \|\| \(last\.bottom < viewport\.top && transcriptViewEnd < total\)\) \{/);
+  // Arrivals reach a reader at the foot of the newest message whatever lowered the flag.
+  const windowBody = functionBody(renderer, "function transcriptWindow(total)");
+  assert.match(windowBody, /if \(!state\.messagesStickToBottom && transcriptReaderAtFoot\(\$\("#messages"\)\)\) \{/);
+  assert.match(functionBody(renderer, "function renderMessages(messages)"), /wasPinned \|\|= view\.recovered \|\| view\.refollowed;/);
+  assert.match(functionBody(renderer, "function paintLiveAssistant()"), /const wasPinned = transcriptAtLatest\(\) && \(state\.messagesStickToBottom \|\| transcriptReaderAtFoot\(root\)\);/);
+  // The jump glide lands on the newest message even if the foot moved during the flight.
+  const finish = functionBody(renderer, "function finishScrollLatestAutoScroll()");
+  assert.match(finish, /if \(state\.messagesStickToBottom && transcriptAtLatest\(\) && !messagesNearBottom\(root\)\) settleTranscriptScroll\(root, root\.scrollHeight\);/);
+  // A scrollbar press never delivers pointerup.
+  assert.match(renderer, /window\.addEventListener\("pointermove", event => \{ if \(!event\.buttons\) transcriptUserPointerActive = false; \}/);
 });
 
 test("a drag interrupted by a mode change, a reload or a hidden element still ends", () => {
@@ -1948,7 +1987,11 @@ test("the jump-to-latest pill counts only what actually arrived", () => {
   assert.match(renderer, /function transcriptArrivedCount\(\)/);
   const pill = functionBody(renderer, "function updateScrollLatestButton()");
   assert.match(pill, /const label = arrived > 1\s*\n\s*\? `\$\{arrived\} new`/);
-  assert.match(renderer, /if \(end === total\) transcriptSeenTotal = total;/);
+  // Reaching the newest message is not reading it: rows filled in below a reader stay new
+  // until they have been on screen.
+  assert.match(renderer, /if \(end === total && state\.messagesStickToBottom\) transcriptSeenTotal = total;/);
+  assert.match(functionBody(renderer, "function transcriptArrivedCount()"), /return Math\.max\(0, state\.currentMessages\.length - transcriptSeenTotal\);/);
+  assert.match(functionBody(renderer, "function noteTranscriptSeen(root)"), /const seen = low < rows\.length \? Number\(rows\[low\]\.dataset\.vmsg\) : transcriptViewEnd;/);
 });
 
 test("per-session bookkeeping is released when a session leaves a healthy dashboard", () => {
