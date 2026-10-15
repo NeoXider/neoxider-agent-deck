@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-16
+
+The avatar is a desktop pet now, which felt like reason enough for a 1.0.
+
+### Added
+
+- Pet mode, on by default. The folded avatar is a slime that lives on the desktop, built the way the classic desktop pets are (Shimeji, eSheep, oneko): a small state machine picks each next move by weight from what its surface allows, gravity is real, and it rests far more than it moves. It clings to its screen edge and inches up and down it, drops to the taskbar and lands with a squash, hops along the taskbar, sits, looks around, scoots, climbs back home, and naps with z's after a minute and a half of quiet. Stroking it (the pointer back and forth over it) makes it squish happily with a heart. It holds still while the pointer is on it, a notification or the panel is open, an agent is working or waiting on you, a drag is under way or motion is reduced; it nudges you with a ? or ! when an agent asks or fails. It never wanders past the middle of the screen, so the panel always opens toward the room. Settings: "Pet mode".
+- The slime's glow is its own silhouette in the state colours, instead of a ring and a disc around it.
+- Three small buttons around the avatar on hover: recent chats, status (the eye) and fold into the screen edge. Hovering the hinge brings a little slime out above it that turns the hinge back into the avatar.
+- Status, the eye beside the chat button and the setting "Every message beside the avatar": on, each message the agent writes slides out beside the avatar for a few seconds; off, only the finished reply. Tool calls and thinking never show there.
+- A chat opened from the avatar's recent chats opens in a small window (380x540) right beside the slime instead of the full widget, and does not change where the full widget opens next time.
+- DeepSeek Harness is installed and kept up to date (Settings: "DeepSeek Harness"). With none on the machine, Deck installs the stable runtime with npm; with one installed, it checks npm every few hours for a newer release on the same channel (alpha stays alpha), installs it in its own directory next to the running one, and starts it the next time Harness starts. Harness is never restarted on its own: "Restart Harness" switches when you choose.
+
+### Fixed
+
+- The agent's questions are answered in Deck for real. The relay that receives them from Harness worked since 0.10.1, but the window never listened to it, so every question fell back to "Answer in DSH". A card still waiting on a question Deck does not hold now asks for a fresh question stream, and Harness hands every pending question to it.
+- Unfolding from the avatar no longer shows the whole widget for a frame before it grows out of the slime, and starts within a few milliseconds instead of stalling for 70 ms: the fold's cleanup took off the class that keeps the widget hidden, and the fold's anchor and dock-side values were inherited custom properties on the body, which restyled the whole conversation at the start of every fold and unfold and on each of its first frames. The unfold is also faster (0.42 s on a spring) and the avatar steps aside in 0.1 s.
+- Opening a chat from the avatar no longer stutters: the chat is chosen before the window unfolds instead of being switched in the middle of it.
+- The chat heading with the way back to the avatar laid the model picker into a 36 px column.
+- The title-bar slime's hops are no longer clipped at the top of its row.
+- The toast timer and the avatar's lean during a drag no longer restyle the whole document on every change.
+- Deck kept a live stream open for every session in the list (79 sockets on one machine), and Harness decoded each session's whole log to open it. Only running sessions, sessions with a child at work, sessions touched in the last ten minutes and the open chat are streamed now; an idle one starts streaming the moment it runs.
+
+### Changed
+
+- The avatar's count of running agents on the chat button is gone; the button's turning ring already says it, and two numbers side by side read as noise. The avatar keeps the count of new replies.
+- Avatar mode no longer keeps a standing "Thinking" or "Using tool" card beside the slime; see Status above.
+- The README introduces the pet.
+
 ## [0.11.1] - 2026-10-16
 
 ### Added

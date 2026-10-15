@@ -1,38 +1,70 @@
-<h1 align="center">NeoXider Agent Deck</h1>
-<p align="center"><strong>Your agents, within reach.</strong><br>A desktop chat, a live session board, a small companion, or just a glowing hinge.</p>
 <p align="center">
-  <img alt="Source version" src="https://img.shields.io/badge/source-v0.11.1-49e7c6" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-0.11.1-8b79ff" /></a>
-  <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
+  <img src="src/renderer/assets/neoxider-github.png" alt="The Agent Deck slime" width="148" />
 </p>
-<p align="center"><a href="https://github.com/NeoXider/neoxider-agent-deck/releases/latest"><strong>Download</strong></a> · <a href="#get-started">Get started</a> · <a href="CHANGELOG.md">What's new</a> · <a href="SECURITY.md">Security</a></p>
+<h1 align="center">NeoXider Agent Deck</h1>
+<p align="center"><strong>Your agents, within reach. And a slime that lives on your desktop.</strong><br>
+A desktop chat for DeepSeek Harness, a live session board, a little pet that climbs your screen, or just a glowing hinge.</p>
+<p align="center">
+  <img alt="Source version" src="https://img.shields.io/badge/source-v1.0.0-49e7c6" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-1.0.0-8b79ff" /></a>
+  <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
+  <img alt="Desktop pet" src="https://img.shields.io/badge/desktop%20pet-slime-3ddc84" />
+  <img alt="Platform" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-desktop-5b6b8c" />
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-44-47848f?logo=electron&logoColor=white" />
+  <a href="https://github.com/deepseek-ai/deepseek-harness"><img alt="DeepSeek Harness" src="https://img.shields.io/badge/DeepSeek-Harness-4d6bfe" /></a>
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-c9a227" /></a>
+</p>
+<p align="center"><a href="https://github.com/NeoXider/neoxider-agent-deck/releases/latest"><strong>Download</strong></a> · <a href="#meet-the-pet">Meet the pet</a> · <a href="#get-started">Get started</a> · <a href="CHANGELOG.md">What's new</a> · <a href="SECURITY.md">Security</a></p>
 
-Agent Deck brings [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) onto your desktop. Follow multiple agents, continue a conversation, change models and share a screenshot without leaving your work. Collapse the chat when you need space; its state stays visible. The slim handle at the top returns the full chat to Hinge, even with the header hidden.
+Agent Deck brings [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) onto your desktop. Follow several agents at once, carry on a conversation, change models, answer an agent's question and share a screenshot without leaving what you are doing. Fold the chat away when you need the room and a green slime keeps you company instead: it tells you when an agent finishes, asks you when one needs you, and spends the rest of its time climbing, hopping and napping around your screen.
+
+## Meet the pet
+
+<p align="center"><img src="docs/pet/pet-poses.png" alt="The slime clinging to the screen edge, hopping along the taskbar, napping, being stroked and asking a question" width="900" /></p>
+
+Fold the widget and it becomes a slime. The slime is a proper desktop pet, built the way the classics are (Shimeji, eSheep, oneko): a small state machine picks its next move by weight, gravity is real, and it rests far more than it moves.
+
+| It… | When |
+|---|---|
+| **clings to its screen edge** and inches up and down it | most of the time; the edge is home |
+| **drops to the taskbar** and lands with a squash | now and then, under real gravity |
+| **hops along the taskbar**, looks around, sits, scoots | when nothing needs you, never past the middle of the screen |
+| **climbs back home** | after a while away, or whenever it feels like it |
+| **naps**, with z's floating up | after a minute and a half of quiet; the pointer or any agent wakes it |
+| **squishes happily** with a ♥ | when you stroke it: move the pointer back and forth over it |
+| **holds still** | while you point at it, a notification or the panel is open, an agent works, or motion is reduced |
+| **nudges you** with a **?** or **!** | when an agent asks a question or fails |
+| **celebrates** | when an agent finishes |
+
+Its glow is its own silhouette in the colour of what the agents are doing. Hover it and three little buttons appear: recent chats, **status** (the eye: every message the agent writes, or only finished replies), and folding into the screen edge. Pet mode can be switched off in **Settings → Pet mode**; the slime then stays put at its edge.
 
 ## Four ways to stay connected
 
 <table>
 <tr><td width="50%" align="center"><strong>Chat</strong><br>Messages, tools, attachments and model controls.<br><img src="docs/screenshots/chat.png" alt="Agent Deck chat with grouped tool calls and a compact composer" width="420" /></td><td width="50%" align="center"><strong>Sessions</strong><br>See who's working and jump into any session.<br><img src="docs/screenshots/sessions.png" alt="Agent Deck session board showing working, idle and failed sessions" width="420" /></td></tr>
-<tr><td align="center"><strong>Avatar</strong><br>A small companion with recent sessions.<br><img src="docs/screenshots/avatar.png" alt="Collapsed avatar with recent sessions" width="400" /></td><td align="center"><strong>Hinge</strong><br>A discreet status handle at the screen edge.<br><img src="docs/screenshots/hinge.png" alt="Glowing Hinge handle showing an active agent" height="132" /></td></tr>
+<tr><td align="center"><strong>Avatar</strong><br>The slime, with recent chats and a message box.<br><img src="docs/screenshots/avatar.png" alt="Collapsed avatar with recent sessions" width="400" /></td><td align="center"><strong>Hinge</strong><br>A discreet status handle at the screen edge.<br><img src="docs/screenshots/hinge.png" alt="Glowing Hinge handle showing an active agent" height="132" /></td></tr>
 </table>
 
-These are screenshots of the current UI using demonstration sessions. Avatar and Hinge are called Orb and Edge in some internal settings and diagnostics.
+These are screenshots of the UI with demonstration sessions. Avatar and Hinge are called Orb and Edge in some internal settings and diagnostics. Hover the hinge and a little slime peeks out above it: click it to become the avatar again.
 
 ## Small window. Full conversation.
 
-- **One model and effort control.** Open the combined chip, adjust reasoning on the slider, or choose another model from the same menu. The next-to-highest level is calm blue; the highest uses a vivid purple animation.
-- **Readable activity.** Streaming Markdown, grouped tools, queued messages, a compact goal strip and context usage. Background jobs have a separate waiting state.
-- **Your space, your look.** Aurora, Graphite, Midnight, Cyberpunk and Cave; preview cards, custom images, saved design profiles and independent image opacity. Theme and background stay linked until you enable the override.
-- **Less interruption.** Remembered window positions, compact drag handles, round controls and reduced-motion support. Focus mode keeps just the conversation.
-- **Screenshots in one shortcut.** Capture for review, or send the current screen directly to the selected chat. Deck hides during its own capture.
+- **Answer the agent here.** When an agent stops on a question, it appears above the message box with its options. Answer or skip without opening the browser.
+- **Chats from the avatar.** Click a recent chat to address the message box to it, click again to open it in a small window right beside the slime. After you send, it folds back into the avatar.
+- **One model and effort control.** Open the combined chip, adjust reasoning on the slider, or choose another model from the same menu.
+- **Readable activity.** Streaming Markdown, grouped tools, queued messages, a compact goal strip and context usage. Background jobs have their own waiting state.
+- **Motion that feels like a Mac.** Folding shrinks the window into the slime or the edge on a spring and it grows back out the same way. Buttons, menus and new tool calls bounce a little.
+- **Your space, your look.** Aurora, Graphite, Midnight, Cyberpunk and Cave themes; custom images, saved design profiles, separate background and text opacity.
+- **Screenshots in one shortcut.** Capture for review, or send the current screen straight to the selected chat. Deck stays on screen but out of the picture.
+- **Harness taken care of.** No DeepSeek Harness installed? Deck installs it. A newer one on your channel? Deck installs it next to the running one and tells you; one click on **Restart Harness** switches.
 
 ## Get started
 
-1. Download a published installer or portable build from [Releases](https://github.com/NeoXider/neoxider-agent-deck/releases/latest). The source version may be newer than the latest public release.
-2. Start Harness Web at `http://127.0.0.1:3080`, or use **Start** in Deck's offline banner.
-3. If authentication is required, use **Connect** and paste the `dsh web:` launch URL once. Choose a session and start chatting.
+1. Download the installer or portable build from [Releases](https://github.com/NeoXider/neoxider-agent-deck/releases/latest). The source version may be newer than the latest public release.
+2. Start Harness Web at `http://127.0.0.1:3080`, or press **Start** in Deck's offline banner. With no Harness on the machine, Deck installs the stable DeepSeek Harness runtime with npm (Node.js 22+ required) and starts that.
+3. If Harness asks for authentication, use **Connect** and paste the `dsh web:` launch URL once. Pick a session and start chatting.
 
-Updates are downloaded and verified through **Settings → Updates**. Windows is the primary target; macOS and Linux packages are experimental. Current desktop builds are unsigned, so SmartScreen or Gatekeeper may ask for confirmation.
+Deck updates itself through **Settings → Updates** and keeps Harness current through **Settings → DeepSeek Harness**: it checks npm every few hours for a newer release on the channel you run (alpha stays alpha, stable stays stable), installs it in the background and never restarts Harness on its own, so agents are not cut off mid-turn. Windows is the primary target; macOS and Linux packages are experimental. Current builds are unsigned, so SmartScreen or Gatekeeper may ask for confirmation.
 
 ### Window layers and private capture
 
@@ -43,7 +75,7 @@ Updates are downloaded and verified through **Settings → Updates**. Windows is
 | **Always on top+** | Reasserts its position above ordinary and borderless windows. |
 | **Private overlay** | Windows only: stays above apps and requests exclusion from supported screenshots and screen sharing. |
 
-Private overlay uses Windows capture exclusion through [Electron content protection](https://www.electronjs.org/docs/latest/api/browser-window#winsetcontentprotectionenable). On Windows 10 version 2004 and newer, supported capture methods omit the window; older versions may show a black area. Some recording methods can ignore the request. It is not a guarantee against every capture tool, nor does any desktop layer guarantee visibility over exclusive fullscreen games. A native [Xbox Game Bar companion](windows-gamebar/README.md) is available separately.
+Private overlay uses Windows capture exclusion through [Electron content protection](https://www.electronjs.org/docs/latest/api/browser-window#winsetcontentprotectionenable). On Windows 10 version 2004 and newer, supported capture methods omit the window; older versions may show a black area. Some recording methods can ignore the request. It is not a guarantee against every capture tool, nor does any layer guarantee visibility over exclusive fullscreen games. A native [Xbox Game Bar companion](windows-gamebar/README.md) is available separately.
 
 ### Shortcuts
 
@@ -59,11 +91,11 @@ All shortcuts can be changed or disabled in **Settings → Shortcuts**.
 | Ctrl+Alt+Shift+D / S | Capture display / region for review |
 | **Ctrl+Alt+Shift+Enter** | **Capture the monitor under the pointer and send it immediately** |
 
-Immediate capture preserves your draft and foreground focus. The snapshot goes to the session selected when the shortcut was pressed. On macOS, use Command in place of Ctrl for supported shortcuts.
+Immediate capture keeps your draft and foreground focus. The snapshot goes to the session selected when the shortcut was pressed. On macOS, use Command in place of Ctrl for supported shortcuts.
 
 ### Open Harness from your phone
 
-Enable **Device access on Wi-Fi** in the tray menu. Open the Phone address on the same trusted network, request access, compare the code and approve the browser on your computer. Deck keeps Harness authentication inside its local proxy; you do not need to copy a launch token to the phone.
+Enable **Device access on Wi-Fi** in the tray menu. Open the phone address on the same trusted network, request access, compare the code and approve the browser on your computer. Deck keeps Harness authentication inside its local proxy; you do not need to copy a launch token to the phone.
 
 ## Run from source
 
@@ -76,7 +108,7 @@ npm ci
 npm start
 ```
 
-Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 0.11.1 marks chats whose saved log Harness refuses as unreadable and keeps Deck on screen, left out of the pixels, while it captures the display. 0.11.0 stopped Deck from keeping Harness busy re-reading session logs it refuses, folds the widget like a Mac window with the title-bar slime hopping into the avatar and back, sends a chat opened from the avatar back into it after you write, and gives text its own opacity. 0.10.1 answered the agent's questions inside Deck, turns Avatar mode into one quiet object with notifications that leave on their own and a recent-chats panel with a message box, fades every surface with the background opacity, and folds the widget into the avatar or the edge instead of snapping. 0.10.0 was a calm redesign on solid, readable surfaces with unboxed replies, right-aligned user bubbles, compact tool rows and quieter motion; the two top reasoning efforts get their own animated fill and chip. Deck now restarts a crashed owned Harness with backoff, keeps its output in a rotating, redacted `logs/harness.log`, and explains model-engine crashes by their exit code. The conversation never leaves a blank band: rows that belong in view are materialized at once, and following stops only when you scroll up by hand. Connection recovery, remembered-session loading and output-limit reporting remain available. A virtualized history viewport that lands in an empty spacer after layout changes automatically restores visible rows without resetting normal scrollback. Automatic Harness installation uses the stable DSH 0.2.0-rc.2 runtime; separately installed preview runtimes are retained. Send now applies a queued message at the next agent step without erasing the in-flight answer. Accepted queued messages appear once in the queue, not as duplicate transcript receipts. Queued images can be sent or removed; the current DSH text-only editor requires reattaching an image to change its caption.
+Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 1.0.0 turns the avatar into a desktop pet, answers the agent's questions inside Deck for real, opens a chat from the avatar as a small window beside it, installs and updates DeepSeek Harness, and makes folding and unfolding start at once with no flash. Every earlier release is in the [changelog](CHANGELOG.md).
 
 ## Verify and build
 
@@ -90,7 +122,7 @@ npm audit --audit-level=high
 npm run build
 ```
 
-The tests cover session contracts, streaming, attachments, window geometry and compact layouts. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction and continuation with your installed compaction preset. Release CI builds Windows, Intel/Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-0.11.1-windows-x64-portable.exe`.
+The tests cover session contracts, streaming, attachments, window geometry, compact layouts and the pet's behaviour. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction. Release CI builds Windows, Intel and Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-1.0.0-windows-x64-portable.exe`.
 
 ## Trust and integration
 
@@ -98,8 +130,8 @@ Deck uses Harness RPC directly. It does not scrape the web UI or read provider A
 
 Sessions created or prompted through Deck are set to Harness **danger-full-access**. Agents may read, write, run commands and use configured tools without another permission prompt. Use trusted models, workspaces and MCP servers. See [SECURITY.md](SECURITY.md).
 
-- [NeoXider MCP Hub](https://github.com/NeoXider/neoxider-mcp-hub) — load tools on demand.
-- [DSH background code integration](integrations/dsh-background-code/README.md) — return long-running scripts as background jobs and deliver their completion to the agent.
+- [NeoXider MCP Hub](https://github.com/NeoXider/neoxider-mcp-hub): load tools on demand.
+- [DSH background code integration](integrations/dsh-background-code/README.md): return long-running scripts as background jobs and deliver their completion to the agent.
 - [Architecture](ARCHITECTURE.md) · [Changelog](CHANGELOG.md) · [Roadmap](TODO.md)
 
 MIT © NeoXider
