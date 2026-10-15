@@ -456,8 +456,9 @@ test("collapsed pet exposes a scrolling list of recent sessions and inline quick
   assert.match(renderer, /if \(state\.compactReplyOpen && session\.sessionId === state\.compactReplySessionId\) openCompactSession\(session\.sessionId, \{ fromAvatar: true \}\)/);
   assert.match(renderer, /if \(state\.collapseAfterSend && state\.windowMode === "full" && state\.returnToAvatarSessionId === result\.sessionId\)/);
   assert.match(renderer, /openCompactReply\(session\.sessionId\)/);
-  // The chat is selected (briefly awaited) before the unfold, and from the avatar opens small.
-  assert.match(renderer, /const selecting = sessionId && sessionId !== state\.selectedSessionId \? selectSession\(sessionId, true\) : null;[\s\S]+?await setWindowMode\("full", \{ mini: fromAvatar \}\);\s*if \(selecting\) await selecting;/);
+  // Restore first, then select; the hidden unfold waits for the chat to be drawn.
+  assert.match(renderer, /await setWindowMode\("full", \{ mini: fromAvatar \}\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
+  assert.match(renderer, /modeEnterGate = new Promise\(\(resolve\) => \{ releaseUnfold = resolve; \}\);/);
   const quickReply = renderer.slice(renderer.indexOf("async function sendCompactReply"), renderer.indexOf("function detectCompletedSessions"));
   assert.match(quickReply, /window\.widget\.send\(\{/);
   assert.match(quickReply, /sessionId,/);
@@ -1288,7 +1289,7 @@ test("compact errors are acknowledged in full chat and completion feedback is fi
   assert.match(renderer, /clearTimeout\(state\.compactNotificationTimer\)[\s\S]+?state\.compactNotification = null/);
   assert.match(renderer, /state\.unacknowledgedErrorSessionIds\.add\(sessionId\)/);
   assert.match(renderer, /acknowledgeSessionError\(state\.selectedSessionId\)/);
-  assert.match(renderer, /await setWindowMode\("full", \{ mini: fromAvatar \}\);\s*if \(selecting\) await selecting;/);
+  assert.match(renderer, /await setWindowMode\("full", \{ mini: fromAvatar \}\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
   assert.match(renderer, /state\.avatarMode === "error" && !state\.compactErrorUnread && !state\.harnessOffline/);
   const clearError = renderer.slice(renderer.indexOf("function clearAcknowledgedErrorPresentation"), renderer.indexOf("function signalSessionError"));
   assert.doesNotMatch(clearError, /state\.currentActivity\?\.kind !== "error"/);

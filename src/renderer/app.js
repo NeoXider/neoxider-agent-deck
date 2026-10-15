@@ -191,6 +191,12 @@ const AVATARS = {
   error: "assets/avatar-error.png",
   done: "assets/avatar-done.png",
 };
+// Faces for what the pet is doing, from the classic slime set: stroked, startled, straining.
+const PET_FACES = {
+  happy: "assets/avatar-happy.png",
+  surprised: "assets/avatar-surprised.png",
+  effort: "assets/avatar-effort.png",
+};
 const AVATAR_LABELS = {
   offline: "Offline",
   idle: "ready",
@@ -936,6 +942,7 @@ function setAvatar(mode, label) {
     });
     // The avatar's glow is its own silhouette, so it follows the mood's picture.
     $("#orbRestore").style.setProperty("--avatar-mask", `url("${nextAvatar}")`);
+    syncPetFace();
     $("#avatarState").textContent = text;
     document.body.classList.remove("state-idle", "state-working", "state-waiting", "state-error", "state-done", "state-offline");
     document.body.classList.add(`state-${mode}`);
@@ -1229,7 +1236,13 @@ function animateModeEnter(previousMode) {
   // through that unseen, so the widget appeared half open and the spring was mostly lost.
   // It stays hidden until the grown window has painted once, and only then starts.
   document.body.classList.add("mode-transition-pending");
-  waitForGrownViewport().then(() => requestAnimationFrame(() => requestAnimationFrame(start)));
+  const gate = modeEnterGate;
+  waitForGrownViewport()
+    .then(() => gate && Promise.race([gate, new Promise((resolve) => setTimeout(resolve, MODE_ENTER_GATE_MS))]))
+    .then(() => {
+      if (modeEnterGate === gate) modeEnterGate = null;
+      requestAnimationFrame(() => requestAnimationFrame(start));
+    });
 }
 
 // The slime in the title bar is the avatar. Folding, it crouches, hops out of the title bar
@@ -1278,6 +1291,11 @@ function flyTitleSlime(direction, compactMode, duration) {
   };
   flyer.animate(frames, { duration, fill: "forwards" }).finished.then(land, land);
 }
+
+// Something the next unfold waits for, hidden, before it starts (openCompactSession: the
+// chat being drawn), never longer than MODE_ENTER_GATE_MS.
+let modeEnterGate = null;
+const MODE_ENTER_GATE_MS = 350;
 
 // Resolves once the window is taller than any compact size (the avatar's panel is the
 // tallest, at 184), or after a bound so a window that never grows cannot stay hidden.
@@ -6304,16 +6322,21 @@ async function openCompactSession(requestedSessionId = null, { fromAvatar = fals
   state.compactReplyBusy = false;
   state.compactReplyError = "";
   clearTimeout(state.compactNotificationTimer);
-  // The chat is chosen before the window unfolds. Switching it afterwards rendered the new
-  // conversation in the middle of the unfold, which is what made opening a chat from the
-  // avatar stutter. (The orb's resize echo no longer cancels the unfold: only a real mode
-  // change outranks a request in flight.) A slow history load is waited for only a moment.
-  const selecting = sessionId && sessionId !== state.selectedSessionId ? selectSession(sessionId, true) : null;
-  if (selecting) await Promise.race([selecting.catch(() => {}), new Promise((resolve) => setTimeout(resolve, 300))]);
-  // From the avatar's recent chats it opens small, beside the avatar.
-  await setWindowMode("full", { mini: fromAvatar });
-  if (selecting) await selecting;
-  else setTab("chat");
+  // Restore before selection publishes the collapsed compact status. While the
+  // native Orb is resizing, its authoritative mode echo cancels an in-flight
+  // animated mode request; sequencing these operations keeps Full as the intent.
+  // The unfold itself waits, hidden, for the chat to be chosen and drawn (a moment at most):
+  // drawing the new conversation in the middle of the unfold is what made it stutter.
+  let releaseUnfold = () => {};
+  modeEnterGate = new Promise((resolve) => { releaseUnfold = resolve; });
+  try {
+    // From the avatar's recent chats it opens small, beside the avatar.
+    await setWindowMode("full", { mini: fromAvatar });
+    if (sessionId && sessionId !== state.selectedSessionId) await selectSession(sessionId, true);
+    else setTab("chat");
+  } finally {
+    releaseUnfold();
+  }
   if (state.compactReplySessionId === sessionId) state.compactReplySessionId = null;
   renderReturnToAvatarButton();
   $("#messageInput")?.focus();
@@ -7225,13 +7248,42 @@ function applyPetMode(value) {
   return state.petMode;
 }
 
+// The pet's face outranks the mood's while it does something with a face of its own:
+// climbing strains, a fall or a hard landing startles it for a moment, a stroke delights it.
+let petFaceUntil = 0;
+let petFaceTimer = 0;
+function petFaceFor(orb) {
+  if (!state.petMode || state.windowMode !== "orb") return "";
+  if (orb.classList.contains("pet-happy")) return "happy";
+  const action = orb.dataset.petAction;
+  if (action === "climb") return "effort";
+  if (action === "fall" || performance.now() < petFaceUntil) return "surprised";
+  return "";
+}
+
+function syncPetFace() {
+  const orb = $("#orbRestore");
+  const image = orb?.querySelector("img[data-avatar]");
+  if (!image) return;
+  const source = PET_FACES[petFaceFor(orb)] || AVATARS[state.avatarMode] || AVATARS.idle;
+  if (!image.src.endsWith(source)) image.src = source;
+  orb.style.setProperty("--avatar-mask", `url("${source}")`);
+}
+
 function applyPetState(pet) {
   const orb = $("#orbRestore");
+  // Startled for a moment by a hard landing or by being woken.
+  if ((pet?.action === "land" && pet.impact > 0.55) || pet?.action === "wake") {
+    petFaceUntil = performance.now() + 800;
+    clearTimeout(petFaceTimer);
+    petFaceTimer = setTimeout(syncPetFace, 820);
+  }
   orb.dataset.petSurface = pet?.surface || "";
   orb.dataset.petAction = pet?.action || "";
   orb.style.setProperty("--pet-dir", String(pet?.dir || 1));
   if (Number.isFinite(pet?.impact)) orb.style.setProperty("--pet-impact", String(pet.impact));
   document.body.classList.toggle("pet-on-wall", pet?.surface === "wall");
+  syncPetFace();
   // A one-off move restarts its animation even when the same move comes twice in a row.
   if (pet?.pulse) {
     const act = orb.querySelector(".pet-act");
@@ -7273,7 +7325,8 @@ function strokePet(event) {
   orb.classList.remove("pet-happy");
   void orb.offsetWidth;
   orb.classList.add("pet-happy");
-  setTimeout(() => orb.classList.remove("pet-happy"), 1400);
+  syncPetFace();
+  setTimeout(() => { orb.classList.remove("pet-happy"); syncPetFace(); }, 1400);
   publishPetContext({ stimulus: true });
 }
 

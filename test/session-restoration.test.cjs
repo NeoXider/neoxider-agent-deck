@@ -106,9 +106,7 @@ test("explicitly selecting a notification or recent chat still switches to that 
   const h = compactRestoreHarness();
   await h.restore("explicit-chat");
   assert.equal(h.state.selectedSessionId, "explicit-chat");
-  // Chosen first, so the window unfolds onto the right conversation instead of switching it
-  // in the middle of the unfold.
-  assert.deepEqual(h.opened, ["explicit-chat", "full"]);
+  assert.deepEqual(h.opened, ["full", "explicit-chat"]);
 });
 
 test("an empty restored widget opens the composer without guessing another notification's chat", async () => {
