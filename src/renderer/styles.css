@@ -816,7 +816,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .attachment-list { min-width:0; min-height:49px; display:flex; gap:6px; overflow-x:auto; overflow-y:hidden; padding:0 0 1px; scroll-snap-type:x proximity; overscroll-behavior-x:contain; }
 .attachment-list::-webkit-scrollbar { height:3px; }
 .attachment-chip { flex:0 0 172px; min-width:0; height:46px; display:grid; grid-template-columns:48px minmax(0,1fr) 26px; gap:6px; align-items:center; padding:2px; border:1px solid var(--line); border-radius:10px; background:var(--surface-2); scroll-snap-align:start; animation:chip-in var(--dur-3) var(--ease-out) both; }
-@keyframes chip-in { from { opacity:0; transform:scale(.96); } }
+@keyframes chip-in { from { opacity:0; } }
 .attachment-preview { width:48px; height:40px; display:grid; place-items:center; overflow:hidden; border:1px solid var(--line-soft); border-radius:var(--radius-sm); background:color-mix(in srgb,var(--mint) 8%,transparent); color:#9cefdd; }
 .attachment-preview img { width:100%; height:100%; object-fit:cover; }
 .attachment-preview .ui-icon { width:18px; height:18px; }
