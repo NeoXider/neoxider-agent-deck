@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The goal strip follows what Harness did. Pausing or resuming used to leave the strip offering the same press for up to a second, because the refresh straight after the command was served a dashboard read before it ran; the command now drops that snapshot, and the strip holds the outcome until a newer one arrives.
+- A goal command Harness refuses, or does not recognise, no longer shows a "Goal paused" toast or "Command completed" in the log, and an edit stays open instead of losing its text.
+- A blocked goal shows as blocked and offers Resume instead of a Pause Harness would refuse, and a finished goal drops the pause control.
+
 ## [1.0.1] - 2026-10-16
 
 ### Added

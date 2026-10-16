@@ -126,6 +126,7 @@ const state = {
   goalSignature: "",
   goalEditing: false,
   goalBusy: false,
+  goalHold: null,
   goalDeleteConfirmTimer: null,
   todoExpandedSessionIds: new Set(),
   todoSignature: "",
@@ -2867,9 +2868,21 @@ function goalFor(sessionId = state.selectedSessionId) {
   const projection = session?.projections?.values?.goal;
   const goal = projection?.goal;
   if (!goal || !goal.objective) return null;
+  // What a command that just succeeded did, held over a snapshot read before it ran: a
+  // snapshot that still carries the revision the command acted on is the stale one, and the
+  // first snapshot past that revision is the truth again.
+  const hold = state.goalHold;
+  const held = hold && hold.sessionId === sessionId && hold.goalId === goal.id && hold.revision === goal.revision
+    && hold.until > Date.now() ? hold : null;
+  if (held?.cleared) return null;
+  // Harness has four phases. A paused and a blocked goal both wait for /goal resume (it refuses
+  // to pause a blocked one), so they share the paused look and the resume press; a complete
+  // goal has nothing left to toggle.
+  const reported = held?.phase || goal.phase;
   return {
-    objective: String(goal.objective),
-    phase: goal.phase === "paused" ? "paused" : "active",
+    objective: String(held?.objective ?? goal.objective),
+    phase: reported === "complete" ? "complete" : reported === "paused" || reported === "blocked" ? "paused" : "active",
+    status: ["paused", "blocked", "complete"].includes(reported) ? reported : "active",
     maxRounds: Number(goal.maxGoalRounds) || null,
     rounds: Number(projection.roundsStarted) || 0,
   };
@@ -2897,14 +2910,15 @@ function renderGoal() {
   }
   dock.hidden = false;
   const paused = goal.phase === "paused";
+  const finished = goal.phase === "complete";
   const rounds = goal.maxRounds ? `Round ${goal.rounds}/${goal.maxRounds}` : `Round ${goal.rounds}`;
-  dock.dataset.phase = paused ? "paused" : "active";
+  dock.dataset.phase = finished ? "complete" : paused ? "paused" : "active";
   dock.classList.toggle("goal-unbounded", !goal.maxRounds);
   const summary = $("#goalSummary");
-  summary.title = paused ? `${goal.objective}
-${rounds} · paused` : `${goal.objective}
-${rounds}`;
-  summary.setAttribute("aria-label", `Goal, ${paused ? "paused" : "active"}: ${compactText(goal.objective, 90)}`);
+  summary.title = goal.status === "active" ? `${goal.objective}
+${rounds}` : `${goal.objective}
+${rounds} · ${goal.status}`;
+  summary.setAttribute("aria-label", `Goal, ${goal.status}: ${compactText(goal.objective, 90)}`);
   const pauseIcon = $("#goalPauseIcon");
   pauseIcon.setAttribute("href", paused ? "#icon-play" : "#icon-pause");
   $("#goalRounds").textContent = goal.maxRounds ? `${goal.rounds}/${goal.maxRounds}` : String(goal.rounds);
@@ -2912,7 +2926,7 @@ ${rounds}`;
   // plain hint instead of a bar frozen at zero.
   const progress = goal.maxRounds ? Math.max(0, Math.min(1, goal.rounds / goal.maxRounds)) : 0;
   $("#goalTrackFill").style.width = `${Math.round(progress * 100)}%`;
-  $("#goalPhase").textContent = paused ? "paused" : "active";
+  $("#goalPhase").textContent = goal.status;
   $("#goalPhase").classList.toggle("paused", paused);
   $("#goalObjective").textContent = goal.objective;
   $("#goalMeta").textContent = rounds;
@@ -2921,6 +2935,7 @@ ${rounds}`;
   $("#goalEdit").disabled = busy;
   $("#goalDelete").disabled = busy;
   $("#goalPauseResume").disabled = busy;
+  $("#goalPauseResume").hidden = finished;
   $("#goalEditor").hidden = !state.goalEditing;
   $("#goalObjective").hidden = state.goalEditing;
   $(".goal-dock-actions").hidden = state.goalEditing;
@@ -2941,15 +2956,39 @@ ${rounds}`;
   return true;
 }
 
+const GOAL_HOLD_MS = 10000;
+
+// The refresh straight after a command can still be handed a snapshot read just before it ran,
+// and the strip then offered the very press that had been taken. Remember what the command did
+// against the revision it acted on until a newer snapshot says it for itself.
+function holdGoalOutcome(sessionId, line) {
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+  const goal = session?.projections?.values?.goal?.goal;
+  if (!goal?.id) return;
+  const hold = { sessionId, goalId: goal.id, revision: goal.revision, until: Date.now() + GOAL_HOLD_MS };
+  if (line.startsWith("/goal pause")) hold.phase = "paused";
+  else if (line.startsWith("/goal resume")) hold.phase = "active";
+  else if (line.startsWith("/goal clear")) hold.cleared = true;
+  else if (line.startsWith("/goal edit ")) hold.objective = line.slice("/goal edit ".length).trim();
+  else return;
+  state.goalHold = hold;
+}
+
 async function runGoalCommand(line) {
   const sessionId = state.selectedSessionId;
   if (!sessionId || state.goalBusy) return;
   state.goalBusy = true;
   renderGoal();
   try {
-    await executeHarnessCommand(line, sessionId);
-    state.goalEditing = false;
-    showToast(GOAL_TOASTS.find(([prefix]) => line.startsWith(prefix))?.[1] || "Goal updated", "goal");
+    const result = await executeHarnessCommand(line, sessionId);
+    // Harness refuses a command with an error result rather than a rejection, and answers
+    // nothing at all for a line it does not know. Neither changed the goal, so neither gets the
+    // "Goal paused" toast (the log already says what Harness said), and an edit stays open.
+    if (result && result.kind !== "error") {
+      state.goalEditing = false;
+      holdGoalOutcome(sessionId, line);
+      showToast(GOAL_TOASTS.find(([prefix]) => line.startsWith(prefix))?.[1] || "Goal updated", "goal");
+    }
     await refresh({ afterCurrent: true });
   } catch (error) {
     showComposerError(error, "Goal not updated");
@@ -6941,7 +6980,11 @@ async function executeHarnessCommand(line, sessionId = state.selectedSessionId, 
   try {
     const value = await window.widget.executeCommand({ sessionId, line, images });
     const result = value?.result;
-    const failed = result?.kind === "error";
+    // Harness answers nothing at all for a line it did not recognise: nothing ran, so it
+    // did not "complete" either.
+    const unresolved = !result;
+    const failed = unresolved || result.kind === "error";
+    const resultText = result?.text || (unresolved ? `Harness did not recognise ${command}` : "Command completed");
     const selectedMode = failed ? null : modeFromCommand(line);
     if (selectedMode) setSessionAgentMode(sessionId, selectedMode);
     const feedback = {
@@ -6952,7 +6995,7 @@ async function executeHarnessCommand(line, sessionId = state.selectedSessionId, 
         active: true,
         kind: failed ? "error" : "done",
         label: `${command} ${failed ? "failed" : "complete"}`,
-        text: compactText(result?.text || "Command completed", 320),
+        text: compactText(resultText, 320),
       },
     };
     settleCommandFeedback(sessionId, feedback);
@@ -6965,7 +7008,7 @@ async function executeHarnessCommand(line, sessionId = state.selectedSessionId, 
     renderMessages([
       ...state.currentMessages,
       { role: "user", text: line },
-      { role: failed ? "error" : "command", command: commandName, text: result?.text || "Command completed" },
+      { role: failed ? "error" : "command", command: commandName, text: resultText },
     ]);
     setAvatar(feedback.avatarMode, feedback.avatarLabel);
     await refreshHistory();
@@ -8188,7 +8231,7 @@ $("#goalPauseResume").addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
   const goal = goalFor();
-  if (!goal) return;
+  if (!goal || goal.phase === "complete") return;
   runGoalCommand(goal.phase === "paused" ? "/goal resume" : "/goal pause");
 });
 $("#goalDelete").addEventListener("click", () => {

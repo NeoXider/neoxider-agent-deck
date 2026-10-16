@@ -695,6 +695,23 @@ test("crash recovery is reachable over IPC and Open log ignores whatever the ren
   assert.equal((await bare.ipcMain.invoke("open-harness-log", bareEvent)).ok, false);
 });
 
+test("a widget command drops the shared dashboard snapshot, whether Harness runs or refuses it", async () => {
+  let invalidations = 0, refuse = false;
+  const { ipcMain, window } = register({
+    api: { executeWidgetCommand: async () => {
+      if (refuse) throw new Error("refused");
+      return { result: { kind: "success", text: "Goal paused" } };
+    } },
+    invalidateDashboard: () => { invalidations += 1; },
+  });
+  const event = { sender: window.webContents, senderFrame: { parent: null } };
+  await ipcMain.invoke("execute-command", event, { sessionId: "s", line: "/goal pause" });
+  assert.equal(invalidations, 1);
+  refuse = true;
+  await assert.rejects(ipcMain.invoke("execute-command", event, { sessionId: "s", line: "/goal pause" }), /refused/);
+  assert.equal(invalidations, 2);
+});
+
 test("Start reconnects to an inherited authenticated Harness without spawning or restarting it", async () => {
   let connects = 0, starts = 0, invalidations = 0;
   const { ipcMain, window } = register({

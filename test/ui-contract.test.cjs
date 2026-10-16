@@ -752,12 +752,26 @@ test("the goal is a hairline strip under the composer that opens into queue-styl
   assert.match(visualSmoke, /goalActionMinSize: 28, goalTrackHeight: 6/);
   assert.match(visualSmoke, /goalStripPauseSize: 18, goalStripPauseGlyph: "#icon-pause"/);
   assert.doesNotMatch(html, /id="goalPreview"/);
-  assert.match(renderer, /summary\.title = paused \?/);
+  assert.match(renderer, /summary\.title = goal\.status === "active" \?/);
   assert.match(renderer, /\$\("#goalTrackFill"\)\.style\.width = `\$\{Math\.round\(progress \* 100\)\}%`/);
   assert.match(css, /\.goal-dock-phase\.paused/);
   assert.match(visualSmoke, /goalDockOpen: false, goalPhase: "active", goalDockBelowComposer: true, goalStripPinnedToBottom: true, goalStripHeight: 14, goalStripTextFree: true/);
   assert.match(visualSmoke, /goalActionCount: 2, goalPauseAction: "Pause the goal"/);
   assert.match(visualSmoke, /goalPhase: "paused", goalPauseAction: "Resume the goal", goalStripPauseGlyph: "#icon-play"/);
+});
+
+test("the goal strip trusts what Harness answered, not a snapshot read before the command", () => {
+  const handlers = readSource("src", "ipc-handlers.cjs");
+  // Harness has four goal phases: folding blocked into active offered a Pause it refuses.
+  assert.match(renderer, /phase: reported === "complete" \? "complete" : reported === "paused" \|\| reported === "blocked" \? "paused" : "active"/);
+  assert.match(renderer, /if \(!goal \|\| goal\.phase === "complete"\) return;\s+runGoalCommand\(/);
+  // A refused or unrecognised command is no success: no "Goal paused" toast, the editor stays open.
+  assert.match(renderer, /const result = await executeHarnessCommand\(line, sessionId\);[\s\S]{0,500}if \(result && result\.kind !== "error"\) \{\s+state\.goalEditing = false;\s+holdGoalOutcome\(sessionId, line\);/);
+  assert.match(renderer, /const unresolved = !result;\s+const failed = unresolved \|\| result\.kind === "error";/);
+  // The refresh right after a command must not be served the snapshot read before it...
+  assert.match(handlers, /api\.executeWidgetCommand\([^\n]*\)\.finally\(invalidateDashboard\)/);
+  // ...and a snapshot still on the revision the command acted on is known to be that stale one.
+  assert.match(renderer, /hold\.goalId === goal\.id && hold\.revision === goal\.revision/);
 });
 
 test("the caller's own messages are marked on the scroll rail and pull the scroll to them", () => {

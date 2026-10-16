@@ -189,7 +189,7 @@ function registerIpcHandlers({
   handle("commands", async (_event, sessionId) => api.commandCatalog(sessionId));
   handle("execute-command", async (_event, payload) => {
     const images = attachmentRegistry.resolvePayload(payload?.images, { imagesOnly: true });
-    const result = await api.executeWidgetCommand(payload?.sessionId, payload?.line, images);
+    const result = await api.executeWidgetCommand(payload?.sessionId, payload?.line, images).finally(invalidateDashboard);
     attachmentRegistry.releasePayload(payload?.images);
     return result;
   });

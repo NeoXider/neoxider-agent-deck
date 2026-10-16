@@ -61,6 +61,7 @@ function createSharedDashboardReader({
   let selectedSessionId = null;
   let cachedSelection = null;
   let inflightSelection = null;
+  let inflightRevision = 0;
   let invalidationRevision = 0;
 
   function offline(error) {
@@ -88,11 +89,13 @@ function createSharedDashboardReader({
     if (!Number.isFinite(timestamp)) return Promise.resolve(offline(new Error("Dashboard clock is unavailable")));
     const cacheAge = timestamp - cachedAt;
     if (cached && cachedSelection === selectedSessionId && cacheAge >= 0 && cacheAge <= cacheMs) return Promise.resolve(cached).then(notifySessions);
-    if (inflight) return inflightSelection === selectedSessionId ? inflight.then(notifySessions) : inflight.then(() => read());
+    // A read that started before an invalidation holds the snapshot the caller meant to drop.
+    if (inflight && inflightRevision === invalidationRevision) return inflightSelection === selectedSessionId ? inflight.then(notifySessions) : inflight.then(() => read());
     const requestedSelection = selectedSessionId;
     const requestedRevision = invalidationRevision;
     inflightSelection = requestedSelection;
-    inflight = Promise.resolve()
+    inflightRevision = requestedRevision;
+    const request = Promise.resolve()
       .then(() => readDashboard(requestedSelection))
       .catch(offline)
       .then((dashboard) => {
@@ -119,14 +122,17 @@ function createSharedDashboardReader({
         }
         return normalized;
       })
-      .finally(() => { inflight = null; });
-    return inflight.then(notifySessions);
+      .finally(() => { if (inflight === request) inflight = null; });
+    inflight = request;
+    return request.then(notifySessions);
   }
 
   // Creating a session and immediately refreshing hit the one-second cache and got the
   // snapshot from BEFORE the session existed. The renderer then saw its brand-new id missing
   // from the list — and a blank, unselected session is hidden from every group, so it became
-  // unreachable. Anything that changes the session set drops the cache first.
+  // unreachable. Anything that changes the session set drops the cache first. So does a command
+  // run from the widget: /goal pause changes the projection the goal strip draws, and the
+  // refresh straight after would otherwise be handed the snapshot read before it ran.
   function invalidate() {
     invalidationRevision += 1;
     cached = null;

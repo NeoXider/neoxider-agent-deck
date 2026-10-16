@@ -731,6 +731,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .goal-strip-action:hover { background:color-mix(in srgb,var(--mint) 14%,transparent); color:#d8fff6; }
 .goal-strip-action:active { transform:scale(.88); }
 .goal-strip-action:disabled { opacity:.45; cursor:default; }
+.goal-strip-action[hidden] { display:none; }
 .goal-dock[data-phase="paused"] .goal-strip-action { color:var(--warning); }
 .goal-dock[data-phase="paused"] .goal-strip-action:hover { background:color-mix(in srgb,var(--warning) 16%,transparent); color:#ffe3bd; }
 /* While the loop runs the glyph breathes; paused it is simply still. */
@@ -743,6 +744,9 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .goal-dock.goal-unbounded .goal-track { background:linear-gradient(90deg,color-mix(in srgb,var(--mint) 30%,transparent),color-mix(in srgb,var(--violet) 16%,transparent),color-mix(in srgb,var(--mint) 30%,transparent)); background-size:200% 100%; animation:goal-flow 3.4s linear infinite; }
 .goal-dock[data-phase="paused"] .goal-track-fill { background:linear-gradient(90deg,#ffc178,#ff9f6a); box-shadow:none; animation:none; }
 .goal-dock.goal-unbounded[data-phase="paused"] .goal-track { background:rgba(255,193,120,.2); animation:none; }
+/* A goal that reached its end stops flowing too, but keeps its own colour: it is done, not waiting. */
+.goal-dock[data-phase="complete"] .goal-track-fill { box-shadow:none; animation:none; }
+.goal-dock.goal-unbounded[data-phase="complete"] .goal-track { animation:none; }
 .goal-rounds { flex:none; color:var(--muted); font-size:10px; font-weight:600; letter-spacing:.02em; font-variant-numeric:tabular-nums; }
 .goal-chevron { flex:none; width:15px; height:15px; color:var(--dim); transform:rotate(180deg); transition:transform var(--dur-2) var(--ease-out); }
 .goal-dock[open] .goal-chevron { transform:rotate(0deg); }

@@ -248,6 +248,26 @@ test("Start invalidation cannot be overwritten by an old in-flight offline poll"
   assert.equal(calls, 2);
 });
 
+// /goal pause flips the strip, and the refresh right after the command joined a poll that had
+// started before it, so the strip was handed the snapshot it had just outgrown.
+test("a read after an invalidation does not join a poll that started before it", async () => {
+  let release, calls = 0;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const reader = createSharedDashboardReader({ readDashboard: async () => {
+    calls += 1;
+    return calls === 1 ? blocked : { ok: true, harness: true, sessions: [{ sessionId: "after-command" }] };
+  } });
+  const old = reader.read();
+  await settle();
+  reader.invalidate();
+  assert.equal((await reader.read()).sessions[0].sessionId, "after-command");
+  assert.equal(calls, 2);
+  release({ ok: true, harness: true, sessions: [{ sessionId: "before-command" }] });
+  await old;
+  assert.equal((await reader.read()).sessions[0].sessionId, "after-command", "the old poll must not repopulate the cache");
+  assert.equal(calls, 2);
+});
+
 test("the shared dashboard reader converts thrown and malformed results into the offline contract", async () => {
   const thrown = createSharedDashboardReader({ readDashboard: async () => { throw new Error("offline"); } });
   assert.deepEqual(await thrown.read(), { ok: false, harness: false, error: "offline", sessions: [] });
