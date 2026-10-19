@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  MODE_LABELS,
   WINDOWS_EXECUTABLE,
   candidateLocations,
   detectRunning,
@@ -93,6 +94,7 @@ test("settings report the origin, never the token", () => {
       deviceAccessEnabled: true,
       size: "compact",
       windowLayer: "above",
+      windowState: { mode: "orb" },
     }),
   });
   assert.equal(settings.found, true);
@@ -100,6 +102,8 @@ test("settings report the origin, never the token", () => {
   assert.equal(settings.harnessLaunchUrlConfigured, true);
   assert.equal(settings.deviceAccessEnabled, true);
   assert.equal(settings.size, "compact");
+  assert.equal(settings.windowMode, "orb");
+  assert.equal(MODE_LABELS[settings.windowMode], "avatar");
   assert.ok(!JSON.stringify(settings).includes("secret"));
 });
 

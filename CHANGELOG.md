@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- A DSH plugin, `integrations/dsh-agent-deck`, that opens the widget from a Harness session and reports whether it is installed, running, and following the Harness that installed it.
+- A DSH plugin, `integrations/dsh-agent-deck`, that opens the widget from a Harness session and reports whether it is installed, running, and following the Harness that installed it, along with its mode (chat, avatar or hinge) and window layer.
 
 ### Fixed
 

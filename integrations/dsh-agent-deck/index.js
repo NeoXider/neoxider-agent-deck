@@ -1,4 +1,5 @@
 import {
+  MODE_LABELS,
   candidateLocations,
   detectRunning,
   launchDeck,
@@ -54,6 +55,8 @@ export function buildStatus({ ctx = null, env = process.env, platform = process.
     harnessOrigin: current,
     widget: {
       settingsFound: settings.found,
+      mode: settings.windowMode ? MODE_LABELS[settings.windowMode] : null,
+      modeRaw: settings.windowMode,
       settingsPath: settings.path,
       configuredHarnessOrigin: settings.harnessOrigin,
       launchedFromUrl: settings.harnessLaunchUrlConfigured,

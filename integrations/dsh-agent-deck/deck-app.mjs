@@ -9,6 +9,9 @@ export const MAC_BUNDLE = "NeoXider Agent Deck.app";
 export const LINUX_EXECUTABLE = "neoxider-agent-deck";
 export const USER_DATA_SEGMENTS = ["NeoXider", "AgentDeck"];
 export const PATH_OVERRIDE_ENV = "NEOXIDER_AGENT_DECK_PATH";
+export const WINDOW_MODES = ["full", "orb", "edge"];
+/** The names the app shows, keyed by the mode it stores in widget-settings.json. */
+export const MODE_LABELS = { full: "chat", orb: "avatar", edge: "hinge" };
 export const ASAR_HEADER_MAX_BYTES = 16 * 1024 * 1024;
 export const ASAR_ENTRY_MAX_BYTES = 1024 * 1024;
 
@@ -128,7 +131,7 @@ export function originOf(rawUrl) {
 export function readWidgetSettings({ platform = process.platform, env = process.env, home = homeDirectory(env), fileExists = existsSync, readFile = readFileSync } = {}) {
   const directory = userDataDirectory({ platform, env, home });
   const file = join(directory, "widget-settings.json");
-  const result = { path: file, found: false, harnessOrigin: null, harnessLaunchUrlConfigured: false, deviceAccessEnabled: null, size: null, windowLayer: null };
+  const result = { path: file, found: false, harnessOrigin: null, harnessLaunchUrlConfigured: false, deviceAccessEnabled: null, size: null, windowLayer: null, windowMode: null };
   if (!fileExists(file)) return result;
   try {
     const text = readFile ? String(readFile(file)) : "";
@@ -140,6 +143,7 @@ export function readWidgetSettings({ platform = process.platform, env = process.
     result.deviceAccessEnabled = typeof settings.deviceAccessEnabled === "boolean" ? settings.deviceAccessEnabled : null;
     result.size = typeof settings.size === "string" ? settings.size : null;
     result.windowLayer = typeof settings.windowLayer === "string" ? settings.windowLayer : null;
+    result.windowMode = WINDOW_MODES.includes(settings.windowState?.mode) ? settings.windowState.mode : null;
   } catch {
     result.found = true;
   }
