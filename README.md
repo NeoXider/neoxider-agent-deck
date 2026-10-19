@@ -134,6 +134,7 @@ Sessions created or prompted through Deck are set to Harness **danger-full-acces
 
 - [NeoXider MCP Hub](https://github.com/NeoXider/neoxider-mcp-hub): load tools on demand.
 - [DSH background code integration](integrations/dsh-background-code/README.md): return long-running scripts as background jobs and deliver their completion to the agent.
+- [DSH Agent Deck integration](integrations/dsh-agent-deck/README.md): open the Deck widget from a Harness session and check that it is installed, running and following the same Harness.
 - [Architecture](ARCHITECTURE.md) · [Changelog](CHANGELOG.md) · [Roadmap](TODO.md)
 
 MIT © NeoXider

@@ -1,0 +1,43 @@
+{
+  "name": "dsh-agent-deck",
+  "version": "1.0.0",
+  "description": "Opens the NeoXider Agent Deck desktop widget from a Harness session and reports whether it is installed, running, and pointed at this Harness.",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "deck-app.mjs",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "NeoXider",
+    "email": "94991394+NeoXider@users.noreply.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NeoXider/neoxider-agent-deck.git",
+    "directory": "integrations/dsh-agent-deck"
+  },
+  "homepage": "https://github.com/NeoXider/neoxider-agent-deck/tree/main/integrations/dsh-agent-deck#readme",
+  "bugs": "https://github.com/NeoXider/neoxider-agent-deck/issues",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "desktop-widget",
+    "agent-deck",
+    "companion"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
