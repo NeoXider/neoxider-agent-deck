@@ -302,6 +302,18 @@ function restoreMessageInputViewport(input, snapshot) {
 }
 
 let composerMeasureInput = null;
+// With nothing to carry - no text and no attachment - the plane has no reason to be there,
+// so it stays hidden rather than sitting under the pointer as a button that refuses.
+function syncComposerEmptyState() {
+  const input = $("#messageInput");
+  const form = $("#chatForm");
+  if (!input || !form) return false;
+  const empty = !input.value.trim() && state.pendingAttachments.length === 0;
+  if (form.classList.contains("composer-empty") === empty) return empty;
+  form.classList.toggle("composer-empty", empty);
+  return empty;
+}
+
 function resizeMessageInput({ immediate = false } = {}) {
   // Coalesce typing/paste bursts before any layout reads, not after measuring.
   if (!immediate) {
@@ -355,6 +367,7 @@ function resizeMessageInput({ immediate = false } = {}) {
     ? Math.min(maximumHeight, Math.max(COMPOSER_INPUT_MIN_HEIGHT, normalizedContentHeight))
     : COMPOSER_INPUT_MIN_HEIGHT;
   $("#chatForm")?.classList.toggle("composer-multiline", targetHeight > COMPOSER_INPUT_MIN_HEIGHT);
+  syncComposerEmptyState();
   const height = `${targetHeight}px`;
   if (input.style.height !== height) input.style.height = height;
   restoreMessageInputViewport(input, snapshot);
@@ -1719,18 +1732,71 @@ function formatTokens(value) {
   return String(Math.round(value));
 }
 
+// The Harness reports tokens and never money, so a session's spend is derived here from
+// its own totals and the model that last ran, at the catalog's list prices.
+function sessionSpend(session) {
+  const pricing = globalThis.modelPricing;
+  if (!pricing || !session) return null;
+  try {
+    return pricing.sessionSpend(session);
+  } catch {
+    return null;
+  }
+}
+
+function spendAmount(spend) {
+  const pricing = globalThis.modelPricing;
+  return spend && pricing ? `~${pricing.formatUsd(spend.total)}` : "";
+}
+
+function spendBreakdown(spend) {
+  const pricing = globalThis.modelPricing;
+  if (!spend || !pricing) return "";
+  const { tokens, cost } = spend;
+  const count = pricing.groupDigits;
+  return [
+    `${spend.requestedModel || spend.model} at list prices`,
+    `input ${count(tokens.input)} · $${cost.input.toFixed(4)}`,
+    `output ${count(tokens.output)} · $${cost.output.toFixed(4)}`,
+    `cache read ${count(tokens.cacheRead)} · $${cost.cacheRead.toFixed(4)}`,
+    `cache write ${count(tokens.cacheWrite)} · $${cost.cacheWrite.toFixed(4)}`,
+  ].join(" · ");
+}
+
+function renderSessionSpend(spend) {
+  const node = $("#sessionSpend");
+  if (!node) return;
+  const visible = Boolean(spend && spend.total > 0);
+  node.hidden = !visible;
+  if (node.classList.contains("visible") !== visible) node.classList.toggle("visible", visible);
+  if (!visible) {
+    if (node.textContent) node.textContent = "";
+    if (node.title) node.title = "";
+    return;
+  }
+  const amount = spendAmount(spend);
+  if (node.textContent !== amount) node.textContent = amount;
+  const details = `Session spend ${amount} · ${spendBreakdown(spend)}`;
+  if (node.title !== details) node.title = details;
+  if (node.getAttribute("aria-label") !== details) node.setAttribute("aria-label", details);
+}
+
 function renderContext() {
   const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
   renderSubagentCount(session);
   const pressure = contextPressure(session);
+  const spend = sessionSpend(session);
   const signature = JSON.stringify([
     state.selectedSessionId,
     pressure ? Math.round(pressure.used) : null,
     pressure ? Math.round(pressure.total) : null,
     pressure ? Math.round(pressure.percent) : null,
+    spend ? Math.round(spend.total * 100) : null,
   ]);
   if (signature === state.contextSignature) return false;
   state.contextSignature = signature;
+  renderSessionSpend(spend);
+  const spendSuffix = spend ? ` · session spend ${spendAmount(spend)}` : "";
   const meter = $("#contextMeter");
   meter.classList.remove("high", "critical");
   meter.classList.toggle("unavailable", !pressure);
@@ -1739,18 +1805,18 @@ function renderContext() {
     meter.style.setProperty("--context", "0");
     $("#contextArc").style.strokeDashoffset = "97.39";
     $("#contextValue").textContent = "0%";
-    meter.title = "Context usage unavailable";
+    meter.title = `Context usage unavailable${spendSuffix}`;
     meter.setAttribute("aria-valuenow", "0");
-    meter.setAttribute("aria-valuetext", "Context usage unavailable, 0%");
+    meter.setAttribute("aria-valuetext", `Context usage unavailable, 0%${spend ? `, session spend ${spendAmount(spend)}` : ""}`);
     return true;
   }
   const rounded = Math.round(pressure.percent);
   meter.style.setProperty("--context", String(rounded));
   $("#contextArc").style.strokeDashoffset = String(97.39 * (1 - rounded / 100));
   $("#contextValue").textContent = `${rounded}%`;
-  meter.title = `Context: ${formatTokens(pressure.used)} / ${formatTokens(pressure.total)} tokens`;
+  meter.title = `Context: ${formatTokens(pressure.used)} / ${formatTokens(pressure.total)} tokens${spendSuffix}`;
   meter.setAttribute("aria-valuenow", String(rounded));
-  meter.setAttribute("aria-valuetext", `Context usage ${rounded}%, ${formatTokens(pressure.used)} of ${formatTokens(pressure.total)} tokens`);
+  meter.setAttribute("aria-valuetext", `Context usage ${rounded}%, ${formatTokens(pressure.used)} of ${formatTokens(pressure.total)} tokens${spend ? `, session spend ${spendAmount(spend)}` : ""}`);
   meter.classList.toggle("high", rounded >= 70 && rounded < 90);
   meter.classList.toggle("critical", rounded >= 90);
   return true;
@@ -1842,10 +1908,11 @@ function updateSessionCard(card, session) {
   card.setAttribute("aria-label", `Open ${session.title || "New session"}`);
   const background = activeBackgroundTasks(session);
   const pressure = contextPressure(session);
+  const spend = sessionSpend(session);
   card.querySelector(".agent-avatar").className = `agent-avatar ${agentState}`;
   card.querySelector(".agent-avatar img").src = AVATARS[agentState] || AVATARS.idle;
   card.querySelector(".session-name").textContent = session.title || "New session";
-  card.querySelector(".session-meta-text").textContent = `${agentState}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}`;
+  card.querySelector(".session-meta-text").textContent = `${agentState}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}${spend ? ` · ${spendAmount(spend)}` : ""}`;
   applyBackgroundTaskCount(card.querySelector(".session-background"), background);
   applySessionTime(card.querySelector(".session-time"), session);
   const status = card.querySelector(".session-state");
@@ -3168,6 +3235,7 @@ function renderAttachments() {
   const count = state.pendingAttachments.length;
   $("#attachmentBar").classList.toggle("has-items", count > 0);
   $("#attachmentCount").textContent = `${count} file${count === 1 ? "" : "s"}`;
+  syncComposerEmptyState();
   restoreMessageLayoutSnapshot(messageLayout);
 }
 
@@ -9325,6 +9393,44 @@ if (screenshotFixture) {
       // announceAssistantMessage shows once the window is the avatar; the harness folds it).
       showCompactNotification({ kind: "notification", sessionId: "demo-auto", title: "Agent", text: "Found the failing test; patching the parser now." }, 60000);
       syncCompactStatus();
+    } else if (screenshotFixture === "spend-chat") {
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{
+        sessionId: "demo-spend",
+        title: "Costed session",
+        running: false,
+        state: "idle",
+        projections: { values: {
+          contextPressure: { projectedTokens: 24000, contextWindow: 131072 },
+          modelSelection: { lastUsed: { provider: "anthropic", model: "claude-opus-5-5", reasoningEffort: "xhigh" } },
+          tokenUsage: { uncachedInputTokens: 302, outputTokens: 170791, cacheReadTokens: 45477197, cacheWriteTokens: 480327 },
+        } },
+        subagents: [],
+      }] };
+      state.selectedSessionId = "demo-spend";
+      renderSessionToolbar();
+      renderContext();
+      renderMessages([
+        { role: "user", text: "Why does this session cost what it does?" },
+        { role: "assistant", text: "The chip says what it spent, and the meter tooltip breaks the sum down." },
+      ]);
+    } else if (screenshotFixture === "spend-agents") {
+      setTab("agents");
+      const spendNow = Date.now();
+      state.dashboard = { harness: true, sessions: [
+        // A priced hosted model next to a local one, which has no list price to report.
+        { sessionId: "demo-spend-card", title: "Costed session", updatedAt: spendNow, running: false, state: "idle", projections: { values: {
+          contextPressure: { projectedTokens: 24000, contextWindow: 131072 },
+          modelSelection: { lastUsed: { provider: "anthropic", model: "claude-opus-5-5" } },
+          tokenUsage: { uncachedInputTokens: 302, outputTokens: 170791, cacheReadTokens: 45477197, cacheWriteTokens: 480327 },
+        } }, subagents: [] },
+        { sessionId: "demo-local-card", title: "Local model", updatedAt: spendNow, running: false, state: "idle", projections: { values: {
+          contextPressure: { projectedTokens: 9000, contextWindow: 262144 },
+          modelSelection: { lastUsed: { provider: "lmstudio", model: "qwen3.8-27b-heretic-gsq-rco" } },
+          tokenUsage: { uncachedInputTokens: 900000, outputTokens: 12000, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        } }, subagents: [] },
+      ] };
+      renderSessions();
     } else if (screenshotFixture === "session-times") {
       setTab("agents");
       const now = Date.now();

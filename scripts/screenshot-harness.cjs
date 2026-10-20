@@ -150,7 +150,7 @@ function attachScreenshotHarness({
       let audit = null;
       if (auditPath) {
         audit = await window.webContents.executeJavaScript(`(() => {
-          const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.todo-dock.has-items','.queue-dock.has-items','.attachment-bar.has-items','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-session-row','.orb-reply-form','.orb-history-button','.edge-mode'];
+          const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.todo-dock.has-items','.queue-dock.has-items','.attachment-bar.has-items','.session-spend:not([hidden])','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-session-row','.orb-reply-form','.orb-history-button','.edge-mode'];
           const boxes = selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((element) => {
             const rect = element.getBoundingClientRect();
             const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).display !== 'none';
@@ -599,6 +599,14 @@ function attachScreenshotHarness({
             contextRingSize: Math.round(document.querySelector('#contextMeter svg').getBoundingClientRect().width),
             contextUnavailable: document.querySelector('#contextMeter').classList.contains('unavailable'),
             contextValue: document.querySelector('#contextValue')?.textContent || '',
+            contextTitle: document.querySelector('#contextMeter')?.title || '',
+            // The Harness never reports money, so the chip and the tooltip are the whole
+            // surface: what the session spent, and which model's list price it came from.
+            sessionSpendAmount: document.querySelector('#sessionSpend')?.hidden ? '' : document.querySelector('#sessionSpend')?.textContent || '',
+            sessionSpendTitle: document.querySelector('#sessionSpend')?.title || '',
+            sessionSpendWidth: Math.round(document.querySelector('#sessionSpend')?.getBoundingClientRect().width || 0),
+            sessionMetaSpendCount: [...document.querySelectorAll('#sessions .session-meta-text')]
+              .filter((node) => node.textContent.includes('~$')).length,
             contextVisible: (() => {
               const rect = document.querySelector('#contextMeter')?.getBoundingClientRect();
               return Boolean(rect && rect.width > 0 && rect.height > 0);
@@ -648,6 +656,8 @@ function attachScreenshotHarness({
             })(),
             sendWidth: Math.round(document.querySelector('#sendButton').getBoundingClientRect().width),
             sendHeight: Math.round(document.querySelector('#sendButton').getBoundingClientRect().height),
+            sendDisplay: getComputedStyle(document.querySelector('#sendButton')).display,
+            composerEmpty: document.querySelector('#chatForm')?.classList.contains('composer-empty') || false,
             modelControlLabel: document.querySelector('#reasoningButton')?.getAttribute('aria-label')?.split(':')[0] || '',
             modelControlText: document.querySelector('#reasoningButton')?.dataset.modelLabel || '',
             agentControlsOpen: document.querySelector('#agentControls')?.open || false,

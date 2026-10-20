@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - A DSH plugin, `integrations/dsh-agent-deck`, that opens the widget from a Harness session and reports whether it is installed, running, and following the Harness that installed it, along with its mode (chat, avatar or hinge) and window layer.
+- What the open session has spent, in the chat heading beside the model chip and on its card in Agents. Harness reports tokens but never money, so Deck prices the session's own totals with the list rates from the model catalog it ships, and the context meter's tooltip breaks the sum into input, output and both cache directions. A model with no list rate, such as a local one, shows no figure rather than a guess.
+
+### Changed
+
+- The composer only offers to send when there is something to send: with no text and no attachments the send button is gone and the input takes its width, instead of sitting there as a button that refuses.
 
 ### Fixed
 

@@ -25,17 +25,30 @@ const cases = [
   // wraps beside its two actions, and the card still leaves the composer on screen.
   { name: "harness-crash-360", tab: "chat", fixture: "harness-crash", width: 360, height: 360, expect: { offlineBanners: 1, startHarnessText: "Restart now", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, titlebarOverlap: false, headerTopClipped: false } },
   { name: "engine-crash", tab: "chat", fixture: "engine-crash", expect: { offlineBanners: 0 } },
-  { name: "empty-chat", tab: "chat", fixture: "empty-chat", width: 380, height: 400, expect: { contextUnavailable: true, contextValue: "0%", contextVisible: true, conversationBubbles: 0, titlebarOverlap: false } },
+  { name: "empty-chat", tab: "chat", fixture: "empty-chat", width: 380, height: 400, expect: { contextUnavailable: true, contextValue: "0%", contextVisible: true, conversationBubbles: 0, titlebarOverlap: false, composerEmpty: true, sendDisplay: "none", sendWidth: 0 } },
   { name: "offline-agents", tab: "agents", fixture: "offline-agents", expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", offlineSessionText: "Start Harness to load sessions." }, min: { startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
   { name: "focus-offline", tab: "chat", fixture: "focus-offline", width: 360, height: 500, expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", focusMode: false }, min: { startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
-  { name: "chat", tab: "chat", fixture: "chat", expect: { composerRestingHeight: 48, historicalReasoning: 0, markdownLists: 1, footer: 0, titlebarTabs: 1, titlebarOverlap: false, headerTopClipped: false, setupInToolbar: true, brandUserSelect: "none", titlebarNativeDragDisabled: true, avatarHitWidth: 44, avatarHitHeight: 44, avatarPlateTransparent: true, avatarAuraCircular: true, avatarAuraContained: true, avatarAuraRadial: true, composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 15, sendWidth: 36, sendHeight: 36, sendUtilityCenterDelta: 0, contextCenterDelta: 0, bubbleActionGroups: 2, bubbleCopyActions: 2, bubbleReuseActions: 1, tabPillIndex: "0", auroraLayer: true, cssHeightInterpolation: true, cssDetailsContent: true, cssStartingStyle: true } },
+  { name: "chat", tab: "chat", fixture: "chat", expect: { composerRestingHeight: 48, historicalReasoning: 0, markdownLists: 1, footer: 0, titlebarTabs: 1, titlebarOverlap: false, headerTopClipped: false, setupInToolbar: true, brandUserSelect: "none", titlebarNativeDragDisabled: true, avatarHitWidth: 44, avatarHitHeight: 44, avatarPlateTransparent: true, avatarAuraCircular: true, avatarAuraContained: true, avatarAuraRadial: true, composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 15, sendDisplay: "none", composerEmpty: true, contextCenterDelta: 0, bubbleActionGroups: 2, bubbleCopyActions: 2, bubbleReuseActions: 1, tabPillIndex: "0", auroraLayer: true, cssHeightInterpolation: true, cssDetailsContent: true, cssStartingStyle: true } },
   { name: "chat-font-135", tab: "chat", fixture: "chat", width: 380, height: 400, fontScale: 1.35, expect: { fontScale: 1.35, titlebarOverlap: false }, min: { bubbleFontPx: 14.8 } },
+
+  // Spend is derived, never reported: the chip prices the session's own tokens at the
+  // model's list rates, and the meter tooltip carries the arithmetic. A local model has no
+  // list price, so its session card must stay silent rather than guess one.
+  { name: "spend-chat", tab: "chat", fixture: "spend-chat", expect: {
+    sessionSpendAmount: "~$14.91",
+    sessionSpendTitle: "Session spend ~$14.91 · claude-opus-5-5 at list prices · input 302 · $0.0012 · output 170,791 · $3.4158 · cache read 45,477,197 · $9.0954 · cache write 480,327 · $2.4016",
+    contextValue: "18%",
+    contextUnavailable: false,
+    contextTitle: "Context: 24k / 131k tokens · session spend ~$14.91",
+  }, min: { sessionSpendWidth: 40 } },
+  { name: "spend-agents", tab: "agents", fixture: "spend-agents", expect: { sessionMetaSpendCount: 1 } },
+  { name: "spend-chat-360", tab: "chat", fixture: "spend-chat", width: 360, height: 500, expect: { sessionSpendAmount: "~$14.91", contextValue: "18%" }, min: { sessionSpendWidth: 40 } },
   { name: "history-loading", tab: "chat", fixture: "history-loading", width: 380, height: 400, expect: { skeletonRows: 3, emptyStateText: "", conversationBubbles: 0 } },
   { name: "toast", tab: "chat", fixture: "toast", width: 380, height: 400, expect: { toastVisible: true, toastText: "Copied to clipboard", conversationBubbles: 2 } },
   { name: "bubble-actions", tab: "chat", fixture: "bubble-actions", width: 380, height: 400, expect: { bubbleActionGroups: 2, bubbleCopyActions: 2, bubbleReuseActions: 1, bubbleActionsPlaced: true, conversationBubbles: 2 } },
   // Waits on the Markdown worker, which a cold start on a busy machine can keep past the default capture.
   { name: "live-markdown", tab: "chat", fixture: "live-markdown", width: 380, height: 400, delay: 3000, expect: { liveBubbles: 1, liveBubbleFormatted: true, liveBubbleHeadings: 1, liveBubbleListItems: 3, liveCaretInLastLine: true, liveCaretDisplay: "inline-block", activityCardVisible: false } },
-  { name: "composer-recall", tab: "chat", fixture: "composer-recall", width: 380, height: 400, expect: { composerValue: "Now re-render the cover.", conversationBubbles: 4 } },
+  { name: "composer-recall", tab: "chat", fixture: "composer-recall", width: 380, height: 400, expect: { composerValue: "Now re-render the cover.", conversationBubbles: 4, composerEmpty: false, sendDisplay: "grid" } },
   // Motion left on: the plan strip eases open under a following log, and on every frame of
   // the move the log is still showing its last line. Several observed heights prove the
   // easing; a maximum gap of one pixel proves the anchor.
@@ -43,7 +56,7 @@ const cases = [
   // reads 0-2px short depending on the display scale (CI runs at 100%). The last row sits
   // ~20px above the log edge behind its padding, so 2px never cuts a line.
   { name: "strip-easing", tab: "chat", fixture: "strip-easing", width: 380, height: 400, motion: true, expect: { todoRows: 3, todoExpanded: true, todoAboveComposer: true, stripTraceShrunk: true, messagesAtBottom: true }, min: { stripTraceSteps: 3 }, max: { stripTraceMaxGap: 2 } },
-  { name: "focus-chat", tab: "chat", fixture: "focus-chat", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, historicalReasoning: 0, composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 15, sendWidth: 36, sendHeight: 36, sendUtilityCenterDelta: 0, contextCenterDelta: 0 } },
+  { name: "focus-chat", tab: "chat", fixture: "focus-chat", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, historicalReasoning: 0, composerUtilitiesStacked: true, composerViewStacked: true, contextRingSize: 15, sendDisplay: "none", composerEmpty: true, contextCenterDelta: 0 } },
   { name: "commands", tab: "chat", fixture: "commands", expect: { commandRows: 6, commandAboveComposer: true, commandFitsWidth: true }, layout: { commandVisibleRows: 4 } },
   { name: "commands-360", tab: "chat", fixture: "commands", width: 360, height: 360, expect: { commandRows: 6, firstFourCommands: "/goal,/compact,/plan,/permission", commandAboveComposer: true, commandFitsWidth: true, titlebarOverlap: false }, layout: { commandVisibleRows: 4 } },
   { name: "focus-commands", tab: "chat", fixture: "focus-commands", width: 360, height: 500, expect: { focusMode: true, focusChromeHidden: true, commandRows: 6, commandAboveComposer: true, commandFitsWidth: true }, layout: { commandVisibleRows: 3 } },
@@ -118,7 +131,7 @@ const cases = [
   // duration is static and is checked exactly.
   { name: "session-times", tab: "agents", fixture: "session-times", expect: { sessionElapsedRunning: 2, sessionElapsedWellFormed: true, sessionElapsedLastRun: "2m 08s", sessionMetaSingleLine: true, sessionBackgroundBadges: 1, sessionBackgroundCounts: "2" } },
   { name: "completion-chat", tab: "chat", fixture: "completion-chat", expect: { completionCelebration: true, fullSuccessGlowVisible: true } },
-  { name: "compact-chat", tab: "chat", fixture: "chat", width: 360, height: 500, expect: { historicalReasoning: 0, footer: 0, titlebarTabs: 1, setupInToolbar: true, composerUtilitiesStacked: true, contextRingSize: 15, sendWidth: 36, sendHeight: 36 } },
+  { name: "compact-chat", tab: "chat", fixture: "chat", width: 360, height: 500, expect: { historicalReasoning: 0, footer: 0, titlebarTabs: 1, setupInToolbar: true, composerUtilitiesStacked: true, contextRingSize: 15, sendDisplay: "none", composerEmpty: true } },
   { name: "compact-tools", tab: "chat", fixture: "markdown-tools", width: 360, height: 500, expect: { toolGroups: 1, toolCalls: 2 } },
   { name: "mixed-tools-360", tab: "chat", fixture: "mixed-tools", width: 360, height: 360, expect: { toolGroups: 1, toolCalls: 2, partialToolGroups: 1, conversationBubbles: 1, titlebarOverlap: false } },
   { name: "question-wait-360", tab: "chat", fixture: "question-wait", width: 360, height: 360, expect: { toolCalls: 1, questionHandoffVisible: true, questionWaitVisible: true, titlebarOverlap: false } },
@@ -131,7 +144,7 @@ const cases = [
   { name: "small-chat-400", tab: "chat", fixture: "small-chat", width: 400, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 36, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 48 } },
   { name: "small-chat-380", tab: "chat", fixture: "small-chat", width: 380, height: 380, expect: { composerInputHeight: 34, composerUtilityHeight: 36, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 48 } },
   { name: "small-chat-360", tab: "chat", fixture: "small-chat", width: 360, height: 360, expect: { composerInputHeight: 34, composerUtilityHeight: 36, conversationBubbles: 1, shortMessageVisible: true, titlebarOverlap: false, headerTopClipped: false, titlebarNativeDragDisabled: true, avatarHitWidth: 38, avatarHitHeight: 38, avatarPlateTransparent: true, avatarAuraCircular: true, avatarAuraContained: true, avatarAuraRadial: true }, min: { titlebarTop: 9 }, max: { composerHeight: 48 } },
-  { name: "crowded-chat-400", tab: "chat", fixture: "crowded-chat", width: 400, height: 400, expect: { crowdedChat: true, todoRows: 3, todoExpanded: true, queueRows: 2, attachmentChips: 1, activityCardVisible: true, thinkingClearOfMessages: true, conversationBubbles: 6, shortMessageVisible: true, messageViewportScrollable: true, crowdedSurfacesWithinPanel: true }, min: { messageViewportHeight: 62 } },
+  { name: "crowded-chat-400", tab: "chat", fixture: "crowded-chat", width: 400, height: 400, expect: { crowdedChat: true, todoRows: 3, todoExpanded: true, queueRows: 2, attachmentChips: 1, activityCardVisible: true, thinkingClearOfMessages: true, conversationBubbles: 6, shortMessageVisible: true, messageViewportScrollable: true, crowdedSurfacesWithinPanel: true, composerEmpty: false, sendDisplay: "grid" }, min: { messageViewportHeight: 62 } },
   { name: "crowded-chat-360", tab: "chat", fixture: "crowded-chat", width: 360, height: 360, expect: { crowdedChat: true, todoRows: 3, todoExpanded: true, queueRows: 2, attachmentChips: 1, activityCardVisible: true, thinkingClearOfMessages: true, conversationBubbles: 6, shortMessageVisible: true, messageViewportScrollable: true, crowdedSurfacesWithinPanel: true, titlebarOverlap: false, headerTopClipped: false }, min: { messageViewportHeight: 62, titlebarTop: 9 } },
   { name: "thinking-orb", tab: "chat", fixture: "thinking", mode: "orb", expect: { orbUtilityButtons: 3 } },
   // A working agent must not open a 400 px panel over the screen on its own. The count goes

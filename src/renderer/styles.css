@@ -352,9 +352,12 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .focus-chat .composer { margin-top:7px; }
 /* The session toolbar is chrome, not content: it sits on the panel's own solid surface and a
    hairline closes it off, so the conversation always starts below it and never shows through. */
-.chat-heading { position:relative; z-index:4; display:grid; grid-template-columns:36px 36px minmax(0,1fr); gap:6px; align-items:center; width:100%; padding-bottom:8px; border-bottom:1px solid var(--line-soft); }
+.chat-heading { position:relative; z-index:4; display:grid; grid-template-columns:36px 36px minmax(0,1fr) auto; gap:6px; align-items:center; width:100%; padding-bottom:8px; border-bottom:1px solid var(--line-soft); }
 /* The way back to the avatar, only for a chat opened from its recent chats. */
-.chat-heading:has(#returnToAvatarButton:not([hidden])) { grid-template-columns:36px 36px 36px minmax(0,1fr); }
+.chat-heading:has(#returnToAvatarButton:not([hidden])) { grid-template-columns:36px 36px 36px minmax(0,1fr) auto; }
+/* What the session has spent so far, at list prices, for the model it last ran. */
+.session-spend { flex:none; padding:0 7px; border:1px solid var(--line-soft); border-radius:999px; background:rgba(255,255,255,.035); color:var(--text-2); font-size:11px; font-weight:650; font-variant-numeric:tabular-nums; line-height:17px; white-space:nowrap; cursor:default; }
+.session-spend[hidden] { display:none; }
 #returnToAvatarButton { color:var(--mint); }
 #returnToAvatarButton[hidden] { display:none; }
 .picker { position:relative; min-width:0; }
@@ -883,6 +886,11 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .composer.has-running { grid-template-columns:28px 28px minmax(0,1fr) 30px 36px; }
 .composer.context-unavailable { grid-template-columns:28px 28px minmax(0,1fr) 36px; }
 .composer.context-unavailable.has-running { grid-template-columns:28px 28px minmax(0,1fr) 30px 36px; }
+/* With no text and no attachment there is nothing to send, so the plane gives its column
+   back to the input instead of sitting there as a button that refuses. */
+.composer.composer-empty { grid-template-columns:28px 28px minmax(0,1fr); }
+.composer.composer-empty.has-running { grid-template-columns:28px 28px minmax(0,1fr) 30px; }
+.composer.composer-empty #sendButton { display:none; }
 .context-meter.unavailable { display:grid; opacity:.64; }
 .context-meter.unavailable .context-arc { stroke:rgba(73,231,198,.42); filter:none; }
 .composer-view-stack { width:28px; height:36px; display:grid; grid-template-rows:repeat(2,17px); gap:2px; align-self:end; }
@@ -1260,8 +1268,9 @@ input[type="range"] { -webkit-user-drag:none; touch-action:none; }
   .title { font-size:14px; }
   .icon-button { width:32px; height:32px; }
   .tabs { width:66px; height:32px; }
-  .chat-heading { grid-template-columns:34px 34px minmax(0,1fr); gap:5px; padding-bottom:6px; }
-  .chat-heading:has(#returnToAvatarButton:not([hidden])) { grid-template-columns:34px 34px 34px minmax(0,1fr); }
+  .chat-heading { grid-template-columns:34px 34px minmax(0,1fr) auto; gap:5px; padding-bottom:6px; }
+  .chat-heading:has(#returnToAvatarButton:not([hidden])) { grid-template-columns:34px 34px 34px minmax(0,1fr) auto; }
+  .session-spend { padding:0 6px; font-size:10.5px; }
   .context-meter { width:28px; height:17px; }
   .context-meter svg { width:15px; height:15px; }
   .picker-button { padding:0 8px; gap:6px; }
@@ -1278,6 +1287,8 @@ input[type="range"] { -webkit-user-drag:none; touch-action:none; }
   .composer.has-running { grid-template-columns:28px 28px minmax(130px,1fr) 30px 36px; }
   .composer.context-unavailable { grid-template-columns:28px 28px minmax(130px,1fr) 36px; }
   .composer.context-unavailable.has-running { grid-template-columns:28px 28px minmax(130px,1fr) 30px 36px; }
+  .composer.composer-empty { grid-template-columns:28px 28px minmax(130px,1fr); }
+  .composer.composer-empty.has-running { grid-template-columns:28px 28px minmax(130px,1fr) 30px; }
   .composer-utility-stack, .composer-view-stack { width:28px; height:36px; }
   .composer-utility-stack .composer-action, .composer-view-stack .focus-chat-button { width:28px; height:17px; }
   .composer-action, .composer-stop { width:100%; height:34px; }

@@ -145,6 +145,9 @@ body.mode-full .chat-activity-border { border-radius:inherit; }
 
 /* The model chip carries the model and the reasoning effort in one control. */
 .chat-heading > .reasoning-picker { grid-column:-2 / -1; grid-row:1; z-index:12; display:flex; min-width:0; }
+/* Spend sits just left of the model chip, on the same row, right-aligned in the free column
+   so it never grows into the space the model chip needs. */
+.chat-heading > .session-spend { grid-column:-3 / -2; grid-row:1; justify-self:end; align-self:center; }
 .reasoning-picker > #reasoningButton { width:100%; min-width:0; height:var(--control); border-radius:10px; padding:0 10px 0 12px; }
 #reasoningButton { position:relative; isolation:isolate; overflow:hidden; --reasoning-accent:var(--mint); --reasoning-secondary:var(--violet); justify-content:flex-start; gap:8px; border-color:var(--line); background:var(--surface-1); box-shadow:none; }
 #reasoningButton:hover, .reasoning-picker.open > #reasoningButton { border-color:var(--line-strong); background:var(--surface-2); }

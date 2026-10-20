@@ -152,8 +152,23 @@ test("main composer starts on one line, grows to one third of the viewport, scro
   assert.match(renderer, /function renderAttachments\(\) \{\s*const messageLayout = captureMessageLayoutSnapshot\(\)/);
 });
 
-test("the full chat has a verified 360px minimum height and a 380 by 400 compact preset", () => {
-  assert.match(main, /compact: \[380, 400\]/);
+// An empty composer has nothing to carry, so the plane is not there to press; and spend is
+// derived from the session's own tokens, which is why the chip and the tooltip both exist.
+test("an empty composer hides Send, and spend is priced where the session shows it", () => {
+  const css = readSource("src", "renderer", "styles.css");
+  assert.match(renderer, /function syncComposerEmptyState\(\)/);
+  assert.match(renderer, /const empty = !input\.value\.trim\(\) && state\.pendingAttachments\.length === 0;/);
+  assert.match(renderer, /form\.classList\.toggle\("composer-empty", empty\)/);
+  assert.match(renderer, /syncComposerEmptyState\(\);\s*\n\s*const height = /);
+  assert.match(renderer, /syncComposerEmptyState\(\);\s*\n\s*restoreMessageLayoutSnapshot\(messageLayout\)/);
+  assert.match(css, /\.composer\.composer-empty #sendButton \{ display:none; \}/);
+  assert.match(css, /\.composer\.composer-empty \{ grid-template-columns:28px 28px minmax\(0,1fr\); \}/);
+  assert.match(renderer, /function renderSessionSpend\(spend\)/);
+  assert.match(renderer, /session spend \$\{spendAmount\(spend\)\}/);
+  assert.match(html, /id="sessionSpend" class="session-spend no-drag" hidden/);
+});
+
+test("the full chat has a verified 360px minimum height and a 380 by 400 compact preset", () => {  assert.match(main, /compact: \[380, 400\]/);
   assert.match(main, /const FULL_MIN_WIDTH = 360/);
   assert.match(main, /const FULL_MIN_HEIGHT = 360/);
   assert.match(main, /Math\.min\(FULL_MIN_WIDTH, display\.width\)/);
