@@ -5,8 +5,8 @@
 <p align="center"><strong>Your agents, within reach. And a slime that lives on your desktop.</strong><br>
 A desktop chat for DeepSeek Harness, a live session board, a little pet that climbs your screen, or just a glowing hinge.</p>
 <p align="center">
-  <img alt="Source version" src="https://img.shields.io/badge/source-v1.0.1-49e7c6" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-1.0.1-8b79ff" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v1.1.0-49e7c6" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-1.1.0-8b79ff" /></a>
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Desktop pet" src="https://img.shields.io/badge/desktop%20pet-slime-3ddc84" />
   <img alt="Platform" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-desktop-5b6b8c" />
@@ -52,13 +52,22 @@ These are screenshots of the UI with demonstration sessions. Avatar and Hinge ar
 ## Small window. Full conversation.
 
 - **Answer the agent here.** When an agent stops on a question, it appears above the message box with its options. Answer or skip without opening the browser.
-- **Chats from the avatar.** Click a recent chat to address the message box to it, click again to open it in a small window right beside the slime. After you send, it folds back into the avatar.
+- **Chats from the avatar.** Click a recent chat to address the message box to it, click again to open it in a small window that grows up out of the slime's panel. After you send, it folds back into the avatar.
+- **Subagents in sight.** The chip above a conversation counts its subagents and background jobs; open it to see each one working, stop it, read a job's output, or open a subagent as a chat of its own.
+- **Fast on long chats.** A chat opens on its newest messages and fetches older ones as you scroll; a chat of thousands of messages opens in a fraction of a second, and one you opened before is back instantly.
+- **Open what the chat points at.** Click an image, an attached file, a link to a file or a path an agent writes, and it opens in a viewer window: images to zoom, Markdown to read, code highlighted at the line named.
+- **What it cost.** Hover the context meter: spend and cost per turn, context and what fills it, turns and tool calls, tokens and cache hits, time worked.
+- **Pin, delete, undo.** Pin a chat to the top of its group or delete it from its card's menu; deleting archives it the way DSH does, and Undo brings it back.
 - **One model and effort control.** Open the combined chip, adjust reasoning on the slider, or choose another model from the same menu.
 - **Readable activity.** Streaming Markdown, grouped tools, queued messages, a compact goal strip and context usage. Background jobs have their own waiting state.
 - **Motion that feels like a Mac.** Folding shrinks the window into the slime or the edge on a spring and it grows back out the same way. Buttons, menus and new tool calls bounce a little.
 - **Your space, your look.** Aurora, Graphite, Midnight, Cyberpunk and Cave themes; custom images, saved design profiles, separate background and text opacity.
 - **Screenshots in one shortcut.** Capture for review, or send the current screen straight to the selected chat. Deck stays on screen but out of the picture.
-- **Harness taken care of.** No DeepSeek Harness installed? Deck installs it. A newer one on your channel? Deck installs it next to the running one and tells you; one click on **Restart Harness** switches.
+- **Harness taken care of.** No DeepSeek Harness installed? Deck installs it. A new stable release? Deck says so once and puts a **DSH x.y.z** chip in the title bar; one press installs it next to the running one and switches. Running DSH Desktop instead? Deck can follow its Harness too.
+
+<table>
+<tr><td width="33%" align="center"><strong>Agents</strong><br>Newest first, pins on top, Recent above the groups.<br><img src="docs/screenshots/agents.png" alt="Agents list with a Recent group, a pinned chat and the Harness chip" width="260" /></td><td width="33%" align="center"><strong>Subagents</strong><br>Everything working under a chat, stoppable.<br><img src="docs/screenshots/subagents.png" alt="Panel listing a chat's subagents and background jobs with job output" width="260" /></td><td width="33%" align="center"><strong>What it cost</strong><br>Hover the context meter.<br><img src="docs/screenshots/context-stats.png" alt="Context meter card with spend, context, turns, tokens and time" width="260" /></td></tr>
+</table>
 
 ## Get started
 
@@ -66,7 +75,7 @@ These are screenshots of the UI with demonstration sessions. Avatar and Hinge ar
 2. Start Harness Web at `http://127.0.0.1:3080`, or press **Start** in Deck's offline banner. With no Harness on the machine, Deck installs the stable DeepSeek Harness runtime with npm (Node.js 22+ required) and starts that.
 3. If Harness asks for authentication, use **Connect** and paste the `dsh web:` launch URL once. Pick a session and start chatting.
 
-Deck updates itself through **Settings → Updates** and keeps Harness current through **Settings → DeepSeek Harness**: it checks npm every few hours for a newer release on the channel you run (alpha stays alpha, stable stays stable), installs it in the background and never restarts Harness on its own, so agents are not cut off mid-turn. Windows is the primary target; macOS and Linux packages are experimental. Current builds are unsigned, so SmartScreen or Gatekeeper may ask for confirmation.
+Deck updates itself through **Settings → Updates** and keeps Harness current through **Settings → DeepSeek Harness**: it checks npm every few hours for a newer stable release, announces it, and installs and switches to it when you press **Update**, never on its own, so agents are not cut off mid-turn. The same section picks which Harness Deck follows: its own, the one inside DSH Desktop, or whichever is running. Windows is the primary target; macOS and Linux packages are experimental. Current builds are unsigned, so SmartScreen or Gatekeeper may ask for confirmation.
 
 ### Window layers and private capture
 
@@ -110,7 +119,7 @@ npm ci
 npm start
 ```
 
-Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 1.0.1 lets you grab the pet and throw it, splats it by how hard it hits, and keeps it from looking hovered after it walks away from the pointer. 1.0.0 turned the avatar into a desktop pet, answers the agent's questions inside Deck for real, opens a chat from the avatar as a small window beside it, installs and updates DeepSeek Harness, and makes folding and unfolding start at once with no flash. Every earlier release is in the [changelog](CHANGELOG.md).
+Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 1.1.0 follows DSH Desktop's Harness as well as its own, updates Harness to a new stable release with one press, shows a chat's subagents and background jobs and opens a subagent as a chat, pins and deletes chats, opens images and files from the chat in a viewer window, and shows what a chat has cost when you hover its context meter. 1.0.1 let you grab the pet and throw it. 1.0.0 turned the avatar into a desktop pet, answers the agent's questions inside Deck for real, opens a chat from the avatar as a small window beside it, installs and updates DeepSeek Harness, and makes folding and unfolding start at once with no flash. Every earlier release is in the [changelog](CHANGELOG.md).
 
 ## Verify and build
 
@@ -124,7 +133,7 @@ npm audit --audit-level=high
 npm run build
 ```
 
-The tests cover session contracts, streaming, attachments, window geometry, compact layouts and the pet's behaviour. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction. Release CI builds Windows, Intel and Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-1.0.1-windows-x64-portable.exe`.
+The tests cover session contracts, streaming, attachments, window geometry, compact layouts and the pet's behaviour. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction. Release CI builds Windows, Intel and Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-1.1.0-windows-x64-portable.exe`.
 
 ## Trust and integration
 

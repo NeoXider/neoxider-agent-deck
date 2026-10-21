@@ -7,17 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-21
+
 ### Added
 
+- **Follow DSH Desktop.** Deck can follow the Harness inside the DSH Desktop app as well as its own `dsh web`. **Settings → DeepSeek Harness** picks Auto (whichever is running), DSH or DSH Desktop, and the chip above the Agents list says which one Deck shows and switches it. DSH Desktop is found through its own log; Deck never starts, restarts or stops it, but offers to open the app when it is not running, and says when a newer DSH Desktop is out.
+- **One-press Harness updates.** Deck follows DeepSeek Harness's stable releases. A new one is announced once, as a toast in the widget or a notification beside the avatar, and stays as a **DSH x.y.z** chip in the title bar. Pressing it installs the release next to the running Harness and restarts onto it, after saying how many agents the restart would stop.
+- **Subagents and background jobs.** The chip above the conversation counts the open chat's subagents and jobs and opens a panel with all of them: each subagent with its state and time, nested under the one that started it, and each job with its output. A working subagent or a running job can be stopped from there, and a subagent opens as a chat of its own, read-only, with the way back to its parent above it.
+- **Pin and delete chats.** Every card in Agents has a menu (also on right-click): pin it to the top of its group, open it in Harness, or delete it. Delete works like Delete in DSH: the chat goes to Harness's archive, a working one is stopped first, and **Undo** brings it back.
+- **A viewer window.** Click an image in the chat or in the message box, a file an agent attached, a link to a file, or a file path an agent writes in code (`docs/plan.md`, `src/app.js:42`) and it opens in a window of its own: an image to zoom and pan, Markdown to read or see as source, code with highlighting and line numbers at the line named, plain text, and for anything else Open with the default app and Show in folder. Relative paths are found in the chat's folder; links inside a document open next to it. The window follows the widget's layer, so it is above everything when the widget is and out of screen captures with the private overlay.
+- **What a chat has cost, on hover.** Hover the context meter for the open chat's spend and its cost per turn, how full the context is and what fills it (system prompt, tools, messages), the number of turns, replies and tool calls, input, output and cache tokens with their prices and the cache hit rate, how long the last turn took, and when the chat started.
 - A DSH plugin, `integrations/dsh-agent-deck`, that opens the widget from a Harness session and reports whether it is installed, running, and following the Harness that installed it, along with its mode (chat, avatar or hinge) and window layer.
-- What the open session has spent, in the chat heading beside the model chip and on its card in Agents. Harness reports tokens but never money, so Deck prices the session's own totals with the list rates from the model catalog it ships, and the context meter's tooltip breaks the sum into input, output and both cache directions. A model with no list rate, such as a local one, shows no figure rather than a guess.
+- What the open session has spent, in the chat heading beside the model chip and on its card in Agents. Harness reports tokens but never money, so Deck prices the session's own totals with the list rates from the model catalog it ships. A model with no list rate, such as a local one, shows no figure rather than a guess.
 
 ### Changed
 
+- **Chats open at once.** A chat opens on its newest messages, and older ones load as you scroll up to them. Every open used to read the whole transcript from Harness: a chat of 6,400 messages took 7 s to open and almost 5 s to refresh, and now takes 0.2 s and 0.1 s. A chat opened before paints immediately when you return to it, and hovering one in Agents reads it ahead of the click. Image previews are fetched once instead of on every refresh, and a long running chat is polled with a short read instead of 120 messages every 2.5 s.
+- **Screenshots in a tenth of the time.** A display capture took 0.7-1.8 s just to read the screen, because Chromium's DirectX capturer only delivers its first frame on its next refresh; Deck now captures through GDI, about 120 ms with the PNG. A region is captured the moment it is picked, and the selection overlay is kept out of the shot.
+- A sent message takes its attachments with it: they leave the message box at once instead of waiting there for Harness to accept the upload, and come back if the send fails.
+- Agents reads like DSH's own sidebar: newest activity first in every group, pinned chats on top, and with a long list a **Recent** group above the others. Cards slide to their new places instead of jumping.
+- A chat opened from the avatar's recent chats takes the panel's place: a small window that grows up out of the panel, its message box where the panel's was, with nothing in it but the way back, the chat and the message box. One press opens it in the full widget.
+- An offline Harness no longer stands beside the avatar for as long as it is down. The avatar says so once in a notification that leaves on its own and whose button starts Harness, then goes on being a pet in its muted offline look. The card used to hold the pet still, mid-fall included.
 - The composer only offers to send when there is something to send: with no text and no attachments the send button is gone and the input takes its width, instead of sitting there as a button that refuses.
 
 ### Fixed
 
+- markdown-it 15.0.3 and sanitize-html 2.18.1, for a quadratic-time parse in markdown-it and sanitizer bypasses in sanitize-html.
+- The subagents chip never appeared on current DSH, which no longer answers `subagent/list`. Subagents are now read from the session list Deck already fetches.
+- A Harness install that ran out of disk space left a half runtime that the next restart would have picked as the newest. An install now carries a marker until npm succeeds, is removed when it fails, is refused up front when the drive is too full, and old runtimes beyond the newest two are cleaned up.
+- Smoke runs no longer pile up Chromium profiles in the temp folder; one machine had collected 6.9 GB of them.
 - The goal strip follows what Harness did. Pausing or resuming used to leave the strip offering the same press for up to a second, because the refresh straight after the command was served a dashboard read before it ran; the command now drops that snapshot, and the strip holds the outcome until a newer one arrives.
 - A goal command Harness refuses, or does not recognise, no longer shows a "Goal paused" toast or "Command completed" in the log, and an edit stays open instead of losing its text.
 - A blocked goal shows as blocked and offers Resume instead of a Pause Harness would refuse, and a finished goal drops the pause control.

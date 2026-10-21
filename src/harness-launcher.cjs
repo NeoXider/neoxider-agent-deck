@@ -406,7 +406,7 @@ function createHarnessLauncher({
     if (disposed) throw new Error("Harness launcher is disposed");
     if (!probe) refreshLaunchSpec();
     if (workingDirectory) fileSystem.mkdirSync(workingDirectory, { recursive: true });
-    const launch = { child: null, error: null, exited: false, ready: false, browserUrl: "", probe, stopRequested: false };
+    const launch = { child: null, error: null, exited: false, ready: false, browserUrl: "", probe, stopRequested: false, entry: launchSpec.displayCommand };
     const childEnv = { ...env };
     delete childEnv.ELECTRON_RUN_AS_NODE;
     // A server launch writes into a file, not a pipe. A ready Harness is meant to outlive
@@ -627,6 +627,8 @@ function createHarnessLauncher({
       if (ownedLaunch) ownedLaunch.browserUrl = "";
       return true;
     },
+    // The dsh entry of the Harness this launcher started and that still runs; "" otherwise.
+    runningEntry: () => (ownedLaunch && !ownedLaunch.exited && !ownedLaunch.probe ? ownedLaunch.entry || "" : ""),
     // Whether anything answers on the Harness port right now. Never spawns or kills.
     probeReady: () => probeReady(),
     // Exit reports for every child this launcher spawns; returns the unsubscribe.

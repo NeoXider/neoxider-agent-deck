@@ -24,6 +24,34 @@ const markdown = new MarkdownIt({
   },
 });
 
+// A link an agent writes to a file on this machine - `[plan](docs/plan.md)`,
+// `[log](D:\logs\run.txt)` - is not a web address. It keeps its path in data-file, and a
+// click opens it in Deck's viewer instead of handing a mangled URL to the browser.
+function localFileHref(value) {
+  const href = String(value || "").trim();
+  if (!href || href.startsWith("#") || href.startsWith("//")) return "";
+  if (/^(https?|mailto):/i.test(href)) return "";
+  // A drive letter is not a scheme; any other scheme is nothing Deck opens.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !/^[a-z]:(?:[\\/]|%5c)/i.test(href)) return "";
+  let decoded = href;
+  try { decoded = decodeURIComponent(href); } catch {}
+  return decoded.length <= 4096 ? decoded : "";
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+}
+
+// Highlighted HTML for a whole file in the viewer: highlight.js output escapes everything it
+// does not wrap in its own spans, and an unknown language is escaped plain text.
+function highlightCode(code, language) {
+  const requestedLanguage = String(language || "").trim().toLowerCase();
+  if (requestedLanguage && hljs.getLanguage(requestedLanguage)) {
+    return hljs.highlight(String(code), { language: requestedLanguage, ignoreIllegals: true }).value;
+  }
+  return escapeHtml(code);
+}
+
 function renderMarkdown(value) {
   const source = String(value || "");
   return sanitizeHtml(markdown.render(source), {
@@ -33,7 +61,7 @@ function renderMarkdown(value) {
       "table", "thead", "tbody", "tr", "th", "td", "a", "span",
     ],
     allowedAttributes: {
-      a: ["href", "title", "target", "rel"],
+      a: ["href", "title", "target", "rel", "data-file"],
       code: ["class"],
       span: ["class"],
     },
@@ -44,10 +72,11 @@ function renderMarkdown(value) {
     allowedSchemes: ["http", "https", "mailto"],
     allowProtocolRelative: false,
     transformTags: {
-      a: (_tagName, attributes) => ({
-        tagName: "a",
-        attribs: { ...attributes, target: "_blank", rel: "noopener noreferrer" },
-      }),
+      a: (_tagName, attributes) => {
+        const file = localFileHref(attributes.href);
+        if (file) return { tagName: "a", attribs: { href: "#", "data-file": file, title: file } };
+        return { tagName: "a", attribs: { ...attributes, target: "_blank", rel: "noopener noreferrer" } };
+      },
     },
   });
 }
@@ -80,4 +109,4 @@ function createMarkdownCache({ maxEntries = 256, maxBytes = 8 * 1024 * 1024, ren
   };
 }
 
-module.exports = { renderMarkdown, createMarkdownCache };
+module.exports = { renderMarkdown, createMarkdownCache, highlightCode, localFileHref };

@@ -13,15 +13,17 @@ const sourceDir = path.join(root, "src");
 const sourceFiles = readdirSync(sourceDir).filter((name) => name.endsWith(".cjs"));
 const lineCount = (file) => readFileSync(path.join(sourceDir, file), "utf8").split(/\r?\n/).length;
 
-// Only these two may reach for Electron. Everything else takes what it needs as a
-// parameter, which is what lets 21 module tests run without booting a browser.
-const ELECTRON_ALLOWED = new Set(["main.cjs", "preload.cjs"]);
+// Only the entry points may reach for Electron: main and the two preloads (the widget's and
+// the viewer window's). Everything else takes what it needs as a parameter, which is what
+// lets the module tests run without booting a browser.
+const ELECTRON_ALLOWED = new Set(["main.cjs", "preload.cjs", "viewer-preload.cjs"]);
 
 // Modules without a same-named test file, and why. Anything else added here needs a
 // reason that survives being read aloud.
 const TEST_EXEMPT = new Map([
   ["main.cjs", "composition; covered by ui-contract, the Electron UI smoke and the input regression"],
   ["preload.cjs", "one line per channel; ui-contract asserts handler/caller parity in both directions"],
+  ["viewer-preload.cjs", "one line per channel; viewer-window.test.cjs asserts every channel it invokes is handled"],
   ["settings-store.cjs", "covered by settings-persistence.test.cjs, including the restart fixture"],
 ]);
 

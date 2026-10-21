@@ -28,6 +28,7 @@ const { QUEUE_CONTENT, editableQueueContent } = require("./queue-view.cjs");
 const { renderMarkdownBatch, renderMarkdownAsync } = require("./markdown-service.cjs");
 const { applyPlatformOpacity } = require("./platform-capabilities.cjs");
 const { UNTRUSTED_SENDER_CODE, UntrustedSenderError, createSenderCheck, denyAllPermissions } = require("./ipc-guard.cjs");
+const { registerDeckHandlers } = require("./ipc-deck-handlers.cjs");
 
 // Session ids come from the renderer on many channels, so they are checked once here
 // instead of reaching Harness as undefined and surfacing as a TypeError.
@@ -98,6 +99,8 @@ function registerIpcHandlers({
   snapCompactWindow,
   snapCompactToEdge = () => {},
   getHarnessRuntime = () => null,
+  getHarnessServices = () => null,
+  getViewer = () => null,
   petRoamer = null,
   moveWithinNearestDisplay,
   moveEdgeDragToPointer,
@@ -166,8 +169,8 @@ function registerIpcHandlers({
     }
   });
   handle("history", async (_event, sessionId, options) => {
-    const view = await api.history(sessionId);
-    if (typeof options?.revision === "string" && options.revision === view.revision) {
+    const view = await api.history(sessionId, { older: options?.older === true });
+    if (options?.older !== true && typeof options?.revision === "string" && options.revision === view.revision) {
       return { ...view, messages: null, unchanged: true };
     }
     // Tool cards use plain text and structured fields; their often enormous output
@@ -271,6 +274,8 @@ function registerIpcHandlers({
   // one. A foreign (already-running) Harness never exposes its launch token,
   // so those fall back to the persisted launch URL and then the configured URL.
   const harnessBrowserBase = () => {
+    const desktop = getHarnessServices()?.state?.();
+    if (desktop?.kind === "desktop") return getHarnessServices().desktopLaunchUrl() || desktop.url;
     try {
       const launcher = typeof getHarnessLauncher === "function" ? getHarnessLauncher() : null;
       const owned = launcher && typeof launcher.browserUrl === "function" ? launcher.browserUrl() : "";
@@ -324,19 +329,11 @@ function registerIpcHandlers({
   handle("start-harness", () => startHarnessConnection({
     api, launcher: getHarnessLauncher(), persistCapturedLaunchUrl, invalidateDashboard,
   }));
-  handle("restart-harness", async () => {
-    const result = await getHarnessLauncher().restart();
-    if (result?.ok) getHarnessRuntime()?.switched?.();
-    persistCapturedLaunchUrl();
-    if (result?.ok && typeof api.reconnect === "function") await api.reconnect();
-    invalidateDashboard();
-    return result;
-  });
+  // The Harness itself: runtime updates, which Harness is followed, session tasks.
+  registerDeckHandlers({ handle, api, getHarnessLauncher, getHarnessRuntime, getHarnessServices, getViewer, invalidateDashboard, persistCapturedLaunchUrl, getPreferences, schedulePreferenceSave });
   // Crash recovery for the owned Harness. Open log takes no argument from the renderer.
   // The agent's questions (question-relay.cjs): the ones waiting now, and the user's answer.
   handle("get-pending-questions", () => getQuestionRelay()?.list() || []);
-  handle("get-harness-runtime", () => getHarnessRuntime()?.state() || null);
-  handle("check-harness-runtime", () => getHarnessRuntime()?.check() || null);
   handle("refresh-questions", () => ({ refreshed: getQuestionRelay()?.refresh() === true, status: getQuestionRelay()?.status?.() || null }));
   handle("answer-question", async (_event, eventId, answer) => {
     const relay = getQuestionRelay();
@@ -524,6 +521,8 @@ function registerIpcHandlers({
       compactAutoExpand: preferences.compactAutoExpand === true,
       collapseAfterSend: preferences.collapseAfterSend !== false,
       petMode: preferences.petMode !== false,
+      recentSessionsOpen: preferences.recentSessionsOpen !== false,
+      harnessTarget: preferences.harnessTarget || "auto",
       size: preferences.size,
       windowMode: getWindowMode(),
       compactSide: preferences.compactSide,

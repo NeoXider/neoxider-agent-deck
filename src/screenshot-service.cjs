@@ -247,6 +247,20 @@ function createScreenshotService({
   };
 }
 
+// Chromium captures a Windows screen through DXGI desktop duplication by default. Its first
+// frame only arrives on the capturer's next refresh, so every desktopCapturer.getSources call
+// took about a second (1.8 s on a busy machine) before the pixels existed: most of the 3-5 s a
+// chat screenshot used to take. With that capturer off, Chromium reads the screen through GDI
+// in about 50 ms. Content protection still keeps Deck out of its own captures.
+function preferFastScreenCapture(commandLine, platform = process.platform) {
+  if (platform !== "win32" || typeof commandLine?.appendSwitch !== "function") return false;
+  const current = typeof commandLine.getSwitchValue === "function" ? String(commandLine.getSwitchValue("disable-features") || "") : "";
+  const features = current.split(",").map((value) => value.trim()).filter(Boolean);
+  if (!features.includes("DirectXCapturer")) features.push("DirectXCapturer");
+  commandLine.appendSwitch("disable-features", features.join(","));
+  return true;
+}
+
 function createScreenshotCaptureGate() {
   let active = false;
   return {
@@ -270,4 +284,5 @@ module.exports = {
   createScreenshotCaptureGate,
   createScreenshotService,
   finiteRect,
+  preferFastScreenCapture,
 };

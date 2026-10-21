@@ -399,3 +399,21 @@ test("only live sessions get a stream: running, with a child at work, recently t
   assert.deepEqual(liveSessionIds(sessions, { selected: "open", now }).sort(), ["child", "open", "recent", "running"]);
   assert.deepEqual(liveSessionIds([], { selected: "kept", now }), ["kept"], "the open chat streams even when the list omits it");
 });
+
+test("reconnect drops every socket so each loop reopens against the Harness it follows now", async () => {
+  const first = createFakeTransport();
+  const second = createFakeTransport();
+  let current = first;
+  const mux = createRemoteMuxClient({ getTransport: () => current, sleep: () => Promise.resolve() });
+  mux.start();
+  mux.track("s1");
+  await tick();
+  try {
+    assert.deepEqual(first.channels.map((channel) => channel.endpoint).sort(), ["session/control", "session/follow"]);
+    current = second;
+    mux.reconnect();
+    await tick();
+    assert.ok(first.channels.every((channel) => channel.closeCalls >= 1), "the old Harness's sockets are closed");
+    assert.deepEqual(second.channels.map((channel) => channel.endpoint).sort(), ["session/control", "session/follow"]);
+  } finally { mux.stop(); }
+});

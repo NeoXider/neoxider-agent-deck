@@ -15,15 +15,10 @@ const {
   turnTimingFromHistory,
 } = require("./session-activity.cjs");
 const {
-  HISTORY_CACHE_BYTES_LIMIT,
-  HISTORY_CACHE_EVENT_LIMIT,
   HISTORY_CACHE_SESSION_LIMIT,
   HISTORY_PREVIEW_BYTES_BUDGET,
   adaptQueueAction,
-  boundedHistoryCacheEntries,
   boundedHistoryEntries,
-  historyRevision,
-  hydrateHistoryImages,
   messagesFromHistory,
   positiveInteger,
   readableToolValue,
@@ -34,6 +29,8 @@ const {
   toolResultFromBlocks,
   userContentFromBlocks,
 } = require("./history-model.cjs");
+const { childrenByParent, subagentTree } = require("./subagent-tree.cjs");
+const { readHistory } = require("./history-loader.cjs");
 
 class HarnessApi {
   constructor(baseUrl = "http://127.0.0.1:3080", fetchImpl = globalThis.fetch, options = {}) {
@@ -45,10 +42,9 @@ class HarnessApi {
     this.subagentRefreshMs = positiveInteger(options.subagentRefreshMs, 10000);
     this.historyCache = new Map();
     this.historyCacheSessionLimit = positiveInteger(options.historyCacheSessionLimit, HISTORY_CACHE_SESSION_LIMIT);
-    this.historyCacheEventLimit = positiveInteger(options.historyCacheEventLimit, HISTORY_CACHE_EVENT_LIMIT);
-    this.historyCacheBytesLimit = positiveInteger(options.historyCacheBytesLimit, HISTORY_CACHE_BYTES_LIMIT);
+    this._historyReaderUrl = this.baseUrl;
     this.historyReader = isMainThread && options.historyWorker !== false
-      ? createHistoryReader(this.baseUrl, { historyCacheSessionLimit: this.historyCacheSessionLimit, historyCacheEventLimit: this.historyCacheEventLimit, historyCacheBytesLimit: this.historyCacheBytesLimit }) : null;
+      ? createHistoryReader(this.baseUrl, { historyCacheSessionLimit: this.historyCacheSessionLimit }) : null;
     this.fullAccessSessions = new Set();
     this.workspaceSnapshot = { items: [], archivedSessionIds: [] };
     // Two Harness generations speak different wire protocols. The probe result is
@@ -86,6 +82,20 @@ class HarnessApi {
       this._candidateLaunchUrl = "";
       this.resetRemoteAuth();
     }
+    return true;
+  }
+
+  // Follow another Harness: DSH Desktop's, or back to Deck's own. Everything learned from
+  // the old one goes with it - its generation, its cookie and every per-session cache.
+  setBaseUrl(baseUrl) {
+    const next = String(baseUrl || "").replace(/\/$/, "");
+    if (!next || next === this.baseUrl) return false;
+    this.baseUrl = next;
+    this._generationPromise = null;
+    this._remoteTransport = null;
+    for (const cache of [this.sessionStateCache, this.historyCache, this.backgroundJobs, this.fullAccessSessions]) cache.clear();
+    this.attachmentCache?.clear();
+    this.workspaceSnapshot = { items: [], archivedSessionIds: [], pinnedSessionIds: [] };
     return true;
   }
 
@@ -253,6 +263,7 @@ class HarnessApi {
       this.workspaceSnapshot = {
         items: Array.isArray(workspaceValue?.items) ? workspaceValue.items : [],
         archivedSessionIds: Array.isArray(workspaceValue?.archivedSessionIds) ? workspaceValue.archivedSessionIds : [],
+        pinnedSessionIds: Array.isArray(workspaceValue?.pinnedSessionIds) ? workspaceValue.pinnedSessionIds : [],
       };
     }
     const archivedSessionIds = Array.isArray(workspaceValue?.archivedSessionIds) ? workspaceValue.archivedSessionIds : [];
@@ -264,13 +275,15 @@ class HarnessApi {
       }
     }
     const sessions = (sessionsValue.items || []).filter((session) => session.origin !== "subagent" && !archived.has(session.sessionId));
+    // Subagents are sessions too; their rows say whose they are (subagent-tree.cjs).
+    const children = remote ? childrenByParent(sessionsValue.items) : null;
     // Per session, and never rejecting. Only the two RPCs used to be guarded, so a single
     // malformed history event thrown by one of the derivation readers rejected the whole
     // Promise.all — and the renderer received {harness:false, sessions:[]}, which is what
     // made every session on screen disappear at once.
     const enriched = await Promise.all(sessions.map(async (session, index) => {
       try {
-        return await this.enrichSession(session, index, workspaceBySessionId, selectedSessionId, Boolean(remote));
+        return await this.enrichSession(session, index, workspaceBySessionId, selectedSessionId, Boolean(remote), children);
       } catch (error) {
         const cachedState = this.sessionStateCache.get(session.sessionId);
         return {
@@ -292,11 +305,12 @@ class HarnessApi {
       sessions: enriched,
       workspaces: Array.isArray(workspaceValue?.items) ? workspaceValue.items : [],
       archivedSessionIds,
+      pinnedSessionIds: Array.isArray(workspaceValue?.pinnedSessionIds) ? workspaceValue.pinnedSessionIds : [],
       workspaceDegraded,
     };
   }
 
-  async enrichSession(session, index, workspaceBySessionId, selectedSessionId = null, remoteGeneration = false) {
+  async enrichSession(session, index, workspaceBySessionId, selectedSessionId = null, remoteGeneration = false, children = null) {
     {
       const cachedState = this.sessionStateCache.get(session.sessionId);
       const shouldEnrich = Boolean(session.running || index < 18 || session.sessionId === selectedSessionId);
@@ -310,11 +324,14 @@ class HarnessApi {
         || session.sessionId === selectedSessionId);
       // Children can change activity without changing the parent's updatedAt.
       // Refresh their roster on a bounded cadence independent of history polling.
-      const shouldReadSubagents = shouldEnrich && (shouldReadState
+      const shouldReadSubagents = !children && shouldEnrich && (shouldReadState
         || !Number.isFinite(cachedState?.subagentsReadAt)
         || now - cachedState.subagentsReadAt >= this.subagentRefreshMs);
       let degraded = refusalHolds;
       let historyRefusal = refusalHolds ? cachedState.historyRefusal : null;
+      // Once a running turn's start is known, later polls only need its newest events. Reading
+      // 120 messages of a long, tool-heavy chat parsed some 8 MB on the main process every poll.
+      const knownTurn = remoteGeneration && session.running && Number.isFinite(cachedState?.runningSince);
       const [catalog, historyValue] = await Promise.all([
         shouldReadSubagents
           ? this.listSubagents(session.sessionId).catch(() => {
@@ -323,18 +340,20 @@ class HarnessApi {
             })
           : Promise.resolve(null),
         shouldReadState
-          ? this.readHistoryEvents(session.sessionId, session.running ? 120 : 12).catch((error) => {
+          ? this.readHistoryEvents(session.sessionId, session.running ? (knownTurn ? 24 : 120) : 12).catch((error) => {
               degraded = true;
               if (isStoredSessionRefusal(error)) historyRefusal = { updatedAt: session.updatedAt, at: now };
               return null;
             })
           : Promise.resolve(null),
       ]);
-      const subagents = catalog ? (catalog.entries || []) : (cachedState?.subagents ?? []);
+      const subagents = children ? subagentTree(session.sessionId, children, session) : catalog ? (catalog.entries || []) : (cachedState?.subagents ?? []);
       const events = historyValue?.events || [];
+      // A short read from inside the known turn holds neither its start nor its end.
+      const inKnownTurn = knownTurn && !events.some((entry) => ["turn/start", "turn/end"].includes(entry?.event?.type));
       // Modern DSH reports live phase in session/list; a durable history tail can
       // still show the previous ended turn while a new request is starting.
-      const historyActivity = historyValue ? activityFromHistory(events) : null;
+      const historyActivity = historyValue ? activityFromHistory(inKnownTurn ? [{ event: { type: "turn/start" } }, ...events] : events) : null;
       const effectiveRunning = remoteGeneration || !historyValue ? Boolean(session.running) : Boolean(historyActivity?.active);
       const activity = effectiveRunning ? historyActivity : null;
       const agentState = historyValue
@@ -346,7 +365,7 @@ class HarnessApi {
       const preview = latestAssistant?.text || cachedState?.preview || "";
       // Timing is cached alongside state so a poll that reuses history — most of them —
       // keeps reporting the same turn start instead of dropping the elapsed clock to zero.
-      const timing = historyValue ? turnTimingFromHistory(events) : null;
+      const timing = historyValue && !inKnownTurn ? turnTimingFromHistory(events) : null;
       const runningSince = timing ? timing.runningSince : (cachedState?.runningSince ?? null);
       const lastRunMs = timing?.lastRunMs ?? cachedState?.lastRunMs ?? null;
       this.sessionStateCache.set(session.sessionId, {
@@ -378,63 +397,13 @@ class HarnessApi {
     }
   }
 
-  async history(sessionId) {
+  // Newest messages first; `older` extends the loaded range by a page. See history-loader.cjs.
+  async history(sessionId, options = {}) {
     const remote = await this.ensureRemote();
     // The worker reader speaks the legacy wire only; remote generations read pages
     // through follow snapshots and session/page instead.
-    if (!remote && this.historyReader && this.fetch === globalThis.fetch && this.rpc === HarnessApi.prototype.rpc) return this.historyReader.read(sessionId);
-    const key = String(sessionId || "");
-    const cachedHistory = this.cachedHistory(key);
-    const cached = cachedHistory?.events || [];
-    const cachedSequences = new Set(cached.map((entry) => entry?.event?.seq).filter(Number.isFinite));
-    const pages = [];
-    let page = await this.fetchHistoryPage(remote, sessionId, { maxMessages: 80 });
-    const tailHasMore = Boolean(page.hasMore);
-    pages.push(boundedHistoryEntries(page.events || []));
-    let overlapsCache = pages[0].some((entry) => cachedSequences.has(entry?.event?.seq));
-    let beforeSeq = Infinity;
-    while (page.hasMore && (!cachedHistory?.complete || !overlapsCache)) {
-      const oldestSeq = Math.min(...pages.at(-1).map((entry) => entry?.event?.seq).filter(Number.isFinite));
-      if (!Number.isFinite(oldestSeq) || oldestSeq >= beforeSeq) throw new Error("Harness history pagination made no progress");
-      beforeSeq = oldestSeq;
-      page = await this.fetchHistoryPage(remote, sessionId, { maxMessages: 80, beforeSeq, throughSeq: page.throughSeq });
-      // The newest tail owns the preview budget; strip older pages before fetching more.
-      const events = boundedHistoryEntries(page.events || [], 0);
-      pages.push(events);
-      overlapsCache = events.some((entry) => cachedSequences.has(entry?.event?.seq));
-    }
-    // A complete newest page replaces the cache, including legitimate /compact shrinkage.
-    // Empty responses during restart/re-indexing keep the cached floor; fresh sequenced
-    // events always supersede their cached versions.
-    const fresh = pages.flat();
-    const blankedOut = fresh.length === 0 && cached.length > 0;
-    const entries = tailHasMore || blankedOut ? [...cached, ...fresh] : fresh;
-    const sequenced = new Map();
-    const unsequenced = [];
-    for (const entry of entries) {
-      const seq = entry?.event?.seq;
-      if (Number.isFinite(seq)) sequenced.set(seq, entry);
-      else unsequenced.push(entry);
-    }
-    const events = [...sequenced.entries()].sort(([left], [right]) => left - right).map(([, entry]) => entry).concat(unsequenced);
-    const hydratedEvents = await hydrateHistoryImages(events, async (attachmentId) => {
-      const value = remote ? await remote.call("session/attachment", { request: { sessionId, attachmentId } }, 10000)
-        : await this.rpc("session.attachment", { sessionId, attachmentId }, 10000);
-      return value?.data;
-    });
-    const boundedEvents = boundedHistoryEntries(hydratedEvents);
-    const revision = historyRevision(boundedEvents);
-    const cacheBound = boundedHistoryCacheEntries(boundedEvents, { maxEvents: this.historyCacheEventLimit, maxBytes: this.historyCacheBytesLimit });
-    const sourceComplete = !page.hasMore || Boolean(overlapsCache && cachedHistory?.complete);
-    const cache = { bytes: cacheBound.bytes, complete: sourceComplete && !cacheBound.truncated, eventCount: cacheBound.entries.length };
-    this.cacheHistory(key, { bytes: cache.bytes, complete: cache.complete, events: cacheBound.entries, revision });
-    return {
-      messages: messagesFromHistory(boundedEvents),
-      activity: activityFromHistory(boundedEvents),
-      revision,
-      unchanged: cachedHistory?.revision === revision,
-      cache,
-    };
+    if (!remote && this.historyReader && this._historyReaderUrl === this.baseUrl && this.fetch === globalThis.fetch && this.rpc === HarnessApi.prototype.rpc) return this.historyReader.read(sessionId, options);
+    return readHistory(this, sessionId, { older: options?.older === true });
   }
 
   async createSession(options = {}) {

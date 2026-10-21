@@ -65,6 +65,26 @@ function migrateUserSettings({
   return { status: "not-found", destinationPath, markerPath, sourcePath: null };
 }
 
+// Every smoke run gets a Chromium profile of its own under <temp>/<package>-smoke/<pid>, and
+// nothing removed them: one machine had collected 2457 of them, 6.9 GB, which is what filled
+// its system drive. Each run now clears out the profiles of runs that ended a while ago.
+const SMOKE_PROFILE_MAX_AGE_MS = 30 * 60 * 1000;
+function sweepSmokeProfiles(parent, { fileSystem = fs, keep = "", now = Date.now(), maxAgeMs = SMOKE_PROFILE_MAX_AGE_MS } = {}) {
+  let removed = 0;
+  let names = [];
+  try { names = fileSystem.readdirSync(parent); } catch { return 0; }
+  for (const name of names) {
+    if (String(name) === keep || !/^\d+$/.test(String(name))) continue;
+    const directory = path.join(parent, String(name));
+    try {
+      if (now - fileSystem.statSync(directory).mtimeMs < maxAgeMs) continue;
+      fileSystem.rmSync(directory, { recursive: true, force: true });
+      removed += 1;
+    } catch {}
+  }
+  return removed;
+}
+
 function configureProductUserData({ app, env = process.env, fileSystem = fs } = {}) {
   if (!app) throw new Error("Electron app is required");
   if (env.DSH_WIDGET_USER_DATA) {
@@ -77,7 +97,9 @@ function configureProductUserData({ app, env = process.env, fileSystem = fs } = 
     return { isSmoke: false, isIsolated: true, userDataDirectory, sessionDataDirectory, migration: null };
   }
   if (env.WIDGET_SCREENSHOT_PATH || env.WIDGET_PACKAGED_SMOKE_PATH) {
-    const smokeRoot = path.join(app.getPath("temp"), `${PACKAGE_NAME}-smoke`, String(process.pid));
+    const smokeParent = path.join(app.getPath("temp"), `${PACKAGE_NAME}-smoke`);
+    sweepSmokeProfiles(smokeParent, { fileSystem, keep: String(process.pid) });
+    const smokeRoot = path.join(smokeParent, String(process.pid));
     const userDataDirectory = path.join(smokeRoot, "user-data");
     const sessionDataDirectory = path.join(smokeRoot, "session");
     fileSystem.mkdirSync(userDataDirectory, { recursive: true });
@@ -105,4 +127,5 @@ module.exports = {
   configureProductUserData,
   migrateUserSettings,
   readNormalizedSettings,
+  sweepSmokeProfiles,
 };

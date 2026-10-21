@@ -174,6 +174,9 @@ function createRegionSelector({ BrowserWindow, screen, platform = process.platfo
         },
       });
 
+      // The capture follows the pick within milliseconds now (preferFastScreenCapture), so the
+      // dimmed overlay is kept out of it outright rather than trusted to be gone in time.
+      window.setContentProtection?.(true);
       const clean = () => {
         window.removeListener("ready-to-show", onReady);
         window.removeListener("closed", onClosed);

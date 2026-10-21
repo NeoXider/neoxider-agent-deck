@@ -103,6 +103,8 @@ const completePreferences = {
   compactSide: "left",
   lastSelectedSessionId: "last-opened-chat",
   harnessLaunchUrl: "http://127.0.0.1:3080/?token=persisted",
+  harnessTarget: "desktop",
+  recentSessionsOpen: false,
   deviceAccessEnabled: true,
   hotkeys: normalizeHotkeyBindings({ captureRegion: { enabled: true, accelerator: "Control+Shift+R" } }),
   windowState: {
@@ -445,6 +447,9 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     hotkeys: normalizeHotkeyBindings(),
     lastSelectedSessionId: null,
     harnessLaunchUrl: "",
+    // Follow whichever Harness runs: Deck's own or DSH Desktop's.
+    harnessTarget: "auto",
+    recentSessionsOpen: true,
     deviceAccessEnabled: false,
     windowState: { version: 2, mode: "full", full: null, orb: null, edge: null },
   });
@@ -496,4 +501,12 @@ test("missing or malformed settings fall back to complete normalized defaults", 
     fs.writeFileSync(filePath, "{ broken json", "utf8");
     assert.deepEqual(store.load(), normalizePreferences(DEFAULT_PREFERENCES));
   });
+});
+
+test("the Harness target and the recent list keep their saved values and drop anything else", () => {
+  assert.equal(normalizePreferences({ harnessTarget: "desktop" }).harnessTarget, "desktop");
+  assert.equal(normalizePreferences({ harnessTarget: "web" }).harnessTarget, "web");
+  assert.equal(normalizePreferences({ harnessTarget: "http://evil" }).harnessTarget, "auto");
+  assert.equal(normalizePreferences({ recentSessionsOpen: false }).recentSessionsOpen, false);
+  assert.equal(normalizePreferences({}).recentSessionsOpen, true);
 });

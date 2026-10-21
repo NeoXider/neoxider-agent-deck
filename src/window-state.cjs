@@ -1,5 +1,10 @@
 const { COMPACT_VISUALS, clamp, compactMargin, compactVisibleInset } = require("./window-geometry.cjs");
 
+// The full widget's sizes (Settings → Size: S, M, L) and the smallest it may be resized to.
+const FULL_SIZE_PRESETS = Object.freeze({ compact: [380, 400], standard: [420, 640], large: [500, 760] });
+const FULL_MIN_WIDTH = 360;
+const FULL_MIN_HEIGHT = 360;
+
 // From a compact window's outer side to the avatar's centre (30 px margin + 34 px radius).
 const AVATAR_INSET = COMPACT_VISUALS.orb.margin + COMPACT_VISUALS.orb.size / 2;
 
@@ -98,4 +103,4 @@ function resizeCompactAnchor(position, fromHeight, toHeight) {
   };
 }
 
-module.exports = { captureModeBounds, fitFullBounds, resizeCompactAnchor, restoreCompactBounds };
+module.exports = { FULL_MIN_HEIGHT, FULL_MIN_WIDTH, FULL_SIZE_PRESETS, captureModeBounds, fitFullBounds, resizeCompactAnchor, restoreCompactBounds };

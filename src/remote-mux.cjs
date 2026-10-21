@@ -224,6 +224,14 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
 
   function start() { runControl(); }
 
+  // The Harness moved (DSH Desktop's instead of Deck's own, or back): every stream drops its
+  // socket and its loop reopens it against whatever getTransport() returns now.
+  function reconnect() {
+    inboxRevisions.clear();
+    try { controlHandle?.close(); } catch {}
+    for (const entry of follows.values()) { try { entry.handle?.close(); } catch {} }
+  }
+
   function stop() {
     stopped = true;
     try { controlHandle?.close(); } catch {}
@@ -237,6 +245,7 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
   return {
     start,
     stop,
+    reconnect,
     track,
     untrack,
     setTrackedSessions,

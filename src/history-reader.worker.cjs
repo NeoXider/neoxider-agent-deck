@@ -2,9 +2,9 @@ const { parentPort, workerData } = require("node:worker_threads");
 const { HarnessApi } = require("./harness-api.cjs");
 const api = new HarnessApi(workerData.baseUrl, globalThis.fetch, { ...workerData.options, historyWorker: false });
 const sessions = new Map();
-async function respond({ id, method, sessionId }) {
+async function respond({ id, method, sessionId, options }) {
   try {
-    const value = method === "ping" ? true : method === "forget" ? api.forgetSession(sessionId) : await api.history(sessionId);
+    const value = method === "ping" ? true : method === "forget" ? api.forgetSession(sessionId) : await api.history(sessionId, options);
     parentPort.postMessage({ id, value });
   } catch (error) {
     parentPort.postMessage({ id, error: error instanceof Error ? error.message : String(error) });

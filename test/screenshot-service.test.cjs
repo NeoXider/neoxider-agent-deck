@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { createScreenshotCaptureGate, createScreenshotService } = require("../src/screenshot-service.cjs");
+const { createScreenshotCaptureGate, createScreenshotService, preferFastScreenCapture } = require("../src/screenshot-service.cjs");
 
 function image(width, height, png = "PNG") {
   return {
@@ -58,6 +58,18 @@ function fixture({ platform = "win32", selectRegion = null, sources = null } = {
   });
   return { calls, displays, leftImage, rightImage, service };
 }
+
+test("Windows captures skip the DXGI capturer, keeping other disabled features; other platforms are untouched", () => {
+  const switches = new Map([["disable-features", "CalculateNativeWinOcclusion"]]);
+  const commandLine = { appendSwitch: (name, value) => switches.set(name, value), getSwitchValue: (name) => switches.get(name) || "" };
+  assert.equal(preferFastScreenCapture(commandLine, "win32"), true);
+  assert.equal(switches.get("disable-features"), "CalculateNativeWinOcclusion,DirectXCapturer");
+  assert.equal(preferFastScreenCapture(commandLine, "win32"), true);
+  assert.equal(switches.get("disable-features"), "CalculateNativeWinOcclusion,DirectXCapturer");
+  const untouched = { appendSwitch: () => assert.fail("only Windows needs the switch") };
+  assert.equal(preferFastScreenCapture(untouched, "darwin"), false);
+  assert.equal(preferFastScreenCapture(undefined, "win32"), false);
+});
 
 test("full-display capture maps Electron display_id and writes a private PNG under app temp", async () => {
   const { calls, service } = fixture();

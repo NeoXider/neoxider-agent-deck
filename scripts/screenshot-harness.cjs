@@ -150,7 +150,7 @@ function attachScreenshotHarness({
       let audit = null;
       if (auditPath) {
         audit = await window.webContents.executeJavaScript(`(() => {
-          const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.todo-dock.has-items','.queue-dock.has-items','.attachment-bar.has-items','.session-spend:not([hidden])','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-session-row','.orb-reply-form','.orb-history-button','.edge-mode'];
+          const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.todo-dock.has-items','.queue-dock.has-items','.attachment-bar.has-items','.session-spend:not([hidden])','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-session-row','.orb-reply-form','.orb-history-button','.edge-mode','.floating-menu','.tasks-panel:not([hidden])','.subagent-bar:not([hidden])','.mini-chat-bar:not([hidden])','.deck-confirm:not([hidden])','.chat-tooltip.stats-card'];
           const boxes = selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((element) => {
             const rect = element.getBoundingClientRect();
             const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).display !== 'none';
@@ -479,6 +479,27 @@ function attachScreenshotHarness({
             agentIdle: document.querySelectorAll('.session-card.state-idle').length,
             agentError: document.querySelectorAll('.session-card.state-error').length,
             sessionGroups: document.querySelectorAll('#sessions > .session-group').length,
+            recentSessionCards: document.querySelectorAll('#sessions > .recent-session-group .session-card').length,
+            pinnedSessionCards: document.querySelectorAll('#sessions > .session-group:not(.recent-session-group) .session-card.pinned').length,
+            firstGroupedSession: document.querySelector('#sessions > .session-group:not(.recent-session-group) .session-card')?.dataset.sessionId || '',
+            harnessSourceLabel: document.querySelector('#harnessSourceLabel')?.textContent || '',
+            floatingMenuItems: document.querySelectorAll('.floating-menu:not(.leaving) .floating-menu-item').length,
+            floatingMenuConfirming: Boolean(document.querySelector('.floating-menu.confirming:not(.leaving)')),
+            tasksPanelOpen: (() => { const panel = document.querySelector('#tasksPanel'); return Boolean(panel && !panel.hidden && panel.getBoundingClientRect().height > 40); })(),
+            taskRows: document.querySelectorAll('#tasksPanel .task-row').length,
+            jobOutputVisible: Boolean(document.querySelector('#tasksPanel .job-output')),
+            subagentBarVisible: (() => { const bar = document.querySelector('#subagentBar'); return Boolean(bar && !bar.hidden && bar.getBoundingClientRect().height > 20); })(),
+            subagentComposerHidden: getComputedStyle(document.querySelector('#chatForm')).display === 'none',
+            miniChat: document.body.classList.contains('mini-chat'),
+            miniChatBarVisible: (() => { const bar = document.querySelector('#miniChatBar'); return Boolean(bar && !bar.hidden && bar.getBoundingClientRect().height > 20); })(),
+            titlebarVisible: getComputedStyle(document.querySelector('.titlebar')).display !== 'none',
+            harnessUpdateChipVisible: (() => { const chip = document.querySelector('#harnessUpdateChip'); return Boolean(chip && !chip.hidden && chip.getBoundingClientRect().width > 0); })(),
+            harnessUpdateChipText: document.querySelector('#harnessUpdateChip')?.textContent || '',
+            harnessTargetOptions: document.querySelectorAll('#harnessTargetSwitch [data-target]').length,
+            updateHarnessButtonText: document.querySelector('#updateHarnessButton:not([hidden])')?.textContent || '',
+            statsCardVisible: Boolean(document.querySelector('.chat-tooltip.stats-card:popover-open')),
+            statsCardSections: document.querySelectorAll('.chat-tooltip.stats-card .stats-section').length,
+            statsCardSpend: document.querySelector('.chat-tooltip.stats-card .stats-hero b')?.textContent || '',
             sessionPickerGroups: document.querySelectorAll('#sessionOptions > .picker-session-group').length,
             chatSessionPickerAbsent: !document.querySelector('#sessionButton, #sessionMenu, #sessionOptions'),
             agentCollapsedSessionGroups: document.querySelectorAll('#sessions > .session-group.collapsed').length,

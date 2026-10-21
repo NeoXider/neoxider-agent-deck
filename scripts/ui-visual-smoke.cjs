@@ -18,6 +18,22 @@ const cases = [
   { name: "overview-360", fixture: "overview", width: 420, height: 360, expect: { agentWorking: 1, agentIdle: 1, agentError: 1, titlebarOverlap: false } },
   { name: "workspace-groups", tab: "agents", fixture: "workspace-groups", width: 360, height: 500, expect: { sessionGroups: 2, sessionPickerGroups: 0, agentCollapsedSessionGroups: 1, pickerCollapsedSessionGroups: 0, agentSessionGroupAddButtons: 2, pickerSessionGroupAddButtons: 0, sessionGroupHeadersSingleLine: true, uniqueSessionCards: true, uniquePickerSessions: true } },
   { name: "workspace-groups-chat", tab: "chat", fixture: "workspace-groups-chat", width: 360, height: 500, expect: { chatSessionPickerAbsent: true, sessionGroups: 2, setupInToolbar: true } },
+  // Agents in 1.1: Recent above the groups, newest first, a pinned chat on top of its group,
+  // the Harness chip, and the card menu with its in-place delete confirmation.
+  { name: "agents-recent", tab: "agents", fixture: "agents-recent", width: 380, height: 620, expect: { recentSessionCards: 4, pinnedSessionCards: 1, firstGroupedSession: "s-docs", harnessSourceLabel: "DeepSeek Harness", titlebarOverlap: false } },
+  { name: "session-menu", tab: "agents", fixture: "session-menu", width: 380, height: 620, expect: { floatingMenuItems: 3, floatingMenuConfirming: false } },
+  { name: "session-delete-confirm", tab: "agents", fixture: "session-delete-confirm", width: 380, height: 620, expect: { floatingMenuConfirming: true } },
+  // A chat's subagents and background jobs, and a subagent opened as a chat of its own.
+  { name: "subagents-panel", tab: "chat", fixture: "subagents-panel", width: 420, height: 620, expect: { tasksPanelOpen: true, taskRows: 6, jobOutputVisible: true } },
+  { name: "subagent-chat", tab: "chat", fixture: "subagent-chat", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: true, tasksPanelOpen: false } },
+  // The avatar's recent chats open a small chat in the panel's place.
+  { name: "mini-chat", tab: "chat", fixture: "mini-chat", width: 360, height: 500, expect: { miniChat: true, miniChatBarVisible: true, titlebarVisible: false } },
+  // Which Harness Deck follows, and a stable Harness release announced in the title bar.
+  { name: "harness-settings", tab: "chat", fixture: "harness-settings", width: 420, height: 620, expect: { settingsOpen: true, harnessTargetOptions: 3, updateHarnessButtonText: "Update to 0.2.1", harnessUpdateChipVisible: true } },
+  { name: "harness-update-chip", tab: "chat", fixture: "harness-update-chip", width: 420, height: 560, expect: { harnessUpdateChipVisible: true, harnessUpdateChipText: "DSH 0.2.1", titlebarOverlap: false } },
+  { name: "harness-update-chip-360", tab: "chat", fixture: "harness-update-chip", width: 360, height: 500, expect: { harnessUpdateChipVisible: true, titlebarOverlap: false } },
+  // Hovering the context meter: spend, turns, tokens, cache and time for the open chat.
+  { name: "context-stats", tab: "chat", fixture: "context-stats", width: 420, height: 620, expect: { statsCardVisible: true, statsCardSpend: "~$4.36" }, min: { statsCardSections: 4 } },
   { name: "offline", tab: "chat", fixture: "offline", expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", contextUnavailable: true }, min: { composerTextareaWidth: 220, startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
   { name: "harness-crash", tab: "chat", fixture: "harness-crash", expect: { offlineBanners: 1, startHarnessText: "Restart now", startHarnessButtonVisible: true, startHarnessButtonDisabled: false } },
   { name: "harness-crash-gave-up", tab: "chat", fixture: "harness-crash-gave-up", expect: { offlineBanners: 1, startHarnessText: "Restart", startHarnessButtonVisible: true } },
@@ -151,7 +167,8 @@ const cases = [
   // on the expand button, and only the circle and the two controls take the mouse.
   { name: "collapsed-orb", tab: "chat", fixture: "orb-collapsed", mode: "orb", expect: { orbHasStatus: false, orbStatusWidth: 0, orbPanelCountVisible: false }, max: { orbInteractiveArea: 6600 } },
   { name: "auto-expand-orb", tab: "chat", fixture: "orb-auto-expand", mode: "orb", expect: { orbHasStatus: true, orbPanelCountVisible: false }, min: { orbStatusWidth: 100 } },
-  { name: "offline-orb", tab: "chat", fixture: "offline", mode: "orb", expect: { orbUtilityButtons: 3, orbStatusLabel: "Harness offline", orbStatusText: "Start Harness to reconnect." } },
+  // Offline beside the avatar is a notification that leaves on its own, not a card that stays.
+  { name: "offline-orb", tab: "chat", fixture: "offline", mode: "orb", expect: { orbUtilityButtons: 3, orbNotification: true, orbStatusLabel: "Harness offline", orbStatusText: "Start Harness to reconnect." } },
   { name: "notification-orb", tab: "chat", fixture: "orb-notification", mode: "orb", expect: { orbUtilityButtons: 3, orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
   { name: "notification-orb-black", tab: "chat", fixture: "orb-notification", mode: "orb", backdrop: "black", expect: { orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
   { name: "notification-orb-white", tab: "chat", fixture: "orb-notification", mode: "orb", backdrop: "white", expect: { orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },

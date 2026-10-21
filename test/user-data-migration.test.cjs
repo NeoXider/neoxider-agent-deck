@@ -8,6 +8,7 @@ const {
   SETTINGS_FILE_NAME,
   configureProductUserData,
   migrateUserSettings,
+  sweepSmokeProfiles,
 } = require("../src/user-data-migration.cjs");
 
 function withTemporaryDirectory(run) {
@@ -130,3 +131,14 @@ test("explicit user-data override isolates interactive acceptance runs", () => {
     [path.join(expected, "session-data"), { recursive: true }],
   ]);
 });
+
+test("a smoke run clears the profiles of runs that ended a while ago and keeps its own and recent ones", () => withTemporaryDirectory((root) => {
+  const parent = path.join(root, "neoxider-agent-deck-smoke");
+  const old = Date.now() - 2 * 60 * 60 * 1000;
+  for (const name of ["111", "222", "333", "notes"]) fs.mkdirSync(path.join(parent, name, "user-data"), { recursive: true });
+  for (const name of ["111", "333", "notes"]) fs.utimesSync(path.join(parent, name), old / 1000, old / 1000);
+  const removed = sweepSmokeProfiles(parent, { keep: "333" });
+  assert.equal(removed, 1);
+  assert.deepEqual(fs.readdirSync(parent).sort(), ["222", "333", "notes"], "only an old pid directory that is not this run's goes");
+  assert.equal(sweepSmokeProfiles(path.join(root, "missing")), 0);
+}));

@@ -183,7 +183,7 @@ test("history retains only a strict aggregate of newest preview bytes and falls 
   assert.equal(messages[1].attachments[0].data, preview);
 });
 
-test("history paginates to the first message and reuses older pages on refresh", async () => {
+test("history opens on the newest messages, refreshes with a short page and loads older pages on request", async () => {
   const api = new HarnessApi(undefined, legacyFetch);
   const calls = [];
   const entries = (first, last) => Array.from({ length: last - first + 1 }, (_, offset) => {
@@ -196,86 +196,79 @@ test("history paginates to the first message and reuses older pages on refresh",
       },
     };
   });
+  const pages = [
+    { events: entries(81, 200), hasMore: true },
+    { events: entries(178, 201), hasMore: true },
+    { events: entries(1, 80), hasMore: false },
+    { events: entries(300, 323), hasMore: true },
+    { events: entries(204, 323), hasMore: true },
+  ];
   api.rpc = async (method, payload) => {
     assert.equal(method, "session.history");
     calls.push(payload);
-    if (calls.length === 1) return { events: entries(81, 160), hasMore: true };
-    if (calls.length === 2) return { events: entries(1, 80), hasMore: false };
-    if (calls.length === 3) return { events: entries(82, 161), hasMore: true };
-    throw new Error(`Unexpected history page ${calls.length}`);
+    if (!pages.length) throw new Error(`Unexpected history page ${calls.length}`);
+    return pages.shift();
   };
 
-  const initial = await api.history("long-session");
-  assert.equal(initial.messages.length, 160);
-  assert.equal(initial.messages[0].text, "message-1");
-  assert.equal(initial.messages.at(-1).text, "message-160");
-  assert.deepEqual(calls.slice(0, 2), [
-    { sessionId: "long-session", maxMessages: 80 },
-    { sessionId: "long-session", beforeSeq: 81, maxMessages: 80 },
-  ]);
+  const opened = await api.history("long-session");
+  assert.equal(opened.messages.length, 120);
+  assert.equal(opened.messages[0].text, "message-81");
+  assert.equal(opened.hasOlder, true);
 
   const refreshed = await api.history("long-session");
-  assert.equal(refreshed.messages.length, 161);
-  assert.equal(refreshed.messages[0].text, "message-1");
-  assert.equal(refreshed.messages.at(-1).text, "message-161");
-  assert.equal(calls.length, 3, "a tail page overlapping the complete cache must not reload older pages");
+  assert.deepEqual(refreshed.messages.map(({ text }) => text), entries(81, 201).map((entry) => `message-${entry.event.seq}`));
+  assert.equal(refreshed.hasOlder, true);
+
+  const older = await api.history("long-session", { older: true });
+  assert.equal(older.messages.length, 201);
+  assert.equal(older.messages[0].text, "message-1");
+  assert.equal(older.hasOlder, false);
+  assert.equal((await api.history("long-session", { older: true })).messages.length, 201, "nothing older is left to ask for");
+
+  // More arrived than a short page holds: the tail is read again and replaces the range.
+  const jumped = await api.history("long-session");
+  assert.equal(jumped.messages[0].text, "message-204");
+  assert.equal(jumped.messages.length, 120);
+  assert.equal(jumped.hasOlder, true);
+  assert.deepEqual(calls, [
+    { sessionId: "long-session", maxMessages: 120 },
+    { sessionId: "long-session", maxMessages: 24 },
+    { sessionId: "long-session", maxMessages: 120, beforeSeq: 81 },
+    { sessionId: "long-session", maxMessages: 24 },
+    { sessionId: "long-session", maxMessages: 120 },
+  ]);
 });
 
-test("a truncated history cache repaginates so long conversations remain complete", async () => {
-  const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, {
-    historyCacheEventLimit: 2,
-    historyCacheBytesLimit: 4096,
-  });
-  const calls = [];
-  const entries = (first, last) => Array.from({ length: last - first + 1 }, (_, offset) => {
-    const seq = first + offset;
-    return { event: { type: "user/message", seq, data: { source: { kind: "user" }, content: [{ type: "text", text: `message-${seq}` }] } } };
-  });
-  api.rpc = async (_method, payload) => {
-    calls.push(payload);
-    if (calls.length === 1) return { events: entries(4, 5), hasMore: true };
-    if (calls.length === 2) return { events: entries(1, 3), hasMore: false };
-    if (calls.length === 3) return { events: entries(5, 6), hasMore: true };
-    if (calls.length === 4) return { events: entries(1, 4), hasMore: false };
-    throw new Error(`Unexpected history page ${calls.length}`);
+test("remote older pages walk session/page from the snapshot cursor", async () => {
+  const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+  const entries = (first, last) => Array.from({ length: last - first + 1 }, (_, offset) => ({ event: {
+    type: "assistant/message", seq: first + offset, data: { message: { content: [{ type: "text", text: `line ${first + offset}` }] } },
+  } }));
+  const snapshots = [];
+  const pages = [];
+  api.ensureRemote = async () => ({ call: async (endpoint, args) => {
+    pages.push({ endpoint, request: args.request });
+    return { records: entries(1, 3), hasMore: false };
+  } });
+  api.remoteChannelFirstFrame = async (_remote, endpoint, args) => {
+    snapshots.push({ endpoint, maxMessages: args.request.maxMessages });
+    return { records: entries(4, 6), hasMore: true, cursor: 6 };
   };
 
-  const initial = await api.history("bounded-long-session");
-  assert.deepEqual(initial.messages.map(({ text }) => text), entries(1, 5).map((entry) => `message-${entry.event.seq}`));
-  assert.deepEqual(initial.cache, { bytes: initial.cache.bytes, complete: false, eventCount: 2 });
-
-  const refreshed = await api.history("bounded-long-session");
-  assert.deepEqual(refreshed.messages.map(({ text }) => text), entries(1, 6).map((entry) => `message-${entry.event.seq}`));
-  assert.deepEqual(calls.map(({ beforeSeq }) => beforeSeq ?? null), [null, 4, null, 5]);
-  assert.equal(api.historyCache.get("bounded-long-session").events.length, 2);
+  const opened = await api.history("remote-chat");
+  assert.deepEqual(opened.messages.map(({ text }) => text), ["line 4", "line 5", "line 6"]);
+  assert.equal(opened.hasOlder, true);
+  const older = await api.history("remote-chat", { older: true });
+  assert.deepEqual(older.messages.map(({ text }) => text), ["line 1", "line 2", "line 3", "line 4", "line 5", "line 6"]);
+  assert.equal(older.hasOlder, false);
+  assert.deepEqual(snapshots, [{ endpoint: "session/follow", maxMessages: 120 }]);
+  assert.deepEqual(pages, [{ endpoint: "session/page", request: {
+    address: { kind: "session", sessionId: "remote-chat" }, throughSeq: 6, beforeSeq: 4, maxMessages: 120,
+  } }]);
 });
 
-test("history cache enforces byte bounds without truncating the current response", async () => {
-  const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, {
-    historyCacheEventLimit: 20,
-    historyCacheBytesLimit: 700,
-  });
-  const events = [1, 2, 3].map((seq) => ({ event: {
-    type: "user/message",
-    seq,
-    data: { source: { kind: "user" }, content: [{ type: "text", text: `${seq}-${"x".repeat(300)}` }] },
-  } }));
-  api.rpc = async () => ({ events, hasMore: false });
-
-  const result = await api.history("byte-bounded");
-  const cached = api.historyCache.get("byte-bounded");
-  assert.equal(result.messages.length, 3, "the fetched response remains complete");
-  assert.ok(cached.bytes <= 700);
-  assert.ok(cached.events.length < events.length);
-  assert.equal(cached.complete, false);
-  assert.equal(result.cache.complete, false);
-});
-
-test("older pages strip repeated base64 before entering the bounded cache", async () => {
-  const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, {
-    historyCacheEventLimit: 10,
-    historyCacheBytesLimit: 64 * 1024,
-  });
+test("older pages strip repeated base64 before entering the cache", async () => {
+  const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch);
   const repeatedPreview = Buffer.alloc(128 * 1024, 7).toString("base64");
   const olderPage = [1, 2].map((seq) => ({ event: {
     type: "user/message",
@@ -292,7 +285,8 @@ test("older pages strip repeated base64 before entering the bounded cache", asyn
       : { events: olderPage, hasMore: false };
   };
 
-  const result = await api.history("image-pages");
+  await api.history("image-pages");
+  const result = await api.history("image-pages", { older: true });
   const cachedJson = JSON.stringify(api.historyCache.get("image-pages"));
   assert.equal(result.messages[0].attachments[0].data, undefined);
   assert.equal(result.messages[1].attachments[0].data, undefined);
@@ -301,11 +295,7 @@ test("older pages strip repeated base64 before entering the bounded cache", asyn
 });
 
 test("history revisions are stable and the per-session cache uses LRU eviction", async () => {
-  const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, {
-    historyCacheSessionLimit: 2,
-    historyCacheEventLimit: 10,
-    historyCacheBytesLimit: 4096,
-  });
+  const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, { historyCacheSessionLimit: 2 });
   const versions = new Map();
   api.rpc = async (_method, { sessionId }) => {
     const count = versions.get(sessionId) || 1;
@@ -944,8 +934,9 @@ test("a remote snapshot without a cursor is served instead of dead-ending pagina
   const result = await api.history("s1");
   assert.deepEqual(result.messages.map((message) => message.text), ["line 3", "line 4"]);
   assert.equal(opens, 1, "one snapshot, no second identical fetch");
+  assert.equal(result.hasOlder, false, "nothing older can be asked for without a cursor");
 
-  // With a cursor the older page is still walked.
+  // With a cursor the older page is walked when the reader asks for it.
   const older = [{ event: { type: "assistant/message", seq: 1, data: { message: { content: [{ type: "text", text: "line 1" }] } } } }];
   const pages = [];
   remote.openChannel = async ({ onFrame }) => {
@@ -956,7 +947,9 @@ test("a remote snapshot without a cursor is served instead of dead-ending pagina
     pages.push([endpoint, args.request.throughSeq, args.request.beforeSeq]);
     return { records: older, hasMore: false };
   };
-  const paged = await api.history("s2");
+  assert.equal((await api.history("s2")).hasOlder, true);
+  assert.deepEqual(pages, []);
+  const paged = await api.history("s2", { older: true });
   assert.deepEqual(pages, [["session/page", 4, 3]]);
   assert.deepEqual(paged.messages.map((message) => message.text), ["line 1", "line 3", "line 4"]);
 });
@@ -972,6 +965,29 @@ test("modern dashboard keeps the host live phase even when history still ends at
   const idle = await api.enrichSession({ ...session, running: false }, 0, new Map(), "modern", true);
   assert.equal(idle.running, false);
   assert.equal(idle.activity, null);
+});
+
+test("a running chat whose turn start is known is polled with a short read that keeps its clock and activity", async () => {
+  const api = new HarnessApi(undefined, legacyFetch);
+  api.listSubagents = async () => ({ entries: [] });
+  const depths = [];
+  let events = [
+    { event: { type: "turn/start", time: "2026-10-21T10:00:00.000Z" } },
+    { event: { type: "tool/call", data: { callId: "c1", name: "read_file" } } },
+  ];
+  api.readHistoryEvents = async (_sessionId, depth) => { depths.push(depth); return { events }; };
+  const session = { sessionId: "long", running: true, updatedAt: 1 };
+  const first = await api.enrichSession(session, 0, new Map(), "long", true);
+  assert.equal(first.runningSince, Date.parse("2026-10-21T10:00:00.000Z"));
+  events = [{ event: { type: "tool/call", data: { callId: "c2", name: "write_file" } } }];
+  const later = await api.enrichSession({ ...session, updatedAt: 2 }, 0, new Map(), "long", true);
+  assert.deepEqual(depths, [120, 24]);
+  assert.equal(later.runningSince, first.runningSince, "the clock survives a read without the turn start");
+  assert.deepEqual(later.activity, { active: true, kind: "tool", label: "Using tool", text: "write_file" });
+  events = [{ event: { type: "turn/end", time: "2026-10-21T10:05:00.000Z", data: { reason: { kind: "stop" } } } }];
+  const ended = await api.enrichSession({ ...session, running: false, updatedAt: 3 }, 0, new Map(), "long", true);
+  assert.equal(ended.running, false);
+  assert.deepEqual(depths, [120, 24, 12]);
 });
 
 test("remote models keep the full host catalog and use the addressed session selection", async () => {
@@ -1122,4 +1138,39 @@ test("the session list stops re-reading a log DSH refused until the session chan
   now += 10 * 60 * 1000;
   await api.dashboard();
   assert.equal(historyCalls, 3, "the refusal wait expires");
+});
+
+test("a remote dashboard reads subagents and pins from what it already fetched, never from subagent/list", async () => {
+  const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+  const endpoints = [];
+  api.ensureRemote = async () => ({ call: async (endpoint) => {
+    endpoints.push(endpoint);
+    if (endpoint === "session/list") return { items: [
+      { sessionId: "parent", running: true, updatedAt: 3 },
+      { sessionId: "kid", origin: "subagent", parentSessionId: "parent", running: true, updatedAt: 2, projections: { values: { subagent: { mode: "one-shot", label: "Scan the repo" } } } },
+    ] };
+    throw new Error(`unexpected ${endpoint}`);
+  } });
+  api.readHistoryEvents = async () => ({ events: [] });
+  api.remoteWorkspaceBaseline = async () => ({ items: [], archivedSessionIds: [], pinnedSessionIds: ["parent"] });
+  const dashboard = await api.dashboard();
+  assert.deepEqual(dashboard.sessions.map((session) => session.sessionId), ["parent"], "the subagent itself stays out of the list");
+  assert.deepEqual(dashboard.sessions[0].subagents.map((child) => [child.sessionId, child.title, child.activity]), [["kid", "Scan the repo", "running"]]);
+  assert.deepEqual(dashboard.pinnedSessionIds, ["parent"]);
+  assert.ok(!endpoints.includes("subagent/list"), "current DSH has no subagent/list");
+});
+
+test("switching to another Harness forgets the old one's generation, cookie and caches", async () => {
+  const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, { historyWorker: false });
+  api._generationPromise = Promise.resolve("gated");
+  api._remoteTransport = { dropCookie() {} };
+  api.sessionStateCache.set("s", {});
+  api.historyCache.set("s", {});
+  api.fullAccessSessions.add("s");
+  assert.equal(api.setBaseUrl("http://127.0.0.1:43129/"), true);
+  assert.equal(api.baseUrl, "http://127.0.0.1:43129");
+  assert.equal(api._generationPromise, null);
+  assert.equal(api._remoteTransport, null);
+  assert.equal(api.sessionStateCache.size + api.historyCache.size + api.fullAccessSessions.size, 0);
+  assert.equal(api.setBaseUrl("http://127.0.0.1:43129"), false, "the same Harness again changes nothing");
 });

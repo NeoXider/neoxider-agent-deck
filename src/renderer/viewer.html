@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'"
+    />
+    <title>Viewer</title>
+    <link rel="stylesheet" href="viewer.css" />
+  </head>
+  <body>
+    <svg class="sprite" width="0" height="0" aria-hidden="true">
+      <symbol id="v-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="m5 18 5-5 3 3 2.5-2.5L20 18"/></symbol>
+      <symbol id="v-doc" viewBox="0 0 24 24"><path d="M7 3.5h7l4.5 4.5v12.5H7z"/><path d="M14 3.5V8h4.5M9.5 12.5h6M9.5 16h6"/></symbol>
+      <symbol id="v-code" viewBox="0 0 24 24"><path d="m9 8-4 4 4 4M15 8l4 4-4 4"/></symbol>
+      <symbol id="v-file" viewBox="0 0 24 24"><path d="M7 3.5h7l4.5 4.5v12.5H7z"/><path d="M14 3.5V8h4.5"/></symbol>
+      <symbol id="v-folder" viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></symbol>
+      <symbol id="v-missing" viewBox="0 0 24 24"><path d="M7 3.5h7l4.5 4.5v12.5H7z"/><path d="m10 12 5 5M15 12l-5 5"/></symbol>
+      <symbol id="v-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></symbol>
+      <symbol id="v-open" viewBox="0 0 24 24"><path d="M13.5 4.5h6v6M19.5 4.5l-8 8M17.5 13.5v5a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 18.5V8.5A1.5 1.5 0 0 1 6 7h5"/></symbol>
+      <symbol id="v-reveal" viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5 12 11l2.5 2.5"/></symbol>
+      <symbol id="v-fit" viewBox="0 0 24 24"><path d="M4.5 9V4.5H9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15"/></symbol>
+      <symbol id="v-minus" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
+      <symbol id="v-plus" viewBox="0 0 24 24"><path d="M6 12h12M12 6v12"/></symbol>
+    </svg>
+    <header class="bar">
+      <span id="kindIcon" class="kind-icon" aria-hidden="true"><svg><use href="#v-file"/></svg></span>
+      <span class="title"><b id="itemName">Viewer</b><small id="itemMeta"></small></span>
+      <div id="tools" class="tools" role="toolbar" aria-label="Viewer tools"></div>
+    </header>
+    <main id="stage" class="stage" tabindex="-1"></main>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="viewer.js"></script>
+  </body>
+</html>

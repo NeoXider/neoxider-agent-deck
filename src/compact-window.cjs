@@ -75,17 +75,20 @@ function placeCompactWindow(windowRef, x, y) {
   windowRef.setBounds({ x, y, ...size }, false);
 }
 
-// A chat opened from the avatar unfolds as a small window beside it, not at the full
-// widget's own size and place: the avatar's panel grown into a conversation. Its inner edge
-// lines up with the avatar's, so the window seems to come out of it.
-const MINI_CHAT_SIZE = Object.freeze({ width: 380, height: 540 });
+// A chat opened from the avatar's recent chats takes the panel's place instead of opening
+// the full widget: a small window whose inner edge lines up with the avatar's and whose
+// message box sits where the panel's was, so the panel seems to grow up into a conversation.
+const MINI_CHAT_SIZE = Object.freeze({ width: 360, height: 500 });
 const ORB_AVATAR_INSET = 64; // 30 px margin + 34 px radius, from the window's outer side.
+// The panel's foot below the avatar's centre: half the panel window's height.
+const PANEL_FOOT_BELOW_AVATAR = COMPACT_SIZES.orbPanel.height / 2;
 function miniChatBounds(orbBounds, side, workArea, size = MINI_CHAT_SIZE) {
   const width = Math.min(size.width, workArea.width);
   const height = Math.min(size.height, workArea.height);
   const avatarX = side === "left" ? orbBounds.x + ORB_AVATAR_INSET : orbBounds.x + orbBounds.width - ORB_AVATAR_INSET;
+  const avatarY = orbBounds.y + orbBounds.height / 2;
   const x = side === "left" ? avatarX - 34 : avatarX + 34 - width;
-  const y = orbBounds.y + orbBounds.height / 2 - height / 2;
+  const y = avatarY + PANEL_FOOT_BELOW_AVATAR - height;
   return {
     x: Math.round(Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - width)),
     y: Math.round(Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - height)),

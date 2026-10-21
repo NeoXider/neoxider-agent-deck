@@ -166,8 +166,9 @@ test("release documentation uses the current window-layer label and previews eve
   for (const preview of ["Chat", "Sessions", "Avatar", "Hinge"]) {
     assert.match(readme, new RegExp(`<strong>${preview}<\\/strong>`));
   }
-  assert.equal((readme.match(/src="docs\/screenshots\//g) || []).length, 4);
-  for (const screenshot of ["chat.png", "sessions.png", "avatar.png", "hinge.png"]) {
+  // The four window modes, then three of what 1.1 added: Agents, subagents, the stats card.
+  assert.equal((readme.match(/src="docs\/screenshots\//g) || []).length, 7);
+  for (const screenshot of ["chat.png", "sessions.png", "avatar.png", "hinge.png", "agents.png", "subagents.png", "context-stats.png"]) {
     assert.match(readme, new RegExp(`docs/screenshots/${screenshot.replace(".", "\\.")}`));
   }
 });

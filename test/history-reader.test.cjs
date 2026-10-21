@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 const { HarnessApi } = require("../src/harness-api.cjs");
 
-test("production worker paginates HTTP history, reuses revisions, handles compaction and forgets deleted sessions", async () => {
+test("production worker reads the newest page, loads older ones on request, reuses revisions, handles compaction and forgets deleted sessions", async () => {
   let entries = Array.from({ length: 205 }, (_, index) => ({ event: {
     seq: index + 1, type: "user/message", time: index + 1,
     data: { content: [{ type: "text", text: `Message ${index}` }] },
@@ -34,13 +34,18 @@ test("production worker paginates HTTP history, reuses revisions, handles compac
     const api = new HarnessApi(`http://127.0.0.1:${server.address().port}`);
     let ticked = false;
     setImmediate(() => { ticked = true; });
-    const first = await api.history("chat");
+    const opened = await api.history("chat");
     assert.equal(ticked, true);
+    assert.equal(opened.messages.length, 120);
+    assert.equal(opened.hasOlder, true);
+    assert.equal(requests, 1);
+    const first = await api.history("chat", { older: true });
     assert.equal(first.messages.length, 205);
-    assert.equal(requests, 3);
+    assert.equal(first.hasOlder, false);
+    assert.equal(requests, 2);
     assert.equal(first.messages[0].text, "Message 0");
     const repeated = await api.history("chat");
-    assert.equal(requests, 4);
+    assert.equal(requests, 3);
     assert.equal(repeated.unchanged, true);
     assert.equal(repeated.revision, first.revision);
     entries = entries.slice(-2);

@@ -15,7 +15,6 @@ test("length-limited saved replies retain partial output and a resumable warning
 const {
   HISTORY_PREVIEW_BYTES_BUDGET,
   adaptQueueAction,
-  boundedHistoryCacheEntries,
   boundedHistoryEntries,
   historyRevision,
   messagesFromHistory,
@@ -138,13 +137,6 @@ test("durable history image references are hydrated within the preview budget", 
   const bounded = boundedHistoryEntries(hydrated);
   assert.equal(bounded[0].event.data.content[0].data, "AA==");
   assert.equal(entries[0].event.data.content[0].data, undefined);
-});
-
-test("boundedHistoryCacheEntries limits events by count and bytes", () => {
-  const entries = Array.from({ length: 10 }, (_, i) => ({ id: i }));
-  const result = boundedHistoryCacheEntries(entries, { maxEvents: 3, maxBytes: 999999 });
-  assert.equal(result.entries.length, 3);
-  assert.ok(result.truncated);
 });
 
 test("positiveInteger returns fallback for non-positive values", () => {

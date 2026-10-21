@@ -30,13 +30,13 @@ function createHistoryReader(baseUrl, options = {}) {
     current.unref();
     return current;
   }
-  function request(method, sessionId) {
+  function request(method, sessionId, options) {
     return new Promise((resolve, reject) => {
       const current = getWorker();
       const id = ++sequence;
       pending.set(id, { resolve, reject });
       current.ref();
-      try { current.postMessage({ id, method, sessionId }); }
+      try { current.postMessage({ id, method, sessionId, options }); }
       catch (error) {
         pending.delete(id);
         if (!pending.size) current.unref();
@@ -46,7 +46,7 @@ function createHistoryReader(baseUrl, options = {}) {
   }
   return {
     ping: () => request("ping"),
-    read: (sessionId) => request("read", sessionId),
+    read: (sessionId, options = {}) => request("read", sessionId, { older: options?.older === true }),
     forget: (sessionId) => { if (worker) void request("forget", sessionId).catch(() => {}); },
   };
 }

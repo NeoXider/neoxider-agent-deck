@@ -42,8 +42,8 @@ async function main() {
     },
     "commands": (_event, id) => api.commandCatalog(id),
     "workspaces": () => api.workspaces(),
-    "history": async (_event, id) => {
-      const view = await api.history(id);
+    "history": async (_event, id, options) => {
+      const view = await api.history(id, { older: options?.older === true });
       return { ...view, messages: view.messages.map(m => m.role === "tool" ? m : { ...m, html: renderMarkdown(m.text || "") }) };
     },
     "get-queue": () => ({ revision: 0, items: [] }),

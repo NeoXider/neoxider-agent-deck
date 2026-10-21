@@ -168,9 +168,11 @@ test("an empty composer hides Send, and spend is priced where the session shows 
   assert.match(html, /id="sessionSpend" class="session-spend no-drag" hidden/);
 });
 
-test("the full chat has a verified 360px minimum height and a 380 by 400 compact preset", () => {  assert.match(main, /compact: \[380, 400\]/);
-  assert.match(main, /const FULL_MIN_WIDTH = 360/);
-  assert.match(main, /const FULL_MIN_HEIGHT = 360/);
+test("the full chat has a verified 360px minimum height and a 380 by 400 compact preset", () => {  // The sizes live with the rest of the full window's bounds rules (window-state.cjs).
+  const windowState = readFileSync(path.join(__dirname, "..", "src", "window-state.cjs"), "utf8");
+  assert.match(windowState, /compact: \[380, 400\]/);
+  assert.match(windowState, /const FULL_MIN_WIDTH = 360/);
+  assert.match(windowState, /const FULL_MIN_HEIGHT = 360/);
   assert.match(main, /Math\.min\(FULL_MIN_WIDTH, display\.width\)/);
   assert.match(main, /Math\.min\(FULL_MIN_HEIGHT, display\.height\)/);
 });
@@ -458,7 +460,7 @@ test("collapsed pet exposes a scrolling list of recent sessions and inline quick
   assert.match(html, /id="orbReplyInput"[^>]+aria-label="Quick reply message"/);
   assert.match(renderer, /compactNotificationTimer = setTimeout/);
   // Notifications leave on their own: six seconds for a reply, longer for a question.
-  assert.match(renderer, /const COMPACT_NOTIFICATION_MS = \{ notification: 6000, question: 12000, error: 8000 \};/);
+  assert.match(renderer, /const COMPACT_NOTIFICATION_MS = \{ notification: 6000, question: 12000, error: 8000, offline: 7000 \};/);
   assert.match(renderer, /orb-status-closing/);
   assert.match(renderer, /else notifyCompletion\(session\)/);
   // Four rows show and the rest scroll; the chat button counts working agents only.
@@ -897,7 +899,9 @@ test("a gated Harness offers Connect with its launch URL instead of plain offlin
   assert.match(preload, /setHarnessLaunchUrl: \(url\) => ipcRenderer\.invoke\("set-harness-launch-url", url\)/);
   assert.match(preload, /restartHarness: \(\) => ipcRenderer\.invoke\("restart-harness"\)/);
   assert.match(ipc, /handle\("set-harness-launch-url"/);
-  assert.match(ipc, /handle\("restart-harness"/);
+  // Restart lives with the other Harness channels, registered through the same guard.
+  assert.match(readSource("src", "ipc-deck-handlers.cjs"), /handle\("restart-harness"/);
+  assert.match(ipc, /registerDeckHandlers\(\{ handle,/);
   assert.match(ipc, /needsAuth: dashboardNeedsAuth\(error\)/);
   assert.match(settingsStore, /harnessLaunchUrl: ""/);
 });
@@ -1364,8 +1368,10 @@ test("offline status is shown once with an explicit guarded Start action", () =>
   assert.match(renderer, /await window\.widget\.startHarness\(\)/);
   assert.match(renderer, /setAvatar\("offline"\)/);
   assert.doesNotMatch(renderer, /setAvatar\("error", "Harness offline"\)/);
-  assert.match(renderer, /offline \? "Harness offline"/);
-  assert.match(renderer, /offline \? "Start Harness to reconnect\."/);
+  // Beside the avatar it is a notification that leaves on its own, never a card that stays.
+  assert.match(renderer, /function announceHarnessOffline\(offline\)/);
+  assert.match(renderer, /kind: "offline", title: "Harness offline", text: "Start Harness to reconnect\."/);
+  assert.doesNotMatch(renderer, /state\.compactAutoExpand && offline/);
   assert.match(renderer, /Start Harness to load sessions\./);
   assert.match(renderer, /!dashboard\.harness && state\.focusMode\) setFocusMode\(false\)/);
   assert.doesNotMatch(renderer, /empty\.textContent = [^\n]+: "Harness is offline\."/);
@@ -1528,7 +1534,7 @@ test("visible polling skips stable or actively streamed history while priority e
   assert.match(history, /historyLoadedUpdatedAt/);
   assert.match(history, /historyLoadedRevision/);
   assert.match(history, /const skipReconciliation = rendererAlreadyHasRevision && sameRevision/);
-  assert.match(history, /if \(skipReconciliation\) \{\s*paintLiveAssistant\(\);\s*return "unchanged"/);
+  assert.match(history, /if \(skipReconciliation\) \{\s*paintLiveAssistant\(\);\s*(?:globalThis\.rememberSessionView\?\.\(sessionId\);\s*)?return "unchanged"/);
   assert.match(refresh, /!selectedStreamUsable && \(!selectedHistoryIsCurrent\(selectedSession\) \|\| selectedPreviewChanged\(selectedSession\)\)/);
   // session.list need not bump updatedAt for every message, but the preview always
   // carries the newest assistant text, so a moved preview refreshes history too.
@@ -1582,7 +1588,10 @@ test("every bridged IPC channel has a handler and no handler is orphaned", () =>
   const bridged = [...preload.matchAll(/ipcRenderer\.(?:invoke|sendSync|send)\("([^"]+)"/g)].map((match) => match[1]);
   // Registration goes through the guarded handle()/on() helpers, so a channel that is
   // wired any other way — and therefore unguarded — would not be counted as handled.
-  const handled = new Set([...ipc.matchAll(/^\s*(?:handle|on)\("([^"]+)"/gm)].map((match) => match[1]));
+  // ipc-deck-handlers.cjs registers through the same guarded handle(), passed in by ipc-handlers.cjs.
+  const registered = `${ipc}
+${readSource("src", "ipc-deck-handlers.cjs")}`;
+  const handled = new Set([...registered.matchAll(/^\s*(?:handle|on)\("([^"]+)"/gm)].map((match) => match[1]));
   const missing = bridged.filter((channel) => !handled.has(channel));
   assert.deepEqual(missing, [], `preload exposes channels the main process does not handle: ${missing.join(", ")}`);
   // A handler nothing can reach is dead weight and drifts out of sync with reality.
@@ -1730,9 +1739,9 @@ test("avatar mode is collapsed until the user opens it", () => {
   assert.match(settingsStore, /compactAutoExpand: source\.compactAutoExpand === true/);
   assert.match(ipc, /handle\("set-compact-auto-expand"/);
   assert.match(html, /id="compactAutoExpandToggle" type="checkbox" \/>/, "off by default, with no checked attribute");
-  // Standing status (working, offline) waits for the setting; a notification - a reply, a
-  // question, a failure - always shows, and leaves on its own.
-  assert.match(renderer, /const active = Boolean\(expanded \|\| state\.compactStatusClosing \|\| preview \|\| \(state\.compactAutoExpand && offline && autoActive\)\)/);
+  // Nothing stands beside the avatar on its own: a notification - a reply, a question, a
+  // failure, Harness going offline - shows, and leaves on its own.
+  assert.match(renderer, /const active = Boolean\(expanded \|\| state\.compactStatusClosing \|\| preview\);/);
   // Status on shows each of the agent's messages, never its tools or thinking.
   assert.match(renderer, /announceAssistantMessage\(sessionId, event\.data\?\.message\);/);
   assert.match(renderer, /\.filter\(\(part\) => part\?\.type === "text" && typeof part\.text === "string"\)/);

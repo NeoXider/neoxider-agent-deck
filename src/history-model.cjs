@@ -7,8 +7,6 @@ const HISTORY_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "i
 const HISTORY_IMAGE_BASE64_LIMIT = Math.ceil(8 * 1024 * 1024 * 4 / 3) + 8;
 const HISTORY_PREVIEW_BYTES_BUDGET = 1024 * 1024;
 const HISTORY_CACHE_SESSION_LIMIT = 8;
-const HISTORY_CACHE_EVENT_LIMIT = 800;
-const HISTORY_CACHE_BYTES_LIMIT = 4 * 1024 * 1024;
 const HISTORY_VIDEO_EXTENSIONS = new Set(["mp4", "mov", "m4v", "webm", "mkv", "avi", "wmv"]);
 
 // The remote generation takes content blocks where the legacy one took plain text.
@@ -96,26 +94,6 @@ async function hydrateHistoryImages(entries, readAttachment, maxPreviewBytes = H
 }
 
 function positiveInteger(value, fallback) { return Number.isSafeInteger(value) && value > 0 ? value : fallback; }
-
-function historyEntryBytes(entry) { try { return Buffer.byteLength(JSON.stringify(entry), "utf8"); } catch { return Infinity; } }
-
-function boundedHistoryCacheEntries(entries, { maxEvents = HISTORY_CACHE_EVENT_LIMIT, maxBytes = HISTORY_CACHE_BYTES_LIMIT } = {}) {
-  const eventLimit = positiveInteger(maxEvents, HISTORY_CACHE_EVENT_LIMIT);
-  const byteLimit = positiveInteger(maxBytes, HISTORY_CACHE_BYTES_LIMIT);
-  const retainedNewestFirst = [];
-  let bytes = 0;
-  let truncated = false;
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    if (retainedNewestFirst.length >= eventLimit) { truncated = true; break; }
-    const entry = entries[index];
-    const entryBytes = historyEntryBytes(entry);
-    if (!Number.isFinite(entryBytes) || entryBytes > byteLimit - bytes) { truncated = true; continue; }
-    retainedNewestFirst.push(entry);
-    bytes += entryBytes;
-  }
-  if (retainedNewestFirst.length !== entries.length) truncated = true;
-  return { bytes, entries: retainedNewestFirst.reverse(), truncated };
-}
 
 function historyRevision(entries) {
   const hash = createHash("sha256");
@@ -397,12 +375,9 @@ function messagesFromHistory(entries) {
 }
 
 module.exports = {
-  HISTORY_CACHE_BYTES_LIMIT,
-  HISTORY_CACHE_EVENT_LIMIT,
   HISTORY_CACHE_SESSION_LIMIT,
   HISTORY_PREVIEW_BYTES_BUDGET,
   adaptQueueAction,
-  boundedHistoryCacheEntries,
   boundedHistoryEntries,
   historyRevision,
   historyImageBytes,

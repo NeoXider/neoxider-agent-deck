@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="appearance.css" />
     <link rel="stylesheet" href="motion.css" />
+    <link rel="stylesheet" href="deck.css" />
   </head>
   <body class="mode-full pre-native-visible">
     <svg class="icon-defs" aria-hidden="true">
@@ -50,6 +51,11 @@
       <symbol id="icon-display" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
       <symbol id="icon-capture" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><circle cx="12" cy="12" r="3"/></symbol>
       <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></symbol>
+      <symbol id="icon-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/></symbol>
+      <symbol id="icon-pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5Z"/><path d="M12 14v6"/></symbol>
+      <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/></symbol>
+      <symbol id="icon-subagent" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.2"/><circle cx="18" cy="12" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2V17a2 2 0 0 0 2 2h7.8M6 12h9.8"/></symbol>
+      <symbol id="icon-switch" viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></symbol>
       <symbol id="icon-reuse" viewBox="0 0 24 24"><path d="M5 8h11a4 4 0 0 1 0 8H9"/><path d="m11.5 12.5-3 3.5 3 3.5"/></symbol>
       <defs><linearGradient id="context-ring-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#49e7c6"/><stop offset="1" stop-color="#8b79ff"/></linearGradient></defs>
     </svg>
@@ -70,6 +76,7 @@
           </button>
         </div>
         <button id="headerUpdateButton" class="header-update-button" type="button" title="Install the verified update and restart" hidden>Update</button>
+        <button id="harnessUpdateChip" class="header-update-button harness-update-chip" type="button" hidden>DSH</button>
         <nav class="tabs no-drag" role="tablist" aria-label="Views">
           <button id="chatTab" class="tab active" data-tab="chat" type="button" role="tab" aria-selected="true" aria-controls="chatPanel" tabindex="0" title="Chat" aria-label="Chat"><svg class="ui-icon"><use href="#icon-chat"/></svg></button>
           <button id="agentsTab" class="tab" data-tab="agents" type="button" role="tab" aria-selected="false" aria-controls="agentsPanel" tabindex="-1" title="Agents" aria-label="Agents"><svg class="ui-icon"><use href="#icon-agents"/></svg></button>
@@ -101,12 +108,28 @@
       </div>
 
       <section id="agentsPanel" class="panel" role="tabpanel" aria-labelledby="agentsTab" hidden>
+        <div class="agents-toolbar no-drag">
+          <button id="harnessSourceChip" class="harness-source-chip" type="button" title="Which Harness Deck follows" aria-haspopup="menu"><span class="harness-source-dot" aria-hidden="true"></span><span id="harnessSourceLabel">DeepSeek Harness</span><svg class="ui-icon"><use href="#icon-chevron"/></svg></button>
+          <small id="agentsOrderHint" class="agents-order-hint">Newest first</small>
+        </div>
         <div id="sessions" class="session-list">
           <div class="empty-state">Connecting to Harness…</div>
         </div>
       </section>
 
       <section id="chatPanel" class="panel chat-panel active" role="tabpanel" aria-labelledby="chatTab">
+        <div id="miniChatBar" class="mini-chat-bar no-drag" hidden>
+          <button id="miniChatBack" class="mini-chat-back" type="button" title="Back to recent chats" aria-label="Back to recent chats"><svg class="ui-icon"><use href="#icon-back"/></svg></button>
+          <img id="miniChatAvatar" class="mini-chat-avatar" src="assets/neoxider-github.png" alt="" draggable="false" />
+          <span class="mini-chat-copy"><b id="miniChatTitle">Chat</b><small id="miniChatMeta">idle</small></span>
+          <button id="miniChatExpand" class="mini-chat-action" type="button" title="Open in the full widget" aria-label="Open in the full widget"><svg class="ui-icon"><use href="#icon-focus"/></svg></button>
+        </div>
+        <div id="subagentBar" class="subagent-bar no-drag" hidden>
+          <button id="subagentBack" class="subagent-back" type="button" title="Back to the parent chat" aria-label="Back to the parent chat"><svg class="ui-icon"><use href="#icon-back"/></svg></button>
+          <span class="subagent-crumbs"><small id="subagentParentTitle">Parent</small><b id="subagentTitle">Subagent</b></span>
+          <span id="subagentStatus" class="subagent-status">idle</span>
+          <button id="subagentStop" class="subagent-stop" type="button" title="Stop this subagent" hidden><svg class="ui-icon"><use href="#icon-stop"/></svg>Stop</button>
+        </div>
         <div class="chat-heading no-drag">
           <button id="returnToAvatarButton" class="ghost-button icon-only" type="button" title="Back to the avatar" aria-label="Back to the avatar" hidden><svg class="ui-icon"><use href="#icon-back"/></svg></button>
           <button id="newSessionButton" class="ghost-button icon-only" type="button" title="New session" aria-label="New session"><svg class="ui-icon"><use href="#icon-plus"/></svg></button>
@@ -137,7 +160,8 @@
             <span id="sessionSpend" class="session-spend no-drag" hidden></span>
         </div>
 
-        <button id="subagentsButton" class="subagents-button no-drag" type="button" hidden><svg class="ui-icon"><use href="#icon-agents"/></svg><span></span></button>
+        <button id="subagentsButton" class="subagents-button no-drag" type="button" aria-expanded="false" aria-controls="tasksPanel" hidden><svg class="ui-icon"><use href="#icon-subagent"/></svg><span></span><svg class="ui-icon subagents-chevron"><use href="#icon-chevron"/></svg></button>
+        <section id="tasksPanel" class="tasks-panel no-drag" aria-label="Subagents and background jobs" hidden></section>
         <details id="activityCard" class="activity-card no-drag">
           <summary>
             <svg class="ui-icon"><use href="#icon-eye"/></svg>
@@ -234,6 +258,7 @@
             </div>
           </div>
         </details>
+        <div id="subagentReadOnly" class="subagent-readonly no-drag" hidden><svg class="ui-icon"><use href="#icon-eye"/></svg><span>A subagent's chat is read-only here. Its parent talks to it.</span></div>
         <div id="dropOverlay" class="drop-overlay no-drag"><svg class="drop-icon"><use href="#icon-paperclip"/></svg><span>Drop files here</span></div>
       </section>
 
@@ -254,10 +279,17 @@
         <div class="setting-block"><span>Size</span><div id="sizeSwitch" class="size-switch" role="group" aria-label="Widget size"><button data-size="compact" type="button" aria-pressed="false">S</button><button data-size="standard" type="button" aria-pressed="true">M</button><button data-size="large" type="button" aria-pressed="false">L</button></div></div>
         <div id="harnessRuntimeSettings" class="update-settings setting-block">
           <div class="update-heading"><span><b>DeepSeek Harness</b><small id="harnessRuntimeVersion">Looking for the installed runtime…</small></span><span id="harnessRuntimeBadge" class="update-badge" hidden>New</span></div>
-          <small id="harnessRuntimeStatus" class="update-status" role="status" aria-live="polite">Deck installs Harness when it is missing and keeps it up to date.</small>
+          <div id="harnessTargetSwitch" class="layer-switch harness-target-switch" role="group" aria-label="Which Harness Deck follows">
+            <button data-target="auto" type="button" title="Follow whichever Harness is running" aria-pressed="true">Auto</button>
+            <button data-target="web" type="button" title="Deck's own DeepSeek Harness (dsh web)" aria-pressed="false">DSH</button>
+            <button data-target="desktop" type="button" title="The Harness inside the DSH Desktop app" aria-pressed="false">DSH Desktop</button>
+          </div>
+          <small id="harnessTargetStatus" class="update-status" role="status" aria-live="polite">Looking for DSH Desktop…</small>
+          <small id="harnessRuntimeStatus" class="update-status" role="status" aria-live="polite">Deck installs Harness when it is missing and offers stable updates.</small>
           <div class="update-actions">
             <button id="checkHarnessRuntimeButton" type="button">Check</button>
-            <button id="restartHarnessRuntimeButton" class="accent" type="button" hidden>Restart Harness</button>
+            <button id="openDshDesktopButton" type="button" hidden>Open DSH Desktop</button>
+            <button id="updateHarnessButton" class="accent" type="button" hidden>Update</button>
           </div>
         </div>
         <div id="updateSettings" class="update-settings setting-block">
@@ -287,6 +319,12 @@
         <button id="openHarnessButton" class="primary-button" type="button">Open full Harness</button>
       </section>
 
+      <div id="actionToastStack" class="toast-stack action-toast-stack" role="status" aria-live="polite"></div>
+      <div id="deckConfirm" class="deck-confirm no-drag" role="alertdialog" aria-labelledby="deckConfirmTitle" aria-describedby="deckConfirmText" hidden>
+        <b id="deckConfirmTitle">Are you sure?</b>
+        <p id="deckConfirmText"></p>
+        <div class="deck-confirm-actions"><button id="deckConfirmCancel" type="button">Cancel</button><button id="deckConfirmOk" class="accent" type="button">OK</button></div>
+      </div>
       <div class="mode-morph-rim" aria-hidden="true"></div>
     </main>
 
@@ -324,6 +362,11 @@
 
   <script src="compact-sessions.js"></script>
   <script src="session-groups.js"></script>
+    <script src="session-actions.js"></script>
+    <script src="tasks-panel.js"></script>
+    <script src="harness-panel.js"></script>
+    <script src="mini-chat.js"></script>
+    <script src="session-stats.js"></script>
   <script src="model-pricing.js"></script>
     <script src="clipboard-attachments.js"></script>
     <script src="platform-presentation.js"></script>

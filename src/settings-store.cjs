@@ -34,6 +34,11 @@ const DEFAULT_PREFERENCES = Object.freeze({
   // except through the `dsh web:` banner line, so the user pastes that URL once
   // and the widget re-mints its cookie from it after every restart.
   harnessLaunchUrl: "",
+  // Which Harness to follow: Deck's own (`web`), DSH Desktop's (`desktop`), or the one
+  // that is running (`auto`). See harness-target.cjs.
+  harnessTarget: "auto",
+  // The Agents list opens with the most recent chats above the groups.
+  recentSessionsOpen: true,
   deviceAccessEnabled: false,
   hotkeys: DEFAULT_HOTKEYS,
   windowState: Object.freeze({ version: 2, mode: "full", full: null, orb: null, edge: null }),
@@ -131,6 +136,8 @@ function normalizePreferences(raw = {}) {
     lastSelectedSessionId: typeof source.lastSelectedSessionId === "string" && source.lastSelectedSessionId.trim() && source.lastSelectedSessionId.length <= 512
       ? source.lastSelectedSessionId : null,
     harnessLaunchUrl: normalizeLaunchUrl(source.harnessLaunchUrl),
+    harnessTarget: ["auto", "web", "desktop"].includes(source.harnessTarget) ? source.harnessTarget : "auto",
+    recentSessionsOpen: source.recentSessionsOpen !== false,
     deviceAccessEnabled: source.deviceAccessEnabled === true,
     hotkeys,
     windowState: {

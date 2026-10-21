@@ -24,6 +24,7 @@ class BrowserWindowMock extends EventEmitter {
   setVisibleOnAllWorkspaces(...args) { this.calls.push(["setVisibleOnAllWorkspaces", ...args]); }
   show() { this.calls.push(["show"]); }
   focus() { this.calls.push(["focus"]); }
+  setContentProtection(value) { this.protected = value; }
   destroy() { this.destroyed = true; this.calls.push(["destroy"]); }
   isDestroyed() { return this.destroyed; }
 }
@@ -59,6 +60,7 @@ test("selection overlay covers exactly the cursor display in Electron DIP coordi
     displays[0].bounds,
   );
   assert.equal(window.options.transparent, true);
+  assert.equal(window.protected, true, "the dimmed overlay never reaches the capture that follows it");
   assert.equal(window.options.webPreferences.nodeIntegration, false);
   assert.equal(window.options.webPreferences.contextIsolation, true);
   window.emit("ready-to-show");

@@ -1,5 +1,5 @@
 const path = require("node:path");
-const { app, BrowserWindow, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, session, shell, Tray } = require("electron");
+const { app, BrowserWindow, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, session, shell, Tray } = require("electron");
 const { startPortableExtractionSweep } = require("./portable-extraction-cleanup.cjs");
 const { HarnessApi } = require("./harness-api.cjs");
 const { registerIpcHandlers } = require("./ipc-handlers.cjs");
@@ -18,7 +18,7 @@ const { createHotkeyManager, hotkeyErrorView } = require("./hotkey-manager.cjs")
 const { createQuitCoordinator } = require("./quit-coordinator.cjs");
 const { createRegionSelector } = require("./region-selector.cjs");
 const { createRendererRecoveryController } = require("./renderer-recovery.cjs");
-const { createScreenshotCaptureGate, createScreenshotService } = require("./screenshot-service.cjs");
+const { createScreenshotCaptureGate, createScreenshotService, preferFastScreenCapture } = require("./screenshot-service.cjs");
 const { createUpdateOrchestrator } = require("./update-orchestrator.cjs");
 const { createApplicationUpdateService: selectUpdateService } = require("./update-service-factory.cjs");
 const { createCompactGlide } = require("./compact-glide.cjs");
@@ -49,13 +49,14 @@ const {
   moveCompactBounds,
   snapCompactBounds,
 } = require("./window-geometry.cjs");
-const { captureModeBounds, fitFullBounds, resizeCompactAnchor } = require("./window-state.cjs");
+const { FULL_MIN_HEIGHT, FULL_MIN_WIDTH, FULL_SIZE_PRESETS: SIZE_PRESETS, captureModeBounds, fitFullBounds, resizeCompactAnchor } = require("./window-state.cjs");
 const { COMPACT_SIZES, compactTargetBounds, compactWindowSize, miniChatBounds, nearestCompactSize, placeCompactWindow } = require("./compact-window.cjs");
+const { createViewer } = require("./viewer-window.cjs");
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
 const { isScreenshotMode, pinScreenshotRenderScale, screenshotRequest } = require("./screenshot-mode.cjs");
 const SCREENSHOT_MODE = isScreenshotMode();
-pinScreenshotRenderScale(app.commandLine);
+pinScreenshotRenderScale(app.commandLine); preferFastScreenCapture(app.commandLine);
 const PACKAGED_SMOKE_PATH = process.env.WIDGET_PACKAGED_SMOKE_PATH || "";
 const ISOLATED_SMOKE_MODE = SCREENSHOT_MODE || Boolean(PACKAGED_SMOKE_PATH);
 const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
@@ -64,7 +65,7 @@ if (process.platform === "win32") app.setAppUserModelId(APP_ID);
 configureProductUserData({ app });
 // A throw during startup or in a socket callback used to end the app without a word.
 installProcessGuards();
-const api = new HarnessApi(HARNESS_URL, globalThis.fetch, { getLaunchBrowserUrl: () => harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl || "" });
+const api = new HarnessApi(HARNESS_URL, globalThis.fetch, { getLaunchBrowserUrl: () => harnessServices.desktopLaunchUrl() || harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl || "" });
 const dashboardReader = createSharedDashboardReader({
   api,
   onSessions: (sessionIds, sessions) => {
@@ -90,13 +91,6 @@ const selectedFiles = createFileSelectionBroker({
   preparePaths: prepareFiles,
   allowFixturePaths: SCREENSHOT_MODE,
 });
-const SIZE_PRESETS = {
-  compact: [380, 400],
-  standard: [420, 640],
-  large: [500, 760],
-};
-const FULL_MIN_WIDTH = 360;
-const FULL_MIN_HEIGHT = 360;
 // Compact sizes live in compact-window.cjs, beside the placement rules that use them.
 const ORB_SIZE = COMPACT_SIZES.orb.height;
 const ORB_EXPANDED_HEIGHT = COMPACT_SIZES.orbPanel.height;
@@ -129,6 +123,7 @@ let compactStatusResizePending = false;
 // something. Empty means "not measured yet", which keeps the whole window interactive.
 let compactHitAreas = [];
 let fullDragOrigin = null;
+let viewer = null;
 let miniChat = false; // Full mode in the small window beside the avatar; its bounds are never saved.
 let compactDragTrace = [];
 // A stranded full origin silently stops every later move and resize from being captured,
@@ -151,6 +146,7 @@ if (!hasSingleInstanceLock) {
 }
 
 function cleanupApplication() {
+  viewer?.close();
   clearTimeout(preferenceSaveTimer);
   preferenceSaveTimer = null;
   rendererRecovery?.dispose();
@@ -164,6 +160,7 @@ function cleanupApplication() {
   remoteMux?.stop();
   questionRelay.stop();
   harnessRuntime.stop();
+  harnessServices.stop();
   gameLayerKeeper?.stop();
   compactHitTracker?.stop();
   hotkeyManager?.dispose();
@@ -300,6 +297,10 @@ remoteMux = createRemoteMuxClient({
 const harnessRuntime = require("./harness-runtime.cjs").createHarnessRuntime({ onState: (state) => sendToRenderer("harness-runtime", state) });
 const questionRelay = createQuestionRelay({ getTransport: () => api.ensureRemote(), publish: (list) => sendToRenderer("pending-questions", list),
   onError: (error) => console.warn("Question relay:", error?.message || error), onStatus: (status) => sendToRenderer("question-relay-status", status) });
+// Which Harness Deck follows (its own or DSH Desktop's), and what it can do to sessions (harness-services.cjs).
+const harnessServices = require("./harness-services.cjs").createHarnessServices({ api, webUrl: HARNESS_URL, runtime: harnessRuntime, getLauncher: () => harnessLauncher,
+  getPreferences: () => preferences, savePreferences, probeReady: (url) => require("./harness-launcher.cjs").defaultProbeReady(url), send: sendToRenderer,
+  onSwitch: async (target) => { api.setBaseUrl(target.url); api.resetRemoteAuth(); dashboardReader.invalidate(); remoteMux.reconnect(); questionRelay.kick(); } });
 
 function captureWindowBounds(mode, bounds, side = preferences.compactSide, setLastMode = true) {
   if (mode === "full" && miniChat) return;
@@ -329,6 +330,7 @@ function applyWindowLayer(mode = windowMode) {
 function setWindowLayerPreference(value) {
   preferences.windowLayer = normalizeWindowLayer(value, PLATFORM_CAPABILITIES);
   applyWindowLayer();
+  viewer?.applyLayer();
   gameLayerKeeper?.sync();
   savePreferences();
   return preferences.windowLayer;
@@ -467,6 +469,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   else windowRef.showInactive();
   gameLayerKeeper?.trigger();
   sendToRenderer("window-mode", windowMode);
+  sendToRenderer("mini-chat", miniChat);
   sendToRenderer("compact-side", preferences.compactSide);
   petRoamer.modeChanged(windowMode);
 }
@@ -586,6 +589,8 @@ function createWindow() {
 }
 
 function registerWidgetIpc() {
+  viewer = createViewer({ BrowserWindow, ipcMain, screen, shell, clipboard, nativeImage, app, windowOptions: PRODUCT_WINDOW_OPTIONS, capabilities: PLATFORM_CAPABILITIES,
+    getAnchor: () => windowRef, getWindowLayer: () => preferences.windowLayer }); // Images and files from the chat, in a window of their own.
   registerIpcHandlers({
     ipcMain,
     // Deny-by-default permissions belong on the session the renderer actually uses.
@@ -625,6 +630,8 @@ function registerWidgetIpc() {
     getHarnessSupervisor: () => harnessSupervisor,
     getQuestionRelay: () => questionRelay,
     getHarnessRuntime: () => harnessRuntime,
+    getHarnessServices: () => harnessServices,
+    getViewer: () => viewer,
     getHotkeyManager: () => hotkeyManager,
     getCompactHitTracker: () => compactHitTracker,
     getScreenshotService: () => screenshotService,
@@ -783,6 +790,7 @@ app.whenReady().then(() => {
     remoteMux.start();
     questionRelay.start();
     harnessRuntime.start();
+    harnessServices.start();
     desktopAccess = createDesktopAccess({ app, BrowserWindow, dialog, shell, Menu, Tray, nativeImage, productName: PRODUCT_NAME,
       getPreferences: () => preferences, savePreferences, harnessUrl: HARNESS_URL,
       trustStore: createDeviceTrustStore({ filePath: path.join(app.getPath("userData"), "trusted-devices.json") }),

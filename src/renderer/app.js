@@ -15,6 +15,9 @@ const state = {
   historyLoadedUpdatedAt: undefined,
   historyLoadedRevision: null,
   historyLoadedPreview: null,
+  // Harness holds older messages than the loaded range; see loadOlderHistory.
+  historyHasOlder: false,
+  historyOlderLoading: false,
   historyLoadErrors: new Map(),
   continuedCutoffs: new Set(),
   modelsBusy: false,
@@ -502,6 +505,17 @@ function scrollSelectedModelIntoView() {
   }
 }
 
+// Beside the avatar an offline Harness is a notification like any other: it says so once and
+// leaves, and the pet goes on being a pet in its muted offline look. Its button starts Harness.
+function announceHarnessOffline(offline) {
+  if (!offline) {
+    if (state.compactNotification?.kind === "offline") dismissCompactNotification();
+    return;
+  }
+  if (state.windowMode === "full" || globalThis.deckScreenshotMode?.()) return;
+  showCompactNotification({ kind: "offline", title: "Harness offline", text: "Start Harness to reconnect." }, COMPACT_NOTIFICATION_MS.offline);
+}
+
 function compactPreviewEntry() {
   if (state.compactNotification) return state.compactNotification;
   return null;
@@ -510,7 +524,7 @@ function compactPreviewEntry() {
 // Avatar notifications. A reply, a question or a failure slides out beside the avatar and
 // leaves on its own; the avatar itself stays a circle. The pointer on a notification holds
 // it, and the hairline along its foot shows the time it has left.
-const COMPACT_NOTIFICATION_MS = { notification: 6000, question: 12000, error: 8000 };
+const COMPACT_NOTIFICATION_MS = { notification: 6000, question: 12000, error: 8000, offline: 7000 };
 let compactNotificationDeadline = 0;
 let compactNotificationRemaining = 0;
 
@@ -683,19 +697,15 @@ function syncCompactStatus() {
   const preview = compactPreviewEntry();
   const compactSessions = renderCompactSessions();
   const expanded = state.compactHistoryOpen || state.compactReplyOpen;
-  const offline = state.harnessOffline;
-  // Avatar mode is collapsed unless the user opens it. Activity, a finished turn and even
-  // an offline Harness used to widen the orb to 400 px on their own, which is what put a
-  // panel over the user's screen without being asked. They now show as the ring colour and
-  // the count on the expand button; the panel is a deliberate act.
-  const autoActive = Boolean(offline || preview || activity?.active || ["working", "waiting", "error", "done"].includes(state.avatarMode));
-  // Notifications always show and leave on their own. Thinking and tool calls never stand
-  // beside the avatar: with status on (the eye) every message the agent writes arrives as a
-  // notification of its own (announceAssistantMessage), and an offline Harness says so.
-  const active = Boolean(expanded || state.compactStatusClosing || preview || (state.compactAutoExpand && offline && autoActive));
-  const label = offline ? "Harness offline" : preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
-  const text = compactText(offline ? "Start Harness to reconnect." : preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
-  const statusKind = offline ? "offline" : preview?.kind || "";
+  // Avatar mode is collapsed unless the user opens it. Activity, a finished turn and an
+  // offline Harness never widen the orb on their own: they show as the ring colour, the count
+  // on the expand button and the avatar's own look. Notifications always show and leave on
+  // their own, an offline Harness included (announceHarnessOffline): a card that stayed
+  // beside the avatar for as long as Harness was down held the pet still, mid-air included.
+  const active = Boolean(expanded || state.compactStatusClosing || preview);
+  const label = preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
+  const text = compactText(preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
+  const statusKind = preview?.kind || "";
   const compactButton = $("#orbHistoryButton");
   const replySession = state.dashboard?.sessions?.find((session) => session.sessionId === state.compactReplySessionId);
   // Agents at work keep the chat button in sight with its turning ring. It used to carry
@@ -725,7 +735,7 @@ function syncCompactStatus() {
   if (domSignature !== state.compactStatusDomSignature) {
     document.body.classList.toggle("orb-has-status", active);
     // Every notification shares one look and one lifetime; its kind only tints it.
-    document.body.classList.toggle("orb-has-notification", ["notification", "question", "error"].includes(statusKind));
+    document.body.classList.toggle("orb-has-notification", ["notification", "question", "error", "offline"].includes(statusKind));
     document.body.classList.toggle("orb-notification-error", statusKind === "error");
     document.body.classList.toggle("orb-status-closing", state.compactStatusClosing);
     document.body.classList.toggle("orb-history-open", state.compactHistoryOpen);
@@ -736,11 +746,12 @@ function syncCompactStatus() {
     syncPetFace();
     $("#orbStatusLabel").textContent = label;
     $("#orbStatusText").textContent = text;
-    const actionLabel = statusKind === "question" ? "Answer the question" : statusKind === "error" ? "Open this session" : "Reply to this session";
+    const actionLabel = statusKind === "question" ? "Answer the question" : statusKind === "error" ? "Open this session" : statusKind === "offline" ? "Start Harness" : "Reply to this session";
     $("#orbStatusAction").title = actionLabel;
     $("#orbStatusAction").setAttribute("aria-label", actionLabel);
     $("#orbStatusCard").hidden = expanded;
-    $("#orbStatusCard").disabled = !preview?.sessionId && !state.selectedSessionId;
+    $("#orbStatusCard").disabled = statusKind !== "offline" && !preview?.sessionId && !state.selectedSessionId;
+    $("#orbStatusAction").querySelector("use")?.setAttribute("href", statusKind === "offline" ? "#icon-play" : "#icon-chat");
     // The list and the message box under it are one panel: open it and you can write.
     $("#orbSessionList").hidden = !expanded;
     $("#orbReplyForm").hidden = !expanded;
@@ -1691,17 +1702,10 @@ function subagentCount(session) {
   return (session?.subagents || []).filter((child) => child?.kind === "child").length;
 }
 
+// The chip above the conversation and the panel it opens live in tasks-panel.js: subagents
+// and background jobs, each subagent openable as a chat of its own.
 function renderSubagentCount(session) {
-  const button = $("#subagentsButton");
-  if (!button) return;
-  const count = subagentCount(session);
-  if (button.hidden !== (count === 0)) button.hidden = count === 0;
-  const text = `${count} subagent${count === 1 ? "" : "s"} · ${activeBackgroundTasks(session)} running`;
-  const label = button.querySelector("span");
-  if (label.textContent !== text) label.textContent = text;
-  const title = `${text}. Open this session in DeepSeek Harness`;
-  if (button.title !== title) button.title = title;
-  if (button.getAttribute("aria-label") !== title) button.setAttribute("aria-label", title);
+  globalThis.renderTasksChip?.(session);
 }
 
 function applyBackgroundTaskCount(node, count) {
@@ -1819,15 +1823,19 @@ function renderContext() {
   meter.setAttribute("aria-valuetext", `Context usage ${rounded}%, ${formatTokens(pressure.used)} of ${formatTokens(pressure.total)} tokens${spend ? `, session spend ${spendAmount(spend)}` : ""}`);
   meter.classList.toggle("high", rounded >= 70 && rounded < 90);
   meter.classList.toggle("critical", rounded >= 90);
+  if (chatTooltipOwner === meter) showChatTooltip(meter);
   return true;
 }
 
+// Newest activity first inside every group, pinned chats on top, the way DSH's own sidebar
+// reads; chats being deleted are gone already (session-actions.js).
 function groupedSessions(selectedSessionId = state.selectedSessionId) {
   return window.sessionGroups.groupSessions(
     state.dashboard?.sessions || [],
     state.dashboard?.workspaces || state.workspaces || [],
-    state.dashboard?.archivedSessionIds || [],
+    globalThis.hiddenSessionIds?.() || state.dashboard?.archivedSessionIds || [],
     selectedSessionId,
+    { order: "recent", pinnedSessionIds: globalThis.pinnedSessionIds?.() || [] },
   );
 }
 
@@ -1924,6 +1932,7 @@ function updateSessionCard(card, session) {
   status.className = asking ? "session-state asking" : unreadable ? "session-state unreadable" : `session-state ${agentState}`;
   status.textContent = asking ? "question" : unreadable ? "unreadable" : agentState;
   status.title = unreadable ? "DSH cannot read this chat's saved log. Nothing was deleted; open it for details." : "";
+  globalThis.syncSessionCardActions?.(card, session);
 }
 
 function createSessionCard(session) {
@@ -1958,12 +1967,14 @@ function createSessionCard(session) {
     event.preventDefault();
     activate();
   });
+  globalThis.attachSessionCardActions?.(card);
   updateSessionCard(card, session);
   return card;
 }
 
 function toggleSessionGroup(groupKey) {
-  if (state.collapsedSessionGroupKeys.has(groupKey)) state.collapsedSessionGroupKeys.delete(groupKey);
+  if (groupKey === "recent" && globalThis.setRecentSessionsOpen) setRecentSessionsOpen(state.collapsedSessionGroupKeys.has("recent"));
+  else if (state.collapsedSessionGroupKeys.has(groupKey)) state.collapsedSessionGroupKeys.delete(groupKey);
   else state.collapsedSessionGroupKeys.add(groupKey);
   state.sessionListSignature = "";
   renderSessions();
@@ -1977,7 +1988,7 @@ function createSessionGroup(group, { picker = false } = {}) {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "session-group-toggle";
-  toggle.append(createIcon("folder"));
+  toggle.append(createIcon(group.recent ? "clock" : "folder"));
   const label = document.createElement("span");
   const count = document.createElement("small");
   toggle.append(label, count, createIcon("chevron", "ui-icon session-group-chevron"));
@@ -1990,7 +2001,8 @@ function createSessionGroup(group, { picker = false } = {}) {
     closePickers();
     await createNewSession({ workspaceId: wrapper.dataset.workspaceId || null });
   });
-  heading.append(toggle, add);
+  heading.append(toggle);
+  if (!group.recent) heading.append(add);
   const body = document.createElement("div");
   body.className = "session-group-items";
   wrapper.append(heading, body);
@@ -2000,7 +2012,7 @@ function createSessionGroup(group, { picker = false } = {}) {
 
 function updateSessionGroup(wrapper, group, { picker = false } = {}) {
   const collapsed = state.collapsedSessionGroupKeys.has(group.key);
-  wrapper.className = `session-group${picker ? " picker-session-group" : ""}${collapsed ? " collapsed" : ""}`;
+  wrapper.className = `session-group${picker ? " picker-session-group" : ""}${group.recent ? " recent-session-group" : ""}${collapsed ? " collapsed" : ""}`;
   wrapper.dataset.groupKey = group.key;
   wrapper.dataset.workspaceId = group.workspaceId || "";
   wrapper.setAttribute("role", "group");
@@ -2013,8 +2025,10 @@ function updateSessionGroup(wrapper, group, { picker = false } = {}) {
   label.title = group.path || group.label;
   toggle.querySelector("small").textContent = String(group.sessions.length);
   const add = wrapper.querySelector(".session-group-add");
-  add.title = group.workspaceId ? `New session in ${group.label}` : "New ungrouped session";
-  add.setAttribute("aria-label", add.title);
+  if (add) {
+    add.title = group.workspaceId ? `New session in ${group.label}` : "New ungrouped session";
+    add.setAttribute("aria-label", add.title);
+  }
   wrapper.querySelector(".session-group-items").hidden = collapsed;
 }
 
@@ -2038,10 +2052,12 @@ function canPatchSessionGroups(root, groups, { picker = false } = {}) {
 
 function renderSessions() {
   const root = $("#sessions");
-  const groups = groupedSessions();
+  const recent = globalThis.recentSessionGroup?.() || null;
+  const groups = recent ? [recent, ...groupedSessions()] : groupedSessions();
   const signature = JSON.stringify([
     Boolean(state.dashboard?.harness),
     state.selectedSessionId,
+    globalThis.pinnedSessionIds?.() || [],
     [...state.collapsedSessionGroupKeys].sort(),
     ...groups.map((group) => [group.key, group.label, group.path, ...group.sessions.map((session) => {
       const pressure = contextPressure(session);
@@ -2067,12 +2083,18 @@ function renderSessions() {
     scheduleSessionTimers();
     return true;
   }
+  const before = globalThis.captureSessionCardPositions?.(root);
   root.replaceChildren();
   for (const group of groups) {
     const { wrapper, body } = createSessionGroup(group);
-    group.sessions.forEach((session) => body.append(createSessionCard(session)));
+    group.sessions.forEach((session) => {
+      const card = createSessionCard(session);
+      card.dataset.flipKey = `${group.key}|${session.sessionId}`;
+      body.append(card);
+    });
     root.append(wrapper);
   }
+  globalThis.playSessionCardFlip?.(root, before);
   scheduleSessionTimers();
   return true;
 }
@@ -3201,6 +3223,15 @@ function renderAttachments() {
     } else {
       preview.append(createIcon(displayKind === "file" ? "file" : "image"));
     }
+    // The chip opens what it carries in the viewer: the image itself, or the file on disk.
+    if ((attachment.kind === "image" && attachment.data && attachment.mediaType) || attachment.path) {
+      chip.classList.add("openable");
+      chip.addEventListener("click", (event) => {
+        if (event.target.closest(".attachment-remove")) return;
+        if (attachment.kind === "image" && attachment.data && attachment.mediaType) void viewImage(`data:${attachment.mediaType};base64,${attachment.data}`, attachment.name);
+        else viewFile(attachment.path);
+      });
+    }
     const name = document.createElement("span");
     name.className = "attachment-name";
     const title = document.createElement("b");
@@ -3345,7 +3376,8 @@ async function applyModelSelection() {
 
 function rememberSelectedSession() {
   const sessionId = state.selectedSessionId;
-  if (!sessionId || state.persistedSessionId === sessionId) return;
+  // A subagent's chat is a visit: the next launch opens its parent, not the subagent.
+  if (!sessionId || state.persistedSessionId === sessionId || globalThis.subagentViewActive?.()) return;
   state.lastSelectedSessionId = sessionId;
   state.persistedSessionId = sessionId;
   Promise.resolve(window.widget.setLastSelectedSession(sessionId)).catch(() => {
@@ -3356,8 +3388,10 @@ function rememberSelectedSession() {
 
 async function selectSession(sessionId, openChat = false) {
   state.sessionSelectionGeneration += 1;
+  let restoredView = null;
   const previousSessionId = state.selectedSessionId;
   state.selectedSessionId = sessionId || null;
+  globalThis.syncSubagentView?.(state.selectedSessionId);
   renderHistoryLoadError();
   renderReturnToAvatarButton();
   rememberSelectedSession();
@@ -3378,6 +3412,8 @@ async function selectSession(sessionId, openChat = false) {
     stashComposerDraft(previousSessionId);
     restoreComposerDraft(state.selectedSessionId);
     state.historyPendingSessionId = state.selectedSessionId;
+    restoredView = globalThis.restoreSessionView?.(state.selectedSessionId) || null;
+    if (restoredView) state.historyPendingSessionId = null;
   }
   const selectedGroup = groupedSessions(state.selectedSessionId).find((group) => group.sessions.some((session) => session.sessionId === state.selectedSessionId));
   if (selectedGroup && state.collapsedSessionGroupKeys.delete(selectedGroup.key)) {
@@ -3390,7 +3426,9 @@ async function selectSession(sessionId, openChat = false) {
   state.historySignature = "";
   if (previousSessionId !== state.selectedSessionId) {
     setActivity(null);
-    renderMessages([]);
+    // A chat opened recently paints at once from what it showed last; the forced refresh
+    // below confirms it in one short read, or replaces it.
+    renderMessages(restoredView?.messages || []);
     const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
     const activity = commandFeedbackFor(state.selectedSessionId)?.activity || (session?.running
       ? session.activity || { active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" }
@@ -5160,7 +5198,11 @@ function showChatTooltip(owner) {
   }
   owner.setAttribute("aria-describedby", [chatTooltipDescription, "chatTooltip"].filter(Boolean).join(" "));
   chatTooltipNode.classList.toggle("message-mark-preview", owner.classList.contains("message-mark"));
-  chatTooltipNode.textContent = label;
+  // The context meter's card: spend, turns, tokens and time (session-stats.js).
+  const stats = owner.id === "contextMeter" ? globalThis.sessionStatsCard?.() : null;
+  chatTooltipNode.classList.toggle("stats-card", Boolean(stats));
+  if (stats) chatTooltipNode.replaceChildren(stats);
+  else chatTooltipNode.textContent = label;
   chatTooltipNode.hidden = false;
   if (!chatTooltipNode.matches(":popover-open")) chatTooltipNode.showPopover();
   const anchor = owner.getBoundingClientRect();
@@ -5316,6 +5358,9 @@ function maybeGrowTranscriptWindow(repairBlankViewport = false) {
   // a tool run folds into one row - put the top edge within reach of every scroll there,
   // including the ones the live answer and the resize observer make, and growing up
   // dropped the follow flag for a reader who never moved.
+  // At the top of the loaded range the next page comes from Harness.
+  if (transcriptViewStart === 0 && state.historyHasOlder && !transcriptFollowing() && first.top > viewport.top - TRANSCRIPT_TOP_LOAD_PX
+      && typeof loadOlderHistory === "function") void loadOlderHistory();
   const towardsOlder = !transcriptFollowing() && first.top > viewport.top - TRANSCRIPT_TOP_LOAD_PX && transcriptViewStart > 0;
   const towardsNewer = !towardsOlder && last.bottom < viewport.bottom + TRANSCRIPT_TOP_LOAD_PX
     && transcriptViewEnd < state.currentMessages.length;
@@ -5410,6 +5455,69 @@ function rememberTranscriptRowHeights(root, messageCount) {
       transcriptAverageRowHeight = transcriptAverageRowHeight * 0.5 + average * 0.5;
     }
   }
+}
+
+// The viewer window (viewer-window.cjs): images and files from the chat at a reading size,
+// in a window of their own. The dialog below stays for when that window cannot open.
+function viewerErrorText(error) {
+  return String(error?.message || error || "Could not open it").replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
+}
+
+// The folder a chat works in: relative paths an agent writes are relative to it. A
+// subagent's chat is not in the list; its parent's folder is the same.
+function selectedSessionCwd() {
+  const sessions = state.dashboard?.sessions || [];
+  const own = sessions.find((session) => session.sessionId === state.selectedSessionId);
+  if (own?.cwd) return own.cwd;
+  const rootId = globalThis.tasksState?.subagentView?.rootId;
+  const root = rootId ? sessions.find((session) => session.sessionId === rootId) : null;
+  if (root?.cwd) return root.cwd;
+  const workspace = (state.dashboard?.workspaces || state.workspaces || []).find((item) => (item.sessionIds || []).includes(state.selectedSessionId));
+  return workspace?.path || "";
+}
+
+async function openInViewer(item) {
+  if (typeof window.widget.openViewer !== "function") throw new Error("The viewer is not available");
+  return window.widget.openViewer(item);
+}
+
+async function viewImage(source, name) {
+  try {
+    await openInViewer({ type: "image", name, dataUrl: source });
+  } catch {
+    openMessageImage(source, name);
+  }
+}
+
+function viewFile(filePath) {
+  openInViewer({ type: "path", path: filePath, cwd: selectedSessionCwd() })
+    .catch((error) => showToast(viewerErrorText(error), "alert", { kind: "error" }));
+}
+
+// A path an agent writes in inline code - `docs/plan.md`, `src\app.js:42` - opens in the
+// viewer. It needs a file extension, and either a folder in it or a name that is clearly a
+// file, so `npm test` or `true` never turn into links.
+const FILE_REF_PATTERN = /^(?:[A-Za-z]:[\\/]|~[\\/]|\.{1,2}[\\/]|[\\/])?(?:[\w@()+,.\- ]+[\\/])*[\w@()+,\-][\w@()+,.\- ]*\.[A-Za-z][A-Za-z0-9]{0,9}(?::\d+(?::\d+)?)?$/;
+const FILE_REF_BARE_EXTENSIONS = /\.(?:md|markdown|txt|log|json|ya?ml|toml|png|jpe?g|gif|webp|svg|csv|html?|css|js|cjs|mjs|ts|tsx|jsx|py|cs|rs|go|java|cpp|c|h|sh|ps1|bat|cmd|ini|cfg|xml|sql|lua|shader|uss|uxml|prefab|unity|asmdef)(?::\d+(?::\d+)?)?$/i;
+function looksLikeFileRef(text) {
+  const value = String(text || "").trim();
+  if (value.length < 3 || value.length > 400 || /\s{2}|https?:/i.test(value)) return false;
+  if (!FILE_REF_PATTERN.test(value)) return false;
+  return /[\\/]/.test(value) || FILE_REF_BARE_EXTENSIONS.test(value);
+}
+
+function fileRefCode(target) {
+  const code = target?.closest?.("code");
+  if (!code || code.closest("pre") || !code.closest("#messages .bubble")) return null;
+  if (code.dataset.fileRef === "0") return null;
+  if (code.dataset.fileRef !== "1") {
+    const yes = looksLikeFileRef(code.textContent);
+    code.dataset.fileRef = yes ? "1" : "0";
+    if (!yes) return null;
+    code.classList.add("file-ref");
+    code.title = `Open ${code.textContent.trim()}`;
+  }
+  return code;
 }
 
 function openMessageImage(source, name) {
@@ -5537,6 +5645,16 @@ function createMessageAttachmentStrip(attachments) {
       preview.append(createIcon(displayKind === "file" ? "file" : "image"));
       if (displayKind === "image") watchMessageThumbnail(preview, attachment, state.selectedSessionId);
     }
+    if (displayKind !== "image" && attachment.attachmentId) {
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.setAttribute("aria-label", `Open ${attachment.name || "attachment"}`);
+      const sessionId = state.selectedSessionId;
+      const open = () => openInViewer({ type: "attachment", sessionId, attachmentId: attachment.attachmentId, name: attachment.name })
+        .catch((error) => showToast(viewerErrorText(error), "alert", { kind: "error" }));
+      item.addEventListener("click", open);
+      item.addEventListener("keydown", event => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); void open(); } });
+    }
     if (displayKind === "image" && (preview.querySelector("img") || attachment.attachmentId)) {
       item.tabIndex = 0;
       item.setAttribute("role", "button");
@@ -5553,7 +5671,7 @@ function createMessageAttachmentStrip(attachments) {
             const original = await window.widget.readAttachment({ sessionId, attachmentId: attachment.attachmentId });
             source = `data:${original.mediaType};base64,${original.data}`;
           }
-          if (item.isConnected && state.selectedSessionId === sessionId) openMessageImage(source, attachment.name || "Image");
+          if (item.isConnected && state.selectedSessionId === sessionId) await viewImage(source, attachment.name || "Image");
         } catch (error) { showToast(error?.message || "Could not load image", "image"); }
         finally { loading = false; item.removeAttribute("aria-busy"); }
       };
@@ -5697,6 +5815,9 @@ function renderMessages(messages) {
     const topHeight = hidden * transcriptAverageRowHeight;
     blocks.push({ key: "window-top", signature: `top:${view.start}:${Math.round(topHeight)}`, count: 0, build: () => transcriptSpacer(topHeight, `${hidden} older messages`) });
     blocks.push({ key: "window-top-edge", signature: `edge:${view.start}`, count: 0, build: () => transcriptWindowEdge("Older messages load as you scroll up") });
+  } else if (state.historyHasOlder && state.historyLoadedSessionId === state.selectedSessionId && state.currentMessages.length) {
+    const label = state.historyOlderLoading ? "Loading older messages…" : "Older messages load as you scroll up";
+    blocks.push({ key: "window-top-edge", signature: `edge:older:${label}`, count: 0, build: () => transcriptWindowEdge(label) });
   }
   if (!state.currentMessages.length && !liveAssistant?.text && !steering.length && !pendingSends.length) {
     blocks.push(awaitingHistory
@@ -5949,6 +6070,116 @@ function invalidateSelectedHistoryVersion() {
   state.historyLoadedUpdatedAt = undefined;
   state.historyLoadedRevision = null;
   state.historyLoadedPreview = null;
+  state.historyHasOlder = false;
+}
+
+// The transcripts of recently opened chats, so going back to one paints it at once while the
+// refresh behind it confirms or replaces it. They hold the arrays already rendered, not copies.
+const SESSION_VIEW_CACHE_LIMIT = 8;
+const sessionViewCache = new Map();
+
+function rememberSessionView(sessionId, view = null) {
+  const value = view || (state.historyLoadedSessionId === sessionId
+    ? { messages: state.currentMessages, revision: state.historyLoadedRevision, hasOlder: state.historyHasOlder, updatedAt: state.historyLoadedUpdatedAt }
+    : null);
+  if (!sessionId || !Array.isArray(value?.messages) || value.revision == null) return;
+  sessionViewCache.delete(sessionId);
+  sessionViewCache.set(sessionId, { ...value, at: Date.now() });
+  while (sessionViewCache.size > SESSION_VIEW_CACHE_LIMIT) sessionViewCache.delete(sessionViewCache.keys().next().value);
+}
+
+function restoreSessionView(sessionId) {
+  const view = sessionId ? sessionViewCache.get(sessionId) : null;
+  if (!view) return null;
+  state.historyLoadedSessionId = sessionId;
+  state.historyLoadedRevision = view.revision;
+  state.historyLoadedUpdatedAt = view.updatedAt;
+  state.historyLoadedPreview = latestAssistantPreview(view.messages);
+  state.historyHasOlder = Boolean(view.hasOlder);
+  return view;
+}
+
+// Hovering a chat in the list reads its newest page ahead of the click, so it opens painted.
+let sessionPrefetchTimer = 0;
+let sessionPrefetchInFlight = false;
+function prefetchSessionView(sessionId) {
+  if (!sessionId || sessionId === state.selectedSessionId || sessionPrefetchInFlight || state.harnessOffline
+      || !window.widget?.history || globalThis.deckScreenshotMode?.()) return;
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+  const known = sessionViewCache.get(sessionId);
+  if (known && Date.now() - known.at < 20_000 && Object.is(known.updatedAt, session?.updatedAt)) return;
+  sessionPrefetchInFlight = true;
+  Promise.resolve(window.widget.history(sessionId)).then((view) => {
+    if (sessionId === state.selectedSessionId || !Array.isArray(view?.messages)) return;
+    rememberSessionView(sessionId, { messages: view.messages, revision: view.revision, hasOlder: Boolean(view.hasOlder), updatedAt: session?.updatedAt });
+  }).catch(() => {}).finally(() => { sessionPrefetchInFlight = false; });
+}
+
+document.addEventListener("pointerover", (event) => {
+  const card = event.target?.closest?.(".session-card[data-session-id]");
+  clearTimeout(sessionPrefetchTimer);
+  if (!card) return;
+  const sessionId = card.dataset.sessionId;
+  sessionPrefetchTimer = setTimeout(() => prefetchSessionView(sessionId), 140);
+});
+
+// Older messages come from Harness a page at a time when the reader reaches the top of what is
+// loaded. The rows on screen keep their place: the window's indexes move down by however many
+// messages were put in front of them.
+let olderHistoryRetryAt = 0;
+async function loadOlderHistory() {
+  const sessionId = state.selectedSessionId;
+  if (!sessionId || state.historyOlderLoading || !state.historyHasOlder || state.historyLoadedSessionId !== sessionId
+      || state.harnessOffline || Date.now() < olderHistoryRetryAt) return "idle";
+  state.historyOlderLoading = true;
+  const before = state.currentMessages;
+  renderMessages(before);
+  try {
+    const view = await window.widget.history(sessionId, { older: true });
+    if (sessionId !== state.selectedSessionId || state.historyLoadedSessionId !== sessionId || !Array.isArray(view?.messages)) return "superseded";
+    // A refresh that left before this page landed would answer without it.
+    state.historyRequestSequence += 1;
+    state.historyBusy = false;
+    state.historyHasOlder = Boolean(view.hasOlder);
+    if (view.revision !== null && view.revision !== undefined) state.historyLoadedRevision = view.revision;
+    const added = prependedMessageCount(before, view.messages);
+    if (transcriptViewSessionId === sessionId && added > 0) {
+      transcriptViewStart += added;
+      transcriptViewEnd += added;
+      transcriptViewTotal += added;
+      transcriptSeenTotal += added;
+    }
+    state.historyOlderLoading = false;
+    renderMessages(view.messages);
+    rememberSessionView(sessionId);
+    if (added > 0) growTranscriptWindowUp(transcriptFollowing());
+    return "applied";
+  } catch {
+    olderHistoryRetryAt = Date.now() + 5000;
+    return "failed";
+  } finally {
+    if (state.historyOlderLoading) {
+      state.historyOlderLoading = false;
+      if (sessionId === state.selectedSessionId) renderMessages(state.currentMessages);
+    }
+  }
+}
+
+function prependedMessageCount(before, after) {
+  if (!before.length || !Array.isArray(after)) return 0;
+  const first = before[0];
+  const index = after.findIndex((message) => message.seq === first.seq && message.role === first.role
+    && (message.callId || "") === (first.callId || ""));
+  return index >= 0 ? index : Math.max(0, after.length - before.length);
+}
+
+// A loaded range shorter than the log leaves nothing to scroll, so the next page comes at once.
+function fillShortHistory() {
+  if (!state.historyHasOlder || typeof requestAnimationFrame !== "function") return;
+  requestAnimationFrame(() => {
+    const root = $("#messages");
+    if (root?.clientHeight > 0 && root.scrollHeight <= root.clientHeight + 8 && transcriptViewStart === 0) void loadOlderHistory();
+  });
 }
 
 function selectedSessionUpdatedAt(sessionId = state.selectedSessionId) {
@@ -6049,6 +6280,7 @@ async function refreshHistory({ priority = false, force = false } = {}) {
     state.historyLoadedSessionId = sessionId;
     state.historyLoadedUpdatedAt = selectedSessionUpdatedAt(sessionId);
     if (view.revision !== null && view.revision !== undefined) state.historyLoadedRevision = view.revision;
+    state.historyHasOlder = Boolean(view.hasOlder);
     if (state.historyPendingSessionId === sessionId) state.historyPendingSessionId = null;
     const messages = skipReconciliation ? state.currentMessages : view.messages || [];
     state.historyLoadedPreview = latestAssistantPreview(messages);
@@ -6066,11 +6298,14 @@ async function refreshHistory({ priority = false, force = false } = {}) {
     setActivity(commandFeedbackFor(sessionId)?.activity || view.activity || null);
     if (skipReconciliation) {
       paintLiveAssistant();
+      globalThis.rememberSessionView?.(sessionId);
       return "unchanged";
     }
     const detectedMode = modeFromMessages(messages);
     if (detectedMode) setSessionAgentMode(sessionId, detectedMode);
     renderMessages(messages);
+    globalThis.rememberSessionView?.(sessionId);
+    globalThis.fillShortHistory?.();
     const latest = messages[messages.length - 1];
     if (state.windowMode === "full") {
       if (["error", "warning"].includes(latest?.role)) setAvatar("error", latest.code === "output-token-limit" ? "reply cut off" : "model error");
@@ -6442,7 +6677,9 @@ async function openCompactSession(requestedSessionId = null, { fromAvatar = fals
   let releaseUnfold = () => {};
   modeEnterGate = new Promise((resolve) => { releaseUnfold = resolve; });
   try {
-    // From the avatar's recent chats it opens small, beside the avatar.
+    // From the avatar's recent chats it opens small, in the panel's place (mini-chat.js); the
+    // class goes on first so the full chrome never shows for a frame.
+    if (fromAvatar) document.body.classList.add("mini-chat");
     await setWindowMode("full", { mini: fromAvatar });
     if (sessionId && sessionId !== state.selectedSessionId) await selectSession(sessionId, true);
     else setTab("chat");
@@ -6652,6 +6889,7 @@ async function performRefresh() {
     };
     const wasOffline = state.harnessOffline;
     state.harnessOffline = !dashboard.harness;
+    if (state.harnessOffline !== wasOffline) announceHarnessOffline(state.harnessOffline);
     // needsAuth/error ride the same payload: a gated Harness that answers 401
     // without a minted cookie is "running but locked", not "down".
     state.harnessNeedsAuth = !dashboard.harness && dashboard.needsAuth === true;
@@ -6757,6 +6995,8 @@ async function performRefresh() {
     renderTodos();
     renderQuestionDock();
     renderQueuedPrompts();
+    if (globalThis.subagentViewActive?.()) renderSubagentBar();
+    globalThis.renderMiniChatBar?.();
     if (!dashboard.harness) return;
     if (state.selectedSessionId && !state.queuedPromptsBySession.has(state.selectedSessionId)) await loadQueue(state.selectedSessionId);
     if (!state.modelCatalog) await loadModels();
@@ -6806,8 +7046,11 @@ function renderOfflineBanner() {
   const startButton = $("#startHarnessButton");
   const input = $("#harnessLaunchUrlInput");
   const crash = state.harnessOffline ? harnessCrashBanner() : null;
+  const onDesktop = Boolean(globalThis.harnessOnDesktop?.());
   const text = state.harnessStarting
     ? (state.harnessStartingLabel || "Launching Harness")
+    : onDesktop && state.harnessOffline
+      ? (globalThis.desktopHarnessRunning?.() ? "DSH Desktop's Harness is starting…" : "DSH Desktop is not running")
     : crash
       ? crash.text
       : state.harnessNeedsAuth
@@ -6833,7 +7076,12 @@ function renderOfflineBanner() {
       startButton.textContent = crash.action;
       startButton.title = "Restart Harness now instead of waiting";
     }
-    startButton.disabled = Boolean(crash?.busy);
+    // DSH Desktop owns its Harness: Deck can only start the app.
+    if (onDesktop && state.harnessOffline) {
+      startButton.textContent = "Open DSH Desktop";
+      startButton.title = "Start DSH Desktop; Deck connects to its Harness when it is up";
+    }
+    startButton.disabled = Boolean(crash?.busy && !onDesktop);
   }
   const openLogButton = $("#harnessOpenLogButton");
   if (openLogButton) openLogButton.hidden = !crash && !state.harnessStartError;
@@ -6904,6 +7152,10 @@ async function openHarnessLogFromBanner() {
 
 async function startHarnessFromBanner() {
   if (state.harnessStarting) return;
+  if (globalThis.harnessOnDesktop?.()) {
+    await openDshDesktop();
+    return;
+  }
   if (state.harnessOffline && harnessCrashBanner()) {
     await restartHarnessNowFromBanner();
     return;
@@ -7524,27 +7776,6 @@ function strokePet(event) {
   publishPetContext({ stimulus: true });
 }
 
-// DeepSeek Harness runtime (harness-runtime.cjs): what is installed, whether a newer one
-// is waiting, and the restart that switches to it. Nothing restarts on its own: the agents
-// would be cut off mid-turn.
-function renderHarnessRuntime(runtime) {
-  if (!runtime) return;
-  state.harnessRuntime = runtime;
-  const channel = runtime.channel === "alpha" ? "alpha channel" : "stable channel";
-  $("#harnessRuntimeVersion").textContent = runtime.installed ? `Installed ${runtime.installed} · ${channel}` : "Not installed yet";
-  const waiting = Boolean(runtime.ready);
-  $("#harnessRuntimeBadge").hidden = !(waiting || runtime.installing);
-  $("#harnessRuntimeBadge").textContent = runtime.installing ? "Installing" : "New";
-  $("#harnessRuntimeStatus").textContent = runtime.installing
-    ? `Installing Harness ${runtime.installing}… The running Harness keeps working.`
-    : runtime.error ? `Harness update failed: ${runtime.error}`
-    : waiting ? `Harness ${runtime.ready} is installed. Restart Harness to switch; running agents are stopped by the restart.`
-    : runtime.latest ? `Up to date (newest on this channel: ${runtime.latest}).`
-    : "Deck installs Harness when it is missing and keeps it up to date.";
-  $("#restartHarnessRuntimeButton").hidden = !waiting;
-  $("#checkHarnessRuntimeButton").disabled = Boolean(runtime.installing);
-}
-
 function applyCollapseAfterSend(value) {
   state.collapseAfterSend = value !== false;
   $("#collapseAfterSendToggle").checked = state.collapseAfterSend;
@@ -7812,6 +8043,7 @@ async function hydratePreferences() {
     applyCompactAutoExpand(preferences.compactAutoExpand);
     applyCollapseAfterSend(preferences.collapseAfterSend);
     applyPetMode(preferences.petMode);
+    if (preferences.recentSessionsOpen === false) state.collapsedSessionGroupKeys.add("recent");
     syncPressed($$('#sizeSwitch button'), preferences.size, "size");
     applyPlatformCapabilities(preferences.platformCapabilities);
     applyCompactSide(preferences.compactSide || "right");
@@ -8000,6 +8232,13 @@ $("#chatForm").addEventListener("submit", async (event) => {
       rememberSentMessage(targetSessionId, text);
     } else {
       pendingSend = beginPendingSend(targetSessionId, text, submittedAttachments);
+      // The attachments leave with the message, as its text does: the pending bubble shows them
+      // while Harness takes the upload, and a failed send puts them back.
+      if (submittedAttachments.length) {
+        const taken = new Set(submittedAttachments);
+        state.pendingAttachments = state.pendingAttachments.filter((attachment) => !taken.has(attachment));
+        renderAttachments();
+      }
       if (chatVisual && !queueingBehindTurn) chatVisual.noteSendStart(targetSessionId);
       syncChatVisualState();
       if (!queueingBehindTurn) setAvatar("waiting", "sending");
@@ -8043,6 +8282,11 @@ $("#chatForm").addEventListener("submit", async (event) => {
       syncChatVisualState();
     }
     if (state.selectedSessionId === targetSessionId) {
+      const returned = pendingSend ? submittedAttachments.filter((attachment) => !state.pendingAttachments.includes(attachment)) : [];
+      if (returned.length) {
+        state.pendingAttachments = [...returned, ...state.pendingAttachments];
+        renderAttachments();
+      }
       if (!input.value.trim()) input.value = text;
       resizeMessageInput();
       showComposerError(error, submittedCommand ? "Command failed" : "Message not sent");
@@ -8110,10 +8354,18 @@ $("#messageInput").addEventListener("input", async (event) => {
 });
 $("#messages").addEventListener("click", (event) => {
   const link = event.target.closest("a[href]");
-  if (!link) return;
-  event.preventDefault();
-  window.widget.openExternal(link.href).catch(() => {});
+  if (link) {
+    event.preventDefault();
+    const file = link.dataset.file || "";
+    if (file) viewFile(file);
+    else window.widget.openExternal(link.href).catch(() => {});
+    return;
+  }
+  const code = fileRefCode(event.target);
+  if (code && !String(getSelection())) viewFile(code.textContent.trim());
 });
+// Inline code that names a file is marked when the pointer reaches it, not on every render.
+$("#messages").addEventListener("pointerover", (event) => { fileRefCode(event.target); });
 $("#messages").addEventListener("scroll", () => {
   scheduleMessageMarksUpdate();
   const log = $("#messages");
@@ -8342,9 +8594,6 @@ $("#openHarnessButton").addEventListener("click", () => window.widget.openHarnes
 $("#openSessionButton").addEventListener("click", () => {
   if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId);
 });
-$("#subagentsButton").addEventListener("click", () => {
-  if (state.selectedSessionId) window.widget.openHarnessSession(state.selectedSessionId);
-});
 $("#dockButton").addEventListener("click", () => setWindowMode("edge"));
 $("#collapseHandle").addEventListener("click", (event) => {
   // Pointer taps are resolved by endFullDrag; keyboard activation still works.
@@ -8374,6 +8623,11 @@ $("#orbStatus").addEventListener("mouseleave", resumeCompactNotification);
 // Reply to a reply where it appeared; a question is answered in its chat, where the card is.
 $("#orbStatusAction").addEventListener("click", () => {
   const notification = state.compactNotification;
+  if (notification?.kind === "offline") {
+    dismissCompactNotification();
+    startHarnessFromBanner().catch(showError);
+    return;
+  }
   if (!notification?.sessionId) return;
   if (notification.kind === "question") openCompactSession(notification.sessionId).then(() => questionDockView.focus()).catch(showError);
   else if (notification.kind === "error") openCompactSession(notification.sessionId).catch(showError);
@@ -8405,7 +8659,14 @@ $("#orbSessionList").addEventListener("scroll", (event) => {
   const list = event.currentTarget;
   list.classList.toggle("at-end", list.scrollTop + list.clientHeight >= list.scrollHeight - 2);
 }, { passive: true });
-$("#orbStatusCard").addEventListener("click", () => openCompactSession(compactPreviewEntry()?.sessionId).catch(showError));
+$("#orbStatusCard").addEventListener("click", () => {
+  if (compactPreviewEntry()?.kind === "offline") {
+    dismissCompactNotification();
+    setWindowMode("full").catch(showError);
+    return;
+  }
+  openCompactSession(compactPreviewEntry()?.sessionId).catch(showError);
+});
 $("#orbReplyForm").addEventListener("submit", (event) => {
   event.preventDefault();
   sendCompactReply().catch(() => {});
@@ -8532,17 +8793,7 @@ $("#petModeToggle").addEventListener("change", async (event) => {
   }
 });
 window.widget.onPetState?.((pet) => applyPetState(pet));
-window.widget.onHarnessRuntime?.((runtime) => renderHarnessRuntime(runtime));
-window.widget.getHarnessRuntime?.().then(renderHarnessRuntime).catch(() => {});
-$("#checkHarnessRuntimeButton").addEventListener("click", () => {
-  $("#harnessRuntimeStatus").textContent = "Checking npm for a newer Harness…";
-  window.widget.checkHarnessRuntime().then(renderHarnessRuntime).catch(showError);
-});
-$("#restartHarnessRuntimeButton").addEventListener("click", async () => {
-  const running = (state.dashboard?.sessions || []).filter((session) => session.running).length;
-  if (running && !window.confirm(`${running} agent${running === 1 ? " is" : "s are"} working. Restarting Harness stops ${running === 1 ? "it" : "them"}. Restart now?`)) return;
-  try { await window.widget.restartHarness(); } catch (error) { showError(error); }
-});
+// DeepSeek Harness: which one Deck follows, its version and its update (harness-panel.js).
 // The agent's questions. question-relay.cjs in main held them all along, but nothing here
 // ever listened, so every question fell back to "Answer in DSH".
 window.widget.onPendingQuestions((list) => applyPendingQuestions(list));
@@ -8800,6 +9051,8 @@ if (screenshotFixture) {
       if (state.focusMode) setFocusMode(false);
       $("#offlineBanner").classList.add("show");
       setAvatar("offline");
+      // What the avatar says once when Harness goes down (announceHarnessOffline), held for the capture.
+      state.compactNotification = { kind: "offline", title: "Harness offline", text: "Start Harness to reconnect." };
       syncCompactStatus();
       renderSessions();
       renderSessionToolbar();
@@ -9518,6 +9771,140 @@ if (screenshotFixture) {
       // Held long enough for the capture; a real one leaves after twelve seconds.
       showCompactNotification({ kind: "question", sessionId: "demo-ask", title: "Release notes is asking", text: "Where should the release notes go?" }, 60000);
       setAvatar("waiting", "question");
+    } else if (["agents-recent", "session-menu", "session-delete-confirm"].includes(screenshotFixture)) {
+      // Agents in 1.1: newest first, a pinned chat on top of its group, Recent above the groups.
+      setTab("agents");
+      const now = Date.now();
+      const idle = { running: false, state: "idle", projections: { values: {} }, subagents: [] };
+      const workspace = { workspaceId: "ws-deck", title: "Agent Deck", path: "D:\\Git\\neoxider-agent-deck", sessionIds: ["s-release", "s-pet", "s-mini", "s-docs"] };
+      const game = { workspaceId: "ws-game", title: "Slime Merge", path: "D:\\Games\\slime-merge", sessionIds: ["s-shop", "s-levels", "s-ads"] };
+      state.dashboard = {
+        harness: true,
+        workspaces: [workspace, game],
+        archivedSessionIds: [],
+        pinnedSessionIds: ["s-docs"],
+        sessions: [
+          { ...idle, sessionId: "s-release", title: "Release 1.1 checklist", updatedAt: now - 20_000, running: true, runningSince: now - 95_000, state: "working" },
+          { ...idle, sessionId: "s-pet", title: "Pet physics pass", updatedAt: now - 4 * 60_000, lastRunMs: 212_000 },
+          { ...idle, sessionId: "s-mini", title: "Mini chat layout", updatedAt: now - 38 * 60_000, lastRunMs: 64_000 },
+          { ...idle, sessionId: "s-docs", title: "Docs screenshots", updatedAt: now - 3 * 3600_000 },
+          { ...idle, sessionId: "s-notes", title: "Scratch notes", updatedAt: now - 26 * 3600_000 },
+          { ...idle, sessionId: "s-ideas", title: "Ideas backlog", updatedAt: now - 3 * 86400_000 },
+          { ...idle, sessionId: "s-shop", title: "Shop balance tweaks", updatedAt: now - 9 * 60_000, lastRunMs: 31_000 },
+          { ...idle, sessionId: "s-levels", title: "Level 12 layout", updatedAt: now - 5 * 3600_000 },
+          { ...idle, sessionId: "s-ads", title: "Rewarded ads check", updatedAt: now - 2 * 86400_000, state: "error" },
+          { ...idle, sessionId: "s-trailer", title: "Trailer script", updatedAt: now - 6 * 86400_000 },
+        ],
+      };
+      state.workspaces = [workspace, game];
+      state.selectedSessionId = "s-release";
+      state.collapsedSessionGroupKeys.clear();
+      state.sessionListSignature = "";
+      renderSessions();
+      renderSessionToolbar();
+      renderHarnessTarget({ preference: "auto", kind: "web", webRunning: true, desktop: { installed: true, running: false, canOpen: true } });
+      if (screenshotFixture !== "agents-recent") requestAnimationFrame(() => {
+        const card = document.querySelector('#sessions .session-group:not(.recent-session-group) .session-card[data-session-id="s-pet"]');
+        // The list scrolls; scrollIntoView would also scroll the clipped shell around it.
+        const list = $("#sessions");
+        list.scrollTop += card.getBoundingClientRect().top - list.getBoundingClientRect().top - list.clientHeight / 3;
+        openSessionMenu("s-pet", card.querySelector(".session-menu-button"), { confirmDelete: screenshotFixture === "session-delete-confirm" });
+      });
+    } else if (["subagents-panel", "subagent-chat"].includes(screenshotFixture)) {
+      // What works under a chat: its subagents (each one a chat of its own) and its jobs.
+      setTab("chat");
+      const now = Date.now();
+      const child = (fields) => ({ kind: "child", parentSessionId: "deck-parent", activity: "idle", outcome: "", runningSince: null, workedMs: null, depth: 1, childCount: 0, ...fields });
+      state.dashboard = { harness: true, sessions: [{
+        sessionId: "deck-parent", title: "Ship Deck 1.1", updatedAt: now, running: true, runningSince: now - 262_000, state: "working", preview: "",
+        projections: { values: { contextPressure: { projectedTokens: 61_440, contextWindow: 200_000 } } },
+        subagents: [
+          child({ sessionId: "deck-ipc", title: "Audit the IPC handlers", activity: "running", runningSince: now - 75_000, childCount: 1 }),
+          child({ sessionId: "deck-preload", parentSessionId: "deck-ipc", title: "Check what preload exposes", outcome: "done", workedMs: 42_000, depth: 2 }),
+          child({ sessionId: "deck-notes", title: "Write the changelog", outcome: "done", workedMs: 128_000 }),
+          child({ sessionId: "deck-shots", title: "Refresh docs screenshots", outcome: "failed", workedMs: 19_000 }),
+        ],
+      }, {
+        sessionId: "deck-ipc", title: "Audit the IPC handlers", updatedAt: now, running: true, runningSince: now - 75_000, state: "working", origin: "subagent", projections: { values: {} }, subagents: [],
+      }] };
+      tasksState.jobsBySession.set("deck-parent", [
+        { id: "job-ui", kind: "shell", label: "npm run test:ui", status: "running", startedAt: now - 48_000, progress: "case 84 of 168", detail: "" },
+        { id: "job-audit", kind: "shell", label: "npm audit --audit-level=high", status: "completed", startedAt: now - 140_000, finishedAt: now - 131_000, progress: "", detail: "exit 0" },
+      ]);
+      tasksState.expandedJobId = "job-ui";
+      tasksState.outputs.set("job-ui", { output: "✓ chat 420x560\n✓ overview 420x560\n✓ workspace-groups 360x500\n✓ agents-recent 360x560\n✓ subagents-panel 420x560\n… case 84 of 168" });
+      state.selectedSessionId = "deck-parent";
+      renderSessionToolbar();
+      renderContext();
+      renderMessages([
+        { role: "user", text: "Ship 1.1: audit IPC, write the changelog and refresh the screenshots in parallel." },
+        { role: "assistant", text: "Three subagents are on it; the visual suite runs in the background." },
+      ]);
+      if (screenshotFixture === "subagents-panel") openTasksPanel();
+      else {
+        tasksState.subagentView = { childId: "deck-ipc", rootId: "deck-parent", title: "Audit the IPC handlers", rootTitle: "Ship Deck 1.1" };
+        document.body.classList.add("viewing-subagent");
+        state.selectedSessionId = "deck-ipc";
+        renderSubagentBar();
+        renderMessages([
+          { role: "user", text: "Audit every IPC channel the renderer can reach. Report anything that takes unchecked input." },
+          { role: "tool", callId: "sub-read", name: "read", arguments: '{"path":"src/ipc-deck-handlers.cjs"}', result: "Read complete", status: "completed", durationMs: 31 },
+          { role: "assistant", text: "Every session id goes through requireSessionId; job ids are coerced to strings. Checking preload next." },
+        ]);
+      }
+    } else if (screenshotFixture === "mini-chat") {
+      // A chat opened from the avatar's recent chats: the panel grown up into a conversation.
+      setTab("chat");
+      state.dashboard = { harness: true, sessions: [{ sessionId: "mini-demo", title: "Build review", updatedAt: Date.now(), running: false, state: "idle", projections: { values: { contextPressure: { projectedTokens: 18_200, contextWindow: 131_072 } } }, subagents: [] }] };
+      state.selectedSessionId = "mini-demo";
+      state.returnToAvatarSessionId = "mini-demo";
+      applyMiniChat(true);
+      renderSessionToolbar();
+      renderContext();
+      renderMessages([
+        { role: "user", text: "Is the Windows build green?" },
+        { role: "assistant", text: "Yes. All 168 visual cases passed and the installer signed cleanly.", html: "<p>Yes. All <strong>168</strong> visual cases passed and the installer signed cleanly.</p>" },
+      ]);
+    } else if (["harness-settings", "harness-update-chip"].includes(screenshotFixture)) {
+      // Which Harness Deck follows, and a stable Harness release waiting to be installed.
+      setTab("chat");
+      renderHarnessTarget({ preference: "auto", kind: "web", webRunning: true, desktop: { installed: true, running: true, canOpen: true }, desktopUpdate: null });
+      renderHarnessRuntime({ installed: "0.2.0", running: "0.2.0", latest: "0.2.1", updateAvailable: true, ready: "", installing: "", error: "", channel: "stable" });
+      if (screenshotFixture === "harness-settings") {
+        setSettingsOpen(true, { restoreFocus: false });
+        requestAnimationFrame(() => {
+          const panel = $("#settingsPanel");
+          panel.scrollTop += $("#harnessRuntimeSettings").getBoundingClientRect().top - panel.getBoundingClientRect().top - 60;
+        });
+      }
+    } else if (screenshotFixture === "context-stats") {
+      // The context meter's card: what this chat has spent and used.
+      setTab("chat");
+      const now = Date.now();
+      state.dashboard = { harness: true, sessions: [{
+        sessionId: "stats-demo", title: "Release verification", updatedAt: now - 40_000, createdAt: now - 3 * 3600_000, running: false, state: "idle", lastRunMs: 412_000,
+        backgroundJobCount: 1,
+        projections: { values: {
+          contextPressure: { projectedTokens: 88_400, contextWindow: 200_000 },
+          contextBreakdown: { systemTokens: 6_800, toolsTokens: 14_200, messageTokens: 67_400 },
+          modelSelection: { lastUsed: { provider: "anthropic", model: "claude-opus-5-5", reasoningEffort: "high" } },
+          tokenUsage: { uncachedInputTokens: 18_420, outputTokens: 96_310, cacheReadTokens: 6_412_000, cacheWriteTokens: 214_800 },
+        } },
+        subagents: [{ kind: "child", sessionId: "stats-child", title: "Docs", activity: "idle" }],
+      }] };
+      state.selectedSessionId = "stats-demo";
+      renderSessionToolbar();
+      renderContext();
+      renderMessages([
+        { role: "user", text: "Run the release checks." },
+        { role: "tool", callId: "stats-t1", name: "bash", arguments: '{"command":"npm test"}', result: "1011 passed", status: "completed", durationMs: 48_000 },
+        { role: "tool", callId: "stats-t2", name: "bash", arguments: '{"command":"npm audit"}', result: "found 0 vulnerabilities", status: "completed", durationMs: 9_000 },
+        { role: "assistant", text: "Unit tests and audit are clean." },
+        { role: "user", text: "And the visual suite?" },
+        { role: "tool", callId: "stats-t3", name: "bash", arguments: '{"command":"npm run test:ui"}', result: "1 failed", status: "completed", isError: true, durationMs: 210_000 },
+        { role: "assistant", text: "One case failed on a slow frame and passed on retry." },
+      ]);
+      requestAnimationFrame(() => showChatTooltip($("#contextMeter")));
     } else if (screenshotFixture === "mixed-tools") {
       setTab("chat");
       renderMessages([
