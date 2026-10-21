@@ -135,4 +135,8 @@ test("the running version is read from the package next to its entry", () => {
   assert.equal(versionOfEntry(path.join(dir, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js"), fileSystem), "0.2.1-alpha.5");
   assert.equal(versionOfEntry("C:\\x\\versions\\0.2.1-rc.2\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js", memoryFs()), "0.2.1-rc.2");
   assert.equal(versionOfEntry("", fileSystem), "");
+  // Linux reads a Windows path as relative: no package.json in the working directory answers.
+  const anyPackage = { readFileSync: () => JSON.stringify({ version: "1.1.0" }) };
+  assert.equal(versionOfEntry("R\\versions\\0.2.1-rc.2\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js", anyPackage), "0.2.1-rc.2");
+  assert.equal(versionOfEntry("node_modules/@deepseek-ai/dsh/lib/bin.js", anyPackage), "");
 });

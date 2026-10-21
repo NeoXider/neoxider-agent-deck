@@ -126,13 +126,15 @@ function newestRuntimeEntry(root, fileSystem = fs, platformPath = path) {
 function versionOfEntry(entry, fileSystem = fs) {
   const text = String(entry || "");
   if (!text) return "";
-  const packageDir = path.dirname(path.dirname(text));
+  const fromPath = () => text.match(/[\\/]versions[\\/](\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)[\\/]/)?.[1] || "";
+  // A path this platform cannot read as absolute (a Windows one on Linux) put the package.json
+  // lookup in the working directory, and reported the version of whatever project ran there.
+  if (!path.isAbsolute(text)) return fromPath();
   try {
-    const version = JSON.parse(fileSystem.readFileSync(path.join(packageDir, "package.json"), "utf8")).version || "";
+    const version = JSON.parse(fileSystem.readFileSync(path.join(path.dirname(path.dirname(text)), "package.json"), "utf8")).version || "";
     return VERSION_PATTERN.test(version) ? version : "";
   } catch {
-    const match = text.match(/[\\/]versions[\\/](\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)[\\/]/);
-    return match ? match[1] : "";
+    return fromPath();
   }
 }
 
