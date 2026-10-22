@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-23
+
+### Changed
+
+- A verified update installs itself, silently, once Deck sits as the avatar or the edge strip with nothing typed in any chat, nothing attached and nothing still sending. Before, a downloaded update waited for the chip, and an installed copy could stay days behind, still showing what the update had already fixed.
+- **Ctrl+Alt+Shift+Space** toggles: pressed while the full widget is in front it collapses back to the avatar or strip it came from. While the full widget sits behind another app, the shortcut brings it forward instead.
+
+### Fixed
+
+- Pressing the show shortcut again and again no longer makes the widget taller each time. At a fractional display scale (125 %, 150 %, 175 %) a full window whose edge fell between two device pixels grew by a pixel or two whenever its bounds were applied; the full window is now placed on the device-pixel grid.
+
 ## [1.1.1] - 2026-10-22
 
 ### Changed

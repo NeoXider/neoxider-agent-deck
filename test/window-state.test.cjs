@@ -2,9 +2,11 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   captureModeBounds,
+  devicePixelStep,
   fitFullBounds,
   resizeCompactAnchor,
   restoreCompactBounds,
+  showShortcutTarget,
 } = require("../src/window-state.cjs");
 
 test("full, orb, and edge keep independent bounds", () => {
@@ -49,6 +51,36 @@ test("full bounds honor workArea offsets and fit a smaller display", () => {
     workArea,
   );
   assert.deepEqual(restored, { x: 80, y: 60, width: 320, height: 420 });
+});
+
+test("full bounds land on the device-pixel grid so re-applying them cannot grow the window", () => {
+  assert.deepEqual([1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 3].map(devicePixelStep), [1, 4, 2, 4, 1, 4, 2, 1]);
+  assert.equal(devicePixelStep(undefined), 1);
+  // A user's real 125 % laptop: y 42 is 52.5 device pixels, and Electron's round trip grew
+  // this window 647 -> 649 -> 650 -> ... -> 657 on repeated shortcut presses.
+  const pixels = { scaleFactor: 1.25, bounds: { x: 0, y: 0, width: 1536, height: 864 } };
+  const workArea = { x: 0, y: 0, width: 1536, height: 816 };
+  const placed = fitFullBounds({ x: 1136, y: 42, width: 400, height: 647 }, null, workArea, { minWidth: 360, minHeight: 360, pixels });
+  assert.deepEqual(placed, { x: 1136, y: 44, width: 400, height: 648 });
+  for (const value of Object.values(placed)) assert.equal(Number.isInteger(value * 1.25), true);
+  assert.deepEqual(fitFullBounds(placed, null, workArea, { minWidth: 360, minHeight: 360, pixels }), placed, "stable once on the grid");
+  // A second display at 150 %, to the right of the first: the grid counts from its own origin.
+  const right = { scaleFactor: 1.5, bounds: { x: 1536, y: 0, width: 1280, height: 1080 } };
+  const second = fitFullBounds({ x: 1601, y: 101, width: 421, height: 641 }, null, { x: 1536, y: 0, width: 1280, height: 1040 }, { minWidth: 360, minHeight: 360, pixels: right });
+  assert.deepEqual(second, { x: 1602, y: 102, width: 422, height: 642 });
+  // Without a display the bounds are kept exactly as before.
+  assert.deepEqual(fitFullBounds({ x: 1136, y: 42, width: 400, height: 647 }, null, workArea, { minWidth: 360, minHeight: 360 }), { x: 1136, y: 42, width: 400, height: 647 });
+});
+
+test("the show shortcut opens the widget, brings it forward, then collapses it back", () => {
+  assert.equal(showShortcutTarget({ mode: "orb", visible: true, focused: false, lastCompact: "orb" }), "full");
+  assert.equal(showShortcutTarget({ mode: "edge", visible: true, focused: true, lastCompact: "edge" }), "full");
+  assert.equal(showShortcutTarget({ mode: "full", mini: true, visible: true, focused: true }), "full", "the mini chat expands");
+  assert.equal(showShortcutTarget({ mode: "full", visible: false, focused: false }), "full", "a hidden widget is shown");
+  assert.equal(showShortcutTarget({ mode: "full", visible: true, focused: false, lastCompact: "orb" }), "focus", "behind another app it only comes forward");
+  assert.equal(showShortcutTarget({ mode: "full", visible: true, focused: true, lastCompact: "orb" }), "orb");
+  assert.equal(showShortcutTarget({ mode: "full", visible: true, focused: true, lastCompact: "edge" }), "edge");
+  assert.equal(showShortcutTarget({ mode: "full", visible: true, focused: true }), "orb", "a widget that started full collapses to the avatar");
 });
 
 test("orb restore uses runtime width while preserving the saved edge and y", () => {

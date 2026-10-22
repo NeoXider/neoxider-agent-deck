@@ -49,7 +49,7 @@ const {
   moveCompactBounds,
   snapCompactBounds,
 } = require("./window-geometry.cjs");
-const { FULL_MIN_HEIGHT, FULL_MIN_WIDTH, FULL_SIZE_PRESETS: SIZE_PRESETS, captureModeBounds, fitFullBounds, resizeCompactAnchor } = require("./window-state.cjs");
+const { FULL_MIN_HEIGHT, FULL_MIN_WIDTH, FULL_SIZE_PRESETS: SIZE_PRESETS, captureModeBounds, fitFullBounds, resizeCompactAnchor, showShortcutTarget } = require("./window-state.cjs");
 const { COMPACT_SIZES, compactTargetBounds, compactWindowSize, miniChatBounds, nearestCompactSize, placeCompactWindow } = require("./compact-window.cjs");
 const { createViewer } = require("./viewer-window.cjs");
 
@@ -99,7 +99,7 @@ const openExternalUrl = createExternalLinkOpener({ openExternal: (url) => shell.
 let windowRef;
 let tray;
 let desktopAccess;
-let windowMode = "full";
+let windowMode = "full", lastCompactMode = "orb"; // The latter is what the show shortcut collapses back to.
 let fullBounds;
 let preferences = DEFAULT_PREFERENCES;
 let settingsStore;
@@ -425,16 +425,17 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   windowMode = nextMode;
   miniChat = nextMode === "full" && mini && !SCREENSHOT_MODE;
   preferences.windowState.mode = nextMode;
+  if (nextMode !== "full") lastCompactMode = nextMode;
   windowRef.setMinimumSize(1, 1);
 
   if (nextMode === "full") {
     const fallbackSize = SIZE_PRESETS[preferences.size] || SIZE_PRESETS.standard;
     const fallback = { ...windowRef.getBounds(), width: fallbackSize[0], height: fallbackSize[1] };
     const target = miniChat ? miniChatBounds(compactBounds, preferences.compactSide, screen.getDisplayMatching(compactBounds).workArea) : preferences.windowState.full || fullBounds || fallback;
-    const display = screen.getDisplayMatching(target).workArea;
+    const pixels = screen.getDisplayMatching(target), display = pixels.workArea;
     const restored = fitFullBounds(target, fallback, display, {
       minWidth: SCREENSHOT_MODE ? 1 : FULL_MIN_WIDTH,
-      minHeight: SCREENSHOT_MODE ? 1 : FULL_MIN_HEIGHT,
+      minHeight: SCREENSHOT_MODE ? 1 : FULL_MIN_HEIGHT, pixels,
     });
     windowRef.setResizable(true);
     setPlatformSkipTaskbar(windowRef, false, PLATFORM_CAPABILITIES);
@@ -505,10 +506,10 @@ function createWindow() {
   // Visual smoke requests must be deterministic even when the real app has a
   // different full-window size saved in user preferences.
   const initialTarget = screenshotPath ? initialFallback : (preferences.windowState.full || initialFallback);
-  const initialDisplay = screen.getDisplayMatching(initialTarget).workArea;
+  const initialPixels = screen.getDisplayMatching(initialTarget), initialDisplay = initialPixels.workArea;
   fullBounds = fitFullBounds(initialTarget, initialFallback, initialDisplay, {
     minWidth: screenshotPath ? 1 : FULL_MIN_WIDTH,
-    minHeight: screenshotPath ? 1 : FULL_MIN_HEIGHT,
+    minHeight: screenshotPath ? 1 : FULL_MIN_HEIGHT, pixels: initialPixels,
   });
   setPlatformBounds(windowRef, fullBounds, false, PLATFORM_CAPABILITIES);
   captureWindowBounds("full", fullBounds, preferences.compactSide, false);
@@ -736,7 +737,7 @@ app.whenReady().then(() => {
     app,
     globalShortcut,
     handlers: {
-      showRestore: () => applyWindowMode("full"),
+      showRestore: () => { const next = showShortcutTarget({ mode: windowMode, mini: miniChat, visible: windowRef?.isVisible(), focused: windowRef?.isFocused(), lastCompact: lastCompactMode }); if (next === "focus") windowRef.focus(); else applyWindowMode(next); },
       toggleFocusChat: () => { applyWindowMode("full"); sendToRenderer("hotkey-action", "toggleFocusChat"); },
       collapseAvatar: () => applyWindowMode("orb"),
       collapseEdge: () => applyWindowMode("edge"),

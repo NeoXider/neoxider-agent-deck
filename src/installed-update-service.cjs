@@ -346,7 +346,9 @@ function createInstalledUpdateService({
     if (state.status !== "ready") return snapshot();
     transition("installing", { progress: 100 });
     try {
-      await updater.quitAndInstall(false, true);
+      // Silent: the update may start itself while the widget sits as a pet, and an installer
+      // window popping up over the desktop would be the only sign of it.
+      await updater.quitAndInstall(true, true);
       return snapshot();
     } catch (error) {
       return fail(error, "UPDATE_INSTALL_FAILED", "The update could not be installed");

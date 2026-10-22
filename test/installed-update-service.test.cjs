@@ -224,7 +224,7 @@ test("install waits for download, calls quitAndInstall once, and never relies on
   await downloading;
   const result = await first;
   assert.equal(result.status, "installing");
-  assert.deepEqual(updater.installCalls, [[false, true]]);
+  assert.deepEqual(updater.installCalls, [[true, true]]);
   assert.equal(updater.autoInstallOnAppQuit, false);
 });
 
@@ -235,7 +235,7 @@ test("install from available performs the explicit download first", async () => 
   const result = await service.install();
   assert.equal(result.status, "installing");
   assert.equal(updater.downloadCalls, 1);
-  assert.deepEqual(updater.installCalls, [[false, true]]);
+  assert.deepEqual(updater.installCalls, [[true, true]]);
 });
 
 test("updater errors map to the active operation without duplicate transitions", async (t) => {

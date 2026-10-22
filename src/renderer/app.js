@@ -7920,6 +7920,27 @@ function renderUpdateState(value) {
   headerInstallButton.hidden = value.status !== "ready";
   headerInstallButton.disabled = busy;
   headerInstallButton.title = latest ? `Install ${latest} and restart` : "Install the verified update and restart";
+  scheduleUpdateAutoInstall();
+}
+
+// A verified update installs itself once a restart can lose nothing: the widget is a pet or
+// an edge strip, nothing is typed, attached or still sending. Waiting for the chip left an
+// installed copy days behind, still showing what the update had already fixed.
+const UPDATE_AUTO_INSTALL_MS = 30_000;
+let updateAutoInstallTimer = null;
+function updateInstallLosesNothing() {
+  return state.windowMode !== "full" && !$("#messageInput").value.trim() && !state.composerDraftsBySession.size
+    && !state.pendingAttachments.length && !state.pendingSendsBySession.size;
+}
+function scheduleUpdateAutoInstall() {
+  const update = state.updateState;
+  if (updateAutoInstallTimer || update?.status !== "ready" || update.installMode === "manual" || deckScreenshotMode()) return;
+  updateAutoInstallTimer = setTimeout(() => {
+    updateAutoInstallTimer = null;
+    if (state.updateState?.status !== "ready") return;
+    if (updateInstallLosesNothing()) runUpdateAction("install");
+    else scheduleUpdateAutoInstall();
+  }, UPDATE_AUTO_INSTALL_MS);
 }
 
 async function runUpdateAction(action) {

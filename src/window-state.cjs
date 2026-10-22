@@ -13,25 +13,50 @@ function finite(value, fallback) {
   return Number.isFinite(numeric) ? Math.round(numeric) : fallback;
 }
 
+// The fewest DIPs that make a whole number of device pixels at this scale: 4 at 125 % and
+// 175 %, 2 at 150 %, 1 at 100 % and 200 %.
+function devicePixelStep(scaleFactor) {
+  const scale = Number(scaleFactor);
+  if (!Number.isFinite(scale) || scale <= 0) return 1;
+  for (let step = 1; step <= 8; step += 1) if (Math.abs(step * scale - Math.round(step * scale)) < 1e-6) return step;
+  return 1;
+}
+
+// `constraints.pixels` is the Electron display the window lands on. At a fractional scale
+// Windows turns a DIP rectangle into the device pixels that enclose it, so a full window whose
+// edge fell between two pixels came back a pixel or two taller every time its own bounds were
+// applied again: pressing the show shortcut over and over grew the widget. Bounds on the
+// device-pixel grid round-trip exactly.
 function fitFullBounds(saved, fallback, workArea, constraints = {}) {
   const source = saved && typeof saved === "object" ? saved : fallback;
+  const step = devicePixelStep(constraints.pixels?.scaleFactor);
+  const grid = (value, base = 0) => base + Math.round((value - base) / step) * step;
+  const origin = constraints.pixels?.bounds || { x: 0, y: 0 };
   const maximumWidth = Math.max(1, finite(workArea?.width, 1));
   const maximumHeight = Math.max(1, finite(workArea?.height, 1));
   const minimumWidth = Math.min(maximumWidth, finite(constraints.minWidth, 360));
   const minimumHeight = Math.min(maximumHeight, finite(constraints.minHeight, 500));
-  const width = clamp(finite(source?.width, finite(fallback?.width, minimumWidth)), minimumWidth, maximumWidth);
-  const height = clamp(finite(source?.height, finite(fallback?.height, minimumHeight)), minimumHeight, maximumHeight);
+  const width = clamp(grid(finite(source?.width, finite(fallback?.width, minimumWidth))), minimumWidth, maximumWidth);
+  const height = clamp(grid(finite(source?.height, finite(fallback?.height, minimumHeight))), minimumHeight, maximumHeight);
   const x = clamp(
-    finite(source?.x, finite(fallback?.x, workArea.x)),
+    grid(finite(source?.x, finite(fallback?.x, workArea.x)), finite(origin.x, 0)),
     workArea.x,
     workArea.x + workArea.width - width,
   );
   const y = clamp(
-    finite(source?.y, finite(fallback?.y, workArea.y)),
+    grid(finite(source?.y, finite(fallback?.y, workArea.y)), finite(origin.y, 0)),
     workArea.y,
     workArea.y + workArea.height - height,
   );
   return { x, y, width, height };
+}
+
+// The show shortcut toggles: pressed while the full widget is already in front it puts the
+// widget back to the avatar or strip it came from; while the full widget sits behind another
+// app it only brings it forward, so a copy-then-shortcut lands in Deck instead of hiding it.
+function showShortcutTarget({ mode, mini = false, visible = false, focused = false, lastCompact = "orb" } = {}) {
+  if (mode !== "full" || mini || !visible) return "full";
+  return focused ? (lastCompact === "edge" ? "edge" : "orb") : "focus";
 }
 
 function restoreCompactBounds(saved, fallback, workArea, options = {}) {
@@ -103,4 +128,4 @@ function resizeCompactAnchor(position, fromHeight, toHeight) {
   };
 }
 
-module.exports = { FULL_MIN_HEIGHT, FULL_MIN_WIDTH, FULL_SIZE_PRESETS, captureModeBounds, fitFullBounds, resizeCompactAnchor, restoreCompactBounds };
+module.exports = { FULL_MIN_HEIGHT, FULL_MIN_WIDTH, FULL_SIZE_PRESETS, captureModeBounds, devicePixelStep, fitFullBounds, resizeCompactAnchor, restoreCompactBounds, showShortcutTarget };

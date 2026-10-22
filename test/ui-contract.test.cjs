@@ -1246,7 +1246,9 @@ test("all global shortcuts can be rebound, disabled, reset, and persisted", () =
   assert.match(preload, /setHotkeys/);
   assert.match(preload, /resetHotkeys/);
   assert.match(main, /createHotkeyManager/);
-  assert.match(main, /showRestore: \(\) => applyWindowMode\("full"\)/);
+  assert.match(main, /showRestore: \(\) => \{ const next = showShortcutTarget\(\{ mode: windowMode, mini: miniChat, visible: windowRef\?\.isVisible\(\), focused: windowRef\?\.isFocused\(\), lastCompact: lastCompactMode \}\); if \(next === "focus"\) windowRef\.focus\(\); else applyWindowMode\(next\); \}/);
+  assert.match(main, /if \(nextMode !== "full"\) lastCompactMode = nextMode;/);
+  assert.match(main, /minHeight: SCREENSHOT_MODE \? 1 : FULL_MIN_HEIGHT, pixels,/, "the full window is placed on the device-pixel grid");
   assert.match(main, /registerConfiguredHotkeys\(preferences\.hotkeys\)/);
   assert.match(main, /shortcut remains enabled and will be retried next launch/);
   assert.doesNotMatch(main, /preferences\.hotkeys = registerConfiguredHotkeys/);
