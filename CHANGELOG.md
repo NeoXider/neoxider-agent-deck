@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-22
+
+### Changed
+
+- An offline Harness says nothing beside the avatar any more, not even the notification 1.1.0 showed for a few seconds: the avatar stays a plain pet in its muted offline look, walking and falling as usual. Hovering it says Harness is offline; the banner in the full widget starts it.
+
 ## [1.1.0] - 2026-10-21
 
 ### Added

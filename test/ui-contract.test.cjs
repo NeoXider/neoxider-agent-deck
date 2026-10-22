@@ -460,7 +460,7 @@ test("collapsed pet exposes a scrolling list of recent sessions and inline quick
   assert.match(html, /id="orbReplyInput"[^>]+aria-label="Quick reply message"/);
   assert.match(renderer, /compactNotificationTimer = setTimeout/);
   // Notifications leave on their own: six seconds for a reply, longer for a question.
-  assert.match(renderer, /const COMPACT_NOTIFICATION_MS = \{ notification: 6000, question: 12000, error: 8000, offline: 7000 \};/);
+  assert.match(renderer, /const COMPACT_NOTIFICATION_MS = \{ notification: 6000, question: 12000, error: 8000 \};/);
   assert.match(renderer, /orb-status-closing/);
   assert.match(renderer, /else notifyCompletion\(session\)/);
   // Four rows show and the rest scroll; the chat button counts working agents only.
@@ -1368,9 +1368,9 @@ test("offline status is shown once with an explicit guarded Start action", () =>
   assert.match(renderer, /await window\.widget\.startHarness\(\)/);
   assert.match(renderer, /setAvatar\("offline"\)/);
   assert.doesNotMatch(renderer, /setAvatar\("error", "Harness offline"\)/);
-  // Beside the avatar it is a notification that leaves on its own, never a card that stays.
-  assert.match(renderer, /function announceHarnessOffline\(offline\)/);
-  assert.match(renderer, /kind: "offline", title: "Harness offline", text: "Start Harness to reconnect\."/);
+  // Beside the avatar it says nothing: no card that stays, and no notification either.
+  assert.doesNotMatch(renderer, /kind: "offline"/);
+  assert.match(renderer, /shell\.title = mode === "offline" \? "Harness offline" : ""/);
   assert.doesNotMatch(renderer, /state\.compactAutoExpand && offline/);
   assert.match(renderer, /Start Harness to load sessions\./);
   assert.match(renderer, /!dashboard\.harness && state\.focusMode\) setFocusMode\(false\)/);

@@ -505,17 +505,6 @@ function scrollSelectedModelIntoView() {
   }
 }
 
-// Beside the avatar an offline Harness is a notification like any other: it says so once and
-// leaves, and the pet goes on being a pet in its muted offline look. Its button starts Harness.
-function announceHarnessOffline(offline) {
-  if (!offline) {
-    if (state.compactNotification?.kind === "offline") dismissCompactNotification();
-    return;
-  }
-  if (state.windowMode === "full" || globalThis.deckScreenshotMode?.()) return;
-  showCompactNotification({ kind: "offline", title: "Harness offline", text: "Start Harness to reconnect." }, COMPACT_NOTIFICATION_MS.offline);
-}
-
 function compactPreviewEntry() {
   if (state.compactNotification) return state.compactNotification;
   return null;
@@ -524,7 +513,7 @@ function compactPreviewEntry() {
 // Avatar notifications. A reply, a question or a failure slides out beside the avatar and
 // leaves on its own; the avatar itself stays a circle. The pointer on a notification holds
 // it, and the hairline along its foot shows the time it has left.
-const COMPACT_NOTIFICATION_MS = { notification: 6000, question: 12000, error: 8000, offline: 7000 };
+const COMPACT_NOTIFICATION_MS = { notification: 6000, question: 12000, error: 8000 };
 let compactNotificationDeadline = 0;
 let compactNotificationRemaining = 0;
 
@@ -699,9 +688,10 @@ function syncCompactStatus() {
   const expanded = state.compactHistoryOpen || state.compactReplyOpen;
   // Avatar mode is collapsed unless the user opens it. Activity, a finished turn and an
   // offline Harness never widen the orb on their own: they show as the ring colour, the count
-  // on the expand button and the avatar's own look. Notifications always show and leave on
-  // their own, an offline Harness included (announceHarnessOffline): a card that stayed
-  // beside the avatar for as long as Harness was down held the pet still, mid-air included.
+  // on the expand button and the avatar's own look. An offline Harness says nothing beside the
+  // avatar at all: the pet stays a pet in its muted offline look, its tooltip says why, and the
+  // full widget's banner starts Harness. A card for it held the pet still for as long as
+  // Harness was down, mid-air included, and even a passing notification was one too many.
   const active = Boolean(expanded || state.compactStatusClosing || preview);
   const label = preview?.title || activity?.label || AVATAR_LABELS[state.avatarMode] || "Ready";
   const text = compactText(preview?.text || activity?.text || $("#avatarState")?.textContent || label, 96);
@@ -735,7 +725,7 @@ function syncCompactStatus() {
   if (domSignature !== state.compactStatusDomSignature) {
     document.body.classList.toggle("orb-has-status", active);
     // Every notification shares one look and one lifetime; its kind only tints it.
-    document.body.classList.toggle("orb-has-notification", ["notification", "question", "error", "offline"].includes(statusKind));
+    document.body.classList.toggle("orb-has-notification", ["notification", "question", "error"].includes(statusKind));
     document.body.classList.toggle("orb-notification-error", statusKind === "error");
     document.body.classList.toggle("orb-status-closing", state.compactStatusClosing);
     document.body.classList.toggle("orb-history-open", state.compactHistoryOpen);
@@ -746,12 +736,12 @@ function syncCompactStatus() {
     syncPetFace();
     $("#orbStatusLabel").textContent = label;
     $("#orbStatusText").textContent = text;
-    const actionLabel = statusKind === "question" ? "Answer the question" : statusKind === "error" ? "Open this session" : statusKind === "offline" ? "Start Harness" : "Reply to this session";
+    const actionLabel = statusKind === "question" ? "Answer the question" : statusKind === "error" ? "Open this session" : "Reply to this session";
     $("#orbStatusAction").title = actionLabel;
     $("#orbStatusAction").setAttribute("aria-label", actionLabel);
     $("#orbStatusCard").hidden = expanded;
-    $("#orbStatusCard").disabled = statusKind !== "offline" && !preview?.sessionId && !state.selectedSessionId;
-    $("#orbStatusAction").querySelector("use")?.setAttribute("href", statusKind === "offline" ? "#icon-play" : "#icon-chat");
+    $("#orbStatusCard").disabled = !preview?.sessionId && !state.selectedSessionId;
+    $("#orbStatusAction").querySelector("use")?.setAttribute("href", "#icon-chat");
     // The list and the message box under it are one panel: open it and you can write.
     $("#orbSessionList").hidden = !expanded;
     $("#orbReplyForm").hidden = !expanded;
@@ -6889,7 +6879,6 @@ async function performRefresh() {
     };
     const wasOffline = state.harnessOffline;
     state.harnessOffline = !dashboard.harness;
-    if (state.harnessOffline !== wasOffline) announceHarnessOffline(state.harnessOffline);
     // needsAuth/error ride the same payload: a gated Harness that answers 401
     // without a minted cookie is "running but locked", not "down".
     state.harnessNeedsAuth = !dashboard.harness && dashboard.needsAuth === true;
@@ -8623,11 +8612,6 @@ $("#orbStatus").addEventListener("mouseleave", resumeCompactNotification);
 // Reply to a reply where it appeared; a question is answered in its chat, where the card is.
 $("#orbStatusAction").addEventListener("click", () => {
   const notification = state.compactNotification;
-  if (notification?.kind === "offline") {
-    dismissCompactNotification();
-    startHarnessFromBanner().catch(showError);
-    return;
-  }
   if (!notification?.sessionId) return;
   if (notification.kind === "question") openCompactSession(notification.sessionId).then(() => questionDockView.focus()).catch(showError);
   else if (notification.kind === "error") openCompactSession(notification.sessionId).catch(showError);
@@ -8660,11 +8644,6 @@ $("#orbSessionList").addEventListener("scroll", (event) => {
   list.classList.toggle("at-end", list.scrollTop + list.clientHeight >= list.scrollHeight - 2);
 }, { passive: true });
 $("#orbStatusCard").addEventListener("click", () => {
-  if (compactPreviewEntry()?.kind === "offline") {
-    dismissCompactNotification();
-    setWindowMode("full").catch(showError);
-    return;
-  }
   openCompactSession(compactPreviewEntry()?.sessionId).catch(showError);
 });
 $("#orbReplyForm").addEventListener("submit", (event) => {
@@ -9051,8 +9030,6 @@ if (screenshotFixture) {
       if (state.focusMode) setFocusMode(false);
       $("#offlineBanner").classList.add("show");
       setAvatar("offline");
-      // What the avatar says once when Harness goes down (announceHarnessOffline), held for the capture.
-      state.compactNotification = { kind: "offline", title: "Harness offline", text: "Start Harness to reconnect." };
       syncCompactStatus();
       renderSessions();
       renderSessionToolbar();

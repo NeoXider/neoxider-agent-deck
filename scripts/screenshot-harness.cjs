@@ -526,6 +526,7 @@ function attachScreenshotHarness({
             })(),
             orbUtilityButtons: document.querySelectorAll('#orbMode > button:not(#orbRestore):not(#orbStatus)').length,
             orbNotification: document.body.classList.contains('orb-has-notification'),
+            orbHasStatus: document.body.classList.contains('orb-has-status'),
             orbStatusShadow: getComputedStyle(document.querySelector('#orbStatus')).boxShadow,
             orbReplyShadow: getComputedStyle(document.querySelector('#orbHistoryButton')).boxShadow,
             orbRecentRows: document.querySelectorAll('.orb-session-row').length,

@@ -168,7 +168,7 @@ const cases = [
   { name: "collapsed-orb", tab: "chat", fixture: "orb-collapsed", mode: "orb", expect: { orbHasStatus: false, orbStatusWidth: 0, orbPanelCountVisible: false }, max: { orbInteractiveArea: 6600 } },
   { name: "auto-expand-orb", tab: "chat", fixture: "orb-auto-expand", mode: "orb", expect: { orbHasStatus: true, orbPanelCountVisible: false }, min: { orbStatusWidth: 100 } },
   // Offline beside the avatar is a notification that leaves on its own, not a card that stays.
-  { name: "offline-orb", tab: "chat", fixture: "offline", mode: "orb", expect: { orbUtilityButtons: 3, orbNotification: true, orbStatusLabel: "Harness offline", orbStatusText: "Start Harness to reconnect." } },
+  { name: "offline-orb", tab: "chat", fixture: "offline", mode: "orb", expect: { orbUtilityButtons: 3, orbNotification: false, orbHasStatus: false } },
   { name: "notification-orb", tab: "chat", fixture: "orb-notification", mode: "orb", expect: { orbUtilityButtons: 3, orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
   { name: "notification-orb-black", tab: "chat", fixture: "orb-notification", mode: "orb", backdrop: "black", expect: { orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
   { name: "notification-orb-white", tab: "chat", fixture: "orb-notification", mode: "orb", backdrop: "white", expect: { orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
