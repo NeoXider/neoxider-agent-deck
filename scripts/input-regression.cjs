@@ -433,12 +433,14 @@ async function main() {
   })()`);
   if (currentMode !== "orb") failures.push("quick reply restored the full widget");
   if (!quickReplyState.visible || !quickReplyState.focused) failures.push(`quick reply input was not visible and focused; hit=${JSON.stringify(replyHit)}`);
-  contents.insertText("Reply from the pet");
+  // insertText is a promise: unawaited, a slow runner delivered Enter to an empty box first.
+  await contents.insertText("Reply from the pet");
   contents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
   contents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
-  await wait(600);
+  await waitForSubmitted("demo-build", "Reply from the pet").catch(() => {});
   if (sentPayloads.length !== 1 || sentPayloads[0]?.sessionId !== "demo-build" || sentPayloads[0]?.text !== "Reply from the pet") {
-    failures.push(`quick reply routed incorrectly: ${JSON.stringify(sentPayloads)}`);
+    const left = await contents.executeJavaScript(`({ value: document.querySelector('#orbReplyInput')?.value, error: state.compactReplyError })`);
+    failures.push(`quick reply routed incorrectly: ${JSON.stringify(sentPayloads)} ${JSON.stringify(left)}`);
   }
 
   // --- 4. a recent chat's open arrow opens that exact session ---
