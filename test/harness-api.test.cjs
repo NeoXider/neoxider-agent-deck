@@ -1160,6 +1160,46 @@ test("a remote dashboard reads subagents and pins from what it already fetched, 
   assert.ok(!endpoints.includes("subagent/list"), "current DSH has no subagent/list");
 });
 
+test("a subagent's chat is read under its parent's address", async () => {
+  const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+  const addresses = [];
+  api.ensureRemote = async () => ({ call: async (endpoint, args) => {
+    if (endpoint === "session/list") return { items: [
+      { sessionId: "parent", running: false, updatedAt: 3 },
+      { sessionId: "kid", origin: "subagent", parentSessionId: "parent", running: true, updatedAt: 2 },
+      { sessionId: "grandkid", origin: "subagent", parentSessionId: "kid", running: false, updatedAt: 1 },
+    ] };
+    if (endpoint === "session/page") { addresses.push(["page", args.request.address]); return { records: [], hasMore: false }; }
+    throw new Error(`unexpected ${endpoint}`);
+  } });
+  api.readHistoryEvents = async () => ({ events: [] });
+  api.remoteWorkspaceBaseline = async () => ({ items: [], archivedSessionIds: [], pinnedSessionIds: [] });
+  const line = (seq) => ({ event: { type: "assistant/message", seq, data: { message: { content: [{ type: "text", text: `line ${seq}` }] } } } });
+  api.remoteChannelFirstFrame = async (_remote, endpoint, args) => {
+    addresses.push(["follow", args.request.address]);
+    // DSH 0.2.1 refuses a child by its bare session id.
+    if (args.request.address.kind === "session" && args.request.address.sessionId !== "parent") throw new Error("Harness session/follow: subagent Sessions require their durable parent address");
+    return { records: [line(5), line(6)], hasMore: true, cursor: 6 };
+  };
+
+  await assert.rejects(api.history("kid"), /durable parent address/, "before the list is read the child is unknown");
+  await api.dashboard();
+  addresses.length = 0;
+  assert.deepEqual((await api.history("kid")).messages.map(({ text }) => text), ["line 5", "line 6"]);
+  await api.history("kid", { older: true });
+  await api.history("grandkid");
+  await api.history("parent");
+  const kid = { kind: "subagent", parentSessionId: "parent", childSessionId: "kid", mode: "unknown" };
+  assert.deepEqual(addresses, [
+    ["follow", kid],
+    ["page", kid],
+    ["follow", { kind: "subagent", parentSessionId: "kid", childSessionId: "grandkid", mode: "unknown" }],
+    ["follow", { kind: "session", sessionId: "parent" }],
+  ]);
+  api.setBaseUrl("http://127.0.0.1:43129");
+  assert.deepEqual(api.sessionAddress("kid"), { kind: "session", sessionId: "kid" }, "another Harness has its own children");
+});
+
 test("switching to another Harness forgets the old one's generation, cookie and caches", async () => {
   const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, { historyWorker: false });
   api._generationPromise = Promise.resolve("gated");

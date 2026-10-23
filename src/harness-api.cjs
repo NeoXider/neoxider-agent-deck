@@ -46,6 +46,8 @@ class HarnessApi {
     this.historyReader = isMainThread && options.historyWorker !== false
       ? createHistoryReader(this.baseUrl, { historyCacheSessionLimit: this.historyCacheSessionLimit }) : null;
     this.fullAccessSessions = new Set();
+    // childSessionId -> parentSessionId, from the last session list. See sessionAddress.
+    this.subagentParents = new Map();
     this.workspaceSnapshot = { items: [], archivedSessionIds: [] };
     // Two Harness generations speak different wire protocols. The probe result is
     // cached for the process lifetime once it is not "down", so a harness that comes
@@ -93,7 +95,7 @@ class HarnessApi {
     this.baseUrl = next;
     this._generationPromise = null;
     this._remoteTransport = null;
-    for (const cache of [this.sessionStateCache, this.historyCache, this.backgroundJobs, this.fullAccessSessions]) cache.clear();
+    for (const cache of [this.sessionStateCache, this.historyCache, this.backgroundJobs, this.fullAccessSessions, this.subagentParents]) cache.clear();
     this.attachmentCache?.clear();
     this.workspaceSnapshot = { items: [], archivedSessionIds: [], pinnedSessionIds: [] };
     return true;
@@ -163,6 +165,15 @@ class HarnessApi {
     return { events: Array.isArray(page.events) ? page.events : [] };
   }
 
+  // A subagent's log is read under its parent. DSH refuses a plain session address for one
+  // ("subagent Sessions require their durable parent address"), which left every subagent's
+  // chat on "History could not be loaded". "unknown" mode is the one DSH never checks
+  // against the child's own, so a continuable or one-shot child opens alike.
+  sessionAddress(sessionId) {
+    const parentSessionId = this.subagentParents.get(sessionId);
+    return parentSessionId ? { kind: "subagent", parentSessionId, childSessionId: sessionId, mode: "unknown" } : { kind: "session", sessionId };
+  }
+
   // One history page for either dialect. Legacy pages come from session.history;
   // remote ones open a follow snapshot (first page) or walk session/page with the
   // cursor the snapshot handed out. Both return {events, hasMore}.
@@ -172,7 +183,7 @@ class HarnessApi {
       if (beforeSeq != null) payload.beforeSeq = beforeSeq;
       return this.rpc("session.history", payload);
     }
-    const address = { kind: "session", sessionId };
+    const address = this.sessionAddress(sessionId);
     if (beforeSeq == null || throughSeq == null) {
       const snapshot = await this.remoteChannelFirstFrame(remote, "session/follow", { request: { address, maxMessages } });
       const throughSeq = Number.isFinite(snapshot.cursor) ? snapshot.cursor : null;
@@ -277,6 +288,7 @@ class HarnessApi {
     const sessions = (sessionsValue.items || []).filter((session) => session.origin !== "subagent" && !archived.has(session.sessionId));
     // Subagents are sessions too; their rows say whose they are (subagent-tree.cjs).
     const children = remote ? childrenByParent(sessionsValue.items) : null;
+    if (children) this.subagentParents = new Map([...children].flatMap(([parent, rows]) => rows.map((row) => [row.sessionId, parent])));
     // Per session, and never rejecting. Only the two RPCs used to be guarded, so a single
     // malformed history event thrown by one of the derivation readers rejected the whole
     // Promise.all — and the renderer received {harness:false, sessions:[]}, which is what
@@ -442,7 +454,7 @@ class HarnessApi {
       const [value, snapshot] = await Promise.all([
         remote.call("session/modelCatalog", {}, 20000),
         sessionId ? this.remoteChannelFirstFrame(remote, "session/follow", {
-          request: { address: { kind: "session", sessionId }, maxMessages: 1 },
+          request: { address: this.sessionAddress(sessionId), maxMessages: 1 },
         }).catch(() => null) : null,
       ]);
       const projection = snapshot?.projections?.values?.modelSelection;

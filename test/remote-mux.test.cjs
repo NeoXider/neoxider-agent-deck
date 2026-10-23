@@ -135,6 +135,26 @@ test("setTrackedSessions opens follow channels per session", async () => {
   mux.stop();
 });
 
+test("a subagent is followed under the address the owner names for it", async () => {
+  const transport = createFakeTransport();
+  const gate = createTransportGate();
+  gate.setTransport(transport);
+  const addressFor = (sessionId) => sessionId === "kid"
+    ? { kind: "subagent", parentSessionId: "parent", childSessionId: "kid", mode: "unknown" }
+    : { kind: "session", sessionId };
+  const mux = createRemoteMuxClient({ getTransport: gate.getTransport, addressFor });
+  mux.start();
+  await tick();
+  mux.setTrackedSessions(["parent", "kid"]);
+  await tick();
+  const follows = transport.channels.filter((c) => c.endpoint === "session/follow");
+  assert.deepEqual(follows.map((c) => c.args.request.address), [
+    { kind: "session", sessionId: "parent" },
+    { kind: "subagent", parentSessionId: "parent", childSessionId: "kid", mode: "unknown" },
+  ]);
+  mux.stop();
+});
+
 test("setTrackedSessions deduplicates repeat calls", async () => {
   const transport = createFakeTransport();
   const gate = createTransportGate();

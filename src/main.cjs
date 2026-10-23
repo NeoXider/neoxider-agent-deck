@@ -289,7 +289,7 @@ const muxClient = createMuxClient({
 
 remoteMux = createRemoteMuxClient({
   onJobs: publishJobs,
-  getTransport: () => api.ensureRemote(),
+  getTransport: () => api.ensureRemote(), addressFor: (sessionId) => api.sessionAddress(sessionId),
   onQueue: publishQueue,
   onLiveEvent: publishLiveEvent,
 });

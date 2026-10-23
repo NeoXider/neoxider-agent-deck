@@ -33,7 +33,11 @@ function liveSessionIds(sessions, { selected = null, now = Date.now(), recentMs 
   return [...ids];
 }
 
-function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () => {}, onLiveEvent = () => {}, sleep = defaultSleep } = {}) {
+// `addressFor` names a session for session/follow: a subagent is followed under its parent
+// (HarnessApi.sessionAddress), and is asked again on every reconnect, so a child the list
+// had not reported yet is followed properly once it has.
+function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () => {}, onLiveEvent = () => {}, sleep = defaultSleep,
+  addressFor = (sessionId) => ({ kind: "session", sessionId }) } = {}) {
   if (typeof getTransport !== "function") throw new TypeError("getTransport must be a function");
   let stopped = false;
   let controlRunning = false;
@@ -148,7 +152,7 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
       let delivered = false;
       let failure = null;
       try {
-        handle = await withChannel("session/follow", { request: { address: { kind: "session", sessionId }, assistantStream: true } }, (value) => {
+        handle = await withChannel("session/follow", { request: { address: addressFor(sessionId), assistantStream: true } }, (value) => {
           if (abandoned() || !value || typeof value !== "object") return;
           delivered = true;
           if (value.type === "snapshot" && value.assistantStream?.activeAttempt) {

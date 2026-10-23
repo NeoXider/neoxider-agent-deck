@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-10-23
+
+### Fixed
+
+- A subagent's chat opens again. DeepSeek Harness 0.2.1 reads a subagent's log only under its parent's address and refused the plain session address Deck asked with, so every subagent opened on "History could not be loaded" and its live stream never started. Deck now asks for a subagent's history, older pages, live stream and model under its parent.
+
 ## [1.1.2] - 2026-10-23
 
 ### Changed
