@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.9] - 2026-10-28
+
+### Added
+
+- The agent's question can be folded away for now. A chevron in its head folds the card into one line - "The agent is asking" and the question in short - so the chat under it can be read and written to while the answer waits; the line or the chevron opens it again, as it was left, typed answers included. A folded question stays folded across polls and when its chat is opened again, a new question comes open, and "Answer below" in the chat or a question notification opens it.
+
+### Fixed
+
+- The newest release is the one installed copies are offered. Two releases tagged minutes apart could finish building in either order, and the one that published last took GitHub's Latest, which the update check reads: v1.2.7 took it from v1.2.8. A release now publishes without taking Latest, and Latest then goes to the newest version.
+
 ## [1.2.8] - 2026-10-28
 
 ### Fixed

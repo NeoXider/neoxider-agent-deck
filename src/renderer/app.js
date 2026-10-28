@@ -9945,7 +9945,7 @@ if (screenshotFixture) {
         ...(screenshotFixture === "question-wait-group" ? [{ role: "tool", name: "read", callId: "question-read", status: "completed", result: "Ready" }] : []),
         { role: "tool", name: "ask_user_question", callId: "question-wait", status: "running", arguments: '{"questions":[{"header":"Service","question":"Which service do you mean?"}]}' },
       ]);
-    } else if (["question-dock", "question-dock-360"].includes(screenshotFixture)) {
+    } else if (["question-dock", "question-dock-360", "question-dock-folded"].includes(screenshotFixture)) {
       // The agent stopped on two questions; Deck holds them (question-relay.cjs) and the
       // dock above the composer answers them.
       setTab("chat");
@@ -9964,6 +9964,7 @@ if (screenshotFixture) {
           { label: "Windows", description: "" }, { label: "macOS", description: "" }, { label: "Linux", description: "" },
         ] },
       ] }]);
+      if (screenshotFixture === "question-dock-folded") $("#questionDock .question-fold")?.click();
     } else if (screenshotFixture === "question-orb") {
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-ask", title: "Release notes", updatedAt: Date.now(), running: true, state: "working", preview: "", projections: { values: {} }, subagents: [] }] };
       state.selectedSessionId = "demo-ask";

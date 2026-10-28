@@ -69,6 +69,26 @@
     let draft = {};
     let busy = false;
     let error = "";
+    // Questions folded away for now, by event: the poll redraws nothing for the same question,
+    // and a chat opened again shows its question as it was left. A new question comes open.
+    const folded = new Set();
+
+    function applyFolded() {
+      const on = Boolean(entry && folded.has(entry.eventId));
+      dock.classList.toggle("collapsed", on);
+      const fold = dock.querySelector(".question-fold");
+      if (!fold) return;
+      fold.title = on ? "Show the question" : "Fold the question away for now";
+      fold.setAttribute("aria-label", fold.title);
+      fold.setAttribute("aria-expanded", String(!on));
+    }
+
+    function setFolded(on) {
+      if (!entry) return;
+      if (on) folded.add(entry.eventId); else folded.delete(entry.eventId);
+      while (folded.size > 50) folded.delete(folded.values().next().value);
+      applyFolded();
+    }
 
     function sync() {
       if (!entry) return;
@@ -116,7 +136,23 @@
     function build(waiting) {
       const head = element("div", "question-head");
       head.append(element("span", "question-pulse"), element("b", "", "The agent is asking"));
-      if (waiting > 1) head.append(element("small", "", `1 of ${waiting} waiting`));
+      // Folded, the card is this one line - the question in short - and the chat under it is free
+      // to read and write to; the answer waits. The line, or the chevron, opens it again.
+      head.append(element("span", "question-peek", entry.questions[0]?.question || ""));
+      if (waiting > 1) head.append(element("small", "question-waiting", `1 of ${waiting} waiting`));
+      const fold = element("button", "question-fold");
+      fold.type = "button";
+      const chevron = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      chevron.setAttribute("class", "ui-icon");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttribute("href", "#icon-chevron");
+      chevron.append(use);
+      fold.append(chevron);
+      fold.addEventListener("click", () => setFolded(!folded.has(entry.eventId)));
+      head.append(fold);
+      head.addEventListener("click", (event) => {
+        if (!event.target.closest(".question-fold") && dock.classList.contains("collapsed")) setFolded(false);
+      });
       const body = element("div", "question-body");
       entry.questions.forEach((question, index) => {
         const item = element("div", "question-item");
@@ -199,10 +235,10 @@
         return;
       }
       if (entry?.eventId === next.eventId) {
-        const head = dock.querySelector(".question-head small");
+        const head = dock.querySelector(".question-waiting");
         const label = waiting > 1 ? `1 of ${waiting} waiting` : "";
         if (head && head.textContent !== label) head.textContent = label;
-        else if (!head && label) dock.querySelector(".question-head")?.append(element("small", "", label));
+        else if (!head && label) dock.querySelector(".question-head")?.insertBefore(element("small", "question-waiting", label), dock.querySelector(".question-fold"));
         return;
       }
       entry = next;
@@ -211,10 +247,13 @@
       error = "";
       build(waiting);
       dock.hidden = false;
+      applyFolded();
       sync();
     }
 
+    // Asked to answer (a notification, a chat opened on its question): a folded card opens.
     function focus() {
+      setFolded(false);
       (dock.querySelector(".question-option") || dock.querySelector(".question-custom"))?.focus({ preventScroll: true });
     }
 

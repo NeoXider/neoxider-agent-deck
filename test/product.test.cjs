@@ -151,7 +151,11 @@ test("tag releases retain updater metadata and publish it with platform artifact
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /merge-multiple: true/);
   assert.match(workflow, /gh release create[^\n]+--draft/);
-  assert.match(workflow, /gh release edit[^\n]+--draft=false --latest/);
+  // Published without taking Latest, which then goes to the newest version: a release that
+  // finished building after a newer one took Latest from it.
+  assert.match(workflow, /gh release edit[^\n]+--draft=false --latest=false/);
+  assert.match(workflow, /--exclude-drafts --exclude-pre-releases[^\n]+\| sort -V \| tail -n 1\)/);
+  assert.match(workflow, /gh release edit "\$newest" --repo "\$GITHUB_REPOSITORY" --latest/);
   assert.match(workflow, /SHA256SUMS\.txt/);
   assert.match(workflow, /! -name 'SHA256SUMS\.txt'/);
   assert.match(workflow, /sha256sum -c SHA256SUMS\.txt/);

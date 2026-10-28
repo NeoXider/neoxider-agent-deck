@@ -1542,6 +1542,20 @@ body.screenshot-backdrop-checkerboard { background:conic-gradient(#eef2f7 25%,#2
 .question-head { min-width:0; display:flex; align-items:center; gap:8px; color:var(--text); font-size:12px; }
 .question-head b { font-weight:650; }
 .question-head small { margin-left:auto; color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
+.question-head b { flex:none; }
+.question-peek { display:none; min-width:0; flex:1; overflow:hidden; color:var(--text-2); text-overflow:ellipsis; white-space:nowrap; }
+.question-fold { width:24px; height:24px; flex:none; display:grid; place-items:center; margin:-3px -3px -3px auto; padding:0; border:0; border-radius:7px; background:transparent; color:var(--muted); cursor:pointer; }
+.question-head small + .question-fold { margin-left:0; }
+.question-fold:hover { background:var(--surface-strong); color:var(--text); }
+.question-fold:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
+.question-fold .ui-icon { width:14px; height:14px; transform:rotate(180deg); transition:transform var(--dur-2,.22s) var(--ease-out,ease); }
+/* Folded away for now: one line, the question in short, and the way back to it. */
+.question-dock.collapsed { gap:0; padding-block:7px; }
+.question-dock.collapsed :is(.question-body, .question-actions) { display:none; }
+.question-dock.collapsed .question-head { cursor:pointer; }
+.question-dock.collapsed .question-peek { display:block; }
+.question-dock.collapsed .question-head small { margin-left:0; }
+.question-dock.collapsed .question-fold .ui-icon { transform:none; }
 .question-pulse { width:8px; height:8px; flex:none; border-radius:50%; background:var(--violet); animation:question-pulse 1.8s ease-out infinite; }
 .question-body { min-height:0; display:flex; flex-direction:column; gap:12px; overflow-y:auto; overscroll-behavior:contain; padding-right:2px; }
 .question-body::-webkit-scrollbar { width:5px; }

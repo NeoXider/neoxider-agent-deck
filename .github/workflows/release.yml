@@ -157,4 +157,9 @@ jobs:
           expected_count=$(find artifacts -mindepth 1 -maxdepth 1 -type f | wc -l)
           actual_count=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')
           test "$actual_count" -eq "$expected_count"
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
+          # Latest is what the update check reads, and it goes to the newest version, not to the
+          # release that happened to publish last: v1.2.7 finished building after v1.2.8 and took
+          # Latest from it, so installed copies were offered the older build.
+          newest=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName' | sort -V | tail -n 1)
+          gh release edit "$newest" --repo "$GITHUB_REPOSITORY" --latest

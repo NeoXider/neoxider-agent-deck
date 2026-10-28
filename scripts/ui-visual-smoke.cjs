@@ -156,6 +156,8 @@ const cases = [
   { name: "mixed-tools-360", tab: "chat", fixture: "mixed-tools", width: 360, height: 360, expect: { toolGroups: 1, toolCalls: 2, partialToolGroups: 1, conversationBubbles: 1, titlebarOverlap: false } },
   { name: "question-wait-360", tab: "chat", fixture: "question-wait", width: 360, height: 360, expect: { toolCalls: 1, questionHandoffVisible: true, questionWaitVisible: true, titlebarOverlap: false } },
   { name: "question-dock", tab: "chat", fixture: "question-dock", width: 420, height: 640, expect: { questionDockVisible: true, questionDockOptions: 5, questionHandoffVisible: true, questionHandoffText: "Answer below", titlebarOverlap: false } },
+  // Folded away for now: one line with the question in short; the chat under it is free.
+  { name: "question-dock-folded", tab: "chat", fixture: "question-dock-folded", width: 420, height: 640, expect: { questionDockFolded: true, questionOptionsShown: 0, questionDockPeek: "Where should the release notes go?", questionHandoffVisible: true, titlebarOverlap: false }, max: { questionDockHeight: 44 } },
   { name: "question-dock-360", tab: "chat", fixture: "question-dock-360", width: 360, height: 360, expect: { questionDockVisible: true, questionHandoffVisible: true, titlebarOverlap: false } },
   { name: "question-orb", tab: "chat", fixture: "question-orb", mode: "orb", expect: { orbNotification: true, orbHasStatus: true, orbStatusLabel: "Release notes is asking" } },
   { name: "question-wait-group-360", tab: "chat", fixture: "question-wait-group", width: 360, height: 360, expect: { toolGroups: 1, toolCalls: 2, questionHandoffVisible: true, questionWaitVisible: true, titlebarOverlap: false } },
