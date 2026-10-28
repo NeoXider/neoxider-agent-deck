@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The full chat opened from the avatar's recent chats folds back into the avatar after a send again, and its heading offers the way back (Settings: "Back to the avatar after sending", on by default). 1.2.6 opened it from the arrow without either.
+
+### Removed
+
+- The small chat window that grew up out of the avatar's panel. Since 1.2.6 a second click shows the chat inside the panel and the arrow opens the full chat, so nothing opened it any more; its module, its window mode in the main process and its placement rules are gone.
+
 ## [1.2.6] - 2026-10-28
 
 ### Changed

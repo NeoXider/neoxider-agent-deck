@@ -155,7 +155,7 @@ function attachScreenshotHarness({
       let audit = null;
       if (auditPath) {
         audit = await window.webContents.executeJavaScript(`(() => {
-          const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.todo-dock.has-items','.queue-dock.has-items','.attachment-bar.has-items','.session-spend:not([hidden])','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-session-row','.orb-reply-form','.orb-history-button','.edge-mode','.floating-menu','.tasks-panel:not([hidden])','.subagent-bar:not([hidden])','.mini-chat-bar:not([hidden])','.deck-confirm:not([hidden])','.chat-tooltip.stats-card'];
+          const selectors = ['.widget-shell','.titlebar','.tabs','.panel.active','.chat-heading','.agent-controls','.activity-card.has-activity','.messages','.model-setup-card','.model-picker-status','.tool-group','.tool-call','.todo-dock.has-items','.queue-dock.has-items','.attachment-bar.has-items','.session-spend:not([hidden])','.command-menu.open','.scroll-latest:not([hidden])','.composer','.picker.open .picker-menu','.settings-panel.open','.orb-mode','.orb-status','.orb-session-row','.orb-reply-form','.orb-history-button','.edge-mode','.floating-menu','.tasks-panel:not([hidden])','.subagent-bar:not([hidden])','.deck-confirm:not([hidden])','.chat-tooltip.stats-card'];
           const boxes = selectors.flatMap((selector) => [...document.querySelectorAll(selector)].map((element) => {
             const rect = element.getBoundingClientRect();
             const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).display !== 'none';
@@ -496,8 +496,6 @@ function attachScreenshotHarness({
             subagentBarVisible: (() => { const bar = document.querySelector('#subagentBar'); return Boolean(bar && !bar.hidden && bar.getBoundingClientRect().height > 20); })(),
             subagentComposerHidden: getComputedStyle(document.querySelector('#chatForm')).display === 'none',
             subagentUsageText: (() => { const usage = document.querySelector('#subagentUsage'); return usage && !usage.hidden && usage.getBoundingClientRect().width > 0 ? usage.textContent : ''; })(),
-            miniChat: document.body.classList.contains('mini-chat'),
-            miniChatBarVisible: (() => { const bar = document.querySelector('#miniChatBar'); return Boolean(bar && !bar.hidden && bar.getBoundingClientRect().height > 20); })(),
             titlebarVisible: getComputedStyle(document.querySelector('.titlebar')).display !== 'none',
             harnessUpdateChipVisible: (() => { const chip = document.querySelector('#harnessUpdateChip'); return Boolean(chip && !chip.hidden && chip.getBoundingClientRect().width > 0); })(),
             harnessUpdateChipText: document.querySelector('#harnessUpdateChip')?.textContent || '',

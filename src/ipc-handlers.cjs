@@ -538,8 +538,8 @@ function registerIpcHandlers({
   handle("get-update-state", () => getUpdateService()?.getState() || null);
   handle("check-for-updates", () => checkForUpdates());
   handle("install-update", () => getUpdateService()?.install() || null);
-  handle("set-window-mode", (_event, mode, options) => {
-    applyWindowMode(mode, { mini: options?.mini === true });
+  handle("set-window-mode", (_event, mode) => {
+    applyWindowMode(mode);
     return getWindowMode();
   });
   handle("set-compact-status", (_event, value) => {

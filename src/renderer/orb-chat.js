@@ -146,6 +146,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#orbChatFull").addEventListener("click", () => {
     const sessionId = orbChat.sessionId;
     state.compactChatOpen = false;
-    openCompactSession(sessionId).catch(showError);
+    openCompactSession(sessionId, { fromAvatar: true }).catch(showError);
   });
 });

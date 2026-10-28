@@ -474,13 +474,17 @@ test("collapsed pet exposes a scrolling list of recent sessions and inline quick
   // A second click on the chat already addressed shows it in the panel, above the same message
   // box (orb-chat.js); the arrow opens the full chat.
   assert.match(renderer, /if \(state\.compactReplyOpen && session\.sessionId === state\.compactReplySessionId\) openOrbChat\(session\.sessionId\)/);
-  assert.match(renderer, /open\.addEventListener\("click", \(\) => openCompactSession\(session\.sessionId\)\.catch\(showError\)\)/);
+  // The full chat remembers it came from the avatar, so a send folds it back in.
+  assert.match(renderer, /open\.addEventListener\("click", \(\) => openCompactSession\(session\.sessionId, \{ fromAvatar: true \}\)\.catch\(showError\)\)/);
+  // The small window that used to stand in for it is gone with its module.
+  assert.doesNotMatch(readSource("src", "renderer", "index.html"), /mini-chat\.js|id="miniChatBar"/);
+  assert.doesNotMatch(main, /miniChat/);
   // The panel's chat stays on its conversation after a send instead of folding away.
   assert.match(renderer, /if \(state\.compactChatOpen\) \{\s+state\.compactReplyBusy = false;\s+syncCompactStatus\(\);\s+noteOrbChatSent\(sessionId, text\);/);
   assert.match(renderer, /if \(state\.collapseAfterSend && state\.windowMode === "full" && state\.returnToAvatarSessionId === result\.sessionId\)/);
   assert.match(renderer, /openCompactReply\(session\.sessionId\)/);
   // Restore first, then select; the hidden unfold waits for the chat to be drawn.
-  assert.match(renderer, /await setWindowMode\("full", \{ mini: fromAvatar \}\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
+  assert.match(renderer, /await setWindowMode\("full"\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
   assert.match(renderer, /modeEnterGate = new Promise\(\(resolve\) => \{ releaseUnfold = resolve; \}\);/);
   const quickReply = renderer.slice(renderer.indexOf("async function sendCompactReply"), renderer.indexOf("function detectCompletedSessions"));
   assert.match(quickReply, /window\.widget\.send\(\{/);
@@ -1252,7 +1256,7 @@ test("all global shortcuts can be rebound, disabled, reset, and persisted", () =
   assert.match(preload, /setHotkeys/);
   assert.match(preload, /resetHotkeys/);
   assert.match(main, /createHotkeyManager/);
-  assert.match(main, /showRestore: \(\) => \{ const next = showShortcutTarget\(\{ mode: windowMode, mini: miniChat, visible: windowRef\?\.isVisible\(\), focused: windowRef\?\.isFocused\(\), lastCompact: lastCompactMode \}\); if \(next === "focus"\) windowRef\.focus\(\); else applyWindowMode\(next\); \}/);
+  assert.match(main, /showRestore: \(\) => \{ const next = showShortcutTarget\(\{ mode: windowMode, visible: windowRef\?\.isVisible\(\), focused: windowRef\?\.isFocused\(\), lastCompact: lastCompactMode \}\); if \(next === "focus"\) windowRef\.focus\(\); else applyWindowMode\(next\); \}/);
   assert.match(main, /if \(nextMode !== "full"\) lastCompactMode = nextMode;/);
   assert.match(main, /minHeight: SCREENSHOT_MODE \? 1 : FULL_MIN_HEIGHT, pixels,/, "the full window is placed on the device-pixel grid");
   assert.match(main, /registerConfiguredHotkeys\(preferences\.hotkeys\)/);
@@ -1332,12 +1336,12 @@ test("compact errors are acknowledged in full chat and completion feedback is fi
   assert.match(renderer, /clearTimeout\(state\.compactNotificationTimer\)[\s\S]+?state\.compactNotification = null/);
   assert.match(renderer, /state\.unacknowledgedErrorSessionIds\.add\(sessionId\)/);
   assert.match(renderer, /acknowledgeSessionError\(state\.selectedSessionId\)/);
-  assert.match(renderer, /await setWindowMode\("full", \{ mini: fromAvatar \}\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
+  assert.match(renderer, /await setWindowMode\("full"\);\s*if \(sessionId && sessionId !== state\.selectedSessionId\) await selectSession\(sessionId, true\)/);
   assert.match(renderer, /state\.avatarMode === "error" && !state\.compactErrorUnread && !state\.harnessOffline/);
   const clearError = renderer.slice(renderer.indexOf("function clearAcknowledgedErrorPresentation"), renderer.indexOf("function signalSessionError"));
   assert.doesNotMatch(clearError, /state\.currentActivity\?\.kind !== "error"/);
   assert.match(clearError, /commandFeedback\?\.avatarMode === "error"[\s\S]+setCommandFeedback\(state\.selectedSessionId, null\)/);
-  assert.match(renderer, /if \(mode !== "full"\) clearAcknowledgedErrorPresentation\(\);[\s\S]+?window\.widget\.setWindowMode\(mode, options\)/);
+  assert.match(renderer, /if \(mode !== "full"\) clearAcknowledgedErrorPresentation\(\);[\s\S]+?window\.widget\.setWindowMode\(mode\)/);
   assert.match(renderer, /session\?\.state === "error"\) signalSessionError\(session\)/);
   assert.match(renderer, /if \(state\.windowMode === "full"\) \{[\s\S]+?\["error", "warning"\]\.includes\(latest\?\.role\)/);
   assert.match(renderer, /function clearCompletionSignal\(\)/);
@@ -2137,7 +2141,7 @@ test("mode transitions keep their fade across the IPC and honour the motion swit
   const exitTimer = exit.slice(exit.indexOf("setTimeout(() => {"), exit.indexOf("}, exitDuration);"));
   assert.ok(exitTimer.length > 0, "the exit timer is found");
   assert.doesNotMatch(exitTimer, /clearModeTransitionClasses/, "the timer must not clear the fade before the window changes");
-  const set = functionBody(renderer, "async function setWindowMode(mode, options)");
+  const set = functionBody(renderer, "async function setWindowMode(mode)");
   assert.match(set, /\} finally \{[\s\S]*clearModeTransitionClasses\("out"\);/);
   const authoritative = functionBody(renderer, "function applyAuthoritativeWindowMode(mode)");
   assert.match(authoritative, /if \(mode !== state\.windowMode\) \{\s*\n\s*modeRequestSequence \+= 1;/);

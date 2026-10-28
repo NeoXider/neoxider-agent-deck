@@ -54,8 +54,8 @@ function fitFullBounds(saved, fallback, workArea, constraints = {}) {
 // The show shortcut toggles: pressed while the full widget is already in front it puts the
 // widget back to the avatar or strip it came from; while the full widget sits behind another
 // app it only brings it forward, so a copy-then-shortcut lands in Deck instead of hiding it.
-function showShortcutTarget({ mode, mini = false, visible = false, focused = false, lastCompact = "orb" } = {}) {
-  if (mode !== "full" || mini || !visible) return "full";
+function showShortcutTarget({ mode, visible = false, focused = false, lastCompact = "orb" } = {}) {
+  if (mode !== "full" || !visible) return "full";
   return focused ? (lastCompact === "edge" ? "edge" : "orb") : "focus";
 }
 

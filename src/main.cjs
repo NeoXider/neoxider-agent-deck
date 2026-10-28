@@ -50,7 +50,7 @@ const {
   snapCompactBounds,
 } = require("./window-geometry.cjs");
 const { FULL_MIN_HEIGHT, FULL_MIN_WIDTH, FULL_SIZE_PRESETS: SIZE_PRESETS, captureModeBounds, fitFullBounds, resizeCompactAnchor, showShortcutTarget } = require("./window-state.cjs");
-const { COMPACT_SIZES, compactTargetBounds, compactWindowSize, miniChatBounds, nearestCompactSize, placeCompactWindow } = require("./compact-window.cjs");
+const { COMPACT_SIZES, compactTargetBounds, compactWindowSize, nearestCompactSize, placeCompactWindow } = require("./compact-window.cjs");
 const { createViewer } = require("./viewer-window.cjs");
 
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
@@ -124,7 +124,6 @@ let compactStatusResizePending = false;
 let compactHitAreas = [];
 let fullDragOrigin = null;
 let viewer = null;
-let miniChat = false; // Full mode in the small window beside the avatar; its bounds are never saved.
 let compactDragTrace = [];
 // A stranded full origin silently stops every later move and resize from being captured,
 // so Full reopens at a stale position for the rest of the session; a stranded compact one
@@ -303,7 +302,6 @@ const harnessServices = require("./harness-services.cjs").createHarnessServices(
   onSwitch: async (target) => { api.setBaseUrl(target.url); api.resetRemoteAuth(); dashboardReader.invalidate(); remoteMux.reconnect(); questionRelay.kick(); } });
 
 function captureWindowBounds(mode, bounds, side = preferences.compactSide, setLastMode = true) {
-  if (mode === "full" && miniChat) return;
   const previousMode = preferences.windowState.mode;
   const canonicalBounds = mode === "orb"
     ? resizeCompactAnchor(bounds, bounds.height, ORB_SIZE)
@@ -412,7 +410,7 @@ function snapCurrentCompactWindow({ traceEnd = false } = {}) {
   return { ...windowRef.getBounds(), side: preferences.compactSide };
 }
 
-function applyWindowMode(nextMode, { captureCurrent = true, persist = true, preserveCompactPosition = false, mini = false } = {}) {
+function applyWindowMode(nextMode, { captureCurrent = true, persist = true, preserveCompactPosition = false } = {}) {
   if (!windowRef || windowRef.isDestroyed() || !["full", "orb", "edge"].includes(nextMode)) return;
   if (nextMode === "edge" && PLATFORM_CAPABILITIES.edgeMode === "unavailable") nextMode = "orb";
   const preservedOrbPosition = preserveCompactPosition && nextMode === "orb" ? preferences.windowState.orb : null;
@@ -421,9 +419,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   if (nextMode !== windowMode) releaseDragOrigins();
   compactGlide.stop();
   if (captureCurrent) captureWindowBounds(windowMode, windowRef.getBounds());
-  const compactBounds = windowRef.getBounds();
   windowMode = nextMode;
-  miniChat = nextMode === "full" && mini && !SCREENSHOT_MODE;
   preferences.windowState.mode = nextMode;
   if (nextMode !== "full") lastCompactMode = nextMode;
   windowRef.setMinimumSize(1, 1);
@@ -431,7 +427,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   if (nextMode === "full") {
     const fallbackSize = SIZE_PRESETS[preferences.size] || SIZE_PRESETS.standard;
     const fallback = { ...windowRef.getBounds(), width: fallbackSize[0], height: fallbackSize[1] };
-    const target = miniChat ? miniChatBounds(compactBounds, preferences.compactSide, screen.getDisplayMatching(compactBounds).workArea) : preferences.windowState.full || fullBounds || fallback;
+    const target = preferences.windowState.full || fullBounds || fallback;
     const pixels = screen.getDisplayMatching(target), display = pixels.workArea;
     const restored = fitFullBounds(target, fallback, display, {
       minWidth: SCREENSHOT_MODE ? 1 : FULL_MIN_WIDTH,
@@ -470,7 +466,6 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   else windowRef.showInactive();
   gameLayerKeeper?.trigger();
   sendToRenderer("window-mode", windowMode);
-  sendToRenderer("mini-chat", miniChat);
   sendToRenderer("compact-side", preferences.compactSide);
   petRoamer.modeChanged(windowMode);
 }
@@ -737,7 +732,7 @@ app.whenReady().then(() => {
     app,
     globalShortcut,
     handlers: {
-      showRestore: () => { const next = showShortcutTarget({ mode: windowMode, mini: miniChat, visible: windowRef?.isVisible(), focused: windowRef?.isFocused(), lastCompact: lastCompactMode }); if (next === "focus") windowRef.focus(); else applyWindowMode(next); },
+      showRestore: () => { const next = showShortcutTarget({ mode: windowMode, visible: windowRef?.isVisible(), focused: windowRef?.isFocused(), lastCompact: lastCompactMode }); if (next === "focus") windowRef.focus(); else applyWindowMode(next); },
       toggleFocusChat: () => { applyWindowMode("full"); sendToRenderer("hotkey-action", "toggleFocusChat"); },
       collapseAvatar: () => applyWindowMode("orb"),
       collapseEdge: () => applyWindowMode("edge"),

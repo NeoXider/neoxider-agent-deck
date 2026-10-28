@@ -120,19 +120,3 @@ test("a compact window is moved with its intended size restated, and a no-op mov
   placeCompactWindow(windowRef, 410, 305);
   assert.deepEqual(calls.at(-1), { x: 410, y: 305, width: 172, height: 128 }, "grown in place is shrunk back");
 });
-
-test("a chat opened from the avatar grows up out of the panel: inner edges aligned, message box at the panel's foot", () => {
-  const { MINI_CHAT_SIZE, miniChatBounds } = require("../src/compact-window.cjs");
-  const workArea = { x: 0, y: 0, width: 1920, height: 1040 };
-  const orb = { x: 1740, y: 600, width: 172, height: 128 };
-  const right = miniChatBounds(orb, "right", workArea);
-  assert.equal(right.width, MINI_CHAT_SIZE.width);
-  assert.equal(right.x + right.width, 1740 + 172 - 64 + 34, "its right edge is the avatar's");
-  assert.equal(right.y + right.height, 600 + 64 + 92, "its foot is where the panel's message box was");
-  const left = miniChatBounds({ ...orb, x: 8 }, "left", workArea);
-  assert.equal(left.x, 8 + 64 - 34);
-  const high = miniChatBounds({ ...orb, y: 0 }, "right", workArea);
-  assert.equal(high.y, 0, "near the top of the screen it is held inside the work area");
-  const tiny = miniChatBounds(orb, "right", { x: 0, y: 0, width: 300, height: 400 });
-  assert.deepEqual([tiny.width, tiny.height], [300, 400]);
-});

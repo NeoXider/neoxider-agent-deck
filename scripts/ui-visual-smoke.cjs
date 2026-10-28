@@ -29,7 +29,6 @@ const cases = [
   { name: "subagent-chat", tab: "chat", fixture: "subagent-chat", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: false, tasksPanelOpen: false, subagentUsageText: "19% · ~$0.38", contextValue: "19%", contextUnavailable: false } },
   { name: "subagent-chat-once", tab: "chat", fixture: "subagent-chat-once", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: true, tasksPanelOpen: false, subagentUsageText: "19% · ~$0.38" } },
   // The avatar's recent chats open a small chat in the panel's place.
-  { name: "mini-chat", tab: "chat", fixture: "mini-chat", width: 360, height: 500, expect: { miniChat: true, miniChatBarVisible: true, titlebarVisible: false } },
   // Which Harness Deck follows, and a stable Harness release announced in the title bar.
   { name: "harness-settings", tab: "chat", fixture: "harness-settings", width: 420, height: 620, expect: { settingsOpen: true, harnessTargetOptions: 3, updateHarnessButtonText: "Update to 0.2.1", harnessUpdateChipVisible: true } },
   { name: "harness-update-chip", tab: "chat", fixture: "harness-update-chip", width: 420, height: 560, expect: { harnessUpdateChipVisible: true, harnessUpdateChipText: "DSH 0.2.1", titlebarOverlap: false } },

@@ -1,4 +1,4 @@
-/* Deck 1.1: recent chats, card actions, subagents and jobs, the avatar's mini chat, the
+/* Deck 1.1: recent chats, card actions, subagents and jobs, the
    Harness switcher and its updates. Same ladder, radii and motion vocabulary as styles.css. */
 
 :is(.floating-menu, .deck-confirm, .action-toast-stack, .tasks-panel) {
@@ -160,38 +160,10 @@
 .viewing-subagent :is(.chat-heading, #subagentsButton, #tasksPanel, #queueDock, #goalDock, #todoDock, #commandMenu, #commandHintBar, #commandsButton) { display:none !important; }
 .viewing-subagent:not(.subagent-writable) :is(#chatForm, #attachmentBar, #composerError) { display:none !important; }
 
-/* --- The avatar's mini chat ---------------------------------------------------------------- */
-
-.mini-chat-bar { flex:none; display:flex; align-items:center; gap:8px; min-height:42px; padding:4px 4px 8px 2px; border-bottom:1px solid var(--line-soft); }
-.mini-chat-bar[hidden] { display:none; }
-.mini-chat-back, .mini-chat-action { width:30px; height:30px; flex:none; display:grid; place-items:center; padding:0; border:0; border-radius:9px; background:transparent; color:var(--muted); cursor:pointer; }
-.mini-chat-back { color:var(--mint); }
-.mini-chat-back:hover, .mini-chat-action:hover { background:var(--surface-strong); color:var(--text); }
-.mini-chat-back .ui-icon { width:17px; height:17px; }
-.mini-chat-action .ui-icon { width:14px; height:14px; }
-.mini-chat-avatar { width:30px; height:30px; flex:none; object-fit:contain; filter:drop-shadow(0 2px 5px rgba(0,0,0,.4)); animation:avatar-breathe 3.4s ease-in-out infinite; }
-.mini-chat-bar[data-state="working"] .mini-chat-avatar { animation:avatar-type .42s ease-in-out infinite alternate; }
-.mini-chat-copy { min-width:0; flex:1; display:flex; flex-direction:column; line-height:1.25; }
-.mini-chat-copy b { overflow:hidden; color:var(--text); font-size:13.5px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
-.mini-chat-copy small { color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums; }
-.mini-chat-bar[data-state="working"] .mini-chat-copy small { color:#8ff0db; }
-.mini-chat-bar[data-state="error"] .mini-chat-copy small { color:#ff9fb2; }
-.mini-chat.mode-full .widget-shell { gap:6px; padding:9px 10px 10px; border-radius:20px; }
-.mini-chat.mode-full :is(.titlebar, .offline-banner:not(.show), #agentsPanel, .chat-heading, .activity-card, #subagentsButton, #tasksPanel, #goalDock, #todoDock, #messageMarks) { display:none !important; }
-.mini-chat.mode-full #chatPanel { display:flex !important; }
-.mini-chat.mode-full .collapse-handle { top:3px; }
-.mini-chat.mode-full .composer { border-radius:16px; }
-.mini-chat.mode-full .messages-wrap.has-marks .messages { padding-right:4px; }
-.mini-chat.mode-full.side-right .widget-shell { transform-origin:100% 85%; }
-.mini-chat.mode-full.side-left .widget-shell { transform-origin:0% 85%; }
-.mini-chat.mode-transition-in.mode-full .widget-shell { animation:mini-chat-in .36s cubic-bezier(.16,1,.3,1) both; }
-@keyframes mini-chat-in { from { opacity:0; transform:scale(.62, .4); border-radius:28px; filter:blur(2px); } 60% { opacity:1; filter:none; } }
-
 @media (prefers-reduced-motion: reduce) {
-  .floating-menu, .deck-confirm, .tasks-panel, .task-row, .job-output, .subagent-bar, .mini-chat.mode-transition-in.mode-full .widget-shell, .harness-update-chip, .task-dot.running::after { animation:none !important; }
+  .floating-menu, .deck-confirm, .tasks-panel, .task-row, .job-output, .subagent-bar, .harness-update-chip, .task-dot.running::after { animation:none !important; }
 }
 .motion-off :is(.floating-menu, .deck-confirm, .tasks-panel, .task-row, .job-output, .subagent-bar, .harness-update-chip, .task-dot.running::after) { animation:none !important; }
-.motion-off.mini-chat.mode-transition-in.mode-full .widget-shell { animation:none !important; }
 
 /* --- The context meter's card ------------------------------------------------------------- */
 

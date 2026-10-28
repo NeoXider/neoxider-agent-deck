@@ -75,7 +75,6 @@ test("full bounds land on the device-pixel grid so re-applying them cannot grow 
 test("the show shortcut opens the widget, brings it forward, then collapses it back", () => {
   assert.equal(showShortcutTarget({ mode: "orb", visible: true, focused: false, lastCompact: "orb" }), "full");
   assert.equal(showShortcutTarget({ mode: "edge", visible: true, focused: true, lastCompact: "edge" }), "full");
-  assert.equal(showShortcutTarget({ mode: "full", mini: true, visible: true, focused: true }), "full", "the mini chat expands");
   assert.equal(showShortcutTarget({ mode: "full", visible: false, focused: false }), "full", "a hidden widget is shown");
   assert.equal(showShortcutTarget({ mode: "full", visible: true, focused: false, lastCompact: "orb" }), "focus", "behind another app it only comes forward");
   assert.equal(showShortcutTarget({ mode: "full", visible: true, focused: true, lastCompact: "orb" }), "orb");

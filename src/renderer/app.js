@@ -673,14 +673,15 @@ function renderCompactSessions() {
       if (state.compactReplyOpen && session.sessionId === state.compactReplySessionId) openOrbChat(session.sessionId);
       else openCompactReply(session.sessionId);
     });
-    // The arrow is the full chat: the whole widget, not the small window.
+    // The arrow is the full chat. It remembers it came from the avatar, so its heading offers
+    // the way back and a send folds it back in (Settings: "Back to the avatar after sending").
     const open = document.createElement("button");
     open.type = "button";
     open.className = "orb-session-open";
     open.title = `Open ${session.title} in the full chat`;
     open.setAttribute("aria-label", open.title);
     open.append(createIcon("open"));
-    open.addEventListener("click", () => openCompactSession(session.sessionId).catch(showError));
+    open.addEventListener("click", () => openCompactSession(session.sessionId, { fromAvatar: true }).catch(showError));
     row.append(pick, open);
     root.append(row);
   });
@@ -1423,13 +1424,13 @@ function applyWindowMode(mode) {
   schedulePublishCompactHitAreas();
 }
 
-async function setWindowMode(mode, options) {
+async function setWindowMode(mode) {
   if (mode === "edge" && state.platformPresentation?.edgeAvailable === false) return state.windowMode;
   if (mode !== "full") clearAcknowledgedErrorPresentation();
   const requestSequence = ++modeRequestSequence;
   try {
     if (!await animateModeExit(mode, requestSequence) || requestSequence !== modeRequestSequence) return state.windowMode;
-    const appliedMode = await window.widget.setWindowMode(mode, options);
+    const appliedMode = await window.widget.setWindowMode(mode);
     if (requestSequence !== modeRequestSequence) return state.windowMode;
     applyWindowMode(appliedMode);
     return state.windowMode;
@@ -6799,10 +6800,7 @@ async function openCompactSession(requestedSessionId = null, { fromAvatar = fals
   let releaseUnfold = () => {};
   modeEnterGate = new Promise((resolve) => { releaseUnfold = resolve; });
   try {
-    // From the avatar's recent chats it opens small, in the panel's place (mini-chat.js); the
-    // class goes on first so the full chrome never shows for a frame.
-    if (fromAvatar) document.body.classList.add("mini-chat");
-    await setWindowMode("full", { mini: fromAvatar });
+    await setWindowMode("full");
     if (sessionId && sessionId !== state.selectedSessionId) await selectSession(sessionId, true);
     else setTab("chat");
   } finally {
@@ -7128,7 +7126,6 @@ async function performRefresh() {
     renderQuestionDock();
     renderQueuedPrompts();
     if (globalThis.subagentViewActive?.()) renderSubagentBar();
-    globalThis.renderMiniChatBar?.();
     if (!dashboard.harness) return;
     if (state.selectedSessionId && !state.queuedPromptsBySession.has(state.selectedSessionId)) await loadQueue(state.selectedSessionId);
     if (!state.modelCatalog) await loadModels();
@@ -10032,19 +10029,6 @@ if (screenshotFixture) {
           { role: "assistant", text: "Every session id goes through requireSessionId; job ids are coerced to strings. Checking preload next." },
         ]);
       }
-    } else if (screenshotFixture === "mini-chat") {
-      // A chat opened from the avatar's recent chats: the panel grown up into a conversation.
-      setTab("chat");
-      state.dashboard = { harness: true, sessions: [{ sessionId: "mini-demo", title: "Build review", updatedAt: Date.now(), running: false, state: "idle", projections: { values: { contextPressure: { projectedTokens: 18_200, contextWindow: 131_072 } } }, subagents: [] }] };
-      state.selectedSessionId = "mini-demo";
-      state.returnToAvatarSessionId = "mini-demo";
-      applyMiniChat(true);
-      renderSessionToolbar();
-      renderContext();
-      renderMessages([
-        { role: "user", text: "Is the Windows build green?" },
-        { role: "assistant", text: "Yes. All 168 visual cases passed and the installer signed cleanly.", html: "<p>Yes. All <strong>168</strong> visual cases passed and the installer signed cleanly.</p>" },
-      ]);
     } else if (["harness-settings", "harness-update-chip"].includes(screenshotFixture)) {
       // Which Harness Deck follows, and a stable Harness release waiting to be installed.
       setTab("chat");
