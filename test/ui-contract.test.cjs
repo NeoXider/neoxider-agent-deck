@@ -163,8 +163,10 @@ test("an empty composer hides Send, and spend is priced where the session shows 
   assert.match(renderer, /syncComposerEmptyState\(\);\s*\n\s*restoreMessageLayoutSnapshot\(messageLayout\)/);
   assert.match(css, /\.composer\.composer-empty #sendButton \{ display:none; \}/);
   assert.match(css, /\.composer\.composer-empty \{ grid-template-columns:28px 28px minmax\(0,1fr\); \}/);
-  assert.match(renderer, /function renderSessionSpend\(spend\)/);
-  assert.match(renderer, /session spend \$\{spendAmount\(spend\)\}/);
+  // The chat's figure includes what its subagents spent, once any of them has a price.
+  assert.match(renderer, /function renderSessionSpend\(spend, tree = null\)/);
+  assert.match(renderer, /const spendText = chatSpendAmount\(spend, tree\);/);
+  assert.match(renderer, /session spend \$\{spendText\}/);
   assert.match(html, /id="sessionSpend" class="session-spend no-drag" hidden/);
 });
 

@@ -1780,6 +1780,30 @@ function sessionSpend(session) {
   }
 }
 
+// A chat with its subagents: Harness counts their tokens in their own logs, not in the chat's
+// (model-pricing.js treeSpend).
+function sessionTreeSpend(session) {
+  const pricing = globalThis.modelPricing;
+  if (!pricing?.treeSpend || !session) return null;
+  try {
+    return pricing.treeSpend(session);
+  } catch {
+    return null;
+  }
+}
+
+// The figure a chat shows: with its subagents once any of them has a price, else its own.
+function chatSpendAmount(spend, tree) {
+  if (tree?.subagents.priced) return `~${globalThis.modelPricing.formatUsd(tree.total)}`;
+  return spend ? spendAmount(spend) : "";
+}
+
+function subagentSpendLabel(tree) {
+  const { count, priced, total } = tree.subagents;
+  const unpriced = count - priced;
+  return `${priced} subagent${priced === 1 ? "" : "s"} ~${globalThis.modelPricing.formatUsd(total)}${unpriced > 0 ? ` (${unpriced} without a list price)` : ""}`;
+}
+
 function spendAmount(spend) {
   const pricing = globalThis.modelPricing;
   if (spend?.free) return "free";
@@ -1801,10 +1825,11 @@ function spendBreakdown(spend) {
   ].join(" · ");
 }
 
-function renderSessionSpend(spend) {
+function renderSessionSpend(spend, tree = null) {
   const node = $("#sessionSpend");
   if (!node) return;
-  const visible = Boolean(spend && (spend.total > 0 || spend.free));
+  const withSubagents = Boolean(tree?.subagents.priced);
+  const visible = withSubagents ? tree.total > 0 : Boolean(spend && (spend.total > 0 || spend.free));
   node.hidden = !visible;
   if (node.classList.contains("visible") !== visible) node.classList.toggle("visible", visible);
   if (!visible) {
@@ -1812,9 +1837,11 @@ function renderSessionSpend(spend) {
     if (node.title) node.title = "";
     return;
   }
-  const amount = spendAmount(spend);
+  const amount = chatSpendAmount(spend, tree);
   if (node.textContent !== amount) node.textContent = amount;
-  const details = `Session spend ${amount} · ${spendBreakdown(spend)}`;
+  const details = withSubagents
+    ? `Spend with subagents ${amount} · this chat ${spend ? spendAmount(spend) : "has no list price"} · ${subagentSpendLabel(tree)}${spend ? ` · ${spendBreakdown(spend)}` : ""}`
+    : `Session spend ${amount} · ${spendBreakdown(spend)}`;
   if (node.title !== details) node.title = details;
   if (node.getAttribute("aria-label") !== details) node.setAttribute("aria-label", details);
 }
@@ -1824,17 +1851,20 @@ function renderContext() {
   renderSubagentCount(session);
   const pressure = contextPressure(session);
   const spend = sessionSpend(session);
+  const tree = sessionTreeSpend(session);
+  const spendText = chatSpendAmount(spend, tree);
   const signature = JSON.stringify([
     state.selectedSessionId,
     pressure ? Math.round(pressure.used) : null,
     pressure ? Math.round(pressure.total) : null,
     pressure ? Math.round(pressure.percent) : null,
     spend ? Math.round(spend.total * 100) : null,
+    tree ? Math.round(tree.total * 100) : null,
   ]);
   if (signature === state.contextSignature) return false;
   state.contextSignature = signature;
-  renderSessionSpend(spend);
-  const spendSuffix = spend ? ` · session spend ${spendAmount(spend)}` : "";
+  renderSessionSpend(spend, tree);
+  const spendSuffix = spendText ? ` · session spend ${spendText}` : "";
   const meter = $("#contextMeter");
   meter.classList.remove("high", "critical");
   meter.classList.toggle("unavailable", !pressure);
@@ -1845,7 +1875,7 @@ function renderContext() {
     $("#contextValue").textContent = "0%";
     meter.title = `Context usage unavailable${spendSuffix}`;
     meter.setAttribute("aria-valuenow", "0");
-    meter.setAttribute("aria-valuetext", `Context usage unavailable, 0%${spend ? `, session spend ${spendAmount(spend)}` : ""}`);
+    meter.setAttribute("aria-valuetext", `Context usage unavailable, 0%${spendText ? `, session spend ${spendText}` : ""}`);
     return true;
   }
   const rounded = Math.round(pressure.percent);
@@ -1854,7 +1884,7 @@ function renderContext() {
   $("#contextValue").textContent = `${rounded}%`;
   meter.title = `Context: ${formatTokens(pressure.used)} / ${formatTokens(pressure.total)} tokens${spendSuffix}`;
   meter.setAttribute("aria-valuenow", String(rounded));
-  meter.setAttribute("aria-valuetext", `Context usage ${rounded}%, ${formatTokens(pressure.used)} of ${formatTokens(pressure.total)} tokens${spend ? `, session spend ${spendAmount(spend)}` : ""}`);
+  meter.setAttribute("aria-valuetext", `Context usage ${rounded}%, ${formatTokens(pressure.used)} of ${formatTokens(pressure.total)} tokens${spendText ? `, session spend ${spendText}` : ""}`);
   meter.classList.toggle("high", rounded >= 70 && rounded < 90);
   meter.classList.toggle("critical", rounded >= 90);
   if (chatTooltipOwner === meter) showChatTooltip(meter);
@@ -1954,7 +1984,8 @@ function updateSessionCard(card, session) {
   card.querySelector(".agent-avatar").className = `agent-avatar ${agentState}`;
   card.querySelector(".agent-avatar img").src = AVATARS[agentState] || AVATARS.idle;
   card.querySelector(".session-name").textContent = session.title || "New session";
-  card.querySelector(".session-meta-text").textContent = `${agentState}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}${spend ? ` · ${spendAmount(spend)}` : ""}`;
+  const spendText = chatSpendAmount(spend, sessionTreeSpend(session));
+  card.querySelector(".session-meta-text").textContent = `${agentState}${pressure ? ` · ${Math.round(pressure.percent)}% ctx` : ""}${spendText ? ` · ${spendText}` : ""}`;
   applyBackgroundTaskCount(card.querySelector(".session-background"), background);
   applySessionTime(card.querySelector(".session-time"), session);
   const status = card.querySelector(".session-state");
@@ -9984,9 +10015,22 @@ if (screenshotFixture) {
       setTab("chat");
       const now = Date.now();
       const child = (fields) => ({ kind: "child", parentSessionId: "deck-parent", activity: "idle", outcome: "", runningSince: null, workedMs: null, depth: 1, childCount: 0, ...fields });
+      const used = (sessionId, provider, model, [input, output, cacheRead, cacheWrite]) => ({ sessionId, model: { provider, model }, tokenUsage: { uncachedInputTokens: input, outputTokens: output, cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite } });
+      const subagentSpend = {
+        ipc: used("deck-ipc", "anthropic", "claude-sonnet-5-5", [4_200, 18_400, 812_000, 41_000]),
+        preload: used("deck-preload", "anthropic", "claude-sonnet-5-5", [1_000, 5_000, 100_000, 10_000]),
+        notes: used("deck-notes", "anthropic", "claude-haiku-5-5", [2_000, 30_000, 400_000, 20_000]),
+        shots: used("deck-shots", "openai", "gpt-6-sol", [5, 5, 0, 0]),
+      };
       state.dashboard = { harness: true, sessions: [{
         sessionId: "deck-parent", title: "Ship Deck 1.1", updatedAt: now, running: true, runningSince: now - 262_000, state: "working", preview: "",
-        projections: { values: { contextPressure: { projectedTokens: 61_440, contextWindow: 200_000 } } },
+        projections: { values: {
+          contextPressure: { projectedTokens: 61_440, contextWindow: 200_000 },
+          modelSelection: { lastUsed: { provider: "anthropic", model: "claude-sonnet-5-5" } },
+          tokenUsage: { uncachedInputTokens: 10_000, outputTokens: 50_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 100_000 },
+        } },
+        // What its subagents used, every level down (HarnessApi.dashboard); one has no list price.
+        subagentUsage: [subagentSpend.ipc, subagentSpend.preload, subagentSpend.notes, subagentSpend.shots],
         subagents: [
           // subagent-chat-once: the same child started one-shot, which takes no messages.
           child({ sessionId: "deck-ipc", title: "Audit the IPC handlers", activity: "running", runningSince: now - 75_000, childCount: 1, mode: screenshotFixture === "subagent-chat-once" ? "one-shot" : "continuable" }),
@@ -10002,6 +10046,7 @@ if (screenshotFixture) {
           modelSelection: { lastUsed: { provider: "anthropic", model: "claude-sonnet-5-5", reasoningEffort: "high" } },
           tokenUsage: { uncachedInputTokens: 4_200, outputTokens: 18_400, cacheReadTokens: 812_000, cacheWriteTokens: 41_000 },
         } },
+        subagentUsage: [subagentSpend.preload],
       } };
       tasksState.jobsBySession.set("deck-parent", [
         { id: "job-ui", kind: "shell", label: "npm run test:ui", status: "running", startedAt: now - 48_000, progress: "case 84 of 168", detail: "" },

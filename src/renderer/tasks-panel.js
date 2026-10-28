@@ -388,7 +388,9 @@ function renderSubagentUsage() {
   const row = subagentSessionRow();
   const pressure = contextPressure(row);
   const spend = sessionSpend(row);
-  const parts = [pressure ? `${Math.round(pressure.percent)}%` : "", spend && (spend.total > 0 || spend.free) ? spendAmount(spend) : ""].filter(Boolean);
+  const tree = sessionTreeSpend(row);
+  const spendText = tree?.subagents.priced ? chatSpendAmount(spend, tree) : spend && (spend.total > 0 || spend.free) ? spendAmount(spend) : "";
+  const parts = [pressure ? `${Math.round(pressure.percent)}%` : "", spendText].filter(Boolean);
   const text = parts.join(" · ");
   if (usage.hidden === Boolean(text)) usage.hidden = !text;
   if (usage.textContent !== text) usage.textContent = text;

@@ -29,7 +29,7 @@ const {
   toolResultFromBlocks,
   userContentFromBlocks,
 } = require("./history-model.cjs");
-const { childrenByParent, subagentTree } = require("./subagent-tree.cjs");
+const { childrenByParent, subagentTree, subagentUsage } = require("./subagent-tree.cjs");
 const { createSubagentRegistry } = require("./subagent-registry.cjs");
 const { readHistory } = require("./history-loader.cjs");
 
@@ -317,10 +317,12 @@ class HarnessApi {
     // does: its tokens, context and model (tasks-panel.js subagentSessionRow).
     const subagentRow = children && selectedSessionId && this.subagents.of(selectedSessionId)
       ? sessionsValue.items.find((row) => row?.sessionId === selectedSessionId) : null;
+    // A chat's spend counts its subagents too: their models and tokens, priced in the renderer.
+    if (children) for (const session of [...enriched, subagentRow]) if (session && children.has(session.sessionId)) session.subagentUsage = subagentUsage(session.sessionId, children);
     return {
       host: host || {},
       sessions: enriched,
-      ...(subagentRow ? { subagentSession: { ...subagentRow, title: titleFromSession(subagentRow) } } : {}),
+      ...(subagentRow ? { subagentSession: { ...subagentRow, title: titleFromSession(subagentRow), subagentUsage: subagentRow.subagentUsage } } : {}),
       workspaces: Array.isArray(workspaceValue?.items) ? workspaceValue.items : [],
       archivedSessionIds,
       pinnedSessionIds: Array.isArray(workspaceValue?.pinnedSessionIds) ? workspaceValue.pinnedSessionIds : [],

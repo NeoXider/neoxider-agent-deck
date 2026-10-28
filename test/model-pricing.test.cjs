@@ -6,6 +6,7 @@ const {
   normalizeModelId,
   usageSpend,
   sessionSpend,
+  treeSpend,
   formatUsd,
 } = require("../src/renderer/model-pricing.js");
 
@@ -124,4 +125,25 @@ test("amounts format for a glance and never claim precision they do not have", (
   assert.equal(formatUsd(14.936), "$14.94");
   assert.equal(formatUsd(1_234.5), "$1235");
   assert.equal(formatUsd(Number.NaN), "$0.00");
+});
+
+test("a chat's spend with its subagents prices each one at its own model", () => {
+  const tokens = (input, output) => ({ uncachedInputTokens: input, outputTokens: output, cacheReadTokens: 0, cacheWriteTokens: 0 });
+  const chat = { projections: { values: { modelSelection: { lastUsed: { provider: "anthropic", model: "claude-opus-5-5" } }, tokenUsage: tokens(1_000_000, 0) } },
+    subagentUsage: [
+      { sessionId: "cheap", model: { provider: "anthropic", model: "claude-haiku-5-5" }, tokenUsage: tokens(1_000_000, 1_000_000) },
+      { sessionId: "local", model: { provider: "lmstudio", model: "qwen3.8-flash-next-iq3_xxs" }, tokenUsage: tokens(1_000_000, 0) },
+      { sessionId: "unknown", model: { provider: "openai", model: "gpt-6-sol" }, tokenUsage: tokens(5, 5) },
+      { sessionId: "bare", model: null, tokenUsage: null },
+    ] };
+  const spend = treeSpend(chat);
+  assert.equal(spend.own.total, 4);
+  assert.deepEqual({ count: spend.subagents.count, priced: spend.subagents.priced }, { count: 4, priced: 2 });
+  assert.equal(Number(spend.subagents.total.toFixed(4)), 0.75, "Haiku at 0.1 + 0.5, a Qwen3.8 Flash build at 0.15");
+  assert.equal(Number(spend.total.toFixed(4)), 4.75);
+  // Unpriced itself, its subagents still count; with nothing priced anywhere there is no figure.
+  assert.equal(treeSpend({ ...chat, projections: { values: {} } }).own, null);
+  assert.equal(Number(treeSpend({ ...chat, projections: { values: {} } }).total.toFixed(4)), 0.75);
+  assert.equal(treeSpend({ projections: { values: {} }, subagentUsage: [] }), null);
+  assert.equal(treeSpend(chat.subagentUsage[0] && { projections: chat.projections }).subagents.count, 0, "no subagentUsage, no subagents");
 });

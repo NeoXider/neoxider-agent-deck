@@ -81,7 +81,21 @@ function sessionStatsCard() {
   }
   card.append(head);
 
-  if (spend?.free) {
+  // The chat with its subagents, each at its own model's price: their tokens are in their own
+  // logs, not in this chat's (model-pricing.js treeSpend).
+  const tree = sessionTreeSpend(session);
+  if (tree?.subagents.priced) {
+    const { count: subagents, priced, total: subagentTotal } = tree.subagents;
+    const hero = document.createElement("div");
+    hero.className = "stats-hero";
+    hero.append(Object.assign(document.createElement("b"), { textContent: `~${pricing.formatUsd(tree.total)}` }), Object.assign(document.createElement("small"), { textContent: "spent with subagents" }));
+    card.append(hero);
+    card.append(statsSection("Spend", [
+      statsRow("This chat", spend ? spendAmount(spend) : "no list price", { hint: spend?.listModel ? `as ${spend.listModel}` : "" }),
+      statsRow(`Subagents (${subagents})`, `~${pricing.formatUsd(subagentTotal)}`, { hint: subagents > priced ? `${subagents - priced} unpriced` : "" }),
+      statsRow("Total", `~${pricing.formatUsd(tree.total)}`),
+    ]));
+  } else if (spend?.free) {
     // A model on the user's own hardware with no listed original to price it by (model-pricing.js).
     const hero = document.createElement("div");
     hero.className = "stats-hero";
@@ -139,7 +153,7 @@ function sessionStatsCard() {
     const prompt = tokens.input + tokens.cacheRead + tokens.cacheWrite;
     const hit = prompt > 0 ? Math.round((tokens.cacheRead / prompt) * 100) : 0;
     const money = (key) => (spend && !spend.free ?`$${spend.cost[key].toFixed(spend.cost[key] >= 1 ? 2 : 4)}` : "");
-    card.append(statsSection("Tokens", [
+    card.append(statsSection(tree?.subagents.priced ? "Tokens · this chat" : "Tokens", [
       statsRow("Input", count(tokens.input), { hint: money("input") }),
       statsRow("Output", count(tokens.output), { hint: money("output") }),
       statsRow("Cache read", count(tokens.cacheRead), { hint: money("cacheRead") }),

@@ -25,9 +25,10 @@ const cases = [
   { name: "session-menu", serial: true, tab: "agents", fixture: "session-menu", width: 380, height: 620, expect: { floatingMenuItems: 3, floatingMenuConfirming: false } },
   { name: "session-delete-confirm", serial: true, tab: "agents", fixture: "session-delete-confirm", width: 380, height: 620, expect: { floatingMenuConfirming: true } },
   // A chat's subagents and background jobs, and a subagent opened as a chat of its own.
-  { name: "subagents-panel", tab: "chat", fixture: "subagents-panel", width: 420, height: 620, expect: { tasksPanelOpen: true, taskRows: 6, jobOutputVisible: true } },
-  { name: "subagent-chat", tab: "chat", fixture: "subagent-chat", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: false, tasksPanelOpen: false, subagentUsageText: "19% · ~$0.38", contextValue: "19%", contextUnavailable: false } },
-  { name: "subagent-chat-once", tab: "chat", fixture: "subagent-chat-once", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: true, tasksPanelOpen: false, subagentUsageText: "19% · ~$0.38" } },
+  // The chip in the heading carries the chat with its subagents, each at its own model's price.
+  { name: "subagents-panel", tab: "chat", fixture: "subagents-panel", width: 420, height: 620, expect: { tasksPanelOpen: true, taskRows: 6, jobOutputVisible: true, sessionSpendAmount: "~$1.35", sessionSpendTitle: "Spend with subagents ~$1.35 · this chat ~$0.87 · 3 subagents ~$0.48 (1 without a list price) · claude-sonnet-5-5 at list prices · input 10,000 · $0.0200 · output 50,000 · $0.5000 · cache read 1,000,000 · $0.1000 · cache write 100,000 · $0.2500" } },
+  { name: "subagent-chat", tab: "chat", fixture: "subagent-chat", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: false, tasksPanelOpen: false, subagentUsageText: "19% · ~$0.46", contextValue: "19%", contextUnavailable: false } },
+  { name: "subagent-chat-once", tab: "chat", fixture: "subagent-chat-once", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: true, tasksPanelOpen: false, subagentUsageText: "19% · ~$0.46" } },
   // The avatar's recent chats open a small chat in the panel's place.
   // Which Harness Deck follows, and a stable Harness release announced in the title bar.
   { name: "harness-settings", tab: "chat", fixture: "harness-settings", width: 420, height: 620, expect: { settingsOpen: true, harnessTargetOptions: 3, updateHarnessButtonText: "Update to 0.2.1", harnessUpdateChipVisible: true } },

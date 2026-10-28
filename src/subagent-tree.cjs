@@ -106,4 +106,25 @@ function subagentTree(parentId, map, parentRow = null, { maxDepth = MAX_DEPTH, m
   return entries;
 }
 
-module.exports = { MAX_DEPTH, MAX_ENTRIES, answeredAt, catalogLabels, childrenByParent, subagentTree };
+// What every descendant of `parentId` has used, for the chat's spend with its subagents: each
+// one's model and token totals, priced in the renderer (model-pricing.js treeSpend). Not cut
+// short like the tree on screen, whose last rows would otherwise go uncounted.
+const MAX_USAGE_ENTRIES = 1000;
+function subagentUsage(parentId, map) {
+  const usage = [];
+  const seen = new Set([text(parentId)]);
+  const pending = [text(parentId)];
+  while (pending.length && usage.length < MAX_USAGE_ENTRIES) {
+    for (const child of map.get(pending.pop()) || []) {
+      const id = text(child?.sessionId);
+      if (!id || seen.has(id) || usage.length >= MAX_USAGE_ENTRIES) continue;
+      seen.add(id);
+      const values = child.projections?.values || {};
+      usage.push({ sessionId: id, model: values.modelSelection?.lastUsed || values.modelSelection?.next || null, tokenUsage: values.tokenUsage || null });
+      pending.push(id);
+    }
+  }
+  return usage;
+}
+
+module.exports = { MAX_DEPTH, MAX_ENTRIES, answeredAt, catalogLabels, childrenByParent, subagentTree, subagentUsage };

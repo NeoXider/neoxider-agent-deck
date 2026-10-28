@@ -149,6 +149,24 @@
     };
   }
 
+  // A chat and what its subagents spent, each subagent at its own model's list price.
+  // `session.subagentUsage` is HarnessApi's list of every descendant's model and token totals;
+  // Harness counts a chat's tokens from its own log only, so they are not in its tokenUsage.
+  function treeSpend(session) {
+    const own = sessionSpend(session);
+    const usage = Array.isArray(session?.subagentUsage) ? session.subagentUsage : [];
+    let total = 0;
+    let priced = 0;
+    for (const entry of usage) {
+      const spend = sessionSpend({ projections: { values: { modelSelection: { lastUsed: entry?.model }, tokenUsage: entry?.tokenUsage } } });
+      if (!spend) continue;
+      priced += 1;
+      total += spend.total;
+    }
+    if (!own && !priced) return null;
+    return { own, subagents: { count: usage.length, priced, total }, total: (own?.total || 0) + total };
+  }
+
   function formatUsd(value) {
     const amount = Number(value);
     if (!Number.isFinite(amount) || amount <= 0) return "$0.00";
@@ -164,5 +182,5 @@
     return String(amount).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
 
-  return { PRICES, normalizeModelId, normalizeProvider, isLocalModel, basePrice, priceFor, countersFrom, usageSpend, sessionSpend, formatUsd, groupDigits };
+  return { PRICES, normalizeModelId, normalizeProvider, isLocalModel, basePrice, priceFor, countersFrom, usageSpend, sessionSpend, treeSpend, formatUsd, groupDigits };
 }));

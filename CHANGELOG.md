@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-10-28
+
 ### Fixed
 
+- A chat's spend counts what its subagents spent. Harness counts a session's tokens from its own log, and every subagent is a session of its own, so the chip, the context card and the chat's card in Agents showed the chat alone, however much its subagents did. Each subagent, every level down, is now priced at its own model's list price and added in: the chip shows the total, its tooltip and the context card split it into this chat, its subagents and the total, and a subagent without a list price is named as such rather than guessed.
 - The full chat opened from the avatar's recent chats folds back into the avatar after a send again, and its heading offers the way back (Settings: "Back to the avatar after sending", on by default). 1.2.6 opened it from the arrow without either.
 
 ### Removed

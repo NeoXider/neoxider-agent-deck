@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { MAX_ENTRIES, catalogLabels, childrenByParent, subagentTree } = require("../src/subagent-tree.cjs");
+const { MAX_ENTRIES, catalogLabels, childrenByParent, subagentTree, subagentUsage } = require("../src/subagent-tree.cjs");
 
 const now = Date.parse("2026-10-21T10:00:00Z");
 const rows = [
@@ -66,4 +66,20 @@ test("finished subagents are ordered by when they answered, the newest first, be
   const observed = new Map([["seen", now - 60000]]);
   const order = subagentTree("lead", map, null, { observedAnswer: (id) => observed.get(id) }).map((entry) => entry.sessionId);
   assert.deepEqual(order, ["working", "seen", "long", "quick"], "at work first, then the one seen answering a minute ago, then by prompt + work time");
+});
+
+test("a chat's spend reaches every subagent below it, past the tree on screen, once each", () => {
+  const usage = (id, parent, model) => ({ sessionId: id, parentSessionId: parent, projections: { values: {
+    modelSelection: { lastUsed: { provider: "anthropic", model } }, tokenUsage: { uncachedInputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 },
+  } } });
+  // Deeper than the tree shows, plus a child that names its own ancestor as its child.
+  const chain = [usage("a", "lead", "claude-sonnet-5-5"), usage("b", "a", "claude-haiku-5-5")];
+  for (let depth = 0; depth < 6; depth += 1) chain.push(usage(`deep-${depth}`, depth ? `deep-${depth - 1}` : "b", "claude-sonnet-5-5"));
+  chain.push(usage("lead", "deep-5", "claude-sonnet-5-5"), { sessionId: "bare", parentSessionId: "lead" });
+  const map = childrenByParent(chain);
+  const found = subagentUsage("lead", map);
+  assert.deepEqual(found.map((entry) => entry.sessionId).sort(), ["a", "b", "bare", ...Array.from({ length: 6 }, (_, depth) => `deep-${depth}`)].sort());
+  assert.deepEqual(found.find((entry) => entry.sessionId === "b").model, { provider: "anthropic", model: "claude-haiku-5-5" });
+  assert.equal(found.find((entry) => entry.sessionId === "bare").tokenUsage, null, "a child with no projections is counted, unpriced");
+  assert.deepEqual(subagentUsage("nobody", map), []);
 });
