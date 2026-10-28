@@ -23,7 +23,8 @@ async function main() {
     event("user/message", 1, { content: [{ type: "text", text: "Continue after summarizing the earlier discussion." }] }),
     { event: { type: "assistant/message", seq: 2, surfaceOp: "append", data: { usage: { inputTokens: 99996 }, message: { content: [] } } } },
     event("compaction/summary", 3, { compactionId: "smoke", shadowedTokenCount: 78000, shadowedRange: { start: 0, end: 1 } }),
-    event("user/message", 4, { source: { kind: "plugin", plugin: "compact", compactionId: "smoke" }, content: [{ type: "text", text: "x".repeat(87968) }] }),
+    // The checkpoint as DSH 0.2.1 marks it; history-model.cjs still reads the older plugin marker.
+    event("user/message", 4, { source: { kind: "compact-checkpoint", compactionId: "smoke" }, content: [{ type: "text", text: "x".repeat(87968) }] }),
     event("assistant/message", 5, { message: { content: [{ type: "text", text: "The summary is ready. We can continue." }] } }),
   ]);
   const result = await win.webContents.executeJavaScript(`(async () => {

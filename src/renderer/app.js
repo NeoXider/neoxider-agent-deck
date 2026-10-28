@@ -885,7 +885,12 @@ function syncActivityCard() {
   const card = $("#activityCard");
   const hasActivity = Boolean(activity?.text);
   const hasWritingBubble = activity?.kind === "writing" && Boolean($("#messages .live-assistant"));
-  const showCard = hasActivity && !hasWritingBubble && (state.showThinking || !LIVE_ACTIVITY_KINDS.has(activity?.kind));
+  // The Thinking card is for thinking. Switched on, it used to stay up for the whole turn and
+  // only relabel itself - Waiting, Using tool, Working, Writing - so a model that was not
+  // thinking still had a think block on screen. Those states show in the avatar, the rim light
+  // and the tool cards; among the live kinds the card comes for reasoning alone. Notices that
+  // are not part of a turn (an error, a capture, files ready) still use it either way.
+  const showCard = hasActivity && !hasWritingBubble && (LIVE_ACTIVITY_KINDS.has(activity?.kind) ? state.showThinking && activity.kind === "thinking" : true);
   // Reasoning used to get its own strip: absolutely positioned inside .messages-wrap, with
   // room reserved by padding-top on .messages. That padding scrolls away with the content,
   // so a scrolled log put the strip on top of its first visible row and the widget showed
@@ -1752,6 +1757,7 @@ function sessionSpend(session) {
 
 function spendAmount(spend) {
   const pricing = globalThis.modelPricing;
+  if (spend?.local) return "free";
   return spend && pricing ? `~${pricing.formatUsd(spend.total)}` : "";
 }
 
@@ -1760,6 +1766,7 @@ function spendBreakdown(spend) {
   if (!spend || !pricing) return "";
   const { tokens, cost } = spend;
   const count = pricing.groupDigits;
+  if (spend.local) return `${spend.requestedModel || spend.model} runs locally: no per-token price · input ${count(tokens.input)} · output ${count(tokens.output)}`;
   return [
     `${spend.requestedModel || spend.model} at list prices`,
     `input ${count(tokens.input)} · $${cost.input.toFixed(4)}`,
@@ -1772,7 +1779,7 @@ function spendBreakdown(spend) {
 function renderSessionSpend(spend) {
   const node = $("#sessionSpend");
   if (!node) return;
-  const visible = Boolean(spend && spend.total > 0);
+  const visible = Boolean(spend && (spend.total > 0 || spend.local));
   node.hidden = !visible;
   if (node.classList.contains("visible") !== visible) node.classList.toggle("visible", visible);
   if (!visible) {
@@ -7480,7 +7487,8 @@ async function stopCurrentTurn() {
 
 async function createNewSession({ restore = true, workspaceId = null } = {}) {
   setAvatar("waiting", "creating session");
-  setActivity({ active: true, kind: "working", label: "New session", text: "Creating a Harness session…" });
+  // A notice of Deck's own, not a turn's status, so it shows whatever Think is set to.
+  setActivity({ active: true, kind: "notice", label: "New session", text: "Creating a Harness session…" });
   try {
     const result = await window.widget.createSession(workspaceId ? { workspaceId } : {});
     state.selectedSessionId = result.sessionId;
@@ -7511,7 +7519,7 @@ async function createNewSession({ restore = true, workspaceId = null } = {}) {
 async function switchWorkspace(workspaceId) {
   if (!workspaceId) return;
   setAvatar("waiting", "switching workspace");
-  setActivity({ active: true, kind: "working", label: "Workspace", text: "Opening the selected workspace…" });
+  setActivity({ active: true, kind: "notice", label: "Workspace", text: "Opening the selected workspace…" });
   try {
     state.selectedWorkspaceId = workspaceId;
     const result = await window.widget.createSession({ workspaceId });

@@ -144,7 +144,7 @@ const cases = [
   { name: "working-hidden", tab: "chat", fixture: "working-hidden", expect: { activityCardVisible: false, showThinkingChecked: false } },
   { name: "tool-hidden", tab: "chat", fixture: "tool-hidden", expect: { activityCardVisible: false, showThinkingChecked: false } },
   { name: "writing-chat", tab: "chat", fixture: "writing", expect: { liveBubbles: 1, liveCaretDisplay: "inline-block" } },
-  { name: "tool-chat", tab: "chat", fixture: "tool", expect: { activityCardVisible: true, showThinkingChecked: true } },
+  { name: "tool-chat", tab: "chat", fixture: "tool", expect: { activityCardVisible: false, showThinkingChecked: true } },
   // The running clocks tick, so they are checked by shape and count; the finished session's
   // duration is static and is checked exactly.
   { name: "session-times", tab: "agents", fixture: "session-times", expect: { sessionElapsedRunning: 2, sessionElapsedWellFormed: true, sessionElapsedLastRun: "2m 08s", sessionMetaSingleLine: true, sessionBackgroundBadges: 1, sessionBackgroundCounts: "2" } },

@@ -30,6 +30,7 @@ const {
   userContentFromBlocks,
 } = require("./history-model.cjs");
 const { childrenByParent, subagentTree } = require("./subagent-tree.cjs");
+const { createSubagentRegistry } = require("./subagent-registry.cjs");
 const { readHistory } = require("./history-loader.cjs");
 
 // Two dashboard polls: a running chat whose stream spoke within this long is not re-read.
@@ -49,8 +50,8 @@ class HarnessApi {
     this.historyReader = isMainThread && options.historyWorker !== false
       ? createHistoryReader(this.baseUrl, { historyCacheSessionLimit: this.historyCacheSessionLimit }) : null;
     this.fullAccessSessions = new Set();
-    // childSessionId -> parentSessionId, from the last session list. See sessionAddress.
-    this.subagentParents = new Map();
+    // Whose child each subagent is, how it was started, when it answered (subagent-registry.cjs).
+    this.subagents = createSubagentRegistry({ now: () => this.now() });
     // sessionId -> when its live follow stream last delivered an event. See enrichSession.
     this.liveEventAt = new Map();
     this.workspaceSnapshot = { items: [], archivedSessionIds: [] };
@@ -100,7 +101,7 @@ class HarnessApi {
     this.baseUrl = next;
     this._generationPromise = null;
     this._remoteTransport = null;
-    for (const cache of [this.sessionStateCache, this.historyCache, this.backgroundJobs, this.fullAccessSessions, this.subagentParents, this.liveEventAt]) cache.clear();
+    for (const cache of [this.sessionStateCache, this.historyCache, this.backgroundJobs, this.fullAccessSessions, this.liveEventAt, this.subagents]) cache.clear();
     this.attachmentCache?.clear();
     this.workspaceSnapshot = { items: [], archivedSessionIds: [], pinnedSessionIds: [] };
     return true;
@@ -170,19 +171,9 @@ class HarnessApi {
     return { events: Array.isArray(page.events) ? page.events : [] };
   }
 
-  // A subagent's log is read under its parent. DSH refuses a plain session address for one
-  // ("subagent Sessions require their durable parent address"), which left every subagent's
-  // chat on "History could not be loaded". "unknown" mode is the one DSH never checks
-  // against the child's own, so a continuable or one-shot child opens alike.
-  sessionAddress(sessionId) {
-    const parentSessionId = this.subagentParents.get(sessionId)?.parentSessionId;
-    return parentSessionId ? { kind: "subagent", parentSessionId, childSessionId: sessionId, mode: "unknown" } : { kind: "session", sessionId };
-  }
-
-  // { parentSessionId, mode } for a session the last list reported as a subagent, else null.
-  subagentOf(sessionId) {
-    return this.subagentParents.get(sessionId) || null;
-  }
+  // A subagent is addressed under its parent (subagent-registry.cjs); any other chat by its id.
+  sessionAddress(sessionId) { return this.subagents.address(sessionId); }
+  subagentOf(sessionId) { return this.subagents.of(sessionId); }
 
   // One history page for either dialect. Legacy pages come from session.history;
   // remote ones open a follow snapshot (first page) or walk session/page with the
@@ -298,9 +289,7 @@ class HarnessApi {
     const sessions = (sessionsValue.items || []).filter((session) => session.origin !== "subagent" && !archived.has(session.sessionId));
     // Subagents are sessions too; their rows say whose they are (subagent-tree.cjs).
     const children = remote ? childrenByParent(sessionsValue.items) : null;
-    if (children) this.subagentParents = new Map([...children].flatMap(([parent, rows]) => rows.map((row) => [row.sessionId, {
-      parentSessionId: parent, mode: String(row.projections?.values?.subagent?.mode || ""),
-    }])));
+    if (children) this.subagents.update(children, sessionsValue.items);
     // Per session, and never rejecting. Only the two RPCs used to be guarded, so a single
     // malformed history event thrown by one of the derivation readers rejected the whole
     // Promise.all — and the renderer received {harness:false, sessions:[]}, which is what
@@ -377,7 +366,8 @@ class HarnessApi {
             })
           : Promise.resolve(null),
       ]);
-      const subagents = children ? subagentTree(session.sessionId, children, session) : catalog ? (catalog.entries || []) : (cachedState?.subagents ?? []);
+      const subagents = children ? subagentTree(session.sessionId, children, session, { observedAnswer: this.subagents.answeredAt })
+        : catalog ? (catalog.entries || []) : (cachedState?.subagents ?? []);
       const events = historyValue?.events || [];
       // A short read from inside the known turn holds neither its start nor its end.
       const inKnownTurn = knownTurn && !events.some((entry) => ["turn/start", "turn/end"].includes(entry?.event?.type));

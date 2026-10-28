@@ -79,6 +79,22 @@ test("intervening tool results add pressure while request changes invalidate the
   }
 });
 
+test("a compaction by DSH 0.2.1, marked compact-checkpoint, lands as a divider like the old marker", () => {
+  const current = (seq, compactionId = "compact-a") => entry("user/message", seq, {
+    source: { kind: "compact-checkpoint", compactionId }, content: [{ type: "text", text: "x".repeat(87968) }],
+  });
+  const messages = messagesFromHistory([human(1, "Before"), summary(2), current(3), human(4, "After")]);
+  assert.deepEqual(messages.map(({ role, seq }) => [role, seq]), [["user", 1], ["compaction", 3], ["user", 4]]);
+  assert.equal(messages[1].beforeTokens, 100000);
+  assert.equal(messages[1].compactionId, "compact-a");
+  assert.equal(messages[1].text.includes("xxxxx"), false, "the checkpoint's own text never renders");
+  // A manual /compact carries the command that started it; it is the same divider.
+  const manual = entry("user/message", 3, { source: { kind: "compact-checkpoint", compactionId: "compact-a", sourceCommandId: "cmd-1" }, content: [] });
+  assert.equal(messagesFromHistory([summary(2), manual])[0].role, "compaction");
+  // An ordinary plugin message is still not a compaction, nor shown as the user's words.
+  assert.deepEqual(messagesFromHistory([entry("user/message", 1, { source: { kind: "plugin", plugin: "goal" }, content: [{ type: "text", text: "next round" }] })]), []);
+});
+
 test("summary/start/end events alone do not claim a successful compaction", () => {
   assert.deepEqual(messagesFromHistory([
     entry("compaction/start", 1, { compactionId: "compact-a" }), summary(2),

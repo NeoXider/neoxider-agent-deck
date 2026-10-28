@@ -1068,7 +1068,9 @@ async function main() {
     .every((snapshot) => snapshot.top === thinkingPreference.baseline.top && snapshot.height > 0 && snapshot.clear);
   const liveHiddenWhenOff = [thinkingPreference.hidden, thinkingPreference.tool, thinkingPreference.writing, thinkingPreference.working]
     .every((snapshot) => snapshot.visible === false);
-  const liveShownWhenOn = Object.values(thinkingPreference.shownAgain).every((snapshot) => snapshot.visible === true);
+  // Switched on, the card shows reasoning and nothing else of the turn.
+  const liveShownWhenOn = thinkingPreference.shownAgain.thinking.visible === true
+    && thinkingPreference.shownAgain.tool.visible === false && thinkingPreference.shownAgain.working.visible === false;
   if (!thinkingPreference.appeared.visible || !stableThinkingViewport || thinkingPreference.showThinking
       || !liveHiddenWhenOff
       || !thinkingPreference.done.visible || thinkingPreference.done.label !== "Done"

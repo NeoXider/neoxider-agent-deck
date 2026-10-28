@@ -101,3 +101,13 @@ test("job rows are normalized and sorted defensively", () => {
   const sorted = sortJobs([{ status: "failed", startedAt: 9 }, { status: "stopping", startedAt: 1 }, { status: "completed", startedAt: 10 }]);
   assert.deepEqual(sorted.map((job) => job.status), ["stopping", "completed", "failed"]);
 });
+
+test("finished jobs are ordered by when they finished, the newest first, below the running ones", () => {
+  const jobs = sortJobs([
+    { id: "old-start-late-finish", status: "completed", startedAt: 1, finishedAt: 90 },
+    { id: "late-start-early-finish", status: "completed", startedAt: 50, finishedAt: 60 },
+    { id: "live", status: "running", startedAt: 10 },
+    { id: "failed-last", status: "failed", startedAt: 20, finishedAt: 95 },
+  ]);
+  assert.deepEqual(jobs.map((job) => job.id), ["live", "failed-last", "old-start-late-finish", "late-start-early-finish"]);
+});

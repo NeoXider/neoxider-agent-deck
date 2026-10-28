@@ -50,6 +50,18 @@
     return entries[modelId] || (DATE_SUFFIX.test(modelId) ? entries[modelId.replace(DATE_SUFFIX, "")] : null) || null;
   }
 
+  // A model that runs on the user's own hardware has no per-token price. A quantised build is
+  // named by its quant - Q4_K_M, IQ3_XXS, Q1_0, F16, a .gguf file - and a local runtime by its
+  // provider. Such a chat used to say "no list price for this model", which read as if its
+  // spend were unknown; it costs nothing at the point of use, and says so.
+  const LOCAL_PROVIDERS = new Set(["ollama", "lmstudio", "lm-studio", "llamacpp", "llama-cpp", "llama.cpp", "vllm", "local", "localai", "koboldcpp", "jan", "gpt4all", "mlx", "tabby", "exllama"]);
+  const QUANTIZED = /(?:^|[-_.\s/:@])(?:i?q[1-8](?:[_-]?[a-z0-9]{1,4})*|f16|bf16|fp16|gguf|gptq|awq|exl2)(?=$|[-_.\s/:@])/i;
+
+  function isLocalModel(provider, model) {
+    const providerId = normalizeProvider(provider);
+    return LOCAL_PROVIDERS.has(providerId) || /^(?:local|localhost|127\.0\.0\.1)\b/.test(providerId) || QUANTIZED.test(String(model ?? ""));
+  }
+
   // The provider's own row wins; a gateway route (routerai, openrouter, ...) that names
   // an Anthropic model falls back to the model's list price rather than showing nothing.
   function priceFor(provider, model) {
@@ -62,6 +74,7 @@
       const fallback = entryFor(entries, modelId);
       if (fallback) return { ...fallback, provider: name, model: modelId };
     }
+    if (isLocalModel(provider, model)) return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, provider: providerId, model: modelId, local: true };
     return null;
   }
 
@@ -102,7 +115,7 @@
     if (!price) return null;
     const spend = usageSpend(values?.tokenUsage, price);
     if (!spend) return null;
-    return { ...spend, provider: price.provider, model: price.model, requestedModel: String(lastUsed?.model || "") };
+    return { ...spend, provider: price.provider, model: price.model, requestedModel: String(lastUsed?.model || ""), ...(price.local ? { local: true } : {}) };
   }
 
   function formatUsd(value) {
@@ -120,5 +133,5 @@
     return String(amount).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
 
-  return { PRICES, normalizeModelId, normalizeProvider, priceFor, countersFrom, usageSpend, sessionSpend, formatUsd, groupDigits };
+  return { PRICES, normalizeModelId, normalizeProvider, isLocalModel, priceFor, countersFrom, usageSpend, sessionSpend, formatUsd, groupDigits };
 }));

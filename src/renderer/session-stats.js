@@ -80,7 +80,13 @@ function sessionStatsCard() {
   }
   card.append(head);
 
-  if (spend && spend.total > 0) {
+  if (spend?.local) {
+    // A model on the user's own hardware: nothing is charged per token (model-pricing.js).
+    const hero = document.createElement("div");
+    hero.className = "stats-hero";
+    hero.append(Object.assign(document.createElement("b"), { textContent: "Free" }), Object.assign(document.createElement("small"), { textContent: "local model · no per-token price" }));
+    card.append(hero);
+  } else if (spend && spend.total > 0) {
     const hero = document.createElement("div");
     hero.className = "stats-hero";
     hero.append(Object.assign(document.createElement("b"), { textContent: spendAmount(spend) }));
@@ -130,7 +136,7 @@ function sessionStatsCard() {
   if (tokens && tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite > 0) {
     const prompt = tokens.input + tokens.cacheRead + tokens.cacheWrite;
     const hit = prompt > 0 ? Math.round((tokens.cacheRead / prompt) * 100) : 0;
-    const money = (key) => (spend ? `$${spend.cost[key].toFixed(spend.cost[key] >= 1 ? 2 : 4)}` : "");
+    const money = (key) => (spend && !spend.local ? `$${spend.cost[key].toFixed(spend.cost[key] >= 1 ? 2 : 4)}` : "");
     card.append(statsSection("Tokens", [
       statsRow("Input", count(tokens.input), { hint: money("input") }),
       statsRow("Output", count(tokens.output), { hint: money("output") }),
@@ -148,7 +154,8 @@ function sessionStatsCard() {
     session.updatedAt ? statsRow("Last activity", statsAgo(session.updatedAt)) : null,
   ]));
 
-  if (spend) card.append(Object.assign(document.createElement("small"), { className: "stats-foot", textContent: `Estimated from ${spend.requestedModel || spend.model}'s list prices; Harness reports tokens, not money.` }));
+  if (spend?.local) card.append(Object.assign(document.createElement("small"), { className: "stats-foot", textContent: `${spend.requestedModel || spend.model} runs on this machine: its tokens are counted, nothing is charged for them.` }));
+  else if (spend) card.append(Object.assign(document.createElement("small"), { className: "stats-foot", textContent: `Estimated from ${spend.requestedModel || spend.model}'s list prices; Harness reports tokens, not money.` }));
   else if (model?.model) card.append(Object.assign(document.createElement("small"), { className: "stats-foot", textContent: "No list price for this model, so no spend is shown." }));
   return card;
 }

@@ -290,9 +290,19 @@ function titleFromSession(session) {
   return "New session";
 }
 
+// The message a compaction lands in place of the range it summarised. DSH 0.2.1 marks it
+// { kind: "compact-checkpoint", compactionId } (dsh-compaction's compactCheckpointSource);
+// earlier releases wrote { kind: "plugin", plugin: "compact", compactionId }. Deck knew only
+// the old marker, so every compaction a current Harness made - automatic or /compact - fell
+// through to the user-message filter below and was dropped: the chat showed no divider at
+// all, only the older compactions of the same chat.
+function isCompactionCheckpoint(source) {
+  return source?.kind === "compact-checkpoint" || (source?.kind === "plugin" && source.plugin === "compact");
+}
+
 function compactionMessage(event, previousEvent, contextCounts) {
   const source = event.data?.source;
-  if (event.type !== "user/message" || source?.kind !== "plugin" || source.plugin !== "compact") return null;
+  if (event.type !== "user/message" || !isCompactionCheckpoint(source)) return null;
   // Harness lands a checkpoint immediately after its summary. Only that matched
   // transaction can price the replaced range; a nearby turn's usage cannot.
   const summary = previousEvent?.type === "compaction/summary"

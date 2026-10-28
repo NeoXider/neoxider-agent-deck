@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-10-28
+
+### Changed
+
+- The Thinking card comes only while the model is thinking. With Think on it used to stay up for the whole turn and relabel itself - Waiting, Using tool, Working, Writing - so a model that was not thinking still had a think block on screen. Those states show in the avatar, the rim light and the tool cards; Deck's own notices (an error, a capture, files ready, a new session) still use the card.
+- Subagents and background jobs list the newest answers first: the ones at work on top, then the one that answered last. Finished subagents used to follow the order they were started in, so one that had just answered could sit under ones that finished long before. DSH does not record when a subagent answered, so Deck notes the poll on which it stopped, and places one that finished before Deck saw it at its last prompt plus the time it worked.
+- A model running on your own machine shows as **free** in the chat's spend, its context card and its card in Agents, with its tokens still counted. A quantised build (Q1, IQ3_XXS, Q4_K_M, F16, a .gguf) or a local runtime's provider (LM Studio, Ollama, llama.cpp, vLLM and the like) counts as local; it used to say there was no list price, as if its spend were unknown.
+
+### Fixed
+
+- A compaction shows where it happened again. DeepSeek Harness 0.2.1 marks the message a compaction leaves in the conversation `compact-checkpoint`; Deck knew only the older marker, so every compaction a current Harness made, automatic or `/compact`, was dropped and only older ones of the same chat kept their divider.
+
 ## [1.2.1] - 2026-10-28
 
 ### Changed

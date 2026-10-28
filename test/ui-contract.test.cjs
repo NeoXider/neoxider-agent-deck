@@ -431,7 +431,7 @@ test("live Think is a persistent optional overlay that cannot move the conversat
   // "working", and the card the user had just switched off came straight back as "Working".
   // This assertion used to pin that narrow predicate verbatim, so the fix had to change it.
   assert.match(renderer, /LIVE_ACTIVITY_KINDS = new Set\(\["thinking", "writing", "tool", "working", "waiting"\]\)/);
-  assert.match(renderer, /state\.showThinking \|\| !LIVE_ACTIVITY_KINDS\.has\(activity\?\.kind\)/);
+  assert.match(renderer, /LIVE_ACTIVITY_KINDS\.has\(activity\?\.kind\) \? state\.showThinking && activity\.kind === "thinking" : true/);
   // Flipping the toggle must repaint the compact chrome too, which shows the same text.
   // Sliced to the end of the function itself, not to whichever function happens to follow.
   const showThinkingStart = renderer.indexOf("function applyShowThinking");

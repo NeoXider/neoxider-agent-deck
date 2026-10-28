@@ -51,3 +51,19 @@ test("a session without children has an empty tree, and a cycle or a fan-out can
   const many = Array.from({ length: 200 }, (_, index) => ({ sessionId: `c${index}`, parentSessionId: "p", updatedAt: index }));
   assert.equal(subagentTree("p", childrenByParent(many)).length, MAX_ENTRIES);
 });
+
+test("finished subagents are ordered by when they answered, the newest first, below the ones at work", () => {
+  const at = (minutes) => new Date(now - minutes * 60000).toISOString();
+  const child = (sessionId, running, updatedAt, settledMs) => ({ sessionId, origin: "subagent", parentSessionId: "lead", running, updatedAt,
+    projections: { values: { subagentTiming: { settledMs } } } });
+  const map = childrenByParent([
+    // Started first but worked for 40 minutes: it answered last of the finished ones.
+    child("long", false, at(50), 40 * 60000),
+    child("quick", false, at(30), 60000),
+    child("working", true, at(5), 0),
+    child("seen", false, at(45), 1000),
+  ]);
+  const observed = new Map([["seen", now - 60000]]);
+  const order = subagentTree("lead", map, null, { observedAnswer: (id) => observed.get(id) }).map((entry) => entry.sessionId);
+  assert.deepEqual(order, ["working", "seen", "long", "quick"], "at work first, then the one seen answering a minute ago, then by prompt + work time");
+});

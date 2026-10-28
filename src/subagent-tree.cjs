@@ -44,6 +44,18 @@ function catalogLabels(parent) {
   return labels;
 }
 
+// When a child last answered. DSH has no such field: a row's updatedAt is its last prompt
+// (max(createdAt, lastPromptAt)), and the timing projection keeps only how long it worked.
+// HarnessApi records the poll on which a child stopped running; a child that finished before
+// Deck saw it is placed at its last prompt plus the time it worked - when that prompt's turn
+// would have ended.
+function answeredAt(child, observed) {
+  const seen = observed?.(text(child?.sessionId));
+  if (Number.isFinite(seen)) return seen;
+  const settled = Number(child?.projections?.values?.subagentTiming?.settledMs);
+  return timestamp(child?.updatedAt) + (Number.isFinite(settled) && settled > 0 ? settled : 0);
+}
+
 function childEntry(child, depth, parentId, labels, childCount) {
   const values = child?.projections?.values || {};
   const identity = values.subagent && typeof values.subagent === "object" ? values.subagent : null;
@@ -68,16 +80,20 @@ function childEntry(child, depth, parentId, labels, childCount) {
   };
 }
 
-// Every descendant of `parentId`, depth-first, running ones first among siblings, then the
-// most recently active.
-function subagentTree(parentId, map, parentRow = null, { maxDepth = MAX_DEPTH, maxEntries = MAX_ENTRIES } = {}) {
+// Every descendant of `parentId`, depth-first: among siblings the ones at work first, the
+// newest of them on top, then the one that answered last. Ordering the finished ones by
+// their row's updatedAt put them in the order they were started, so a subagent that had
+// just answered could sit under ones that finished long before. `observedAnswer(id)`
+// returns the time HarnessApi saw that child stop, when it did.
+function subagentTree(parentId, map, parentRow = null, { maxDepth = MAX_DEPTH, maxEntries = MAX_ENTRIES, observedAnswer = null } = {}) {
   const entries = [];
   const seen = new Set([text(parentId)]);
+  const recency = (child) => (child.running ? timestamp(child.updatedAt) : answeredAt(child, observedAnswer));
   const walk = (id, row, depth) => {
     if (depth > maxDepth || entries.length >= maxEntries) return;
     const labels = catalogLabels(row);
     const children = [...(map.get(id) || [])].sort((left, right) => (Number(Boolean(right.running)) - Number(Boolean(left.running)))
-      || timestamp(right.updatedAt) - timestamp(left.updatedAt));
+      || recency(right) - recency(left));
     for (const child of children) {
       const childId = text(child.sessionId);
       if (seen.has(childId) || entries.length >= maxEntries) continue;
@@ -90,4 +106,4 @@ function subagentTree(parentId, map, parentRow = null, { maxDepth = MAX_DEPTH, m
   return entries;
 }
 
-module.exports = { MAX_DEPTH, MAX_ENTRIES, catalogLabels, childrenByParent, subagentTree };
+module.exports = { MAX_DEPTH, MAX_ENTRIES, answeredAt, catalogLabels, childrenByParent, subagentTree };

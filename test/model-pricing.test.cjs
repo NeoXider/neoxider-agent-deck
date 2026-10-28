@@ -29,8 +29,34 @@ test("an Anthropic model resolves to its list price, dated variants included", (
 
 test("a gateway route to an Anthropic model still prices, and unknown models do not", () => {
   assert.equal(priceFor("routerai", "anthropic/claude-sonnet-5.5").output, 10);
-  assert.equal(priceFor("lmstudio", "qwen3.8-flash-next-iq3_xxs"), null);
+  assert.equal(priceFor("openrouter", "qwen/qwen3-235b"), null, "a paid route with no list price is not made up");
   assert.equal(priceFor("anthropic", ""), null);
+});
+
+test("a model on the user's own hardware is free, not unpriced", () => {
+  for (const [provider, model] of [
+    ["lmstudio", "qwen3.8-flash-next-iq3_xxs"],
+    ["custom", "Qwen3.8-27B-IQ3_XXS"],
+    ["custom", "qwen3.8-27b-q3xss"],
+    ["strata", "Strata IQ3_XXS 128K"],
+    ["custom", "qwen3.8-q1"],
+    ["ollama", "qwen3.8:27b"],
+    ["custom", "model.gguf"],
+  ]) {
+    const price = priceFor(provider, model);
+    assert.equal(price?.local, true, `${provider}/${model} runs locally`);
+    assert.deepEqual([price.input, price.output, price.cacheRead, price.cacheWrite], [0, 0, 0, 0]);
+  }
+  for (const [provider, model] of [["custom", "qwen3-coder"], ["together", "llama-3-70b-fp8"], ["deepseek", "deepseek-v4"]]) {
+    assert.equal(priceFor(provider, model), null, `${provider}/${model} is not taken for a local build`);
+  }
+  const spend = sessionSpend({ projections: { values: {
+    modelSelection: { lastUsed: { provider: "lmstudio", model: "qwen3.8-flash-next-iq3_xxs" } },
+    tokenUsage: { uncachedInputTokens: 120000, outputTokens: 8000, cacheReadTokens: 0, cacheWriteTokens: 0 },
+  } } });
+  assert.equal(spend.local, true);
+  assert.equal(spend.total, 0);
+  assert.equal(spend.tokens.input, 120000, "its tokens are still counted");
 });
 
 test("spend adds input, output and both cache directions at per-million rates", () => {
@@ -69,7 +95,8 @@ test("a session reports spend with its model, and reports nothing without a pric
   assert.equal(spend.model, "claude-opus-5-5");
   assert.equal(spend.tokens.cacheRead, 45_477_197);
   assert.equal(formatUsd(spend.total), "$14.91");
-  assert.equal(sessionSpend(session("qwen3.8-flash-next-iq3_xxs", "lmstudio")), null);
+  assert.equal(sessionSpend(session("qwen3.8-flash-next-iq3_xxs", "lmstudio")).local, true, "a local build is free, not unpriced");
+  assert.equal(sessionSpend(session("qwen/qwen3-235b", "openrouter")), null);
   assert.equal(sessionSpend({}), null);
   assert.equal(sessionSpend(session("anthropic/claude-opus-5.5", "routerai")).total, spend.total);
 });

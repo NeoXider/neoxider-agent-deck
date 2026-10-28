@@ -40,10 +40,12 @@ function normalizeJob(job) {
   };
 }
 
-// Running ones first, then the most recently started.
+// Running ones first, the newest on top, then the one that finished last: a job that has just
+// answered belongs above one that ended an hour ago, whenever each was started.
 function sortJobs(jobs) {
   const live = (job) => (["running", "stopping"].includes(job.status) ? 1 : 0);
-  return jobs.sort((left, right) => live(right) - live(left) || (right.startedAt || 0) - (left.startedAt || 0));
+  const recency = (job) => (live(job) ? job.startedAt : job.finishedAt || job.startedAt) || 0;
+  return jobs.sort((left, right) => live(right) - live(left) || recency(right) - recency(left));
 }
 
 // Opens a stream, hands every frame to `collect` until it says it has enough (returns true)
