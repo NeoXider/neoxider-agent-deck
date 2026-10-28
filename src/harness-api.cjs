@@ -313,9 +313,14 @@ class HarnessApi {
         };
       }
     }));
+    // An open subagent is no row of the Agents list, but its chat reads the same fields one
+    // does: its tokens, context and model (tasks-panel.js subagentSessionRow).
+    const subagentRow = children && selectedSessionId && this.subagents.of(selectedSessionId)
+      ? sessionsValue.items.find((row) => row?.sessionId === selectedSessionId) : null;
     return {
       host: host || {},
       sessions: enriched,
+      ...(subagentRow ? { subagentSession: { ...subagentRow, title: titleFromSession(subagentRow) } } : {}),
       workspaces: Array.isArray(workspaceValue?.items) ? workspaceValue.items : [],
       archivedSessionIds,
       pinnedSessionIds: Array.isArray(workspaceValue?.pinnedSessionIds) ? workspaceValue.pinnedSessionIds : [],

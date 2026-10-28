@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-10-28
+
+### Changed
+
+- The Thinking card stays up for the rest of the turn. It came only while the model reasoned, so it vanished and came back with every switch between thinking and calling tools, and the chat under it jumped each time. The turn's latest thought now stays on it, a shade quieter, while the model acts on it or writes its answer; it goes when the turn ends or another chat opens. Show thinking is on by default, as before.
+- A local build of a listed model is priced as that model: `qwen3.8-flash-next-iq3_xxs-262k` in LM Studio costs what the same tokens cost on Qwen3.8 Flash, at Alibaba's list prices. It used to say **free**, which hid what a session was worth. The spend, its tooltip and the context card say it runs locally and which model priced it; a local model with no listed original is still free. Qwen3.8 Flash, Omni Flash, 27B, Max, Max Prime and 2.4T-A95B are priced, hosted or local.
+
+### Fixed
+
+- A subagent's chat shows its tokens, context and spend. Its context meter read "unavailable" and its spend and model were nowhere: Deck looked the open chat up in the Agents list, which leaves subagents out, so nothing was found. The subagent's own session row now comes with the poll; its bar shows context and spend (`19% · ~$0.38`) and, hovered, the same card as the context meter: model, tokens, cache and time. A subagent that ran once, which has no message box and so no meter, shows it too.
+
 ## [1.2.4] - 2026-10-28
 
 ### Fixed

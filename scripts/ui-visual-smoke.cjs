@@ -26,8 +26,8 @@ const cases = [
   { name: "session-delete-confirm", serial: true, tab: "agents", fixture: "session-delete-confirm", width: 380, height: 620, expect: { floatingMenuConfirming: true } },
   // A chat's subagents and background jobs, and a subagent opened as a chat of its own.
   { name: "subagents-panel", tab: "chat", fixture: "subagents-panel", width: 420, height: 620, expect: { tasksPanelOpen: true, taskRows: 6, jobOutputVisible: true } },
-  { name: "subagent-chat", tab: "chat", fixture: "subagent-chat", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: false, tasksPanelOpen: false } },
-  { name: "subagent-chat-once", tab: "chat", fixture: "subagent-chat-once", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: true, tasksPanelOpen: false } },
+  { name: "subagent-chat", tab: "chat", fixture: "subagent-chat", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: false, tasksPanelOpen: false, subagentUsageText: "19% · ~$0.38", contextValue: "19%", contextUnavailable: false } },
+  { name: "subagent-chat-once", tab: "chat", fixture: "subagent-chat-once", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: true, tasksPanelOpen: false, subagentUsageText: "19% · ~$0.38" } },
   // The avatar's recent chats open a small chat in the panel's place.
   { name: "mini-chat", tab: "chat", fixture: "mini-chat", width: 360, height: 500, expect: { miniChat: true, miniChatBarVisible: true, titlebarVisible: false } },
   // Which Harness Deck follows, and a stable Harness release announced in the title bar.
@@ -50,8 +50,8 @@ const cases = [
   { name: "chat-font-135", tab: "chat", fixture: "chat", width: 380, height: 400, fontScale: 1.35, expect: { fontScale: 1.35, titlebarOverlap: false }, min: { bubbleFontPx: 14.8 } },
 
   // Spend is derived, never reported: the chip prices the session's own tokens at the
-  // model's list rates, and the meter tooltip carries the arithmetic. A local model has no
-  // list price, so its session card must stay silent rather than guess one.
+  // model's list rates, and the meter tooltip carries the arithmetic. A local build of a listed
+  // model (here Qwen3.8 27B in LM Studio) is priced as that model, so both cards say what they cost.
   { name: "spend-chat", tab: "chat", fixture: "spend-chat", expect: {
     sessionSpendAmount: "~$14.91",
     sessionSpendTitle: "Session spend ~$14.91 · claude-opus-5-5 at list prices · input 302 · $0.0012 · output 170,791 · $3.4158 · cache read 45,477,197 · $9.0954 · cache write 480,327 · $2.4016",
@@ -59,7 +59,7 @@ const cases = [
     contextUnavailable: false,
     contextTitle: "Context: 24k / 131k tokens · session spend ~$14.91",
   }, min: { sessionSpendWidth: 40 } },
-  { name: "spend-agents", tab: "agents", fixture: "spend-agents", expect: { sessionMetaSpendCount: 1 } },
+  { name: "spend-agents", tab: "agents", fixture: "spend-agents", expect: { sessionMetaSpendCount: 2 } },
   { name: "spend-chat-360", tab: "chat", fixture: "spend-chat", width: 360, height: 500, expect: { sessionSpendAmount: "~$14.91", contextValue: "18%" }, min: { sessionSpendWidth: 40 } },
   { name: "history-loading", tab: "chat", fixture: "history-loading", width: 380, height: 400, expect: { skeletonRows: 3, emptyStateText: "", conversationBubbles: 0 } },
   { name: "toast", tab: "chat", fixture: "toast", width: 380, height: 400, expect: { toastVisible: true, toastText: "Copied to clipboard", conversationBubbles: 2 } },

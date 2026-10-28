@@ -307,7 +307,9 @@ function subagentSessionRow(sessionId = state.selectedSessionId) {
   if (!view || view.childId !== sessionId) return null;
   const entry = subagentEntry(view);
   const running = entry?.activity === "running";
-  return { sessionId, title: entry?.title || view.title, running, runningSince: running ? entry?.runningSince ?? null : null, activity: null, state: running ? "working" : "idle", subagent: true };
+  // Its own session row from the last poll carries its tokens, context and model.
+  const listed = state.dashboard?.subagentSession?.sessionId === sessionId ? state.dashboard.subagentSession : null;
+  return { ...listed, sessionId, title: entry?.title || view.title, running, runningSince: running ? entry?.runningSince ?? null : null, activity: null, state: running ? "working" : "idle", subagent: true };
 }
 
 // DSH delivers a message to a subagent only when it was started continuable; a one-shot
@@ -373,7 +375,24 @@ function renderSubagentBar() {
   if (running && entry.runningSince) taskTime(status, { since: entry.runningSince });
   else status.textContent = running ? "working" : entry?.outcome === "failed" ? "stopped short" : entry?.outcome === "done" ? "done" : "idle";
   $("#subagentStop").hidden = !running;
+  renderSubagentUsage();
   scheduleSessionTimers();
+}
+
+// Context and spend of the open subagent. The chat heading that shows a chat's model and spend
+// is hidden here, and a one-shot subagent has no composer, so no context meter either. Hovered,
+// it opens the meter's card: model, tokens, cache and time.
+function renderSubagentUsage() {
+  const usage = $("#subagentUsage");
+  if (!usage) return;
+  const row = subagentSessionRow();
+  const pressure = contextPressure(row);
+  const spend = sessionSpend(row);
+  const parts = [pressure ? `${Math.round(pressure.percent)}%` : "", spend && (spend.total > 0 || spend.free) ? spendAmount(spend) : ""].filter(Boolean);
+  const text = parts.join(" · ");
+  if (usage.hidden === Boolean(text)) usage.hidden = !text;
+  if (usage.textContent !== text) usage.textContent = text;
+  if (chatTooltipOwner === usage) showChatTooltip(usage);
 }
 
 // Wired once app.js has run: DOMContentLoaded fires after every script of the page.

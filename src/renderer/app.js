@@ -51,6 +51,7 @@ const state = {
   // sending to it folds the widget back into the avatar (see collapseAfterSend).
   returnToAvatarSessionId: null,
   activityCardSignature: "",
+  lastThought: null,
   currentMode: "agent",
   agentModesBySessionId: new Map(),
   unread: 0,
@@ -885,24 +886,33 @@ function renderActivityMeta(visible = !$("#activityCard").hidden) {
 function syncActivityCard() {
   const activity = state.currentActivity;
   const card = $("#activityCard");
-  const hasActivity = Boolean(activity?.text);
-  const hasWritingBubble = activity?.kind === "writing" && Boolean($("#messages .live-assistant"));
-  // The Thinking card is for thinking. Switched on, it used to stay up for the whole turn and
-  // only relabel itself - Waiting, Using tool, Working, Writing - so a model that was not
-  // thinking still had a think block on screen. Those states show in the avatar, the rim light
-  // and the tool cards; among the live kinds the card comes for reasoning alone. Notices that
-  // are not part of a turn (an error, a capture, files ready) still use it either way.
-  const showCard = hasActivity && !hasWritingBubble && (LIVE_ACTIVITY_KINDS.has(activity?.kind) ? state.showThinking && activity.kind === "thinking" : true);
+  const live = LIVE_ACTIVITY_KINDS.has(activity?.kind);
+  // The Thinking card is for thinking, and it stays put for the rest of the turn. It used to
+  // relabel itself - Waiting, Using tool, Working, Writing - and then to come only while the
+  // model reasoned, so it vanished and came back with every switch between thinking and acting
+  // and the log under it jumped each time. Now the turn's latest reasoning stays on it while
+  // the model calls tools or writes; it goes when the turn ends or another chat opens. Those
+  // other states show in the avatar, the rim light and the tool cards. Notices that are not
+  // part of a turn (an error, a capture, files ready) still use the card either way.
+  if (live && activity.kind === "thinking" && activity.text) state.lastThought = { sessionId: state.selectedSessionId, label: activity.label, text: activity.text };
+  else if (!live || state.lastThought?.sessionId !== state.selectedSessionId) state.lastThought = null;
+  const shown = live
+    ? (state.showThinking && state.lastThought ? { kind: "thinking", label: state.lastThought.label, text: state.lastThought.text } : null)
+    : (activity?.text ? activity : null);
+  const showCard = Boolean(shown);
   // Reasoning used to get its own strip: absolutely positioned inside .messages-wrap, with
   // room reserved by padding-top on .messages. That padding scrolls away with the content,
   // so a scrolled log put the strip on top of its first visible row and the widget showed
   // two blocks of text in one place. Every activity kind now shares the one card in flow.
-  const thinking = showCard && activity?.kind === "thinking";
+  const thinking = showCard && shown.kind === "thinking";
+  // Between thoughts: the model is acting on what it last thought.
+  const paused = thinking && activity?.kind !== "thinking";
+  if (card.classList.contains("thinking-paused") !== paused) card.classList.toggle("thinking-paused", paused);
   syncCrowdedChatState();
   // Ahead of the early return below: a turn that runs for minutes without changing its
   // label still has to advance its clock and pick up background tasks starting or ending.
   renderActivityMeta(showCard);
-  const signature = showCard ? JSON.stringify([true, activity?.kind || "", activity?.label || "", activity?.text || ""]) : "hidden";
+  const signature = showCard ? JSON.stringify([true, shown.kind || "", shown.label || "", shown.text || ""]) : "hidden";
   if (signature === state.activityCardSignature) return false;
   // Only a change of the card's height moves the log under it: the card appearing or going,
   // its open body (which shows the whole text), or the compact Thinking row. The text of a
@@ -917,12 +927,12 @@ function syncActivityCard() {
   card.classList.toggle("has-activity", showCard);
   card.classList.toggle("thinking-activity", thinking);
   if (showCard) {
-    $("#activityLabel").textContent = activity.label || "Activity";
+    $("#activityLabel").textContent = shown.label || "Activity";
     // Reasoning arrives as one growing string; its tail is the part that is still news.
     $("#activityPreview").textContent = thinking
-      ? compactRecentText(activity.text, 110)
-      : compactText(activity.text, 110);
-    $("#activityBody").textContent = activity.text;
+      ? compactRecentText(shown.text, 110)
+      : compactText(shown.text, 110);
+    $("#activityBody").textContent = shown.text;
   }
   restoreMessageLayoutSnapshot(messageLayout);
   if (messageLayout && !messageLayout.pinned) {
@@ -1759,7 +1769,7 @@ function sessionSpend(session) {
 
 function spendAmount(spend) {
   const pricing = globalThis.modelPricing;
-  if (spend?.local) return "free";
+  if (spend?.free) return "free";
   return spend && pricing ? `~${pricing.formatUsd(spend.total)}` : "";
 }
 
@@ -1768,9 +1778,9 @@ function spendBreakdown(spend) {
   if (!spend || !pricing) return "";
   const { tokens, cost } = spend;
   const count = pricing.groupDigits;
-  if (spend.local) return `${spend.requestedModel || spend.model} runs locally: no per-token price · input ${count(tokens.input)} · output ${count(tokens.output)}`;
+  if (spend.free) return `${spend.requestedModel || spend.model} runs locally: no per-token price · input ${count(tokens.input)} · output ${count(tokens.output)}`;
   return [
-    `${spend.requestedModel || spend.model} at list prices`,
+    spend.listModel ? `${spend.requestedModel} runs locally, priced as ${spend.listModel} at list prices` : `${spend.requestedModel || spend.model} at list prices`,
     `input ${count(tokens.input)} · $${cost.input.toFixed(4)}`,
     `output ${count(tokens.output)} · $${cost.output.toFixed(4)}`,
     `cache read ${count(tokens.cacheRead)} · $${cost.cacheRead.toFixed(4)}`,
@@ -1781,7 +1791,7 @@ function spendBreakdown(spend) {
 function renderSessionSpend(spend) {
   const node = $("#sessionSpend");
   if (!node) return;
-  const visible = Boolean(spend && (spend.total > 0 || spend.local));
+  const visible = Boolean(spend && (spend.total > 0 || spend.free));
   node.hidden = !visible;
   if (node.classList.contains("visible") !== visible) node.classList.toggle("visible", visible);
   if (!visible) {
@@ -1797,7 +1807,7 @@ function renderSessionSpend(spend) {
 }
 
 function renderContext() {
-  const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
+  const session = selectedSessionRow();
   renderSubagentCount(session);
   const pressure = contextPressure(session);
   const spend = sessionSpend(session);
@@ -4305,7 +4315,7 @@ function createMessageBubble(message, bubble = document.createElement("div")) {
 // A provider whose native engine died reports a raw process exit code. engine-crash.js
 // names it; the selected chat's context meter decides whether compacting is worth offering.
 function describeSelectedEngineCrash(text) {
-  const pressure = contextPressure(state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId));
+  const pressure = contextPressure(selectedSessionRow());
   return window.engineCrash?.describeEngineCrash(text, { contextUsed: pressure?.used, contextWindow: pressure?.total }) || null;
 }
 
@@ -5286,7 +5296,7 @@ function showChatTooltip(owner) {
   owner.setAttribute("aria-describedby", [chatTooltipDescription, "chatTooltip"].filter(Boolean).join(" "));
   chatTooltipNode.classList.toggle("message-mark-preview", owner.classList.contains("message-mark"));
   // The context meter's card: spend, turns, tokens and time (session-stats.js).
-  const stats = owner.id === "contextMeter" ? globalThis.sessionStatsCard?.() : null;
+  const stats = owner.id === "contextMeter" || owner.id === "subagentUsage" ? globalThis.sessionStatsCard?.() : null;
   chatTooltipNode.classList.toggle("stats-card", Boolean(stats));
   if (stats) chatTooltipNode.replaceChildren(stats);
   else chatTooltipNode.textContent = label;
@@ -9801,7 +9811,7 @@ if (screenshotFixture) {
       setTab("agents");
       const spendNow = Date.now();
       state.dashboard = { harness: true, sessions: [
-        // A priced hosted model next to a local one, which has no list price to report.
+        // A priced hosted model next to a local build of Qwen3.8 27B, priced as that model.
         { sessionId: "demo-spend-card", title: "Costed session", updatedAt: spendNow, running: false, state: "idle", projections: { values: {
           contextPressure: { projectedTokens: 24000, contextWindow: 131072 },
           modelSelection: { lastUsed: { provider: "anthropic", model: "claude-opus-5-5" } },
@@ -9955,9 +9965,15 @@ if (screenshotFixture) {
           child({ sessionId: "deck-notes", title: "Write the changelog", outcome: "done", workedMs: 128_000 }),
           child({ sessionId: "deck-shots", title: "Refresh docs screenshots", outcome: "failed", workedMs: 19_000 }),
         ],
-      }, {
-        sessionId: "deck-ipc", title: "Audit the IPC handlers", updatedAt: now, running: true, runningSince: now - 75_000, state: "working", origin: "subagent", projections: { values: {} }, subagents: [],
-      }] };
+      }],
+      // The open child's own list row, which the Agents list leaves out (HarnessApi.dashboard).
+      subagentSession: {
+        sessionId: "deck-ipc", title: "Audit the IPC handlers", updatedAt: now, running: true, origin: "subagent", parentSessionId: "deck-parent", projections: { values: {
+          contextPressure: { projectedTokens: 38_900, contextWindow: 200_000 },
+          modelSelection: { lastUsed: { provider: "anthropic", model: "claude-sonnet-5-5", reasoningEffort: "high" } },
+          tokenUsage: { uncachedInputTokens: 4_200, outputTokens: 18_400, cacheReadTokens: 812_000, cacheWriteTokens: 41_000 },
+        } },
+      } };
       tasksState.jobsBySession.set("deck-parent", [
         { id: "job-ui", kind: "shell", label: "npm run test:ui", status: "running", startedAt: now - 48_000, progress: "case 84 of 168", detail: "" },
         { id: "job-audit", kind: "shell", label: "npm audit --audit-level=high", status: "completed", startedAt: now - 140_000, finishedAt: now - 131_000, progress: "", detail: "exit 0" },
@@ -9977,6 +9993,7 @@ if (screenshotFixture) {
         document.body.classList.add("viewing-subagent");
         state.selectedSessionId = "deck-ipc";
         renderSubagentBar();
+        renderContext();
         renderMessages([
           { role: "user", text: "Audit every IPC channel the renderer can reach. Report anything that takes unchecked input." },
           { role: "tool", callId: "sub-read", name: "read", arguments: '{"path":"src/ipc-deck-handlers.cjs"}', result: "Read complete", status: "completed", durationMs: 31 },

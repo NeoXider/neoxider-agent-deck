@@ -33,30 +33,47 @@ test("a gateway route to an Anthropic model still prices, and unknown models do 
   assert.equal(priceFor("anthropic", ""), null);
 });
 
-test("a model on the user's own hardware is free, not unpriced", () => {
+test("a local build of a listed model is priced as that model, and any other local model is free", () => {
+  for (const [provider, model, listModel, input] of [
+    ["lmstudio", "qwen3.8-flash-next-iq3_xxs-262k", "Qwen3.8 Flash", 0.15],
+    ["custom", "Qwen3.8-27B-IQ3_XXS", "Qwen3.8 27B", 0.5],
+    ["custom", "qwen3.8-27b-q3xss", "Qwen3.8 27B", 0.5],
+    ["ollama", "qwen3.8:27b", "Qwen3.8 27B", 0.5],
+    ["lmstudio", "qwen3.8-max-prime-q4_k_m", "Qwen3.8 Max Prime", 4],
+  ]) {
+    const price = priceFor(provider, model);
+    assert.equal(price?.local, true, `${provider}/${model} runs locally`);
+    assert.equal(price.listModel, listModel, `${model} is priced as the model it was built from`);
+    assert.equal(price.input, input);
+    assert.equal(price.free, undefined);
+  }
   for (const [provider, model] of [
-    ["lmstudio", "qwen3.8-flash-next-iq3_xxs"],
-    ["custom", "Qwen3.8-27B-IQ3_XXS"],
-    ["custom", "qwen3.8-27b-q3xss"],
     ["strata", "Strata IQ3_XXS 128K"],
     ["custom", "qwen3.8-q1"],
-    ["ollama", "qwen3.8:27b"],
     ["custom", "model.gguf"],
   ]) {
     const price = priceFor(provider, model);
     assert.equal(price?.local, true, `${provider}/${model} runs locally`);
+    assert.equal(price.free, true, `${model} has no listed original, so it is free`);
     assert.deepEqual([price.input, price.output, price.cacheRead, price.cacheWrite], [0, 0, 0, 0]);
   }
   for (const [provider, model] of [["custom", "qwen3-coder"], ["together", "llama-3-70b-fp8"], ["deepseek", "deepseek-v4"]]) {
     assert.equal(priceFor(provider, model), null, `${provider}/${model} is not taken for a local build`);
   }
+  const usage = { uncachedInputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 0, cacheWriteTokens: 0 };
   const spend = sessionSpend({ projections: { values: {
-    modelSelection: { lastUsed: { provider: "lmstudio", model: "qwen3.8-flash-next-iq3_xxs" } },
-    tokenUsage: { uncachedInputTokens: 120000, outputTokens: 8000, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    modelSelection: { lastUsed: { provider: "lmstudio", model: "qwen3.8-flash-next-iq3_xxs-262k" } }, tokenUsage: usage,
   } } });
   assert.equal(spend.local, true);
-  assert.equal(spend.total, 0);
-  assert.equal(spend.tokens.input, 120000, "its tokens are still counted");
+  assert.equal(spend.listModel, "Qwen3.8 Flash");
+  assert.equal(spend.total, 0.62, "a million in and a million out at Qwen3.8 Flash rates");
+  const free = sessionSpend({ projections: { values: {
+    modelSelection: { lastUsed: { provider: "lmstudio", model: "model.gguf" } }, tokenUsage: usage,
+  } } });
+  assert.equal(free.free, true);
+  assert.equal(free.total, 0);
+  assert.equal(free.tokens.input, 1_000_000, "its tokens are still counted");
+  assert.equal(priceFor("openrouter", "qwen/qwen3.8-flash").output, 0.47, "the hosted model prices too");
 });
 
 test("spend adds input, output and both cache directions at per-million rates", () => {
@@ -95,7 +112,7 @@ test("a session reports spend with its model, and reports nothing without a pric
   assert.equal(spend.model, "claude-opus-5-5");
   assert.equal(spend.tokens.cacheRead, 45_477_197);
   assert.equal(formatUsd(spend.total), "$14.91");
-  assert.equal(sessionSpend(session("qwen3.8-flash-next-iq3_xxs", "lmstudio")).local, true, "a local build is free, not unpriced");
+  assert.equal(sessionSpend(session("qwen3.8-flash-next-iq3_xxs", "lmstudio")).listModel, "Qwen3.8 Flash", "a local build is priced, not unpriced");
   assert.equal(sessionSpend(session("qwen/qwen3-235b", "openrouter")), null);
   assert.equal(sessionSpend({}), null);
   assert.equal(sessionSpend(session("anthropic/claude-opus-5.5", "routerai")).total, spend.total);

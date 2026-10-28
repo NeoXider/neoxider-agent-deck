@@ -324,7 +324,9 @@ test("live assistant deltas grow a bubble instead of leaving a Writing reasoning
   assert.doesNotMatch(chunkHandler, /renderMessages\(/);
   assert.doesNotMatch(chunkHandler, /setActivity\(/);
   assert.match(renderer, /activity\?\.active && activity\.kind === "writing" && activity\.text/);
-  assert.match(renderer, /hasWritingBubble/);
+  // While the answer streams the card keeps the turn's last thought, never the answer itself,
+  // so the text is not shown twice.
+  assert.match(renderer, /const shown = live\s+\? \(state\.showThinking && state\.lastThought \? \{ kind: "thinking", label: state\.lastThought\.label, text: state\.lastThought\.text \} : null\)/);
   // The caret is an element, not ::after, so it can sit inside the last paragraph of a
   // formatted answer rather than on a line of its own underneath it.
   assert.match(css, /\.live-caret \{[^}]+width:4px[^}]+animation:live-caret/);
@@ -431,7 +433,9 @@ test("live Think is a persistent optional overlay that cannot move the conversat
   // "working", and the card the user had just switched off came straight back as "Working".
   // This assertion used to pin that narrow predicate verbatim, so the fix had to change it.
   assert.match(renderer, /LIVE_ACTIVITY_KINDS = new Set\(\["thinking", "writing", "tool", "working", "waiting"\]\)/);
-  assert.match(renderer, /LIVE_ACTIVITY_KINDS\.has\(activity\?\.kind\) \? state\.showThinking && activity\.kind === "thinking" : true/);
+  assert.match(renderer, /const live = LIVE_ACTIVITY_KINDS\.has\(activity\?\.kind\);/);
+  // The kept thought belongs to one chat's turn: the turn's end or another chat drops it.
+  assert.match(renderer, /else if \(!live \|\| state\.lastThought\?\.sessionId !== state\.selectedSessionId\) state\.lastThought = null;/);
   // Flipping the toggle must repaint the compact chrome too, which shows the same text.
   // Sliced to the end of the function itself, not to whichever function happens to follow.
   const showThinkingStart = renderer.indexOf("function applyShowThinking");
@@ -1038,7 +1042,7 @@ test("crowded compact chat has an explicit combined fixture and bounded surface 
   const visualSmoke = readSource("scripts", "ui-visual-smoke.cjs");
   assert.match(renderer, /function syncCrowdedChatState\(\)[\s\S]+window\.innerHeight <= 420/);
   assert.match(renderer, /screenshotFixture === "crowded-chat"/);
-  assert.match(renderer, /const thinking = showCard && activity\?\.kind === "thinking";\n  syncCrowdedChatState\(\);/);
+  assert.match(renderer, /const thinking = showCard && shown\.kind === "thinking";[\s\S]{0,400}?\n  syncCrowdedChatState\(\);/);
   // The log keeps its floor at 360x360 with every strip open: the panel pays for the
   // composer out of the gaps and the fixed strips instead.
   assert.match(css, /\.chat-crowded \.messages-wrap \{ min-height:62px; \}/);

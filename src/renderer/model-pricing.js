@@ -26,6 +26,15 @@
       "claude-sonnet-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
       "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
     },
+    // Alibaba's own rates, as the Vercel AI Gateway and OpenCode rows carry them.
+    qwen: {
+      "qwen3-8-flash": { input: 0.15, output: 0.47, cacheRead: 0.016, cacheWrite: 0.2, name: "Qwen3.8 Flash" },
+      "qwen3-8-omni-flash": { input: 0.15, output: 0.47, cacheRead: 0.016, cacheWrite: 0, name: "Qwen3.8 Omni Flash" },
+      "qwen3-8-27b": { input: 0.5, output: 3, cacheRead: 0.1, cacheWrite: 0.625, name: "Qwen3.8 27B" },
+      "qwen3-8-max": { input: 2, output: 6, cacheRead: 0.25, cacheWrite: 2.5, name: "Qwen3.8 Max" },
+      "qwen3-8-max-prime": { input: 4, output: 12, cacheRead: 0.5, cacheWrite: 5, name: "Qwen3.8 Max Prime" },
+      "qwen3-8-2-4t-a95b": { input: 2, output: 6, cacheRead: 0.25, cacheWrite: 0, name: "Qwen3.8 2.4T-A95B" },
+    },
   };
 
   // "anthropic/claude-opus-5.5" and "claude-opus-5.5" are the same model, and a date
@@ -53,7 +62,8 @@
   // A model that runs on the user's own hardware has no per-token price. A quantised build is
   // named by its quant - Q4_K_M, IQ3_XXS, Q1_0, F16, a .gguf file - and a local runtime by its
   // provider. Such a chat used to say "no list price for this model", which read as if its
-  // spend were unknown; it costs nothing at the point of use, and says so.
+  // spend were unknown. A build of a listed model is priced at that model's list price, what
+  // the same tokens cost hosted (basePrice); any other local model says it is free.
   const LOCAL_PROVIDERS = new Set(["ollama", "lmstudio", "lm-studio", "llamacpp", "llama-cpp", "llama.cpp", "vllm", "local", "localai", "koboldcpp", "jan", "gpt4all", "mlx", "tabby", "exllama"]);
   const QUANTIZED = /(?:^|[-_.\s/:@])(?:i?q[1-8](?:[_-]?[a-z0-9]{1,4})*|f16|bf16|fp16|gguf|gptq|awq|exl2)(?=$|[-_.\s/:@])/i;
 
@@ -62,19 +72,37 @@
     return LOCAL_PROVIDERS.has(providerId) || /^(?:local|localhost|127\.0\.0\.1)\b/.test(providerId) || QUANTIZED.test(String(model ?? ""));
   }
 
+  // A local build is named after the model it was made from: qwen3.8-flash-next-iq3_xxs-262k
+  // is a Qwen3.8 Flash. The longest listed id the name starts with, at a word break, wins, so
+  // qwen3.8-max-prime is not priced as qwen3.8-max.
+  function basePrice(modelId) {
+    let best = null;
+    for (const [name, entries] of Object.entries(PRICES)) {
+      for (const [id, price] of Object.entries(entries)) {
+        if (modelId !== id && !modelId.startsWith(`${id}-`)) continue;
+        if (!best || id.length > best.model.length) best = { ...price, provider: name, model: id };
+      }
+    }
+    return best;
+  }
+
   // The provider's own row wins; a gateway route (routerai, openrouter, ...) that names
   // an Anthropic model falls back to the model's list price rather than showing nothing.
   function priceFor(provider, model) {
     const modelId = normalizeModelId(model);
     if (!modelId) return null;
     const providerId = normalizeProvider(provider);
+    if (isLocalModel(provider, model)) {
+      const base = basePrice(modelId);
+      if (base) return { ...base, local: true, listModel: base.name || base.model };
+      return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, provider: providerId, model: modelId, local: true, free: true };
+    }
     const direct = entryFor(PRICES[providerId], modelId);
     if (direct) return { ...direct, provider: providerId, model: modelId };
     for (const [name, entries] of Object.entries(PRICES)) {
       const fallback = entryFor(entries, modelId);
       if (fallback) return { ...fallback, provider: name, model: modelId };
     }
-    if (isLocalModel(provider, model)) return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, provider: providerId, model: modelId, local: true };
     return null;
   }
 
@@ -115,7 +143,10 @@
     if (!price) return null;
     const spend = usageSpend(values?.tokenUsage, price);
     if (!spend) return null;
-    return { ...spend, provider: price.provider, model: price.model, requestedModel: String(lastUsed?.model || ""), ...(price.local ? { local: true } : {}) };
+    return {
+      ...spend, provider: price.provider, model: price.model, requestedModel: String(lastUsed?.model || ""),
+      ...(price.local ? { local: true } : {}), ...(price.listModel ? { listModel: price.listModel } : {}), ...(price.free ? { free: true } : {}),
+    };
   }
 
   function formatUsd(value) {
@@ -133,5 +164,5 @@
     return String(amount).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
 
-  return { PRICES, normalizeModelId, normalizeProvider, isLocalModel, priceFor, countersFrom, usageSpend, sessionSpend, formatUsd, groupDigits };
+  return { PRICES, normalizeModelId, normalizeProvider, isLocalModel, basePrice, priceFor, countersFrom, usageSpend, sessionSpend, formatUsd, groupDigits };
 }));

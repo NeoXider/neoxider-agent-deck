@@ -1061,6 +1061,12 @@ async function main() {
       tool: probe("tool", "Using tool", "read"),
       working: probe("working", "Working", "Agent is processing the current turn…"),
     };
+    shownAgain.kept = document.querySelector("#activityPreview").textContent;
+    shownAgain.paused = document.querySelector("#activityCard").classList.contains("thinking-paused");
+    setActivity(null);
+    shownAgain.ended = document.querySelector("#activityCard").classList.contains("has-activity");
+    // A turn that opens with a tool call has no thought to show yet.
+    shownAgain.toolFirst = probe("tool", "Using tool", "read");
     setActivity(null);
     return { baseline, appeared, streamed, disappeared, hidden, tool, writing, working, done, shownAgain, showThinking: showThinkingWhileOff, restored: state.showThinking };
   })()`);
@@ -1068,9 +1074,14 @@ async function main() {
     .every((snapshot) => snapshot.top === thinkingPreference.baseline.top && snapshot.height > 0 && snapshot.clear);
   const liveHiddenWhenOff = [thinkingPreference.hidden, thinkingPreference.tool, thinkingPreference.writing, thinkingPreference.working]
     .every((snapshot) => snapshot.visible === false);
-  // Switched on, the card shows reasoning and nothing else of the turn.
-  const liveShownWhenOn = thinkingPreference.shownAgain.thinking.visible === true
-    && thinkingPreference.shownAgain.tool.visible === false && thinkingPreference.shownAgain.working.visible === false;
+  // Switched on, the card shows reasoning and nothing else of the turn, and keeps the latest
+  // thought up while the model acts on it instead of coming and going; the turn's end takes it.
+  const { shownAgain } = thinkingPreference;
+  const liveShownWhenOn = shownAgain.thinking.visible === true
+    && shownAgain.tool.visible === true && shownAgain.tool.label === "Thinking"
+    && shownAgain.working.visible === true && shownAgain.working.label === "Thinking"
+    && shownAgain.kept.includes("Visible again") && shownAgain.paused === true
+    && shownAgain.ended === false && shownAgain.toolFirst.visible === false;
   if (!thinkingPreference.appeared.visible || !stableThinkingViewport || thinkingPreference.showThinking
       || !liveHiddenWhenOff
       || !thinkingPreference.done.visible || thinkingPreference.done.label !== "Done"

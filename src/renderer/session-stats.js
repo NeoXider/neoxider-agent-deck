@@ -5,8 +5,9 @@
 // totals, context pressure and model) and the transcript on screen. Nothing is fetched for
 // it. Loaded before app.js; app.js globals are only touched inside functions.
 
+// The open chat's row, an open subagent's included (app.js selectedSessionRow).
 function statsSession() {
-  return (state.dashboard?.sessions || []).find((session) => session.sessionId === state.selectedSessionId) || null;
+  return selectedSessionRow();
 }
 
 // Turns are the user's messages; replies and tool calls are counted from the same transcript.
@@ -80,8 +81,8 @@ function sessionStatsCard() {
   }
   card.append(head);
 
-  if (spend?.local) {
-    // A model on the user's own hardware: nothing is charged per token (model-pricing.js).
+  if (spend?.free) {
+    // A model on the user's own hardware with no listed original to price it by (model-pricing.js).
     const hero = document.createElement("div");
     hero.className = "stats-hero";
     hero.append(Object.assign(document.createElement("b"), { textContent: "Free" }), Object.assign(document.createElement("small"), { textContent: "local model · no per-token price" }));
@@ -91,7 +92,8 @@ function sessionStatsCard() {
     hero.className = "stats-hero";
     hero.append(Object.assign(document.createElement("b"), { textContent: spendAmount(spend) }));
     const perTurn = counts.turns && !partial ? spend.total / counts.turns : 0;
-    hero.append(Object.assign(document.createElement("small"), { textContent: perTurn ? `spent · ~${pricing.formatUsd(perTurn)} a turn` : "spent at list prices" }));
+    const listed = spend.listModel ? ` · as ${spend.listModel}` : "";
+    hero.append(Object.assign(document.createElement("small"), { textContent: perTurn ? `spent · ~${pricing.formatUsd(perTurn)} a turn${listed}` : `spent at list prices${listed}` }));
     card.append(hero);
   }
 
@@ -136,7 +138,7 @@ function sessionStatsCard() {
   if (tokens && tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite > 0) {
     const prompt = tokens.input + tokens.cacheRead + tokens.cacheWrite;
     const hit = prompt > 0 ? Math.round((tokens.cacheRead / prompt) * 100) : 0;
-    const money = (key) => (spend && !spend.local ? `$${spend.cost[key].toFixed(spend.cost[key] >= 1 ? 2 : 4)}` : "");
+    const money = (key) => (spend && !spend.free ?`$${spend.cost[key].toFixed(spend.cost[key] >= 1 ? 2 : 4)}` : "");
     card.append(statsSection("Tokens", [
       statsRow("Input", count(tokens.input), { hint: money("input") }),
       statsRow("Output", count(tokens.output), { hint: money("output") }),
@@ -154,7 +156,8 @@ function sessionStatsCard() {
     session.updatedAt ? statsRow("Last activity", statsAgo(session.updatedAt)) : null,
   ]));
 
-  if (spend?.local) card.append(Object.assign(document.createElement("small"), { className: "stats-foot", textContent: `${spend.requestedModel || spend.model} runs on this machine: its tokens are counted, nothing is charged for them.` }));
+  if (spend?.free) card.append(Object.assign(document.createElement("small"), { className: "stats-foot", textContent: `${spend.requestedModel || spend.model} runs on this machine: its tokens are counted, nothing is charged for them.` }));
+  else if (spend?.listModel) card.append(Object.assign(document.createElement("small"), { className: "stats-foot", textContent: `${spend.requestedModel} runs on this machine; this is what the same tokens cost on ${spend.listModel} at its list price.` }));
   else if (spend) card.append(Object.assign(document.createElement("small"), { className: "stats-foot", textContent: `Estimated from ${spend.requestedModel || spend.model}'s list prices; Harness reports tokens, not money.` }));
   else if (model?.model) card.append(Object.assign(document.createElement("small"), { className: "stats-foot", textContent: "No list price for this model, so no spend is shown." }));
   return card;

@@ -496,6 +496,8 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .activity-card.thinking-activity { border-color:color-mix(in srgb,var(--violet) 26%,transparent); }
 .activity-card.thinking-activity b { color:#ddd6ff; }
 .activity-card.thinking-activity small { color:var(--muted); }
+/* Between thoughts the card keeps the last one, a shade quieter: the model acts on it. */
+.activity-card.thinking-paused b { color:color-mix(in srgb,#ddd6ff 62%,var(--muted)); transition:color .3s ease; }
 
 /* The composer's own failure surface. Deliberately not the activity block: that one is
    written by the 2.5s dashboard poll, which overwrote a failed send with the running
