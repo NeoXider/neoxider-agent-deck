@@ -1100,6 +1100,37 @@ input[type="range"] { -webkit-user-drag:none; touch-action:none; }
 .orb-session-row:hover .orb-session-open, .orb-session-row.selected .orb-session-open, .orb-session-open:focus-visible { opacity:1; }
 .orb-session-open:hover, .orb-session-open:focus-visible { background:var(--surface-strong); color:var(--text); }
 .orb-session-open .ui-icon { width:13px; height:13px; }
+/* A chat shown in the panel (orb-chat.js): its head, its newest messages, then the message box,
+   in a taller window. */
+.orb-chat-open .orb-status { width:276px; max-height:344px; }
+.orb-chat { width:100%; min-height:0; flex:1 1 auto; display:flex; flex-direction:column; gap:4px; }
+.orb-chat[hidden] { display:none; }
+.orb-chat-head { flex:none; min-width:0; height:30px; display:flex; align-items:center; gap:6px; padding:0 2px; }
+.orb-chat-back { width:24px; height:24px; flex:none; display:grid; place-items:center; padding:0; border:0; border-radius:7px; background:transparent; color:var(--dim); cursor:pointer; }
+.orb-chat-back:hover, .orb-chat-back:focus-visible { background:var(--surface-strong); color:var(--text); }
+.orb-chat-back .ui-icon { width:14px; height:14px; }
+.orb-chat[data-state="working"] .orb-chat-head .orb-session-avatar { animation:avatar-type .42s ease-in-out infinite alternate; }
+.orb-chat-name { min-width:0; flex:1; display:flex; flex-direction:column; line-height:1.2; }
+.orb-chat-name b { color:var(--text); font-size:12px; font-weight:600; }
+.orb-chat-name small { color:var(--muted); font-size:10.5px; font-variant-numeric:tabular-nums; }
+.orb-chat-head .orb-session-open { opacity:1; }
+.orb-chat-log { min-height:0; height:252px; flex:1 1 auto; display:flex; flex-direction:column; gap:5px; padding:2px 2px 4px; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; }
+.orb-chat-log::-webkit-scrollbar { width:4px; }
+.orb-chat-log::-webkit-scrollbar-thumb { background:rgba(255,255,255,.14); border-radius:4px; }
+.orb-chat-message { flex:none; max-width:92%; padding:5px 8px; border-radius:10px; color:var(--text); font-size:12px; line-height:1.4; overflow-wrap:anywhere; user-select:text; }
+.orb-chat-message.user { align-self:flex-end; background:color-mix(in srgb,var(--mint) 14%,var(--surface-1)); white-space:pre-wrap; }
+.orb-chat-message.user.pending { opacity:.7; }
+.orb-chat-message.assistant { align-self:flex-start; background:var(--surface-1); }
+.orb-chat-message :is(b, strong, small, code) { overflow:visible; white-space:normal; text-overflow:clip; }
+.orb-chat-message :is(p, ul, ol, pre, blockquote, h1, h2, h3, h4) { margin:0 0 4px; }
+.orb-chat-message > :last-child { margin-bottom:0; }
+.orb-chat-message :is(h1, h2, h3, h4) { font-size:12.5px; }
+.orb-chat-message :is(ul, ol) { padding-left:16px; }
+.orb-chat-message pre { max-height:120px; overflow:auto; padding:5px 6px; border-radius:6px; background:rgba(0,0,0,.25); font-size:11px; white-space:pre; }
+.orb-chat-message img { max-width:100%; height:auto; }
+.orb-chat-tool { flex:none; align-self:flex-start; max-width:92%; overflow:hidden; padding:1px 7px; border:1px solid var(--line); border-radius:999px; color:var(--dim); font:11px/1.5 var(--font-mono,monospace); text-overflow:ellipsis; white-space:nowrap; }
+.orb-chat-tool.failed { border-color:rgba(255,115,143,.3); color:#ff9fb2; }
+.orb-chat-empty { margin:auto; color:var(--dim); font-size:11.5px; }
 .orb-session-empty { height:48px; display:grid; place-items:center; color:var(--muted); font-size:12px; }
 /* The message box is always there in the open panel: open it and you can write. Its
    placeholder names the chat it writes to. */

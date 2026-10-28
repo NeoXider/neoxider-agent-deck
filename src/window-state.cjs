@@ -67,8 +67,9 @@ function restoreCompactBounds(saved, fallback, workArea, options = {}) {
   const margin = compactMargin(mode);
   // Clamped by the VISIBLE rectangle, not the window: the transparent margin around the
   // circle and the line is allowed to hang off the screen, which is what lets the user
-  // park either of them flush against the top or bottom edge.
-  const inset = compactVisibleInset(mode, side, { width, height });
+  // park either of them flush against the top or bottom edge. A chat open in the panel is kept
+  // on the screen whole instead: hanging off it would take its message box along.
+  const inset = options.whole ? { top: 0, bottom: 0 } : compactVisibleInset(mode, side, { width, height });
   const y = clamp(
     finite(saved?.y, finite(fallback?.y, workArea.y)),
     workArea.y - inset.top,

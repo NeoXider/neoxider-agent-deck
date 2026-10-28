@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-10-28
+
+### Changed
+
+- A second click on a chat in the avatar's recent chats opens it right in the panel: the chat's newest messages, formatted, with its tool calls as one-line chips, above the same message box. You read the answer and reply without the widget unfolding, and after a send the panel stays on the chat: your message shows at once and the answer arrives in it. Its head has the way back to the list, the chat's name and how it is doing, and the full chat. The panel grows around the slime to 420x360 for it and stays on the screen whole, so a slime parked on the taskbar keeps its message box in sight. It used to open a separate small window.
+- The arrow beside a recent chat opens the full chat. It opened the same small window as the second click.
+
 ## [1.2.5] - 2026-10-28
 
 ### Changed

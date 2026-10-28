@@ -177,6 +177,8 @@ const cases = [
   { name: "notification-orb-checkerboard", tab: "chat", fixture: "orb-notification", mode: "orb", backdrop: "checkerboard", expect: { orbNotification: true, orbStatusShadow: "none", orbReplyShadow: "none" } },
   { name: "recent-sessions-orb", tab: "chat", fixture: "orb-recent-three", mode: "orb", expect: { orbRecentRows: 3, orbRecentUniqueSessions: 3, orbHistoryOpen: true, orbQuickReplyOpen: false, orbPanelClipped: false, compactSide: "right" } },
   { name: "recent-sessions-orb-left", tab: "chat", fixture: "orb-recent-three-left", mode: "orb", side: "left", expect: { orbRecentRows: 3, orbRecentUniqueSessions: 3, orbHistoryOpen: true, orbQuickReplyOpen: false, orbPanelClipped: false, compactSide: "left" } },
+  // A second click on the addressed chat shows it in the panel, above the same message box.
+  { name: "orb-chat", tab: "chat", fixture: "orb-chat", mode: "orb", expect: { orbChatVisible: true, orbChatMessages: 5, orbChatTitle: "Build review", orbChatAboveReply: true, orbReplyInputVisible: true, orbReplyTarget: "Build review", orbPanelClipped: false } },
   { name: "quick-reply-orb", tab: "chat", fixture: "orb-quick-reply", mode: "orb", expect: { orbRecentRows: 3, orbQuickReplyOpen: true, orbReplyTarget: "Build review", orbReplyInputVisible: true, orbPanelClipped: false } },
   { name: "edge", fixture: "edge-idle", mode: "edge", expect: { edgeLineWidth: 8, edgeState: "idle", edgePrimary: "rgb(217, 119, 87)" } },
   { name: "edge-hover", fixture: "edge-hover", mode: "edge", expect: { edgeHitActive: true, edgeLineWidth: 8, edgeState: "idle", edgePrimary: "rgb(217, 119, 87)" } },

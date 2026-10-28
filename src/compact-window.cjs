@@ -13,6 +13,8 @@ const COMPACT_SIZES = {
   orb: { width: 172, height: 128 },
   orbStatus: { width: 340, height: 128 },
   orbPanel: { width: 396, height: 184 },
+  // The panel with a chat open in it (orb-chat.js): its newest messages above the message box.
+  orbChat: { width: 420, height: 360 },
   // Wide enough for the edge glow to fade out; the line itself is still flush with the
   // screen edge.
   edge: { width: 88, height: 132 },
@@ -20,6 +22,7 @@ const COMPACT_SIZES = {
 
 function compactWindowSize(mode, status = {}) {
   if (mode === "edge") return COMPACT_SIZES.edge;
+  if (status.expanded && status.chat) return COMPACT_SIZES.orbChat;
   if (status.expanded) return COMPACT_SIZES.orbPanel;
   if (status.active) return COMPACT_SIZES.orbStatus;
   return COMPACT_SIZES.orb;
@@ -29,7 +32,7 @@ function compactWindowSize(mode, status = {}) {
 // keeps the circle where the user put it instead of walking it up the screen.
 function compactAnchor(mode, status, position) {
   if (mode !== "orb" || !status?.expanded) return position;
-  return resizeCompactAnchor(position, COMPACT_SIZES.orb.height, COMPACT_SIZES.orbPanel.height);
+  return resizeCompactAnchor(position, COMPACT_SIZES.orb.height, compactWindowSize(mode, status).height);
 }
 
 function compactTargetBounds({ mode, status = {}, saved, source, side, getWorkArea }) {
@@ -48,6 +51,7 @@ function compactTargetBounds({ mode, status = {}, saved, source, side, getWorkAr
     width,
     height,
     side,
+    whole: compactMode === "orb" && Boolean(status.expanded && status.chat),
   });
 }
 

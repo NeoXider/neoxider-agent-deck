@@ -355,7 +355,7 @@ test("live tool calls become named cards and split the streaming answer around t
 test("compact status IPC is skipped while its bounded presentation is unchanged", () => {
   const sync = renderer.slice(renderer.indexOf("function syncCompactStatus"), renderer.indexOf("function syncActivityCard"));
   assert.match(renderer, /compactStatusIpcSignature: ""/);
-  assert.match(sync, /JSON\.stringify\(\[active, expanded, label, text\]\)/);
+  assert.match(sync, /JSON\.stringify\(\[active, expanded, chatOpen, label, text\]\)/);
   assert.match(sync, /ipcSignature !== state\.compactStatusIpcSignature/);
   assert.match(sync, /state\.compactStatusIpcSignature = ipcSignature/);
   assert.match(sync, /window\.widget\.setCompactStatus\(compactStatus\)/);
@@ -471,10 +471,12 @@ test("collapsed pet exposes a scrolling list of recent sessions and inline quick
   assert.match(renderer, /recentReplySessions\(state\.dashboard\?\.sessions, COMPACT_RECENT_LIMIT\)/);
   assert.match(renderer, /const COMPACT_RECENT_LIMIT = 8;/);
   assert.match(renderer, /const badgeCount = runningCount;/);
-  // The arrow opens the chat; so does a second click on the chat already addressed. Either way
-  // the chat remembers it came from the avatar, so it can fold back into it.
-  assert.match(renderer, /openCompactSession\(session\.sessionId, \{ fromAvatar: true \}\)/);
-  assert.match(renderer, /if \(state\.compactReplyOpen && session\.sessionId === state\.compactReplySessionId\) openCompactSession\(session\.sessionId, \{ fromAvatar: true \}\)/);
+  // A second click on the chat already addressed shows it in the panel, above the same message
+  // box (orb-chat.js); the arrow opens the full chat.
+  assert.match(renderer, /if \(state\.compactReplyOpen && session\.sessionId === state\.compactReplySessionId\) openOrbChat\(session\.sessionId\)/);
+  assert.match(renderer, /open\.addEventListener\("click", \(\) => openCompactSession\(session\.sessionId\)\.catch\(showError\)\)/);
+  // The panel's chat stays on its conversation after a send instead of folding away.
+  assert.match(renderer, /if \(state\.compactChatOpen\) \{\s+state\.compactReplyBusy = false;\s+syncCompactStatus\(\);\s+noteOrbChatSent\(sessionId, text\);/);
   assert.match(renderer, /if \(state\.collapseAfterSend && state\.windowMode === "full" && state\.returnToAvatarSessionId === result\.sessionId\)/);
   assert.match(renderer, /openCompactReply\(session\.sessionId\)/);
   // Restore first, then select; the hidden unfold waits for the chat to be drawn.

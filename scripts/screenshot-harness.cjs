@@ -576,6 +576,14 @@ function attachScreenshotHarness({
               const rect = input?.getBoundingClientRect();
               return Boolean(rect && rect.width > 0 && rect.height > 0 && !input.closest('[hidden]'));
             })(),
+            orbChatVisible: (() => { const chat = document.querySelector('#orbChat'); return Boolean(chat && !chat.hidden && chat.getBoundingClientRect().height > 60); })(),
+            orbChatMessages: document.querySelectorAll('#orbChatLog .orb-chat-message, #orbChatLog .orb-chat-tool').length,
+            orbChatTitle: document.querySelector('#orbChatTitle')?.textContent || '',
+            orbChatAboveReply: (() => {
+              const log = document.querySelector('#orbChatLog')?.getBoundingClientRect();
+              const form = document.querySelector('#orbReplyForm')?.getBoundingClientRect();
+              return Boolean(log && form && log.height > 80 && log.bottom <= form.top + 1);
+            })(),
             orbPanelClipped: (() => {
               const panel = document.querySelector('#orbStatus');
               const rect = panel?.getBoundingClientRect();

@@ -14,6 +14,21 @@ test("the orb has one size per thing it is showing", () => {
   assert.deepEqual(compactWindowSize("orb", { expanded: true }), COMPACT_SIZES.orbPanel);
   // Edge is one line whatever the status says.
   assert.deepEqual(compactWindowSize("edge", { expanded: true }), COMPACT_SIZES.edge);
+  // A chat open in the panel is taller; without the panel there is no chat to show.
+  assert.deepEqual(compactWindowSize("orb", { expanded: true, chat: true }), COMPACT_SIZES.orbChat);
+  assert.deepEqual(compactWindowSize("orb", { chat: true }), COMPACT_SIZES.orb);
+});
+
+test("a chat in the panel grows around the circle and stays on the screen whole", () => {
+  const saved = { x: 0, y: 400, side: "right" };
+  assert.equal(compactAnchor("orb", { expanded: true, chat: true }, saved).y, 400 - (360 - 128) / 2);
+  // Parked on the bottom edge: the panel may hang off the screen, the chat may not.
+  const low = { x: 0, y: workArea.y + workArea.height - COMPACT_SIZES.orb.height, side: "right" };
+  const panel = compactTargetBounds({ mode: "orb", status: { expanded: true }, saved: low, source, side: "right", getWorkArea });
+  const chat = compactTargetBounds({ mode: "orb", status: { expanded: true, chat: true }, saved: low, source, side: "right", getWorkArea });
+  assert.ok(panel.y + panel.height > workArea.y + workArea.height, "the plain panel keeps its old overhang");
+  assert.equal(chat.y + chat.height, workArea.y + workArea.height, "the chat's message box stays on the screen");
+  assert.equal(chat.x + chat.width, panel.x + panel.width, "the avatar's side stays flush");
 });
 
 test("the saved anchor is kept in collapsed coordinates", () => {

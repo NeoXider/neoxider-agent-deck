@@ -548,12 +548,12 @@ function registerIpcHandlers({
     const wasExpanded = previous.expanded;
     const compactStatus = {
       active: Boolean(value && value.active),
-      expanded: Boolean(value && value.expanded),
+      expanded: Boolean(value && value.expanded), chat: Boolean(value && value.expanded && value.chat),
       label: String(value && value.label || "Ready").slice(0, 80),
       text: String(value && value.text || "").slice(0, 180),
     };
     setCompactStatus(compactStatus);
-    const changed = wasActive !== compactStatus.active || wasExpanded !== compactStatus.expanded;
+    const changed = wasActive !== compactStatus.active || wasExpanded !== compactStatus.expanded || Boolean(previous.chat) !== compactStatus.chat;
     if (getWindowMode() === "orb" && changed) petRoamer?.hold();
     if (getWindowMode() === "orb" && changed && !getCompactDragOrigin()) {
       applyWindowMode("orb", { captureCurrent: false, persist: false, preserveCompactPosition: true });

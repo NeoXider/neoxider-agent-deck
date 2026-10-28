@@ -333,6 +333,15 @@
       <div id="orbStatus" class="orb-status" aria-live="polite">
         <button id="orbStatusCard" class="orb-status-card" type="button" title="Open this session" aria-label="Open this session"><b id="orbStatusLabel">Working</b><small id="orbStatusText">Waiting for the model…</small></button>
         <button id="orbStatusAction" class="orb-status-action" type="button" title="Reply" aria-label="Reply to this session"><svg class="ui-icon"><use href="#icon-chat"/></svg></button>
+        <div id="orbChat" class="orb-chat" hidden>
+          <div class="orb-chat-head">
+            <button id="orbChatBack" class="orb-chat-back" type="button" title="Back to recent chats" aria-label="Back to recent chats"><svg class="ui-icon"><use href="#icon-back"/></svg></button>
+            <img id="orbChatAvatar" class="orb-session-avatar" src="assets/neoxider-github.png" alt="" />
+            <span class="orb-chat-name"><b id="orbChatTitle">Chat</b><small id="orbChatMeta">idle</small></span>
+            <button id="orbChatFull" class="orb-session-open" type="button" title="Open in the full chat" aria-label="Open in the full chat"><svg class="ui-icon"><use href="#icon-open"/></svg></button>
+          </div>
+          <div id="orbChatLog" class="orb-chat-log" role="log" aria-label="Chat messages"></div>
+        </div>
         <div id="orbSessionList" class="orb-session-list" role="list" aria-label="Recent session replies"></div>
         <form id="orbReplyForm" class="orb-reply-form" aria-label="Quick reply" hidden>
           <b id="orbReplyTitle" class="orb-reply-target">Quick reply</b>
@@ -367,6 +376,7 @@
     <script src="tasks-panel.js"></script>
     <script src="harness-panel.js"></script>
     <script src="mini-chat.js"></script>
+    <script src="orb-chat.js"></script>
     <script src="session-stats.js"></script>
   <script src="model-pricing.js"></script>
     <script src="clipboard-attachments.js"></script>

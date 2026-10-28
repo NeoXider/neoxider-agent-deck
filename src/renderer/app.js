@@ -80,12 +80,14 @@ const state = {
   compactHistoryOpen: false,
   compactReplySessionId: null,
   compactReplyOpen: false,
+  compactChatOpen: false,
   compactReplyBusy: false,
   compactReplyError: "",
   compactSessionSignature: "",
   compactStatusDomSignature: "",
   compactStatusIpcSignature: "",
   compactStatusExpanded: false,
+  compactStatusChat: false,
   compactResizeTimer: null,
   compactHitAreaSignature: "",
   // Questions the agent is waiting on, as question-relay.cjs holds them, oldest first.
@@ -646,9 +648,9 @@ function renderCompactSessions() {
     pick.type = "button";
     pick.className = "orb-session-pick";
     // The first click addresses the message box to the chat; a second click on the chat
-    // already addressed opens it in the full widget.
+    // already addressed shows it right here, above the same box (orb-chat.js).
     const addressed = state.compactReplyOpen && session.sessionId === state.compactReplySessionId;
-    pick.title = addressed ? `Open ${session.title}` : `Write to ${session.title}`;
+    pick.title = addressed ? `Show ${session.title} here` : `Write to ${session.title}`;
     pick.setAttribute("aria-label", pick.title);
     const avatar = document.createElement("img");
     avatar.className = "orb-session-avatar";
@@ -668,16 +670,17 @@ function renderCompactSessions() {
     copy.append(heading, preview);
     pick.append(avatar, copy);
     pick.addEventListener("click", () => {
-      if (state.compactReplyOpen && session.sessionId === state.compactReplySessionId) openCompactSession(session.sessionId, { fromAvatar: true }).catch(showError);
+      if (state.compactReplyOpen && session.sessionId === state.compactReplySessionId) openOrbChat(session.sessionId);
       else openCompactReply(session.sessionId);
     });
+    // The arrow is the full chat: the whole widget, not the small window.
     const open = document.createElement("button");
     open.type = "button";
     open.className = "orb-session-open";
-    open.title = `Open ${session.title}`;
-    open.setAttribute("aria-label", `Open ${session.title} in the widget`);
+    open.title = `Open ${session.title} in the full chat`;
+    open.setAttribute("aria-label", open.title);
     open.append(createIcon("open"));
-    open.addEventListener("click", () => openCompactSession(session.sessionId, { fromAvatar: true }).catch(showError));
+    open.addEventListener("click", () => openCompactSession(session.sessionId).catch(showError));
     row.append(pick, open);
     root.append(row);
   });
@@ -689,6 +692,9 @@ function syncCompactStatus() {
   const preview = compactPreviewEntry();
   const compactSessions = renderCompactSessions();
   const expanded = state.compactHistoryOpen || state.compactReplyOpen;
+  // A chat shown in the panel goes with the panel.
+  if (!expanded) state.compactChatOpen = false;
+  const chatOpen = expanded && state.compactChatOpen;
   // Avatar mode is collapsed unless the user opens it. Activity, a finished turn and an
   // offline Harness never widen the orb on their own: they show as the ring colour, the count
   // on the expand button and the avatar's own look. An offline Harness says nothing beside the
@@ -717,6 +723,7 @@ function syncCompactStatus() {
     state.compactStatusClosing,
     state.compactHistoryOpen,
     state.compactReplyOpen,
+    chatOpen,
     state.compactErrorUnread,
     compactButtonLabel,
     badgeCount,
@@ -733,6 +740,7 @@ function syncCompactStatus() {
     document.body.classList.toggle("orb-status-closing", state.compactStatusClosing);
     document.body.classList.toggle("orb-history-open", state.compactHistoryOpen);
     document.body.classList.toggle("orb-reply-open", state.compactReplyOpen);
+    document.body.classList.toggle("orb-chat-open", chatOpen);
     document.body.classList.toggle("compact-error-unread", state.compactErrorUnread);
     document.body.classList.toggle("orb-has-badge", !expanded && badgeCount > 0);
     document.body.classList.toggle("orb-notification-question", statusKind === "question");
@@ -746,7 +754,8 @@ function syncCompactStatus() {
     $("#orbStatusCard").disabled = !preview?.sessionId && !state.selectedSessionId;
     $("#orbStatusAction").querySelector("use")?.setAttribute("href", "#icon-chat");
     // The list and the message box under it are one panel: open it and you can write.
-    $("#orbSessionList").hidden = !expanded;
+    $("#orbSessionList").hidden = !expanded || chatOpen;
+    $("#orbChat").hidden = !chatOpen;
     $("#orbReplyForm").hidden = !expanded;
     $("#orbReplyInput").placeholder = replySession ? `Message ${compactText(replySession.title, 40)}…` : "Message…";
     compactButton.classList.toggle("active", expanded);
@@ -768,11 +777,13 @@ function syncCompactStatus() {
     schedulePublishCompactHitAreas();
   }
   publishPetContext();
-  const compactStatus = { active, expanded, label, text };
-  const ipcSignature = JSON.stringify([active, expanded, label, text]);
+  const compactStatus = { active, expanded, chat: chatOpen, label, text };
+  const ipcSignature = JSON.stringify([active, expanded, chatOpen, label, text]);
   if (ipcSignature !== state.compactStatusIpcSignature) {
     const previousExpanded = state.compactStatusExpanded;
+    const previousChat = state.compactStatusChat;
     state.compactStatusExpanded = expanded;
+    state.compactStatusChat = chatOpen;
     state.compactStatusIpcSignature = ipcSignature;
     // Opening quick reply takes the orb from 172 px to 460 px, and that resize happens in
     // the main process. The DOM already showed the wide layout, so for a frame or two it
@@ -781,7 +792,7 @@ function syncCompactStatus() {
     //
     // setCompactStatus is an invoke, so the native resize can be awaited: the panel is
     // held back until the window is the size it is going to be, then animates in.
-    const resizing = expanded !== previousExpanded;
+    const resizing = expanded !== previousExpanded || chatOpen !== previousChat;
     const resizeSequence = resizing ? ++compactResizeSequence : compactResizeSequence;
     let settled = !resizing;
     const settle = () => {
@@ -811,6 +822,7 @@ function syncCompactStatus() {
       if (state.compactStatusIpcSignature !== ipcSignature) return;
       state.compactStatusIpcSignature = "";
       state.compactStatusExpanded = previousExpanded;
+      state.compactStatusChat = previousChat;
     });
   }
 }
@@ -6866,6 +6878,16 @@ async function sendCompactReply() {
     if (queueingBehindTurn) trackQueuedPrompt(sessionId, { text }, queueRevisionAtSubmit);
     if (chatVisual && !queueingBehindTurn) chatVisual.noteSendAccepted(sessionId);
     input.value = "";
+    // With the chat shown in the panel, the panel stays on it: the message shows there at
+    // once and the answer arrives in it.
+    if (state.compactChatOpen) {
+      state.compactReplyBusy = false;
+      syncCompactStatus();
+      noteOrbChatSent(sessionId, text);
+      showAcceptedSendState(sessionId, queueingBehindTurn);
+      await refresh({ afterCurrent: true });
+      return;
+    }
     state.compactReplyOpen = false;
     state.compactHistoryOpen = false;
     state.compactReplyBusy = false;
@@ -7040,6 +7062,7 @@ async function performRefresh() {
       state.dashboardInitialized = false;
     }
     syncCompactStatus();
+    if (state.compactChatOpen) loadOrbChat();
     renderOfflineBanner();
     if (dashboard.harness && !state.harnessStarting) {
       if ($("#offlineBannerText").textContent !== "Harness is offline") $("#offlineBannerText").textContent = "Harness is offline";
@@ -9694,7 +9717,7 @@ if (screenshotFixture) {
         ].filter(Boolean) },
         { role: "user", text: "", attachments: [{ kind: "reference", previewKind: "video", name: "agent-mode-demo.mp4" }] },
       ]);
-    } else if (["orb-recent-three", "orb-recent-three-left", "orb-quick-reply"].includes(screenshotFixture)) {
+    } else if (["orb-recent-three", "orb-recent-three-left", "orb-quick-reply", "orb-chat"].includes(screenshotFixture)) {
       state.dashboard = { harness: true, sessions: [
         { sessionId: "demo-build", title: "Build review", updatedAt: Date.now(), running: false, state: "idle", preview: "Windows package passed the final verification.", projections: { values: {} }, subagents: [] },
         { sessionId: "demo-unity", title: "Unity gameplay", updatedAt: Date.now() - 1000, running: false, state: "idle", preview: "Play Mode checks completed successfully.", projections: { values: {} }, subagents: [] },
@@ -9706,7 +9729,16 @@ if (screenshotFixture) {
       state.compactReplyOpen = false;
       if (screenshotFixture === "orb-recent-three-left") applyCompactSide("left");
       if (screenshotFixture === "orb-quick-reply") openCompactReply("demo-build");
-      else syncCompactStatus();
+      else if (screenshotFixture === "orb-chat") {
+        // The second click on a chat: it shows in the panel, above the message box.
+        showOrbChatFixture("demo-build", [
+          { role: "user", text: "Package the Windows build and run the final verification." },
+          { role: "tool", name: "npm run build:win", status: "completed" },
+          { role: "assistant", text: "Windows package passed.", html: "<p>Windows package passed the final verification. <strong>NeoXider-Agent-Deck-setup.exe</strong> is in <code>release/</code>.</p>" },
+          { role: "user", text: "Upload it to the draft release." },
+          { role: "assistant", text: "Uploaded.", html: "<p>Uploaded: the draft now carries the installer, the portable build and their checksums.</p>" },
+        ]);
+      } else syncCompactStatus();
     } else if (screenshotFixture === "orb-notification") {
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-notification", title: "Unity gameplay pass", updatedAt: Date.now(), running: false, state: "idle", preview: "The Play Mode verification finished successfully.", projections: { values: {} }, subagents: [] }] };
       state.selectedSessionId = "demo-notification";
