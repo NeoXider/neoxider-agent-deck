@@ -504,6 +504,7 @@ function attachScreenshotHarness({
             statsCardVisible: Boolean(document.querySelector('.chat-tooltip.stats-card:popover-open')),
             statsCardSections: document.querySelectorAll('.chat-tooltip.stats-card .stats-section').length,
             statsCardSpend: document.querySelector('.chat-tooltip.stats-card .stats-hero b')?.textContent || '',
+            statsCardSpendLines: document.querySelector('.chat-tooltip.stats-card .stats-hero b')?.getClientRects().length || 0,
             sessionPickerGroups: document.querySelectorAll('#sessionOptions > .picker-session-group').length,
             chatSessionPickerAbsent: !document.querySelector('#sessionButton, #sessionMenu, #sessionOptions'),
             agentCollapsedSessionGroups: document.querySelectorAll('#sessions > .session-group.collapsed').length,

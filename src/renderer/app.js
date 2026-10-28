@@ -10086,18 +10086,24 @@ if (screenshotFixture) {
           panel.scrollTop += $("#harnessRuntimeSettings").getBoundingClientRect().top - panel.getBoundingClientRect().top - 60;
         });
       }
-    } else if (screenshotFixture === "context-stats") {
-      // The context meter's card: what this chat has spent and used.
+    } else if (["context-stats", "context-stats-local"].includes(screenshotFixture)) {
+      // The context meter's card: what this chat has spent and used. The local variant runs a
+      // Qwen3.8 Flash build in LM Studio, priced as that model, whose long note once broke the amount.
       setTab("chat");
       const now = Date.now();
+      const local = screenshotFixture === "context-stats-local";
       state.dashboard = { harness: true, sessions: [{
         sessionId: "stats-demo", title: "Release verification", updatedAt: now - 40_000, createdAt: now - 3 * 3600_000, running: false, state: "idle", lastRunMs: 412_000,
         backgroundJobCount: 1,
         projections: { values: {
           contextPressure: { projectedTokens: 88_400, contextWindow: 200_000 },
           contextBreakdown: { systemTokens: 6_800, toolsTokens: 14_200, messageTokens: 67_400 },
-          modelSelection: { lastUsed: { provider: "anthropic", model: "claude-opus-5-5", reasoningEffort: "high" } },
-          tokenUsage: { uncachedInputTokens: 18_420, outputTokens: 96_310, cacheReadTokens: 6_412_000, cacheWriteTokens: 214_800 },
+          modelSelection: { lastUsed: local
+            ? { provider: "lmstudio", model: "qwen3.8-flash-next-iq3_xxs-262k", reasoningEffort: "xhigh" }
+            : { provider: "anthropic", model: "claude-opus-5-5", reasoningEffort: "high" } },
+          tokenUsage: local
+            ? { uncachedInputTokens: 28_695_631, outputTokens: 2_061_409, cacheReadTokens: 161_761_750, cacheWriteTokens: 0 }
+            : { uncachedInputTokens: 18_420, outputTokens: 96_310, cacheReadTokens: 6_412_000, cacheWriteTokens: 214_800 },
         } },
         subagents: [{ kind: "child", sessionId: "stats-child", title: "Docs", activity: "idle" }],
       }] };

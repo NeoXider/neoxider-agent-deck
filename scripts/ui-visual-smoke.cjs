@@ -35,7 +35,9 @@ const cases = [
   { name: "harness-update-chip", tab: "chat", fixture: "harness-update-chip", width: 420, height: 560, expect: { harnessUpdateChipVisible: true, harnessUpdateChipText: "DSH 0.2.1", titlebarOverlap: false } },
   { name: "harness-update-chip-360", tab: "chat", fixture: "harness-update-chip", width: 360, height: 500, expect: { harnessUpdateChipVisible: true, titlebarOverlap: false } },
   // Hovering the context meter: spend, turns, tokens, cache and time for the open chat.
-  { name: "context-stats", tab: "chat", fixture: "context-stats", width: 420, height: 620, expect: { statsCardVisible: true, statsCardSpend: "~$4.36" }, min: { statsCardSections: 4 } },
+  { name: "context-stats", tab: "chat", fixture: "context-stats", width: 420, height: 620, expect: { statsCardVisible: true, statsCardSpend: "~$4.36", statsCardSpendLines: 1 }, min: { statsCardSections: 4 } },
+  // A local Qwen3.8 Flash build at Qwen's list price: the long note beside the amount wraps, the amount does not.
+  { name: "context-stats-local", tab: "chat", fixture: "context-stats-local", width: 420, height: 620, expect: { statsCardVisible: true, statsCardSpend: "~$7.86", statsCardSpendLines: 1 }, min: { statsCardSections: 4 } },
   { name: "offline", tab: "chat", fixture: "offline", expect: { offlineBanners: 1, startHarnessButtons: 1, startHarnessText: "Start", startHarnessButtonVisible: true, startHarnessButtonDisabled: false, startHarnessTextPainted: true, headerStateText: "", contextUnavailable: true }, min: { composerTextareaWidth: 220, startHarnessTextWidth: 18, startHarnessBrightPixels: 20 } },
   { name: "harness-crash", tab: "chat", fixture: "harness-crash", expect: { offlineBanners: 1, startHarnessText: "Restart now", startHarnessButtonVisible: true, startHarnessButtonDisabled: false } },
   { name: "harness-crash-gave-up", tab: "chat", fixture: "harness-crash-gave-up", expect: { offlineBanners: 1, startHarnessText: "Restart", startHarnessButtonVisible: true } },

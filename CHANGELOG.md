@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.8] - 2026-10-28
+
+### Fixed
+
+- The amount in the context card stays on one line. A long note beside it - "spent at list prices · as Qwen3.8 Flash" for a local build - squeezed it, and ~$7.86 broke into ~$7.8 and a 6 under it. The note wraps now, the amount does not.
+
 ## [1.2.7] - 2026-10-28
 
 ### Fixed
