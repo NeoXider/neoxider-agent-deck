@@ -291,7 +291,7 @@ remoteMux = createRemoteMuxClient({
   onJobs: publishJobs,
   getTransport: () => api.ensureRemote(), addressFor: (sessionId) => api.sessionAddress(sessionId),
   onQueue: publishQueue,
-  onLiveEvent: publishLiveEvent,
+  onLiveEvent: (frame) => { api.noteLiveEvent(frame?.sessionId); publishLiveEvent(frame); },
 });
 // The agent's questions, answered in Deck instead of only in the browser (question-relay.cjs).
 const harnessRuntime = require("./harness-runtime.cjs").createHarnessRuntime({ onState: (state) => sendToRenderer("harness-runtime", state) });

@@ -897,7 +897,13 @@ function syncActivityCard() {
   renderActivityMeta(showCard);
   const signature = showCard ? JSON.stringify([true, activity?.kind || "", activity?.label || "", activity?.text || ""]) : "hidden";
   if (signature === state.activityCardSignature) return false;
-  const messageLayout = captureMessageLayoutSnapshot();
+  // Only a change of the card's height moves the log under it: the card appearing or going,
+  // its open body (which shows the whole text), or the compact Thinking row. The text of a
+  // closed one-line card changes with every reasoning chunk, and capturing and restoring the
+  // log's position each time forced a layout of the whole transcript - ~20 ms on a long chat,
+  // several times a second (npm run test:scale).
+  const resizes = card.hidden === showCard || card.open || card.classList.contains("thinking-activity") !== thinking;
+  const messageLayout = resizes ? captureMessageLayoutSnapshot() : null;
   state.activityCardSignature = signature;
   card.hidden = !showCard;
   card.setAttribute("aria-hidden", String(!showCard));
@@ -4230,6 +4236,7 @@ function createMessageBubble(message, bubble = document.createElement("div")) {
   delete bubble.dataset.formatted;
   delete bubble.dataset.liveSeq;
   liveBubbleText.delete(bubble);
+  liveMarkdownParts.delete(bubble);
   bubble.replaceChildren();
   if (message.role === "error" && /\b429\b/.test(message.text || "")) {
     bubble.classList.add("provider-rate-limit");
@@ -4585,6 +4592,41 @@ function paintLiveText(bubble, text) {
   return true;
 }
 
+// A streaming answer is formatted in two parts: the blocks it has finished - everything before
+// the last top-level block that starts after a blank line outside a code fence - and the block
+// still being written. Finished blocks are formatted once and stay in the DOM; each update
+// formats and replaces only the tail. Formatting the whole answer on every update made the
+// main process re-run Markdown over up to 60,000 characters several times a second, and the
+// renderer laid the whole bubble out again each time: with 13 chats streaming (npm run
+// test:scale) that was 1.6 s of forced layout in 8 s, and frames of 50-130 ms while reading.
+// The finished message still comes back from history formatted whole.
+const liveMarkdownParts = new WeakMap();
+
+function liveStableBoundary(text) {
+  let boundary = 0;
+  let fence = "";
+  let blankBefore = false;
+  for (let start = 0, end = text.indexOf("\n"); end >= 0; start = end + 1, end = text.indexOf("\n", start)) {
+    const line = text.slice(start, end);
+    const blank = !line.trim();
+    // Only a line flush with the margin starts a new top-level block: an indented one after a
+    // blank line still belongs to the list item or quote above it.
+    if (!fence && blankBefore && !blank && !/^[ \t]/.test(line)) boundary = start;
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker && !fence) fence = marker[0];
+    else if (marker && marker[0] === fence) fence = "";
+    blankBefore = blank && !fence;
+  }
+  return boundary;
+}
+
+function liveMarkdownNodes(html) {
+  const holder = document.createElement("div");
+  holder.innerHTML = html;
+  if (html.includes("<pre")) decorateCodeBlocks(holder);
+  return [...holder.childNodes];
+}
+
 function scheduleLiveMarkdown(bubble, text) {
   if (typeof window.widget?.renderMarkdown !== "function" || text.length > LIVE_MARKDOWN_MAX_CHARS) return;
   liveMarkdownPending = { bubble, text };
@@ -4594,23 +4636,43 @@ function scheduleLiveMarkdown(bubble, text) {
     while (liveMarkdownPending) {
       const job = liveMarkdownPending;
       liveMarkdownPending = null;
+      const parts = job.bubble.dataset.formatted ? liveMarkdownParts.get(job.bubble) : null;
+      const known = parts && job.text.startsWith(parts.stableText) ? parts.stableText : "";
+      const boundary = Math.max(known.length, liveStableBoundary(job.text));
+      const segment = job.text.slice(known.length, boundary);
+      const tail = job.text.slice(boundary);
       let html = null;
       try {
-        html = await window.widget.renderMarkdown(job.text);
+        html = await Promise.all([segment ? window.widget.renderMarkdown(segment) : "", tail ? window.widget.renderMarkdown(tail) : ""]);
       } catch {
         html = null;
       }
-      if (typeof html === "string" && job.bubble.isConnected && liveBubbleText.get(job.bubble) === job.text) applyLiveMarkdown(job.bubble, html);
+      if (html && html.every((part) => typeof part === "string") && job.bubble.isConnected && liveBubbleText.get(job.bubble) === job.text) {
+        applyLiveMarkdown(job.bubble, { reset: !known, stableText: job.text.slice(0, boundary), stableHtml: html[0], tailHtml: html[1] });
+      }
     }
     liveMarkdownInFlight = false;
   })();
 }
 
-function applyLiveMarkdown(bubble, html) {
+function applyLiveMarkdown(bubble, { reset, stableText, stableHtml, tailHtml }) {
+  let parts = liveMarkdownParts.get(bubble);
+  if (reset || !parts || !bubble.dataset.formatted) {
+    parts = { stableText: "", stableCount: 0 };
+    liveMarkdownParts.set(bubble, parts);
+  }
+  bubble.querySelector(".live-caret")?.remove();
+  // The finished blocks are the first stableCount nodes; whatever follows is the old tail.
+  while (bubble.childNodes.length > parts.stableCount) bubble.lastChild.remove();
+  if (stableHtml) {
+    const nodes = liveMarkdownNodes(stableHtml);
+    bubble.append(...nodes);
+    parts.stableCount += nodes.length;
+  }
+  parts.stableText = stableText;
+  if (tailHtml) bubble.append(...liveMarkdownNodes(tailHtml));
   bubble.classList.remove("plain");
   bubble.dataset.formatted = "1";
-  bubble.innerHTML = html;
-  if (html.includes("<pre")) decorateCodeBlocks(bubble);
   liveCaretHost(bubble).append(liveCaret());
 }
 

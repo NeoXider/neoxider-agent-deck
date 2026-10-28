@@ -32,6 +32,9 @@ const {
 const { childrenByParent, subagentTree } = require("./subagent-tree.cjs");
 const { readHistory } = require("./history-loader.cjs");
 
+// Two dashboard polls: a running chat whose stream spoke within this long is not re-read.
+const LIVE_EVENT_FRESH_MS = 5000;
+
 class HarnessApi {
   constructor(baseUrl = "http://127.0.0.1:3080", fetchImpl = globalThis.fetch, options = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
@@ -48,6 +51,8 @@ class HarnessApi {
     this.fullAccessSessions = new Set();
     // childSessionId -> parentSessionId, from the last session list. See sessionAddress.
     this.subagentParents = new Map();
+    // sessionId -> when its live follow stream last delivered an event. See enrichSession.
+    this.liveEventAt = new Map();
     this.workspaceSnapshot = { items: [], archivedSessionIds: [] };
     // Two Harness generations speak different wire protocols. The probe result is
     // cached for the process lifetime once it is not "down", so a harness that comes
@@ -95,7 +100,7 @@ class HarnessApi {
     this.baseUrl = next;
     this._generationPromise = null;
     this._remoteTransport = null;
-    for (const cache of [this.sessionStateCache, this.historyCache, this.backgroundJobs, this.fullAccessSessions, this.subagentParents]) cache.clear();
+    for (const cache of [this.sessionStateCache, this.historyCache, this.backgroundJobs, this.fullAccessSessions, this.subagentParents, this.liveEventAt]) cache.clear();
     this.attachmentCache?.clear();
     this.workspaceSnapshot = { items: [], archivedSessionIds: [], pinnedSessionIds: [] };
     return true;
@@ -339,7 +344,16 @@ class HarnessApi {
       // The selected session is always re-read: its preview, activity and clock
       // are what the open chat renders, and session.list does not promise to
       // bump updatedAt for every new message. Anything else keeps the cache.
-      const shouldReadState = shouldEnrich && !refusalHolds && (!cachedState || cachedState.updatedAt !== session.updatedAt
+      // Once a running turn's start is known, later polls only need its newest events. Reading
+      // 120 messages of a long, tool-heavy chat parsed some 8 MB on the main process every poll.
+      const knownTurn = remoteGeneration && session.running && Number.isFinite(cachedState?.runningSince);
+      // A running chat whose follow stream (remote-mux) delivered an event moments ago is being
+      // watched live already: the renderer paints its activity and text from those frames, and
+      // its clock is cached. Each history read opens a follow snapshot, which DSH answers by
+      // decoding the log, so twenty agents at work cost twenty decodes every 2.5 s on top of
+      // their own streams. A stream that has gone quiet falls back to reading.
+      const streamedLive = knownTurn && now - (this.liveEventAt.get(session.sessionId) ?? -Infinity) < LIVE_EVENT_FRESH_MS;
+      const shouldReadState = shouldEnrich && !refusalHolds && !streamedLive && (!cachedState || cachedState.updatedAt !== session.updatedAt
         || session.sessionId === selectedSessionId);
       // Children can change activity without changing the parent's updatedAt.
       // Refresh their roster on a bounded cadence independent of history polling.
@@ -348,9 +362,6 @@ class HarnessApi {
         || now - cachedState.subagentsReadAt >= this.subagentRefreshMs);
       let degraded = refusalHolds;
       let historyRefusal = refusalHolds ? cachedState.historyRefusal : null;
-      // Once a running turn's start is known, later polls only need its newest events. Reading
-      // 120 messages of a long, tool-heavy chat parsed some 8 MB on the main process every poll.
-      const knownTurn = remoteGeneration && session.running && Number.isFinite(cachedState?.runningSince);
       const [catalog, historyValue] = await Promise.all([
         shouldReadSubagents
           ? this.listSubagents(session.sessionId).catch(() => {
@@ -634,8 +645,13 @@ class HarnessApi {
     return response;
   }
 
+  noteLiveEvent(sessionId) {
+    if (sessionId) this.liveEventAt.set(String(sessionId), this.now());
+  }
+
   forgetSession(sessionId) {
     const key = String(sessionId || "");
+    this.liveEventAt.delete(key);
     this.fullAccessSessions.delete(key);
     this.sessionStateCache.delete(key);
     this.historyCache.delete(key);

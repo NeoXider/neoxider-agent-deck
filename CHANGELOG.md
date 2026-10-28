@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-28
+
+### Changed
+
+- **Smooth with many chats streaming at once.** With thirteen chats streaming over a 2,400-message conversation, Deck spends about 0.4 s of eight seconds in long tasks instead of 2.1 s, and the slowest frames halve from 100 ms to 50 ms (`npm run test:scale`):
+  - A streaming answer is formatted a block at a time. The finished blocks are formatted once and stay; only the block still being written is formatted again on each update. Before, the whole answer went through Markdown and was laid out again several times a second, up to 60,000 characters at a time.
+  - The conversation no longer sizes the panel by its own content. Every streamed word made the panel measure the whole transcript again, 14–30 ms of layout per update on a long chat; it is about 2 ms now.
+  - The Thinking line no longer re-anchors the conversation on every reasoning chunk, only when it appears, goes or changes height.
+  - A running chat whose live stream spoke within the last few seconds is not re-read on every poll. Each read made DSH decode the chat's log, so twenty agents at work cost twenty decodes every 2.5 seconds on top of their own streams.
+- **A four-minute release gate.** `npm run test:gate` runs every suite and reports each one's time and what to rerun. The visual suite runs on a pool of workers (7.5 minutes down to about 2.5) and collects every failure instead of stopping at the first; failures are retried once, alone, at the end, and `node scripts/ui-visual-smoke.cjs --failed` reruns only them.
+
 ## [1.2.0] - 2026-10-28
 
 ### Added

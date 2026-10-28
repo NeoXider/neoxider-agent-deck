@@ -990,6 +990,29 @@ test("a running chat whose turn start is known is polled with a short read that 
   assert.deepEqual(depths, [120, 24, 12]);
 });
 
+test("a running chat its live stream just spoke for is not re-read until the stream goes quiet", async () => {
+  let now = 1_000_000;
+  const api = new HarnessApi(undefined, legacyFetch, { now: () => now });
+  api.listSubagents = async () => ({ entries: [] });
+  let reads = 0;
+  api.readHistoryEvents = async () => { reads += 1; return { events: [{ event: { type: "turn/start", time: "2026-10-21T10:00:00.000Z" } }] }; };
+  const session = { sessionId: "busy", running: true, updatedAt: 1 };
+  await api.enrichSession(session, 0, new Map(), "busy", true);
+  assert.equal(reads, 1, "the first poll learns when the turn started");
+  api.noteLiveEvent("busy");
+  now += 2500;
+  const streamed = await api.enrichSession({ ...session, updatedAt: 2 }, 0, new Map(), "busy", true);
+  assert.equal(reads, 1, "a stream that spoke moments ago stands in for the read");
+  assert.equal(streamed.running, true);
+  assert.equal(streamed.runningSince, Date.parse("2026-10-21T10:00:00.000Z"), "the clock comes from the cache");
+  now += 6000;
+  await api.enrichSession({ ...session, updatedAt: 3 }, 0, new Map(), "busy", true);
+  assert.equal(reads, 2, "a quiet stream falls back to reading");
+  api.noteLiveEvent("idle-one");
+  await api.enrichSession({ sessionId: "idle-one", running: false, updatedAt: 4 }, 0, new Map(), null, true);
+  assert.equal(reads, 3, "a chat that is not running is read as before");
+});
+
 test("remote models keep the full host catalog and use the addressed session selection", async () => {
   const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
   const groups = [

@@ -2,7 +2,7 @@
   "name": "neoxider-agent-deck",
   "productName": "NeoXider Agent Deck",
   "desktopName": "dev.neoxider.agentdeck.desktop",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "A compact cross-platform desktop companion for DeepSeek Harness sessions, agents, and chat",
   "author": {
     "name": "NeoXider",
@@ -21,6 +21,7 @@
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
     "test:ui": "node scripts/ui-visual-smoke.cjs",
+    "test:gate": "node scripts/test-gate.cjs",
     "cover": "electron scripts/render-readme-cover.cjs",
     "smoke": "node scripts/live-smoke.cjs",
     "feature-smoke": "node scripts/feature-smoke.cjs",
@@ -44,6 +45,7 @@
     "test:stability": "electron scripts/transcript-stability-smoke.cjs && electron scripts/transcript-blank-viewport-smoke.cjs && electron scripts/attachment-layout-smoke.cjs && electron scripts/compaction-smoke.cjs",
     "test:live-transcript": "electron scripts/live-transcript-smoke.cjs",
     "test:performance": "electron scripts/widget-performance-smoke.cjs",
+    "test:scale": "electron scripts/scale-performance-smoke.cjs",
     "test:reasoning": "electron scripts/reasoning-controls-smoke.cjs",
     "test:harness": "node scripts/harness-e2e-smoke.cjs"
   },

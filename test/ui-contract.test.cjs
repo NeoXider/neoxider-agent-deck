@@ -1864,7 +1864,9 @@ test("the streaming answer is formatted as it arrives, through the same sanitize
   // the live one.
   const schedule = functionBody(renderer, "function scheduleLiveMarkdown(bubble, text)");
   assert.match(schedule, /if \(liveMarkdownInFlight\) return;/);
-  assert.match(schedule, /job\.bubble\.isConnected && liveBubbleText\.get\(job\.bubble\) === job\.text\) applyLiveMarkdown\(job\.bubble, html\);/);
+  assert.match(schedule, /job\.bubble\.isConnected && liveBubbleText\.get\(job\.bubble\) === job\.text\) \{\s*applyLiveMarkdown\(job\.bubble, \{ reset: !known,/);
+  // Only the block still being written is formatted again; finished blocks stay in the DOM.
+  assert.match(schedule, /const boundary = Math\.max\(known\.length, liveStableBoundary\(job\.text\)\);/);
   assert.match(renderer, /const LIVE_MARKDOWN_MAX_CHARS = 60000;/);
   // The caret goes inside the last paragraph or list item, not on a line of its own.
   assert.match(renderer, /liveCaretHost\(bubble\)\.append\(liveCaret\(\)\);/);
@@ -2258,10 +2260,15 @@ test("the visual runner forgives one flaky frame, loudly, and never a repeatable
   // A case is booted and photographed on a timer, so a loaded machine can capture it before
   // its first paint. One failure used to abort the run and silently skip every later case.
   assert.match(runner, /async function verifyCase\(testCase\)/);
-  assert.match(runner, /retried after: /);
+  // Cases run on a worker pool; every failure is collected, then retried alone at the end.
+  assert.match(runner, /await Promise\.all\(Array\.from\(\{ length: jobs \}/);
+  assert.match(runner, /const second = await runCase\(first\.testCase\);/);
+  assert.match(runner, /report\(second, " \(retry\)"\);/);
   assert.match(runner, /Passed on a second attempt: /);
-  // The second failure is the one that is thrown, with the first one attached.
-  assert.ok(runner.includes("secondError.message = `${secondError.message}\\n(first attempt: "), "the second failure carries the first");
+  // The second failure is the one reported, with the first one attached.
+  assert.ok(runner.includes("second.error.message = `${second.error.message}\\n(first attempt: "), "the second failure carries the first");
+  // A case that needs the window's focus never runs beside a sibling.
+  assert.match(runner, /selectedCases\.filter\(\(testCase\) => !testCase\.serial\)/);
   // And a strict run can refuse the second chance entirely.
   assert.match(runner, /const SMOKE_RETRIES = process\.env\.UI_SMOKE_RETRIES === "0" \? 0 : 1;/);
 });

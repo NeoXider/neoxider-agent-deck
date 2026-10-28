@@ -1,5 +1,6 @@
 const { spawn } = require("node:child_process");
-const { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync } = require("node:fs");
+const { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const electron = require("electron");
@@ -21,8 +22,8 @@ const cases = [
   // Agents in 1.1: Recent above the groups, newest first, a pinned chat on top of its group,
   // the Harness chip, and the card menu with its in-place delete confirmation.
   { name: "agents-recent", tab: "agents", fixture: "agents-recent", width: 380, height: 620, expect: { recentSessionCards: 4, pinnedSessionCards: 1, firstGroupedSession: "s-docs", harnessSourceLabel: "DeepSeek Harness", titlebarOverlap: false } },
-  { name: "session-menu", tab: "agents", fixture: "session-menu", width: 380, height: 620, expect: { floatingMenuItems: 3, floatingMenuConfirming: false } },
-  { name: "session-delete-confirm", tab: "agents", fixture: "session-delete-confirm", width: 380, height: 620, expect: { floatingMenuConfirming: true } },
+  { name: "session-menu", serial: true, tab: "agents", fixture: "session-menu", width: 380, height: 620, expect: { floatingMenuItems: 3, floatingMenuConfirming: false } },
+  { name: "session-delete-confirm", serial: true, tab: "agents", fixture: "session-delete-confirm", width: 380, height: 620, expect: { floatingMenuConfirming: true } },
   // A chat's subagents and background jobs, and a subagent opened as a chat of its own.
   { name: "subagents-panel", tab: "chat", fixture: "subagents-panel", width: 420, height: 620, expect: { tasksPanelOpen: true, taskRows: 6, jobOutputVisible: true } },
   { name: "subagent-chat", tab: "chat", fixture: "subagent-chat", width: 420, height: 560, expect: { subagentBarVisible: true, subagentComposerHidden: false, tasksPanelOpen: false } },
@@ -106,7 +107,7 @@ const cases = [
   { name: "model-error", tab: "chat", fixture: "model-error", expect: { modelSetupCards: 1, modelSetupActions: 2, closedModelLabel: "No model", closedModelVisible: true } },
   { name: "attachments", tab: "chat", fixture: "attachments", expect: { attachmentChips: 3, attachmentImages: 2, attachmentVideoThumbnails: 1, attachmentFallbackIcons: 1, sentAttachmentChips: 3, sentAttachmentImages: 1, attachmentOnlyBubbles: 1, sentAttachmentsWithinBubbles: true, attachmentRemoveActions: 3, attachmentAccessibleGroups: 3, attachmentHorizontalScroll: true, attachmentListWithinBar: true, attachmentsAboveComposer: true, composerUtilitiesStacked: true }, min: { attachmentPreviewMinWidth: 44, attachmentPreviewMinHeight: 40 }, max: { attachmentBarHeight: 56, sentAttachmentMaxWidth: 116 } },
   { name: "compact-attachments", tab: "chat", fixture: "attachments", width: 360, height: 500, expect: { attachmentChips: 3, attachmentImages: 2, attachmentVideoThumbnails: 1, attachmentFallbackIcons: 1, sentAttachmentChips: 3, sentAttachmentImages: 1, attachmentOnlyBubbles: 1, sentAttachmentsWithinBubbles: true, attachmentRemoveActions: 3, attachmentAccessibleGroups: 3, attachmentHorizontalScroll: true, attachmentListWithinBar: true, attachmentsAboveComposer: true, composerUtilitiesStacked: true }, min: { attachmentPreviewMinWidth: 44, attachmentPreviewMinHeight: 40 }, max: { attachmentBarHeight: 56, sentAttachmentMaxWidth: 104 } },
-  { name: "attachments-360", tab: "chat", fixture: "attachments", width: 360, height: 360, expect: { attachmentChips: 3, attachmentImages: 2, attachmentVideoThumbnails: 1, attachmentFallbackIcons: 1, sentAttachmentChips: 3, sentAttachmentImages: 1, attachmentOnlyBubbles: 1, sentAttachmentsWithinBubbles: true, attachmentRemoveActions: 3, attachmentAccessibleGroups: 3, attachmentHorizontalScroll: true, attachmentListWithinBar: true, attachmentsAboveComposer: true, composerUtilitiesStacked: true, titlebarOverlap: false }, min: { attachmentPreviewMinWidth: 44, attachmentPreviewMinHeight: 40, attachmentMessageSpace: 100 }, max: { attachmentBarHeight: 56, sentAttachmentMaxWidth: 104 } },
+  { name: "attachments-360", serial: true, tab: "chat", fixture: "attachments", width: 360, height: 360, expect: { attachmentChips: 3, attachmentImages: 2, attachmentVideoThumbnails: 1, attachmentFallbackIcons: 1, sentAttachmentChips: 3, sentAttachmentImages: 1, attachmentOnlyBubbles: 1, sentAttachmentsWithinBubbles: true, attachmentRemoveActions: 3, attachmentAccessibleGroups: 3, attachmentHorizontalScroll: true, attachmentListWithinBar: true, attachmentsAboveComposer: true, composerUtilitiesStacked: true, titlebarOverlap: false }, min: { attachmentPreviewMinWidth: 44, attachmentPreviewMinHeight: 40, attachmentMessageSpace: 100 }, max: { attachmentBarHeight: 56, sentAttachmentMaxWidth: 104 } },
   { name: "markdown-tools", tab: "chat", fixture: "markdown-tools", expect: { toolGroups: 1, toolCalls: 2, historicalReasoning: 0 } },
   { name: "thinking-chat", tab: "chat", fixture: "thinking", expect: { activityCardVisible: true, showThinkingChecked: true, thinkingClearOfMessages: true } },
   // Elapsed turn time and running background tasks in the panel the user watches during a
@@ -280,38 +281,104 @@ function assertSnappedLayout(testCase, audit) {
   }
 }
 
+// The suite used to run one case at a time and stop at the first failure: ~150 Electron boots
+// back to back, each about 3 s, and a failure late in the list cost a whole rerun to find the
+// next one. Cases are independent processes - each gets its own profile directory (see
+// user-data-migration.cjs) and its own window, and native occlusion is off for every Deck run
+// (preferFastScreenCapture) - so they run on a small pool of workers, every failure is
+// collected, and the failures are retried one at a time at the end, on a quiet machine, which
+// is what tells a load-induced flake from a defect.
+//
+//   node scripts/ui-visual-smoke.cjs                 every case
+//   node scripts/ui-visual-smoke.cjs chat edge       just these
+//   node scripts/ui-visual-smoke.cjs --failed        the ones that failed last time
+//   --jobs=N or UI_SMOKE_JOBS=N                      worker count (1 = the old serial run)
+const FAILED_LIST = path.join(root, "tmp", "ui-smoke-failed.json");
+
+function smokeJobs(argv = process.argv.slice(2), env = process.env) {
+  const flag = argv.find((arg) => arg.startsWith("--jobs="));
+  const requested = Number(flag ? flag.slice(7) : env.UI_SMOKE_JOBS);
+  if (Number.isInteger(requested) && requested > 0) return Math.min(requested, 8);
+  return Math.max(1, Math.min(4, Math.floor(os.cpus().length / 2)));
+}
+
+function selectCases(argv = process.argv.slice(2)) {
+  const names = argv.filter((arg) => !arg.startsWith("--"));
+  if (argv.includes("--failed")) {
+    let failed = [];
+    try { failed = JSON.parse(readFileSync(FAILED_LIST, "utf8")); } catch {}
+    names.push(...failed);
+  }
+  const requested = new Set(names);
+  if (!requested.size) return argv.includes("--failed") ? [] : cases;
+  const selected = cases.filter(({ name }) => requested.has(name));
+  if (selected.length !== requested.size) {
+    const known = new Set(selected.map(({ name }) => name));
+    throw new Error(`Unknown UI smoke case: ${[...requested].filter((name) => !known.has(name)).join(", ")}`);
+  }
+  return selected;
+}
+
+async function runCase(testCase) {
+  const started = Date.now();
+  try {
+    const audit = await verifyCase(testCase);
+    return { testCase, audit, ms: Date.now() - started };
+  } catch (error) {
+    return { testCase, error, ms: Date.now() - started };
+  }
+}
+
+const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
+
 async function main() {
   rmSync(output, { recursive: true, force: true });
   mkdirSync(output, { recursive: true });
-  const requested = new Set(process.argv.slice(2));
-  const selectedCases = requested.size ? cases.filter(({ name }) => requested.has(name)) : cases;
-  if (requested.size && selectedCases.length !== requested.size) {
-    const known = new Set(selectedCases.map(({ name }) => name));
-    throw new Error(`Unknown UI smoke case: ${[...requested].filter((name) => !known.has(name)).join(", ")}`);
-  }
-  const retried = [];
-  for (const testCase of selectedCases) {
-    let audit;
-    try {
-      audit = await verifyCase(testCase);
-    } catch (firstError) {
-      // One re-run, loudly. Each case boots a whole Electron and is captured on a timer, so on
-      // a loaded machine a case can be photographed before its first paint or before an async
-      // reply lands. A real defect fails the second run too; a flake does not, and one stray
-      // frame no longer aborts the suite and silently skips every case after it.
-      if (!SMOKE_RETRIES) throw firstError;
-      process.stdout.write(`\u21bb ${testCase.name} retried after: ${firstError.message.split("\n")[0]}\n`);
-      try {
-        audit = await verifyCase(testCase);
-      } catch (secondError) {
-        secondError.message = `${secondError.message}\n(first attempt: ${firstError.message.split("\n")[0]})`;
-        throw secondError;
-      }
-      retried.push(testCase.name);
+  const selectedCases = selectCases();
+  const jobs = Math.min(smokeJobs(), Math.max(1, selectedCases.length));
+  const began = Date.now();
+  // A case marked serial needs the window's focus for the whole run - a floating menu closes
+  // when another window takes it - so it runs alone after the pool, never beside a sibling.
+  const queue = selectedCases.filter((testCase) => !testCase.serial);
+  const results = [];
+  const report = ({ testCase, audit, error, ms }, note = "") => process.stdout.write(error
+    ? `✗ ${testCase.name} ${seconds(ms)}${note}: ${error.message.split("\n")[0]}\n`
+    : `✓ ${testCase.name} ${audit.viewport.width}x${audit.viewport.height} ${seconds(ms)}${note}\n`);
+  await Promise.all(Array.from({ length: jobs }, async () => {
+    for (let testCase = queue.shift(); testCase; testCase = queue.shift()) {
+      const result = await runCase(testCase);
+      results.push(result);
+      report(result);
     }
-    process.stdout.write(`✓ ${testCase.name} ${audit.viewport.width}x${audit.viewport.height}\n`);
+  }));
+  for (const testCase of selectedCases.filter((candidate) => candidate.serial)) {
+    const result = await runCase(testCase);
+    results.push(result);
+    report(result, " (alone)");
   }
+  // One re-run of each failure, loudly and alone. Each case boots a whole Electron and is
+  // captured on a timer, so on a loaded machine a case can be photographed before its first
+  // paint or before an async reply lands. A real defect fails the quiet second run too.
+  const retried = [];
+  const failed = [];
+  for (const first of results.filter((result) => result.error)) {
+    if (!SMOKE_RETRIES) { failed.push(first); continue; }
+    const second = await runCase(first.testCase);
+    report(second, " (retry)");
+    if (second.error) {
+      second.error.message = `${second.error.message}\n(first attempt: ${first.error.message.split("\n")[0]})`;
+      failed.push(second);
+    } else retried.push(first.testCase.name);
+  }
+  writeFileSync(FAILED_LIST, JSON.stringify(failed.map(({ testCase }) => testCase.name)));
+  const slowest = [...results].sort((left, right) => right.ms - left.ms).slice(0, 5).map(({ testCase, ms }) => `${testCase.name} ${seconds(ms)}`);
+  process.stdout.write(`\n${results.length - failed.length}/${results.length} passed in ${seconds(Date.now() - began)} on ${jobs} worker${jobs === 1 ? "" : "s"}. Slowest: ${slowest.join(", ")}\n`);
   if (retried.length) process.stdout.write(`Passed on a second attempt: ${retried.join(", ")}\n`);
+  if (failed.length) {
+    for (const { error } of failed) process.stderr.write(`\n${error.stack || error}\n`);
+    process.stderr.write(`\n${failed.length} failed: ${failed.map(({ testCase }) => testCase.name).join(", ")}\nRerun them with: node scripts/ui-visual-smoke.cjs --failed\n`);
+    process.exitCode = 1;
+  }
 }
 
 // Strict mode for a run that must not forgive a single flaky frame: UI_SMOKE_RETRIES=0.
