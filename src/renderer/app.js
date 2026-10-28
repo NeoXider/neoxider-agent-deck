@@ -173,6 +173,7 @@ const state = {
   transientActivityTimer: null,
   cancelBusySessionId: null,
   cancelPendingSessionIds: new Set(),
+  cancelPendingSince: new Map(),
   runningControlsSignature: "",
   pollTimer: null,
   pollInterval: 0,
@@ -269,6 +270,8 @@ let composerSelectionGeneration = 0;
 let composerSubmitInFlight = false;
 // How long the composer waits on a command before letting go of it (see the submit handler).
 const COMMAND_COMPOSER_HOLD_MS = 400;
+// How long a chat just stopped is shown idle while Harness still lists it running.
+const CANCEL_SETTLE_MS = 6000;
 
 function captureMessageLayoutSnapshot() {
   const root = $("#messages");
@@ -337,8 +340,12 @@ function resizeMessageInput({ immediate = false } = {}) {
   if (messageInputResizeFrame) cancelAnimationFrame(messageInputResizeFrame);
   const style = getComputedStyle(input);
   const lineHeight = Number.parseFloat(style.lineHeight) || 15;
+  const padding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
   const viewportMaximum = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.floor(window.innerHeight * COMPOSER_INPUT_MAX_VIEWPORT_RATIO));
-  const maximumHeight = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.floor(viewportMaximum / lineHeight) * lineHeight);
+  // Whole lines between the paddings. The cap used to be whole lines including them, so the
+  // box held 9.3 lines and the last one showed cut in half at the bottom - scrolling a line at
+  // a time never reached the end of a long message.
+  const maximumHeight = Math.max(COMPOSER_INPUT_MIN_HEIGHT, Math.floor((viewportMaximum - padding) / lineHeight) * lineHeight + padding);
   // Measure in an isolated textarea: collapsing the visible composer used to
   // reflow every transcript row twice for each keystroke.
   if (!composerMeasureInput) {
@@ -360,9 +367,12 @@ function resizeMessageInput({ immediate = false } = {}) {
     scrollTop: input.scrollTop,
     scrollLeft: input.scrollLeft,
     lineHeight,
+    // Typing at the end follows the end. The browser scrolls a textarea only as far as the caret's
+    // line, short of the bottom padding, so the old two-pixel test failed while typing and the
+    // next resize snapped the box back a line, cutting off what was just typed.
     stickToBottom: input === document.activeElement
       && input.selectionEnd === input.value.length
-      && input.scrollTop + input.clientHeight >= input.scrollHeight - 2,
+      && input.scrollTop + input.clientHeight >= input.scrollHeight - lineHeight - padding - 2,
   };
   measure.style.height = "0px";
   const contentHeight = measure.scrollHeight;
@@ -6636,6 +6646,7 @@ async function handleLiveEvent(payload) {
   if (event.type === "turn/start") {
     state.turnGenerationsBySession.set(sessionId, (state.turnGenerationsBySession.get(sessionId) || 0) + 1);
     state.cancelPendingSessionIds.delete(sessionId);
+    state.cancelPendingSince.delete(sessionId);
     const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
     state.liveTodosBySession.set(sessionId, []);
     if (session) session.projections = projectionsWithTodos(session.projections, []);
@@ -6962,6 +6973,7 @@ function detectCompletedSessions(nextSessions) {
   for (const set of [state.todoExpandedSessionIds, state.cancelPendingSessionIds]) {
     for (const sessionId of [...set]) if (!keep(sessionId)) set.delete(sessionId);
   }
+  for (const sessionId of [...state.cancelPendingSince.keys()]) if (!state.cancelPendingSessionIds.has(sessionId)) state.cancelPendingSince.delete(sessionId);
   for (const sessionId of currentRunning) {
     state.completedSignalSessionIds.delete(sessionId);
     state.errorSignalSessionIds.delete(sessionId);
@@ -7038,11 +7050,17 @@ async function performRefresh() {
             activity: live.activity,
           };
         }
+        // A stop Harness has not caught up with keeps the chat idle - for a moment. A goal starts
+        // its next round at once, so Harness never lists the chat idle in between, and when that
+        // round's turn/start did not reach Deck the chat was held idle for good: its Stop button
+        // gone while the agent went on working round after round.
         if (state.cancelPendingSessionIds.has(session.sessionId)) {
-          if (session.running) {
+          const settling = Date.now() - (state.cancelPendingSince.get(session.sessionId) || 0) < CANCEL_SETTLE_MS;
+          if (session.running && settling) {
             mergedSession = { ...mergedSession, running: false, state: "idle", activity: null };
           } else {
             state.cancelPendingSessionIds.delete(session.sessionId);
+            state.cancelPendingSince.delete(session.sessionId);
           }
         }
         return mergeLiveTodos(mergedSession);
@@ -7526,6 +7544,7 @@ async function stopCurrentTurn() {
   try {
     if ((state.turnGenerationsBySession.get(sessionId) || 0) !== turnGeneration) return true;
     state.cancelPendingSessionIds.add(sessionId);
+    state.cancelPendingSince.set(sessionId, Date.now());
     if (chatVisual) chatVisual.noteStop(sessionId);
     syncChatVisualState();
     bumpLiveSessionRevision(sessionId);
@@ -9323,7 +9342,7 @@ if (screenshotFixture) {
       } else {
         setTab("agents");
       }
-    } else if (["small-chat", "composer-single-line", "composer-multiline"].includes(screenshotFixture)) {
+    } else if (["small-chat", "composer-single-line", "composer-multiline", "composer-typing-end"].includes(screenshotFixture)) {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-small", title: "Compact chat", running: false, projections: { values: { contextPressure: { projectedTokens: 4200, contextWindow: 65536 } } }, subagents: [] }] };
       state.selectedSessionId = "demo-small";
@@ -9331,10 +9350,20 @@ if (screenshotFixture) {
       renderContext();
       renderMessages([{ role: "assistant", text: "Ready for the next task." }]);
       const input = $("#messageInput");
-      input.value = screenshotFixture === "composer-multiline"
+      input.value = ["composer-multiline", "composer-typing-end"].includes(screenshotFixture)
         ? Array.from({ length: 24 }, (_, index) => `Line ${index + 1}: keep the growing composer readable.`).join("\n")
         : "";
       resizeMessageInput({ immediate: true });
+      if (screenshotFixture === "composer-typing-end") {
+        // Typing at the end of a long message: the browser follows the caret's line only, short
+        // of the bottom padding, and the next resize used to snap the box back a line.
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+        input.scrollTop = input.scrollHeight - input.clientHeight - 7;
+        input.value += " The last words typed.";
+        input.setSelectionRange(input.value.length, input.value.length);
+        resizeMessageInput({ immediate: true });
+      }
     } else if (["chat", "focus-chat"].includes(screenshotFixture)) {
       setTab("chat");
       state.dashboard = { harness: true, sessions: [{ sessionId: "demo-chat", title: "Release verification", running: false, projections: { values: { contextPressure: { projectedTokens: 55296, contextWindow: 131072 } } }, subagents: [] }] };

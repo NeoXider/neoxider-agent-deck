@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.10] - 2026-10-28
+
+1.2.9 was tagged but never published: a timing test failed on the macOS Intel build. Everything in it ships here.
+
+### Fixed
+
+- A long message shows its end as you type it. The message box held a whole number of lines counting its paddings, so a part of a line always showed cut at its foot, and typing at the end let the next resize snap it back a line: the words just typed sat half hidden. It now holds whole lines between its paddings, follows the end while you type there, and a line scrolled into a padding fades instead of showing cut.
+- The Stop button comes back after a stop while a goal goes on. A stopped chat was shown idle until Harness listed it idle, and a goal starts its next round at once, so Harness never did: when that round's start did not reach Deck, the chat stayed idle on screen for good while the agent worked round after round, with no Stop. A stop now holds the chat idle for six seconds at most.
+- A test of the remote-access proxy's header timeout allowed 30 ms, which a loaded macOS runner sometimes needed just to deliver the headers; it failed the 1.2.9 build. It allows 250 ms now.
+
 ## [1.2.9] - 2026-10-28
 
 ### Added

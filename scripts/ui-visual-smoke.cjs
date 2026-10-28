@@ -162,7 +162,8 @@ const cases = [
   { name: "question-orb", tab: "chat", fixture: "question-orb", mode: "orb", expect: { orbNotification: true, orbHasStatus: true, orbStatusLabel: "Release notes is asking" } },
   { name: "question-wait-group-360", tab: "chat", fixture: "question-wait-group", width: 360, height: 360, expect: { toolGroups: 1, toolCalls: 2, questionHandoffVisible: true, questionWaitVisible: true, titlebarOverlap: false } },
   { name: "composer-single-line", tab: "chat", fixture: "composer-single-line", width: 380, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 36, composerInputScrollable: false, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 48 } },
-  { name: "composer-multiline-max", tab: "chat", fixture: "composer-multiline", width: 380, height: 400, expect: { composerInputScrollable: true, conversationBubbles: 1, shortMessageVisible: true }, layout: { composerFullLines: 6 } },
+  { name: "composer-typing-end", tab: "chat", fixture: "composer-typing-end", width: 380, height: 400, expect: { composerInputScrollable: true, composerInputAtEnd: true }, layout: { composerFullLines: 5 } },
+  { name: "composer-multiline-max", tab: "chat", fixture: "composer-multiline", width: 380, height: 400, expect: { composerInputScrollable: true, conversationBubbles: 1, shortMessageVisible: true }, layout: { composerFullLines: 5 } },
   { name: "small-chat-400", tab: "chat", fixture: "small-chat", width: 400, height: 400, expect: { composerInputHeight: 34, composerUtilityHeight: 36, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 48 } },
   { name: "small-chat-380", tab: "chat", fixture: "small-chat", width: 380, height: 380, expect: { composerInputHeight: 34, composerUtilityHeight: 36, conversationBubbles: 1, shortMessageVisible: true }, max: { composerHeight: 48 } },
   { name: "small-chat-360", tab: "chat", fixture: "small-chat", width: 360, height: 360, expect: { composerInputHeight: 34, composerUtilityHeight: 36, conversationBubbles: 1, shortMessageVisible: true, titlebarOverlap: false, headerTopClipped: false, titlebarNativeDragDisabled: true, avatarHitWidth: 38, avatarHitHeight: 38, avatarPlateTransparent: true, avatarAuraCircular: true, avatarAuraContained: true, avatarAuraRadial: true }, min: { titlebarTop: 9 }, max: { composerHeight: 48 } },
@@ -272,7 +273,8 @@ function assertSnappedLayout(testCase, audit) {
     }
   }
   if (testCase.layout?.composerFullLines) {
-    const expectedHeight = testCase.layout.composerFullLines * 20;
+    // Whole 20 px lines between the input's 7 px paddings, so no line shows cut in half.
+    const expectedHeight = testCase.layout.composerFullLines * 20 + 14;
     if (Math.abs(audit.semantic.composerInputHeight - expectedHeight) > 1) {
       throw new Error(`${testCase.name} expected ${testCase.layout.composerFullLines} complete composer lines (${expectedHeight}px), got ${audit.semantic.composerInputHeight}px`);
     }

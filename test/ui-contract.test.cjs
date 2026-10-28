@@ -129,7 +129,9 @@ test("main composer starts on one line, grows to one third of the viewport, scro
   assert.match(renderer, /COMPOSER_INPUT_MAX_VIEWPORT_RATIO = 1 \/ 3/);
   assert.match(renderer, /function resizeMessageInput\(\{ immediate = false \} = \{\}\)/);
   assert.match(renderer, /Math\.floor\(window\.innerHeight \* COMPOSER_INPUT_MAX_VIEWPORT_RATIO\)/);
-  assert.match(renderer, /Math\.floor\(viewportMaximum \/ lineHeight\) \* lineHeight/);
+  // Whole lines between the paddings: the box holds no half line at its foot.
+  assert.match(renderer, /Math\.floor\(\(viewportMaximum - padding\) \/ lineHeight\) \* lineHeight \+ padding/);
+  assert.match(renderer, /input\.scrollTop \+ input\.clientHeight >= input\.scrollHeight - lineHeight - padding - 2/);
   assert.match(renderer, /function restoreMessageInputViewport/);
   assert.match(renderer, /selectionStart: input\.selectionStart/);
   assert.match(renderer, /scrollTop: input\.scrollTop/);
@@ -2180,8 +2182,17 @@ test("per-session bookkeeping is released when a session leaves a healthy dashbo
     assert.match(sweep, new RegExp(`state\.${name}`), `${name} is swept`);
   }
   assert.match(sweep, /const keep = \(sessionId\) => existing\.has\(sessionId\) \|\| sessionId === state\.selectedSessionId;/);
+  assert.match(sweep, /state\.cancelPendingSince\.keys\(\)/);
   // Drafts and live streams are the user's text and a just-created session's output.
   assert.doesNotMatch(sweep, /composerDraftsBySession|liveStreamsBySession/);
+});
+
+test("a stopped chat is shown idle only for a moment, so its Stop button comes back", () => {
+  // A goal starts its next round at once; holding the chat idle until Harness listed it idle
+  // left it idle for good when that round's turn/start never reached Deck.
+  assert.match(renderer, /const CANCEL_SETTLE_MS = 6000;/);
+  assert.match(renderer, /const settling = Date\.now\(\) - \(state\.cancelPendingSince\.get\(session\.sessionId\) \|\| 0\) < CANCEL_SETTLE_MS;\s+if \(session\.running && settling\) \{/);
+  assert.match(renderer, /state\.cancelPendingSessionIds\.add\(sessionId\);\s+state\.cancelPendingSince\.set\(sessionId, Date\.now\(\)\);/);
 });
 
 test("the version badge stays legible at every width", () => {

@@ -680,6 +680,7 @@ function attachScreenshotHarness({
             captureRows: document.querySelectorAll('#captureMenu [data-capture]').length,
             composerTextareaWidth: Math.round(document.querySelector('#messageInput').getBoundingClientRect().width),
             composerInputHeight: Math.round(document.querySelector('#messageInput').getBoundingClientRect().height),
+            composerInputAtEnd: (() => { const input = document.querySelector('#messageInput'); return input.scrollTop + input.clientHeight >= input.scrollHeight - 1; })(),
             composerHeight: Math.round(document.querySelector('#chatForm').getBoundingClientRect().height),
             composerUtilityHeight: Math.round(document.querySelector('.composer-utility-stack').getBoundingClientRect().height),
             composerInputScrollable: document.querySelector('#messageInput').scrollHeight > document.querySelector('#messageInput').clientHeight + 1,

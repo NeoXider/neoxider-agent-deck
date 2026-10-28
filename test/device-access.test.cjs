@@ -254,11 +254,14 @@ test('WebSocket authentication failure refreshes credentials on next request', a
 });
 
 test('header timeout is bounded but response stream may continue afterwards', async t => {
-  const f = await fixture(t, { headerTimeoutMs: 30, handleUpstream: (req, res) => {
+  // Wide enough for a loaded CI runner: at 30 ms a macOS runner sometimes took longer than that
+  // to deliver the flushed headers, and the stream was cut off as a hang. The body still ends
+  // well after the timeout, so the test still shows the stream outliving it.
+  const f = await fixture(t, { headerTimeoutMs: 250, handleUpstream: (req, res) => {
     if (req.url === '/hang') return;
     res.writeHead(200, { connection: 'keep-alive, x-internal', 'x-internal': 'private' });
     res.flushHeaders();
-    setTimeout(() => res.end('long stream completed'), 80);
+    setTimeout(() => res.end('long stream completed'), 600);
   } });
   const cookie = await f.approve();
   assert.equal((await f.request('/hang', { cookie })).status, 502);
