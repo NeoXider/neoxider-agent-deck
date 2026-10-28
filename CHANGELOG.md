@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-10-28
+
+### Fixed
+
+- Deck finds a new release even on a computer that sleeps. It looked again six hours after each check on a timer, and timers count only the time the machine is awake, so a Deck left running across nights could go days without looking: one that had been up for two days had missed four releases. It now checks every two hours by the wall clock, within ten minutes of waking, and a check or download that never settles no longer holds back every later one.
+
 ## [1.2.3] - 2026-10-28
 
 ### Fixed

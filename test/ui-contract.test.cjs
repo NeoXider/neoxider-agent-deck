@@ -1278,7 +1278,9 @@ test("updates download in the background and expose install only after verificat
   assert.match(main, /updateOrchestrator\.start\(\)/);
   assert.match(main, /updateOrchestrator\?\.stop\(\)/);
   assert.match(updateOrchestrator, /result\?\.status === "available"[\s\S]+\["portable-replace", "managed"\]\.includes\(result\.installMode\)[\s\S]+service\.download\(\)/);
-  assert.match(updateOrchestrator, /6 \* 60 \* 60_000/);
+  // Every two hours by the wall clock, so a machine that sleeps still checks after waking.
+  assert.match(updateOrchestrator, /const DEFAULT_INTERVAL_MS = 2 \* 60 \* 60_000;/);
+  assert.match(updateOrchestrator, /if \(!operation && at - lastCheckAt >= intervalMs\) checkAndStage\(\)\.catch\(onError\);/);
   assert.match(renderer, /function renderUpdateState\(value\)/);
   assert.match(renderer, /Install & restart/);
   assert.match(renderer, /headerInstallButton\.hidden = value\.status !== "ready"/);
