@@ -2334,3 +2334,12 @@ test("subagents are counted under Thinking and a continuable one can be written 
   assert.match(renderer, /const toSubagent = globalThis\.subagentViewActive\?\.\(\) === true;/);
   assert.match(renderer, /globalThis\.subagentSessionRow\?\.\(\)/, "the open subagent keeps its running state across polls");
 });
+
+test("a long command lets the composer go so messages can be queued behind it", () => {
+  // /compact has the model write a summary; Harness queues messages meanwhile.
+  assert.match(renderer, /const COMMAND_COMPOSER_HOLD_MS = 400;/);
+  assert.match(renderer, /const running = executeHarnessCommand\(text, targetSessionId, submittedAttachments, commandEntry\);/);
+  assert.match(renderer, /await Promise\.race\(\[running, new Promise\(\(resolve\) => setTimeout\(resolve, COMMAND_COMPOSER_HOLD_MS\)\)\]\);/);
+  assert.match(renderer, /if \(detached && state\.selectedSessionId === targetSessionId\) showComposerError\(error, "Command failed"\);/);
+  assert.doesNotMatch(renderer, /await executeHarnessCommand\(text, targetSessionId/);
+});

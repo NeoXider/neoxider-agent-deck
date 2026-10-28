@@ -264,6 +264,8 @@ let composerPastePreparation = Promise.resolve();
 let composerPasteFailurePending = false;
 let composerSelectionGeneration = 0;
 let composerSubmitInFlight = false;
+// How long the composer waits on a command before letting go of it (see the submit handler).
+const COMMAND_COMPOSER_HOLD_MS = 400;
 
 function captureMessageLayoutSnapshot() {
   const root = $("#messages");
@@ -8350,8 +8352,20 @@ $("#chatForm").addEventListener("submit", async (event) => {
     // an ordinary message for the model to act on; commands/execute would reject it.
     if (commandEntry && commandEntry.kind !== "skill") {
       submittedCommand = true;
-      await executeHarnessCommand(text, targetSessionId, submittedAttachments, commandEntry);
+      // A command can run for a long time - /compact has the model write the summary - and the
+      // composer stayed locked until it returned, so nothing could be queued behind it. Harness
+      // takes messages meanwhile (a manual compaction holds the agent in maintenance and starts
+      // the queued turn when it is done), so a command that is still running after a moment
+      // lets the composer go; its result, or its error, still lands in the chat. A quick one
+      // keeps the old path, error and restored text included.
+      let detached = false;
       rememberSentMessage(targetSessionId, text);
+      const running = executeHarnessCommand(text, targetSessionId, submittedAttachments, commandEntry);
+      running.catch((error) => {
+        if (detached && state.selectedSessionId === targetSessionId) showComposerError(error, "Command failed");
+      });
+      await Promise.race([running, new Promise((resolve) => setTimeout(resolve, COMMAND_COMPOSER_HOLD_MS))]);
+      detached = true;
     } else {
       pendingSend = beginPendingSend(targetSessionId, text, submittedAttachments);
       // The attachments leave with the message, as its text does: the pending bubble shows them

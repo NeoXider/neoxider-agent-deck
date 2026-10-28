@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-10-28
+
+### Fixed
+
+- Messages can be written and queued while `/compact` runs. The message box waited for any Harness command to return before it took the next message, and a manual compaction - the model writing the summary - can take a minute. Harness accepts messages meanwhile and starts the queued turn once the compaction is done, so a command still running after a moment now lets the message box go; its result, or its error, still lands in the chat.
+
 ## [1.2.2] - 2026-10-28
 
 ### Changed
