@@ -160,8 +160,6 @@
             <span id="sessionSpend" class="session-spend no-drag" hidden></span>
         </div>
 
-        <button id="subagentsButton" class="subagents-button no-drag" type="button" aria-expanded="false" aria-controls="tasksPanel" hidden><svg class="ui-icon"><use href="#icon-subagent"/></svg><span></span><svg class="ui-icon subagents-chevron"><use href="#icon-chevron"/></svg></button>
-        <section id="tasksPanel" class="tasks-panel no-drag" aria-label="Subagents and background jobs" hidden></section>
         <details id="activityCard" class="activity-card no-drag">
           <summary>
             <svg class="ui-icon"><use href="#icon-eye"/></svg>
@@ -171,6 +169,8 @@
           </summary>
           <div id="activityBody" class="activity-body"></div>
         </details>
+        <button id="subagentsButton" class="subagents-button no-drag" type="button" aria-expanded="false" aria-controls="tasksPanel" hidden><svg class="ui-icon"><use href="#icon-subagent"/></svg><span></span><svg class="ui-icon subagents-chevron"><use href="#icon-chevron"/></svg></button>
+        <section id="tasksPanel" class="tasks-panel no-drag" aria-label="Subagents and background jobs" hidden></section>
         <section id="historyLoadError" class="history-load-error no-drag" role="alert" hidden>
           <strong id="historyLoadErrorLabel">History could not be loaded</strong>
           <p id="historyLoadErrorHint"></p>
@@ -258,7 +258,7 @@
             </div>
           </div>
         </details>
-        <div id="subagentReadOnly" class="subagent-readonly no-drag" hidden><svg class="ui-icon"><use href="#icon-eye"/></svg><span>A subagent's chat is read-only here. Its parent talks to it.</span></div>
+        <div id="subagentReadOnly" class="subagent-readonly no-drag" hidden><svg class="ui-icon"><use href="#icon-eye"/></svg><span>This subagent ran once and takes no messages. Its parent decides what it does next.</span></div>
         <div id="dropOverlay" class="drop-overlay no-drag"><svg class="drop-icon"><use href="#icon-paperclip"/></svg><span>Drop files here</span></div>
       </section>
 

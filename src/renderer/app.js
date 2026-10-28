@@ -865,10 +865,16 @@ function syncGameBarSelection() {
 // the model had been working, nor that anything was running underneath it. Same two
 // helpers as the cards, and the same shared one-second tick — the clock writes straight
 // into its node and stays out of the card's render signature.
+// The open chat's row. A subagent's chat is not in the session list, so its row comes from the
+// parent's subagent tree (tasks-panel.js): without it every poll took the open chat for a
+// stopped one and put Thinking away until the next live frame brought it back - the card
+// blinked and the conversation under it jumped with it.
+function selectedSessionRow(sessions = state.dashboard?.sessions) {
+  return sessions?.find((session) => session.sessionId === state.selectedSessionId) || globalThis.subagentSessionRow?.() || null;
+}
+
 function renderActivityMeta(visible = !$("#activityCard").hidden) {
-  const session = visible
-    ? state.dashboard?.sessions?.find((entry) => entry.sessionId === state.selectedSessionId)
-    : null;
+  const session = visible ? selectedSessionRow() : null;
   applySessionTime($("#activityTime"), session);
   applyBackgroundTaskCount($("#activityBackground"), activeBackgroundTasks(session));
   scheduleSessionTimers();
@@ -3419,7 +3425,7 @@ async function selectSession(sessionId, openChat = false) {
     // A chat opened recently paints at once from what it showed last; the forced refresh
     // below confirms it in one short read, or replaces it.
     renderMessages(restoredView?.messages || []);
-    const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
+    const session = selectedSessionRow();
     const activity = commandFeedbackFor(state.selectedSessionId)?.activity || (session?.running
       ? session.activity || { active: true, kind: "working", label: "Working", text: "Agent is processing the current turn…" }
       : null);
@@ -4108,7 +4114,7 @@ function settleTranscriptEnterBatch() {
   transcriptEnterBatch = [];
   if (batch.length <= TRANSCRIPT_ENTER_BATCH_MAX) return;
   for (const node of batch) {
-    node.classList.remove("enter", "arrive-pulse", "arrive-fresh");
+    node.classList.remove("enter", "arrive-pulse", "arrive-fresh", "arrive-tall");
     node.style.removeProperty("--enter-delay");
   }
 }
@@ -4127,7 +4133,7 @@ function markTranscriptArrival(node, { fresh = false } = {}) {
   node.classList.add("arrive-pulse");
   node.classList.toggle("arrive-fresh", fresh);
   setTimeout(() => {
-    node.classList.remove("arrive-pulse", "arrive-fresh");
+    node.classList.remove("arrive-pulse", "arrive-fresh", "arrive-tall");
     node.style.removeProperty("--enter-delay");
   }, TRANSCRIPT_ARRIVAL_MS + delay);
 }
@@ -4946,6 +4952,13 @@ function transcriptWindow(total) {
         // stays bounded instead of growing by one row per message.
         transcriptViewStart += total - previousTotal;
         transcriptViewEnd = total;
+      } else if ($("#messages")?.querySelector(".live-assistant")) {
+        // The live answer sits below the newest row, so a reader scrolled up into a long
+        // streaming answer is reading the arrival itself. Freezing the end dropped the live
+        // bubble the moment its finished message landed - the log collapsed by the answer's
+        // height and the reader was thrown ~10,000px - and the message came back later as a
+        // new node. Taking the arrivals in lets the finished message take over the bubble.
+        transcriptViewEnd = total;
       }
       // Away from the bottom the end stays frozen: arrivals accumulate as the
       // hidden-newer count behind the pill instead of moving the text.
@@ -5112,6 +5125,19 @@ function growTranscriptWindowDown() {
   return true;
 }
 
+// The log's on-screen height over its layout height: not 1 only while a mode change scales
+// the shell. clientHeight is rounded to whole pixels, so a fractional layout height - every
+// frame of a strip easing above the log, or a flex share like 433.6px - read as a 0.1% zoom,
+// and an anchor 24,000px up a long answer came back ~25px off. The resize observer
+// re-anchors on every frame of those eases, so the text shook each time the Thinking card
+// came or went. The computed height is the unrounded border box (box-sizing is global).
+function transcriptViewportScale(root, viewport) {
+  if (!(viewport.height > 0) || !(root.clientHeight > 0)) return 1;
+  const layout = typeof getComputedStyle === "function" ? Number.parseFloat(getComputedStyle(root).height) : NaN;
+  const height = layout > 0 ? layout : root.clientHeight;
+  return Math.abs(viewport.height - height) > 0.5 ? viewport.height / height : 1;
+}
+
 // Capture a real visible row, including tool groups. An index alone is not
 // enough when a history refresh inserts entries ahead of the viewport.
 // A long streaming answer or a spacer can fill the whole viewport with no keyed row in it.
@@ -5120,7 +5146,7 @@ function growTranscriptWindowDown() {
 function captureTranscriptAnchor(root) {
   if (typeof root.getBoundingClientRect !== "function") return null;
   const viewport = root.getBoundingClientRect();
-  const scale = root.clientHeight > 0 && viewport.height > 0 ? viewport.height / root.clientHeight : 1;
+  const scale = transcriptViewportScale(root, viewport);
   let above = null;
   for (const node of root.children) {
     if (!node.dataset.transcriptKey) continue;
@@ -5139,7 +5165,7 @@ function restoreTranscriptAnchor(root, anchor) {
   const node = [...root.children].find((row) => row.dataset.transcriptKey === anchor.key);
   if (!node) return false;
   const viewport = root.getBoundingClientRect();
-  const scale = root.clientHeight > 0 && viewport.height > 0 ? viewport.height / root.clientHeight : 1;
+  const scale = transcriptViewportScale(root, viewport);
   const offset = (node.getBoundingClientRect().top - viewport.top) / scale;
   settleTranscriptScroll(root, root.scrollTop + offset - anchor.offset);
   return true;
@@ -5426,8 +5452,13 @@ function transcriptRowsResized() {
 
 // The average rendered row keeps both spacers honest without measuring every
 // hidden message. It converges as the user scrolls and materializes more.
+// One answer can be 25,000px tall, and counted whole it swelled the estimate for every
+// hidden row: the next render rebuilt the top spacer ~70,000px taller, the scrollbar thumb
+// jumped and a drag on it landed nowhere near the text it pointed at. A row counts for at
+// most a couple of screens; the hidden rows it stands for are mostly ordinary ones.
 function rememberTranscriptRowHeights(root, messageCount) {
   if (!messageCount) return;
+  const sampleMax = 1200;
   let height = 0;
   let blocks = 0;
   for (const node of root.children || []) {
@@ -5435,7 +5466,7 @@ function rememberTranscriptRowHeights(root, messageCount) {
     if (node.classList.contains("transcript-spacer") || node.classList.contains("transcript-window-edge")) continue;
     const rect = typeof node.getBoundingClientRect === "function" ? node.getBoundingClientRect() : null;
     if (rect?.height > 0) {
-      height += rect.height;
+      height += Math.min(rect.height, sampleMax);
       blocks += 1;
     }
   }
@@ -5905,6 +5936,14 @@ function renderMessages(messages) {
   pruneMessageThumbnailWatches();
   state.historySignature = signature;
   rememberTranscriptRowHeights(root, visibleMessages.length);
+  // The arrival spring scales a row from its top-left corner, so a line d px down it travels
+  // d x 2.5%. On a card that is a nudge; on a long answer the line being read - and the foot
+  // a follower is pinned to - swung by hundreds of pixels for 0.6s (+-440px measured on a
+  // 16,600px answer). A row taller than the log keeps the light and drops the spring. The
+  // row-height pass above has just laid the rows out, before the spring is ever painted.
+  for (const node of nodes) {
+    if (node.classList?.contains("arrive-pulse") && node.offsetHeight > root.clientHeight) node.classList.add("arrive-tall");
+  }
   syncLiveBubbleContent(root);
   restoreOpenToolKeys(root, expandedTools);
   if (applyMessageScrollPin()) {
@@ -6387,7 +6426,7 @@ function paintLiveState() {
   livePaintFrame = null;
   renderSessions();
   renderSessionToolbar();
-  const session = state.dashboard?.sessions?.find((item) => item.sessionId === state.selectedSessionId);
+  const session = selectedSessionRow();
   const stream = state.liveStreamsBySession.get(state.selectedSessionId);
   const activity = session?.activity || (stream?.active ? stream.activity : null);
   if (!session?.running && !stream?.active) {
@@ -6926,7 +6965,7 @@ async function performRefresh() {
       if ($("#startHarnessButton").textContent !== "Start") $("#startHarnessButton").textContent = "Start";
       if ($("#startHarnessButton").disabled) $("#startHarnessButton").disabled = false;
     }
-    const selectedSession = dashboard.sessions?.find((session) => session.sessionId === state.selectedSessionId);
+    const selectedSession = selectedSessionRow(dashboard.sessions);
     const selectedRunning = Boolean(selectedSession?.running);
     const backgroundCount = selectedSession?.backgroundJobCount || 0;
     state.backgroundJobsBySession.set(state.selectedSessionId, backgroundCount);
@@ -6957,7 +6996,7 @@ async function performRefresh() {
       setActivity(commandFeedback.activity);
       setAvatar(commandFeedback.avatarMode, commandFeedback.avatarLabel);
     }
-    else if (dashboard.sessions?.some((session) => session.running) && (state.windowMode !== "full" || selectedRunning)) {
+    else if ((selectedRunning || dashboard.sessions?.some((session) => session.running)) && (state.windowMode !== "full" || selectedRunning)) {
       const running = selectedSession?.running ? selectedSession : dashboard.sessions.find((session) => session.running);
       const live = state.liveStreamsBySession.get(running?.sessionId);
       const activity = (live?.active ? live.activity : running?.activity)
@@ -8188,7 +8227,10 @@ $("#chatForm").addEventListener("submit", async (event) => {
   const targetSessionId = state.selectedSessionId;
   const input = $("#messageInput");
   const text = input.value.trim();
-  const submittedSelection = state.pendingSelection;
+  // A subagent is written to in plain words: it has no commands or model of its own here,
+  // so "/name" is text for it and the picker's model belongs to the parent's chat.
+  const toSubagent = globalThis.subagentViewActive?.() === true;
+  const submittedSelection = toSubagent ? null : state.pendingSelection;
   await composerPastePreparation;
   if (state.selectedSessionId !== targetSessionId) {
     composerSubmitInFlight = false;
@@ -8220,10 +8262,10 @@ $("#chatForm").addEventListener("submit", async (event) => {
   closePickers();
   input.value = "";
   resizeMessageInput();
-  input.placeholder = "Message the agent…";
+  input.placeholder = toSubagent ? "Message this subagent…" : "Message the agent…";
   renderCommandHint();
   try {
-    const slashMatch = /^\/(\S+)/.exec(text);
+    const slashMatch = toSubagent ? null : /^\/(\S+)/.exec(text);
     if (slashMatch && (state.commandsLoadedSessionId !== targetSessionId
       || !state.commandCatalog.some((command) => command.name.toLowerCase() === slashMatch[1].toLowerCase()))) await loadCommands();
     const commandEntry = slashMatch
@@ -8441,9 +8483,15 @@ $("#messages").addEventListener("scrollend", () => {
 });
 // Scrolling under your own hand releases the pin at once; it only exists to keep a rebuild
 // from landing on top of a jump that is still in flight.
+// Clicking text in the log leaves focus on <body>: the log is not focusable, so the keys
+// that scroll it are delivered to body and never passed through a listener on #messages.
+// PageUp, ArrowUp and Home then looked like layout corrections to the scroll handler, and a
+// follower was pulled back to the newest line on every press. Keys are heard on the
+// document, from the log or from body only - never from the composer or a control.
 for (const eventName of ["wheel", "pointerdown", "keydown"]) {
-  $("#messages").addEventListener(eventName, (event) => {
+  (eventName === "keydown" ? document : $("#messages")).addEventListener(eventName, (event) => {
     const scrollKey = eventName === "keydown" && ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key);
+    if (eventName === "keydown" && !$("#messages").contains(event.target) && !(scrollKey && event.target === document.body)) return;
     if (eventName === "wheel" || scrollKey) transcriptUserScrollIntentUntil = Date.now() + 1200;
     if (eventName === "pointerdown") transcriptUserPointerActive = true;
     state.transcriptModeRestore = null;
@@ -9808,7 +9856,7 @@ if (screenshotFixture) {
         list.scrollTop += card.getBoundingClientRect().top - list.getBoundingClientRect().top - list.clientHeight / 3;
         openSessionMenu("s-pet", card.querySelector(".session-menu-button"), { confirmDelete: screenshotFixture === "session-delete-confirm" });
       });
-    } else if (["subagents-panel", "subagent-chat"].includes(screenshotFixture)) {
+    } else if (["subagents-panel", "subagent-chat", "subagent-chat-once"].includes(screenshotFixture)) {
       // What works under a chat: its subagents (each one a chat of its own) and its jobs.
       setTab("chat");
       const now = Date.now();
@@ -9817,7 +9865,8 @@ if (screenshotFixture) {
         sessionId: "deck-parent", title: "Ship Deck 1.1", updatedAt: now, running: true, runningSince: now - 262_000, state: "working", preview: "",
         projections: { values: { contextPressure: { projectedTokens: 61_440, contextWindow: 200_000 } } },
         subagents: [
-          child({ sessionId: "deck-ipc", title: "Audit the IPC handlers", activity: "running", runningSince: now - 75_000, childCount: 1 }),
+          // subagent-chat-once: the same child started one-shot, which takes no messages.
+          child({ sessionId: "deck-ipc", title: "Audit the IPC handlers", activity: "running", runningSince: now - 75_000, childCount: 1, mode: screenshotFixture === "subagent-chat-once" ? "one-shot" : "continuable" }),
           child({ sessionId: "deck-preload", parentSessionId: "deck-ipc", title: "Check what preload exposes", outcome: "done", workedMs: 42_000, depth: 2 }),
           child({ sessionId: "deck-notes", title: "Write the changelog", outcome: "done", workedMs: 128_000 }),
           child({ sessionId: "deck-shots", title: "Refresh docs screenshots", outcome: "failed", workedMs: 19_000 }),

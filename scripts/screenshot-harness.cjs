@@ -36,6 +36,11 @@ function attachScreenshotHarness({
         const scale = Number(process.env.WIDGET_SCREENSHOT_FONT_SCALE);
         await window.webContents.executeJavaScript(`applyFontScale(${JSON.stringify(scale)})`);
       }
+      // A case about one theme's own machinery (the aurora drift) names that theme; every
+      // other case shows the default one.
+      if (process.env.WIDGET_SCREENSHOT_DESIGN) {
+        await window.webContents.executeJavaScript(`window.deckAppearance?.apply({ theme: ${JSON.stringify(process.env.WIDGET_SCREENSHOT_DESIGN)}, motion: 'fluid' })`);
+      }
       if (process.env.WIDGET_SCREENSHOT_CHAT_PHASE) {
         const phase = process.env.WIDGET_SCREENSHOT_CHAT_PHASE;
         if (!["idle", "waiting", "thinking", "writing", "tool", "offline"].includes(phase)) throw new Error("Invalid visual phase");

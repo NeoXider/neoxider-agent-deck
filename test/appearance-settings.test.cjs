@@ -24,16 +24,28 @@ test('named profiles persist bounded appearance snapshots without recursive prof
   assert.deepEqual(normalizePreferences({ appearance: { profiles } }).appearance.profiles, profiles);
 });
 
+test('a file from before the Claude theme moves to it once, and every later choice stays', () => {
+  const old = normalizePreferences({ appearance: { theme: 'cyberpunk', background: 'cyberpunk', motion: 'subtle' } });
+  assert.equal(old.appearance.theme, 'claude');
+  assert.equal(old.appearance.background, 'none', "the theme's own wallpaper goes with it");
+  assert.equal(old.appearance.motion, 'subtle', 'everything else is kept');
+  assert.equal(old.appearanceRevision, 2);
+  const picked = normalizePreferences({ appearance: { theme: 'cave', background: 'forest', overrideBackground: true } });
+  assert.equal(picked.appearance.background, 'forest', 'a background chosen by hand survives the move');
+  assert.equal(normalizePreferences({ ...old, appearance: { ...old.appearance, theme: 'graphite' } }).appearance.theme, 'graphite', 'a choice made after the move is kept');
+  assert.equal(normalizePreferences({}).appearance.theme, 'claude', 'a new install starts on Claude');
+});
+
 test('cyberpunk and custom image survive disk save/reload, including disabling the picture', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'deck-background-'));
   const filePath = path.join(directory, 'settings.json');
   try {
     const appearance = { theme: 'cyberpunk', motion: 'fluid', inputBorder: true, windowBorder: false,
       background: 'custom', customBackground: 'data:image/png;base64,AAAA', imageOpacity: .30, overrideBackground: false, profiles: [] };
-    createSettingsStore({ filePath }).save(normalizePreferences({ appearance }));
+    createSettingsStore({ filePath }).save(normalizePreferences({ appearance, appearanceRevision: 2 }));
     assert.deepEqual(createSettingsStore({ filePath }).load().appearance, appearance);
     appearance.background = 'none';
-    createSettingsStore({ filePath }).save(normalizePreferences({ appearance }));
+    createSettingsStore({ filePath }).save(normalizePreferences({ appearance, appearanceRevision: 2 }));
     assert.deepEqual(createSettingsStore({ filePath }).load().appearance, appearance);
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });

@@ -19,7 +19,8 @@
   design.setAttribute('role', 'tabpanel');
   design.setAttribute('aria-labelledby', 'settings-tab-design');
   design.innerHTML = `<p class="design-intro">Make Deck feel like yours.</p>
-    <details class="theme-picker"><summary>Theme <b id="themeChoiceLabel">Aurora</b><svg class="ui-icon theme-chevron" aria-hidden="true"><use href="#icon-chevron"/></svg></summary><div class="design-themes" role="group" aria-label="Theme previews">
+    <details class="theme-picker"><summary>Theme <b id="themeChoiceLabel">Claude</b><svg class="ui-icon theme-chevron" aria-hidden="true"><use href="#icon-chevron"/></svg></summary><div class="design-themes" role="group" aria-label="Theme previews">
+      <button type="button" data-theme-choice="claude"><span class="theme-swatch swatch-claude" aria-hidden="true"></span><b>Claude</b><small>Claude Code colours</small></button>
       <button type="button" data-theme-choice="aurora"><span class="theme-swatch swatch-aurora" aria-hidden="true"></span><b>Aurora</b><small>Soft light</small></button>
       <button type="button" data-theme-choice="graphite"><span class="theme-swatch swatch-graphite" aria-hidden="true"></span><b>Graphite</b><small>Quiet & matte</small></button>
       <button type="button" data-theme-choice="midnight"><span class="theme-swatch swatch-midnight" aria-hidden="true"></span><b>Midnight</b><small>Deep blue</small></button>
@@ -77,15 +78,15 @@
     const current = buttons.indexOf(document.activeElement);
     selectTab(event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (Math.max(0, current) + (event.key === 'ArrowRight' ? 1 : 2)) % 3, true);
   });
-  const themeBackground = { aurora: 'none', graphite: 'none', midnight: 'none', cyberpunk: 'cyberpunk', cave: 'cave' };
+  const themeBackground = { claude: 'none', aurora: 'none', graphite: 'none', midnight: 'none', cyberpunk: 'cyberpunk', cave: 'cave' };
   let profileSignature = '';
-  let confirmed = { theme: 'aurora', motion: 'fluid', inputBorder: true, windowBorder: false, background: 'none', customBackground: '', imageOpacity: .30, overrideBackground: false, profiles: [] };
+  let confirmed = { theme: 'claude', motion: 'fluid', inputBorder: true, windowBorder: false, background: 'none', customBackground: '', imageOpacity: .30, overrideBackground: false, profiles: [] };
   let current = { ...confirmed };
   let saving = Promise.resolve();
   let revision = 0;
   function apply(value) {
     current = {
-      theme: ['aurora', 'graphite', 'midnight', 'cyberpunk', 'cave'].includes(value?.theme) ? value.theme : 'aurora',
+      theme: Object.hasOwn(themeBackground, value?.theme) ? value.theme : 'claude',
       motion: value?.motion === 'subtle' ? 'subtle' : 'fluid',
       inputBorder: value?.inputBorder !== false,
       windowBorder: value?.windowBorder === true,

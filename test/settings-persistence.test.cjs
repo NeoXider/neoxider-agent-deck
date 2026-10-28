@@ -16,7 +16,7 @@ test("appearance survives restart and invalid choices fall back independently", 
     store.save({ ...store.load(), appearance: { theme: "midnight", motion: "subtle", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] } });
     assert.deepEqual(createSettingsStore({ filePath }).load().appearance, { theme: "midnight", motion: "subtle", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] });
   });
-  assert.deepEqual(normalizePreferences({ appearance: { theme: "unknown", motion: "subtle" } }).appearance, { theme: "aurora", motion: "subtle", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] });
+  assert.deepEqual(normalizePreferences({ appearance: { theme: "unknown", motion: "subtle" }, appearanceRevision: 2 }).appearance, { theme: "claude", motion: "subtle", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] });
 });
 
 test("activity border choices survive restart independently", () => {
@@ -94,7 +94,8 @@ const completePreferences = {
   fontScale: 1.15,
   showThinking: false,
   motionEffects: true,
-  appearance: { theme: "aurora", motion: "fluid", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] },
+  appearance: { theme: "claude", motion: "fluid", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] },
+  appearanceRevision: 2,
   compactAutoExpand: true,
   collapseAfterSend: false,
   petMode: false,
@@ -435,7 +436,8 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     // Absent from an older file, so the defaults apply rather than the old behaviour being
     // silently carried forward: effects on, avatar collapsed.
     motionEffects: true,
-  appearance: { theme: "aurora", motion: "fluid", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] },
+  appearance: { theme: "claude", motion: "fluid", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] },
+  appearanceRevision: 2,
     compactAutoExpand: false,
     // On unless the file says otherwise: a chat opened from the avatar folds back after a send.
     collapseAfterSend: true,

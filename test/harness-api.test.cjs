@@ -1200,6 +1200,40 @@ test("a subagent's chat is read under its parent's address", async () => {
   assert.deepEqual(api.sessionAddress("kid"), { kind: "session", sessionId: "kid" }, "another Harness has its own children");
 });
 
+test("a continuable subagent is written to and stopped through its parent; a one-shot one refuses", async () => {
+  const api = new HarnessApi(undefined, legacyFetch, { historyWorker: false });
+  const calls = [];
+  api.ensureRemote = async () => ({ call: async (endpoint, args) => {
+    if (endpoint === "session/list") return { items: [
+      { sessionId: "parent", running: true, updatedAt: 3 },
+      { sessionId: "helper", origin: "subagent", parentSessionId: "parent", running: true, updatedAt: 2, projections: { values: { subagent: { mode: "continuable", label: "Helper" } } } },
+      { sessionId: "once", origin: "subagent", parentSessionId: "parent", running: false, updatedAt: 1, projections: { values: { subagent: { mode: "one-shot", label: "Once" } } } },
+    ] };
+    calls.push([endpoint, args]);
+    return { messageId: "m1", accepted: true };
+  } });
+  api.readHistoryEvents = async () => ({ events: [] });
+  api.remoteWorkspaceBaseline = async () => ({ items: [], archivedSessionIds: [], pinnedSessionIds: [] });
+  await api.dashboard();
+  calls.length = 0;
+
+  assert.equal(await api.ensureFullAccess("helper"), null, "no /permission command is run on a subagent");
+  assert.equal(await api.selectModel("helper", { provider: "x", model: "y" }), null, "the parent chose its model");
+  await api.prompt("helper", "check the logs too", "Europe/Moscow", [{ mediaType: "image/png", data: "AAAA", name: "shot.png" }]);
+  await api.cancel("helper");
+  await assert.rejects(api.prompt("once", "hello"), /ran once and takes no messages/);
+  const [prompt, interrupt] = calls;
+  assert.equal(prompt[0], "subagents/prompt");
+  assert.deepEqual({ ...prompt[1].request, requestId: "id" }, {
+    requestId: "id", parentSessionId: "parent", childSessionId: "helper", mode: "continuable", delivery: "queue",
+    content: [{ type: "text", text: "check the logs too" }, { type: "image", mediaType: "image/png", data: "AAAA", name: "shot.png" }],
+    clientTimeZone: "Europe/Moscow",
+  });
+  assert.ok(prompt[1].request.requestId.length > 8, "every message carries its own request id");
+  assert.deepEqual(interrupt, ["subagents/interruptByParent", { childSessionId: "helper", parentSessionId: "parent", mode: "continuable" }]);
+  assert.equal(calls.length, 2, "nothing reached a plain session endpoint");
+});
+
 test("switching to another Harness forgets the old one's generation, cookie and caches", async () => {
   const api = new HarnessApi("http://127.0.0.1:3080", legacyFetch, { historyWorker: false });
   api._generationPromise = Promise.resolve("gated");

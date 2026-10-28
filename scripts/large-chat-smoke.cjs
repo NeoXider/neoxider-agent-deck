@@ -113,7 +113,7 @@ async function main() {
   assert.equal(result.pillTextArrived, "3 new", "the pill counts only what arrived while away");
   assert.equal(result.returnedToLatest, true, "the pill returns to the current answer");
   assert.ok(result.returnedBubbles <= 100, "returning to latest restores the small window");
-  assert.equal(result.subagentCount, "10 subagents · 3 running");
+  assert.equal(result.subagentCount, "Subagents 3/10");
   assert.equal(result.subagentsVisible, true);
   assert.equal(result.subagentsVisibleInFocus, true);
   assert.ok(result.renderMs < 2500, "initial rendering must finish promptly");

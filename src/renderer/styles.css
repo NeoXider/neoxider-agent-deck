@@ -342,7 +342,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 
 .chat-panel.active { position:relative; display:flex; flex-direction:column; gap:7px; }
 .chat-panel > * { min-width:0; max-width:100%; }
-.subagents-button { flex:none; align-self:flex-start; display:inline-flex; align-items:center; gap:6px; max-width:100%; min-height:24px; padding:2px 9px; border:1px solid color-mix(in srgb,var(--violet) 28%,transparent); border-radius:999px; background:color-mix(in srgb,var(--violet) 10%,transparent); color:#d6cfff; font:inherit; font-size:12px; cursor:pointer; }
+.subagents-button { flex:none; align-self:flex-start; display:inline-flex; align-items:center; gap:6px; max-width:100%; min-height:24px; padding:2px 9px; border:1px solid color-mix(in srgb,var(--violet) 28%,transparent); border-radius:999px; background:color-mix(in srgb,var(--violet) 10%,transparent); color:color-mix(in srgb,var(--violet) 45%,var(--text-solid)); font:inherit; font-size:12px; font-variant-numeric:tabular-nums; cursor:pointer; }
 .subagents-button:hover { background:color-mix(in srgb,var(--violet) 18%,transparent); }
 .subagents-button[hidden] { display:none; }
 .subagents-button .ui-icon { width:13px; height:13px; }
@@ -475,7 +475,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .activity-card[hidden] { display:none; }
 .activity-card > summary { min-height:36px; padding:6px 10px; transition:background-color var(--dur-1) ease; }
 .activity-card > summary:hover { background:rgba(255,255,255,.025); }
-.activity-card > summary > .ui-icon:first-child { width:16px; height:16px; color:#ad9fff; }
+.activity-card > summary > .ui-icon:first-child { width:16px; height:16px; color:color-mix(in srgb,var(--violet) 80%,var(--text-solid)); }
 /* Only the label column grows. The meta is a span too, and when it matched this rule it took
    half of the row even while empty, cutting the preview to a couple of words. */
 .activity-card > summary > span:not(.activity-meta) { min-width:0; flex:1; display:flex; align-items:baseline; gap:8px; }

@@ -43,14 +43,18 @@ function plural(count, word) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
 
-// The chip above the conversation. Replaces the old "N subagents" button, which opened the
-// browser and only ever counted children `subagent/list` reported - none, on current DSH.
+// The chip under the Thinking card. Each kind reads working/total, "Subagents 2/29", so the
+// count that matters during a turn comes first and the total stays beside it. It replaces
+// the old "N subagents" button, which opened the browser and only ever counted children
+// `subagent/list` reported - none, on current DSH.
 function renderTasksChip(session) {
   const button = $("#subagentsButton");
   if (!button) return;
   const subagents = sessionSubagents(session);
   const jobs = sessionJobs(session?.sessionId);
-  const running = subagents.filter((child) => child.activity === "running").length + jobs.filter(liveJob).length;
+  const working = subagents.filter((child) => child.activity === "running").length;
+  const live = jobs.filter(liveJob).length;
+  const running = working + live;
   const visible = !subagentViewActive() && Boolean(session) && (subagents.length > 0 || jobs.length > 0);
   if (button.hidden === visible) button.hidden = !visible;
   if (!visible) {
@@ -58,13 +62,14 @@ function renderTasksChip(session) {
     return;
   }
   const parts = [];
-  if (subagents.length) parts.push(plural(subagents.length, "subagent"));
-  if (jobs.length) parts.push(plural(jobs.length, "job"));
-  const text = `${parts.join(" · ")}${running ? ` · ${running} running` : ""}`;
+  if (subagents.length) parts.push(`Subagents ${working}/${subagents.length}`);
+  if (jobs.length) parts.push(`Jobs ${live}/${jobs.length}`);
+  const text = parts.join(" · ");
   const label = button.querySelector("span");
   if (label.textContent !== text) label.textContent = text;
   if (button.classList.contains("busy") !== running > 0) button.classList.toggle("busy", running > 0);
-  const title = `${text}. Show what works under this chat`;
+  const said = [subagents.length ? `${working} of ${plural(subagents.length, "subagent")} working` : "", jobs.length ? `${live} of ${plural(jobs.length, "job")} running` : ""].filter(Boolean);
+  const title = `${said.join(" · ")}. Show what works under this chat`;
   if (button.title !== title) button.title = title;
   button.setAttribute("aria-expanded", String(tasksState.open));
   if (tasksState.open) renderTasksPanel(session);
@@ -295,6 +300,23 @@ function subagentEntry(view = tasksState.subagentView) {
   return sessionSubagents(tasksRow(view.rootId)).find((entry) => entry.sessionId === view.childId) || null;
 }
 
+// The open subagent as a session row, for app.js's selectedSessionRow: whether it works and
+// since when. The session list leaves subagents out, so nothing else can say.
+function subagentSessionRow(sessionId = state.selectedSessionId) {
+  const view = tasksState.subagentView;
+  if (!view || view.childId !== sessionId) return null;
+  const entry = subagentEntry(view);
+  const running = entry?.activity === "running";
+  return { sessionId, title: entry?.title || view.title, running, runningSince: running ? entry?.runningSince ?? null : null, activity: null, state: running ? "working" : "idle", subagent: true };
+}
+
+// DSH delivers a message to a subagent only when it was started continuable; a one-shot
+// child ran once and answers to its parent alone. An unknown mode is offered the composer
+// and DSH has the last word.
+function subagentWritable(entry = subagentEntry()) {
+  return Boolean(tasksState.subagentView) && entry?.mode !== "one-shot";
+}
+
 async function openSubagentChat(entry, rootId) {
   const root = tasksRow(rootId);
   tasksState.subagentView = { childId: entry.sessionId, rootId, title: entry.title, rootTitle: root?.title || "Chat" };
@@ -313,9 +335,10 @@ async function closeSubagentChat() {
 
 function leaveSubagentView() {
   tasksState.subagentView = null;
-  document.body.classList.remove("viewing-subagent");
+  document.body.classList.remove("viewing-subagent", "subagent-writable");
   $("#subagentBar").hidden = true;
   $("#subagentReadOnly").hidden = true;
+  $("#messageInput").placeholder = "Message the agent…";
 }
 
 // Called by selectSession: choosing any other chat leaves the subagent's view.
@@ -331,9 +354,16 @@ function renderSubagentBar() {
   const bar = $("#subagentBar");
   if (!bar) return;
   bar.hidden = !view;
-  $("#subagentReadOnly").hidden = !view;
-  if (!view) return;
+  if (!view) { $("#subagentReadOnly").hidden = true; return; }
   const entry = subagentEntry(view);
+  // A continuable subagent is written to here like any chat; its messages reach it through
+  // the parent (HarnessApi.prompt). A one-shot one keeps the note saying why it cannot be.
+  const writable = subagentWritable(entry);
+  document.body.classList.toggle("subagent-writable", writable);
+  $("#subagentReadOnly").hidden = writable;
+  const input = $("#messageInput");
+  const placeholder = writable ? "Message this subagent…" : "Message the agent…";
+  if (input.placeholder !== placeholder) input.placeholder = placeholder;
   const running = entry?.activity === "running";
   $("#subagentParentTitle").textContent = compactText(view.rootTitle, 40);
   $("#subagentTitle").textContent = compactText(entry?.title || view.title, 60);

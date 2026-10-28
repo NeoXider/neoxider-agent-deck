@@ -197,6 +197,10 @@ body[data-motion="subtle"].mode-transition-in .edge-line, body[data-motion="subt
 /* Subtle movement keeps the light and drops the spring. */
 body[data-motion="subtle"] #messages > .arrive-pulse { animation:none; }
 body[data-motion="subtle"] #messages > .arrive-pulse.arrive-fresh { animation:arrive-fade .22s ease-out var(--enter-delay,0ms) both; }
+/* A row taller than the log is never sprung: scale moves a line in proportion to its distance
+   from the row's corner, so a long answer threw the text being read up and down (app.js). */
+#messages > .arrive-pulse.arrive-tall { animation:none; }
+#messages > .arrive-pulse.arrive-fresh.arrive-tall { animation:arrive-fade .22s ease-out var(--enter-delay,0ms) both; }
 
 /* Controls answer the way they do on an iPhone: a press sinks quickly, the release springs back
    a little past rest and settles; a menu grows out of the control that opened it and

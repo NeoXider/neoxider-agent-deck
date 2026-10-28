@@ -5,8 +5,8 @@
 <p align="center"><strong>Your agents, within reach. And a slime that lives on your desktop.</strong><br>
 A desktop chat for DeepSeek Harness, a live session board, a little pet that climbs your screen, or just a glowing hinge.</p>
 <p align="center">
-  <img alt="Source version" src="https://img.shields.io/badge/source-v1.1.3-49e7c6" />
-  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-1.1.3-8b79ff" /></a>
+  <img alt="Source version" src="https://img.shields.io/badge/source-v1.2.0-49e7c6" />
+  <a href="CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-1.2.0-8b79ff" /></a>
   <a href="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/NeoXider/neoxider-agent-deck/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Desktop pet" src="https://img.shields.io/badge/desktop%20pet-slime-3ddc84" />
   <img alt="Platform" src="https://img.shields.io/badge/Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-desktop-5b6b8c" />
@@ -53,7 +53,7 @@ These are screenshots of the UI with demonstration sessions. Avatar and Hinge ar
 
 - **Answer the agent here.** When an agent stops on a question, it appears above the message box with its options. Answer or skip without opening the browser.
 - **Chats from the avatar.** Click a recent chat to address the message box to it, click again to open it in a small window that grows up out of the slime's panel. After you send, it folds back into the avatar.
-- **Subagents in sight.** The chip above a conversation counts its subagents and background jobs; open it to see each one working, stop it, read a job's output, or open a subagent as a chat of its own.
+- **Subagents in sight.** The chip under the Thinking line counts subagents and background jobs as working/total (`Subagents 2/29 · Jobs 1/3`); open it to see each one working, stop it, read a job's output, or open a subagent as a chat of its own and write to it.
 - **Fast on long chats.** A chat opens on its newest messages and fetches older ones as you scroll; a chat of thousands of messages opens in a fraction of a second, and one you opened before is back instantly.
 - **Open what the chat points at.** Click an image, an attached file, a link to a file or a path an agent writes, and it opens in a viewer window: images to zoom, Markdown to read, code highlighted at the line named.
 - **What it cost.** Hover the context meter: spend and cost per turn, context and what fills it, turns and tool calls, tokens and cache hits, time worked.
@@ -61,7 +61,7 @@ These are screenshots of the UI with demonstration sessions. Avatar and Hinge ar
 - **One model and effort control.** Open the combined chip, adjust reasoning on the slider, or choose another model from the same menu.
 - **Readable activity.** Streaming Markdown, grouped tools, queued messages, a compact goal strip and context usage. Background jobs have their own waiting state.
 - **Motion that feels like a Mac.** Folding shrinks the window into the slime or the edge on a spring and it grows back out the same way. Buttons, menus and new tool calls bounce a little.
-- **Your space, your look.** Aurora, Graphite, Midnight, Cyberpunk and Cave themes; custom images, saved design profiles, separate background and text opacity.
+- **Your space, your look.** Claude (the Claude Code colours, the default), Aurora, Graphite, Midnight, Cyberpunk and Cave themes; custom images, saved design profiles, separate background and text opacity.
 - **Screenshots in one shortcut.** Capture for review, or send the current screen straight to the selected chat. Deck stays on screen but out of the picture.
 - **Harness taken care of.** No DeepSeek Harness installed? Deck installs it. A new stable release? Deck says so once and puts a **DSH x.y.z** chip in the title bar; one press installs it next to the running one and switches. Running DSH Desktop instead? Deck can follow its Harness too.
 
@@ -119,7 +119,7 @@ npm ci
 npm start
 ```
 
-Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 1.1.3 opens a subagent's chat again on DeepSeek Harness 0.2.1, which refused to show it. 1.1.2 installs a downloaded update by itself while Deck sits as the avatar or strip with nothing typed, attached or sending, and makes the show shortcut collapse the widget back when pressed again. 1.1.1 keeps the avatar a plain pet while Harness is off, with no card or notification beside it. 1.1.0 opens long chats at once, takes screenshots in a tenth of the time, follows DSH Desktop's Harness as well as its own, updates Harness to a new stable release with one press, shows a chat's subagents and background jobs and opens a subagent as a chat, pins and deletes chats, opens images and files from the chat in a viewer window, and shows what a chat has cost when you hover its context meter. 1.0.1 let you grab the pet and throw it. 1.0.0 turned the avatar into a desktop pet, answers the agent's questions inside Deck for real, opens a chat from the avatar as a small window beside it, installs and updates DeepSeek Harness, and makes folding and unfolding start at once with no flash. Every earlier release is in the [changelog](CHANGELOG.md).
+Set `DSH_WIDGET_URL` for a different Harness endpoint. Source version 1.2.0 lets you write to a continuable subagent from its chat, wears the Claude Code colours as its default theme, counts subagents and jobs as working/total under the Thinking line, and keeps Thinking steady in a subagent's chat. 1.1.3 opens a subagent's chat again on DeepSeek Harness 0.2.1, which refused to show it. 1.1.2 installs a downloaded update by itself while Deck sits as the avatar or strip with nothing typed, attached or sending, and makes the show shortcut collapse the widget back when pressed again. 1.1.1 keeps the avatar a plain pet while Harness is off, with no card or notification beside it. 1.1.0 opens long chats at once, takes screenshots in a tenth of the time, follows DSH Desktop's Harness as well as its own, updates Harness to a new stable release with one press, shows a chat's subagents and background jobs and opens a subagent as a chat, pins and deletes chats, opens images and files from the chat in a viewer window, and shows what a chat has cost when you hover its context meter. 1.0.1 let you grab the pet and throw it. 1.0.0 turned the avatar into a desktop pet, answers the agent's questions inside Deck for real, opens a chat from the avatar as a small window beside it, installs and updates DeepSeek Harness, and makes folding and unfolding start at once with no flash. Every earlier release is in the [changelog](CHANGELOG.md).
 
 ## Verify and build
 
@@ -133,7 +133,7 @@ npm audit --audit-level=high
 npm run build
 ```
 
-The tests cover session contracts, streaming, attachments, window geometry, compact layouts and the pet's behaviour. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction. Release CI builds Windows, Intel and Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-1.1.3-windows-x64-portable.exe`.
+The tests cover session contracts, streaming, attachments, window geometry, compact layouts and the pet's behaviour. `npm run test:harness -- --entry /absolute/path/to/dsh/lib/bin.js` runs real Harness acceptance in an isolated home against a local deterministic model server without touching user chats or credentials. Add `--compaction` to exercise automatic and manual compaction. Release CI builds Windows, Intel and Apple Silicon macOS, Linux and the Game Bar companion, then publishes checksums with the artifacts. The Windows portable output is `release/NeoXider-Agent-Deck-1.2.0-windows-x64-portable.exe`.
 
 ## Trust and integration
 

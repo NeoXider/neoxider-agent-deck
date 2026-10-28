@@ -23,6 +23,7 @@ body[data-motion="subtle"] { --motion-control:120ms; --motion-panel:160ms; --dur
 .design-themes small { margin-top:0; color:var(--muted); font-size:11px; font-weight:400; }
 .theme-swatch { position:relative; display:block; height:48px; border:0; border-radius:6px; overflow:hidden; }
 .theme-swatch::after { content:""; position:absolute; inset:12px 9px; border-top:3px solid #ffffff80; border-bottom:9px solid #ffffff22; border-radius:3px; }
+.swatch-claude { background:radial-gradient(at 85% 15%,#d9775755,transparent 60%),#262625; }
 .swatch-aurora { background:radial-gradient(at 0% 0%,#3c4c63,transparent 80%),#0f1218; }
 .swatch-graphite { background:linear-gradient(130deg,#36383d,#17181b); }
 .swatch-midnight { background:radial-gradient(at 100% 100%,#304b91,transparent 90%),#0c1122; }
@@ -40,6 +41,43 @@ body[data-design="cyberpunk"] { --mint:#fcee09; --violet:#00e6e6; --focus-ring:#
 body[data-design="graphite"] .widget-shell::before,body[data-design="graphite"] .widget-shell::after { opacity:0; animation:none; }
 body[data-design="cyberpunk"] .composer #sendButton { border-radius:8px; }
 body[data-design="cyberpunk"] .bubble.user { border-radius:10px 10px 3px 10px; }
+
+/* Claude: the Claude Code app's colours, from Anthropic's palette - slate surfaces, ivory
+   text, the clay accent with kraft beside it, the blue focus ring. Flat like the app: no
+   drifting aurora, the state light stays a whisper at the rim in the same warm family. */
+body[data-design="claude"] {
+  --mint:#d97757; --violet:#d4a27f; --focus-ring:#61aaf2; --danger:#e0796f; --warning:#d4a27f;
+  --shell-rgb:38,38,37; --shell-border:rgba(240,238,230,.1);
+  --surface-1-solid:#30302e; --surface-2-solid:#383836; --surface-3-solid:#40403e; --code-bg-solid:#1d1d1c;
+  --surface:rgba(240,238,230,.04); --surface-strong:rgba(240,238,230,.08);
+  --line-soft:rgba(240,238,230,.07); --line:rgba(240,238,230,.11); --line-strong:rgba(240,238,230,.17); --line-bright:rgba(217,119,87,.5);
+  --text-solid:#faf9f5; --text-2-solid:#dedcd4; --muted-solid:#aeaca5; --dim-solid:#9b9a94;
+  /* One colour per state, each its own in the palette: clay at rest, blue waiting, kraft
+     thinking, cactus writing, olive in a tool, manilla done, red failed. */
+  --status-idle-primary:217,119,87; --status-idle-secondary:212,162,127;
+  --status-waiting-primary:97,170,242; --status-waiting-secondary:212,162,127;
+  --status-thinking-primary:212,162,127; --status-thinking-secondary:235,219,188;
+  --status-writing-primary:188,209,202; --status-writing-secondary:235,219,188;
+  --status-tool-primary:150,170,110; --status-tool-secondary:212,162,127;
+  --status-done-primary:235,219,188; --status-done-secondary:188,209,202;
+  --status-error-primary:224,121,111; --status-error-secondary:191,77,67;
+  --orb-halo-primary:rgba(217,119,87,.27); --orb-halo-secondary:rgba(212,162,127,.17); --edge-halo-color:rgba(217,119,87,.22);
+}
+/* The resting light is declared on :root, where var() resolves against :root's tokens, so a
+   theme's idle colour never reached the rim, the avatar ring or the edge strip at rest. It is
+   restated here at zero specificity, so every state rule on body still wins over it. */
+:where(body[data-design="claude"]) {
+  --chat-light-primary:rgb(var(--status-idle-primary)); --chat-light-secondary:rgb(var(--status-idle-secondary));
+  --orb-ring-primary:rgb(var(--status-idle-primary)); --orb-ring-secondary:rgb(var(--status-idle-secondary));
+  --edge-primary:rgb(var(--status-idle-primary)); --edge-secondary:rgb(var(--status-idle-secondary));
+}
+body[data-design="claude"] .widget-shell::before { opacity:0; animation:none; }
+body[data-design="claude"] .bubble { color:color-mix(in srgb,#ecebe6 calc(var(--text-alpha,1) * 100%),transparent); }
+body[data-design="claude"] .bubble.user { border-color:var(--line); border-radius:14px; background-image:none; background-color:var(--surface-2); color:var(--text); }
+body[data-design="claude"] .composer { border-color:var(--line-strong); border-radius:18px; }
+body[data-design="claude"] .composer:focus-within { border-color:color-mix(in srgb,var(--mint) 45%,var(--line-strong)); }
+body[data-design="claude"] .composer #sendButton { border-radius:10px; color:#fff; box-shadow:none; }
+body[data-design="claude"] ::selection { background:color-mix(in srgb,var(--mint) 38%,transparent); }
 
 button:not(.edge-mode):not(.orb-mode) { transition-timing-function:var(--ease-deck); }
 button:not(.edge-mode):not(.orb-mode):active { transform:scale(.97); transition-duration:100ms; }

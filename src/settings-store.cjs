@@ -1,4 +1,4 @@
-const { normalizeBackground, normalizeDesignProfiles } = require("./appearance-settings.cjs");
+const { APPEARANCE_REVISION, DEFAULT_THEME, normalizeAppearance } = require("./appearance-settings.cjs");
 const path = require("node:path");
 const fs = require("node:fs");
 const { DEFAULT_HOTKEYS, normalizeHotkeyBindings } = require("./hotkey-manager.cjs");
@@ -14,7 +14,8 @@ const DEFAULT_PREFERENCES = Object.freeze({
   // The widget leans on motion to say what it is doing - a flowing goal rail, a breathing
   // pause glyph, a pulsing tool group. Anyone who wants it plain can switch the lot off.
   motionEffects: true,
-  appearance: { theme: "aurora", motion: "fluid", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] },
+  appearance: { theme: DEFAULT_THEME, motion: "fluid", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] },
+  appearanceRevision: APPEARANCE_REVISION,
   // Avatar mode starts collapsed to the circle. Widening it to a 400 px status card on
   // every turn is what made the orb cover a slab of the screen the user never asked for,
   // so the panel is now opened by the user and this restores the old behaviour opt-in.
@@ -119,14 +120,8 @@ function normalizePreferences(raw = {}) {
     fontScale: boundedNumber(source.fontScale, DEFAULT_PREFERENCES.fontScale, 0.85, 1.35),
     showThinking: source.showThinking !== false,
     motionEffects: source.motionEffects !== false,
-    appearance: {
-      theme: ["aurora", "graphite", "midnight", "cyberpunk", "cave"].includes(source.appearance?.theme) ? source.appearance.theme : "aurora",
-      motion: ["fluid", "subtle"].includes(source.appearance?.motion) ? source.appearance.motion : "fluid",
-      inputBorder: source.appearance?.inputBorder !== false,
-      windowBorder: source.appearance?.windowBorder === true,
-      ...normalizeBackground(source.appearance),
-      profiles: normalizeDesignProfiles(source.appearance?.profiles),
-    },
+    appearance: normalizeAppearance(source.appearance, source.appearanceRevision),
+    appearanceRevision: APPEARANCE_REVISION,
     compactAutoExpand: source.compactAutoExpand === true,
     collapseAfterSend: source.collapseAfterSend !== false,
     petMode: source.petMode !== false,

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-28
+
+### Added
+
+- **Write to a subagent.** A subagent's chat has a message box when its parent started it continuable: the message goes to the subagent through its parent, queued for its next turn, with images if you attach them. Stop in that chat stops the subagent the way its parent would. A one-shot subagent, which ran once and answers to its parent alone, keeps a note saying so instead.
+- **Claude theme.** Deck takes the Claude Code app's colours: warm slate surfaces, ivory text, the clay accent with kraft beside it and the blue focus ring, flat like the app, with one colour per state at the rim, the avatar and the edge strip. It is the default, and every install moves to it once; the other themes stay under **Settings → Appearance**.
+
+### Changed
+
+- The subagents chip sits under the Thinking line and counts working/total for each kind: `Subagents 2/29 · Jobs 1/3`.
+
+### Security
+
+- Electron 44.10.0, with its fixes for permission checks attributed to the wrong origin, SameSite cookies in windows opened from links and the compromised eMudhra intermediate certificates. The build tools' undici and fast-uri are on their patched releases.
+
+### Fixed
+
+- Thinking no longer blinks in a subagent's chat, and the conversation under it no longer jumps. The session list leaves subagents out, so every poll took the open subagent for a stopped chat and put Thinking away until the next live frame brought it back; the open subagent's state now comes from its parent's list of subagents.
+- Scrolling through long answers holds still:
+  - A long answer that arrives no longer swings up and down. Its arrival spring scaled it from the top corner, so a line far down a 16,000 px answer moved by up to 440 px for half a second; a row taller than the log now arrives without the spring.
+  - Reading inside an answer that is still being written no longer throws you about 10,000 px away the moment it finishes. The finished message now takes over the live bubble you are reading.
+  - The text no longer shakes while the Thinking line or another strip eases in above it. Re-anchoring divided by the log's rounded height, so an anchor far up a long answer came back 15–35 px off on every frame, and the error added up.
+  - PageUp, the up arrow and Home scroll up instead of being pulled back to the newest line. Keys pressed after clicking the conversation's text reached the page rather than the log, and the log took the scroll they caused for a layout correction.
+  - One very tall answer no longer inflates the size guessed for unloaded messages, so the scrollbar thumb stops jumping and dragging it lands where it points.
+
 ## [1.1.3] - 2026-10-23
 
 ### Fixed

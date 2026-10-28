@@ -1628,7 +1628,7 @@ test("attachment preparation is asynchronous and reports failures per file", () 
 
 test("full access is negotiated once per session, not on every send", () => {
   assert.match(harnessApi, /this\.fullAccessSessions = new Set\(\)/);
-  assert.match(harnessApi, /if \(this\.fullAccessSessions\.has\(key\)\) return null;/);
+  assert.match(harnessApi, /if \(this\.fullAccessSessions\.has\(key\) \|\| this\.subagentOf\(key\)\) return null;/);
   assert.match(harnessApi, /this\.fullAccessSessions\.add\(key\)/);
 });
 
@@ -2313,4 +2313,17 @@ test("the two top efforts move only cheap properties, hold still without motion 
   assert.match(renderer, /if \(!wasPeak && \$\("#reasoningButton"\)\.dataset\.intensity === "peak"\) playEffortBurst\(\$\("#reasoningButton"\)\);/);
   assert.match(appearance, /\.reasoning-track\.effort-burst::after \{[^}]*animation:reasoning-burst \.76s[^;]*var\(--burst-delay,0ms\) both;/);
   assert.match(renderer, /const EFFORT_BURST_MS = 760;/);
+});
+
+test("subagents are counted under Thinking and a continuable one can be written to", () => {
+  const tasks = readSource("src", "renderer", "tasks-panel.js");
+  const deckCss = readSource("src", "renderer", "deck.css");
+  assert.ok(html.indexOf('id="activityCard"') < html.indexOf('id="subagentsButton"'), "the chip sits under the Thinking card");
+  assert.ok(html.indexOf('id="subagentsButton"') < html.indexOf('id="tasksPanel"'), "its panel opens under the chip");
+  assert.match(tasks, /parts\.push\(`Subagents \$\{working\}\/\$\{subagents\.length\}`\)/);
+  assert.match(tasks, /parts\.push\(`Jobs \$\{live\}\/\$\{jobs\.length\}`\)/);
+  assert.match(deckCss, /\.viewing-subagent:not\(\.subagent-writable\) :is\(#chatForm, #attachmentBar, #composerError\)/);
+  assert.doesNotMatch(deckCss, /\.viewing-subagent :is\([^)]*#chatForm/, "the composer is not hidden for every subagent");
+  assert.match(renderer, /const toSubagent = globalThis\.subagentViewActive\?\.\(\) === true;/);
+  assert.match(renderer, /globalThis\.subagentSessionRow\?\.\(\)/, "the open subagent keeps its running state across polls");
 });

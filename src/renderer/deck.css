@@ -90,7 +90,7 @@
 
 .subagents-button .subagents-chevron { width:11px; height:11px; opacity:.7; transition:transform var(--dur-2) var(--ease-out); }
 .subagents-button[aria-expanded="true"] .subagents-chevron { transform:rotate(180deg); }
-.subagents-button.busy > .ui-icon:first-child { animation:subagent-spin-pulse 1.6s ease-in-out infinite; color:#b9adff; }
+.subagents-button.busy > .ui-icon:first-child { animation:subagent-spin-pulse 1.6s ease-in-out infinite; color:var(--violet); }
 @keyframes subagent-spin-pulse { 0%,100% { transform:scale(1); opacity:.8; } 50% { transform:scale(1.18); opacity:1; } }
 
 .tasks-panel { flex:none; max-height:min(56%,360px); display:flex; flex-direction:column; gap:8px; overflow:auto; padding:10px; border:1px solid color-mix(in srgb,var(--violet) 26%,var(--line)); border-radius:var(--radius-md); background:var(--surface-2); box-shadow:var(--shadow-2); animation:tasks-in .26s var(--ease-out) both; transform-origin:top left; }
@@ -133,18 +133,19 @@
 .task-stop .ui-icon { width:12px; height:12px; }
 .job-output { width:100%; max-height:150px; margin:2px 0 4px; padding:8px 10px; overflow:auto; border:1px solid var(--line-soft); border-radius:8px; background:var(--code-bg-solid); color:#cfe3dc; font-family:var(--font-mono); font-size:11px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; animation:task-row-in .22s var(--ease-out) both; }
 
-/* A subagent's chat: the way back above it, read-only below. */
+/* A subagent's chat: the way back above it; below, the composer for a continuable one and a
+   note for a one-shot one. Its parent's commands, model, goal, plan and queue stay away. */
 .subagent-bar { flex:none; display:flex; align-items:center; gap:8px; min-height:40px; padding:5px 6px 5px 4px; border:1px solid color-mix(in srgb,var(--violet) 30%,var(--line)); border-radius:var(--radius-md); background:linear-gradient(100deg,color-mix(in srgb,var(--violet) 14%,var(--surface-1)),var(--surface-1)); animation:tasks-in .28s var(--ease-out) both; }
 .subagent-bar[hidden] { display:none; }
-.subagent-back { width:30px; height:30px; flex:none; display:grid; place-items:center; padding:0; border:0; border-radius:8px; background:transparent; color:#cfc7ff; cursor:pointer; }
-.subagent-back:hover { background:var(--surface-strong); color:#fff; }
+.subagent-back { width:30px; height:30px; flex:none; display:grid; place-items:center; padding:0; border:0; border-radius:8px; background:transparent; color:color-mix(in srgb,var(--violet) 60%,var(--text-solid)); cursor:pointer; }
+.subagent-back:hover { background:var(--surface-strong); color:var(--text); }
 .subagent-back .ui-icon { width:16px; height:16px; }
 .subagent-crumbs { min-width:0; flex:1; display:flex; flex-direction:column; line-height:1.25; }
 .subagent-crumbs small { overflow:hidden; color:var(--muted); font-size:10.5px; text-overflow:ellipsis; white-space:nowrap; }
 .subagent-crumbs small::after { content:" ›"; }
 .subagent-crumbs b { overflow:hidden; color:var(--text); font-size:13px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
 .subagent-status { flex:none; padding:2px 8px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:10.5px; font-weight:650; font-variant-numeric:tabular-nums; }
-.subagent-status.running { border-color:color-mix(in srgb,var(--mint) 34%,transparent); background:color-mix(in srgb,var(--mint) 10%,transparent); color:#8ff0db; }
+.subagent-status.running { border-color:color-mix(in srgb,var(--mint) 34%,transparent); background:color-mix(in srgb,var(--mint) 10%,transparent); color:color-mix(in srgb,var(--mint) 60%,var(--text-solid)); }
 .subagent-status.failed { border-color:rgba(255,115,143,.3); color:#ff9fb2; }
 .subagent-status.done { color:#d4f59a; }
 .subagent-stop { height:28px; flex:none; display:inline-flex; align-items:center; gap:5px; padding:0 10px; border:1px solid rgba(255,115,143,.32); border-radius:8px; background:rgba(255,115,143,.1); color:#ffb3c1; cursor:pointer; font-size:11.5px; font-weight:650; }
@@ -152,8 +153,9 @@
 .subagent-stop .ui-icon { width:11px; height:11px; }
 .subagent-readonly { flex:none; display:flex; align-items:center; gap:8px; padding:9px 12px; border:1px dashed var(--line-strong); border-radius:var(--radius-md); color:var(--muted); font-size:12px; }
 .subagent-readonly[hidden] { display:none; }
-.subagent-readonly .ui-icon { width:15px; height:15px; flex:none; color:#b9adff; }
-.viewing-subagent :is(.chat-heading, #subagentsButton, #tasksPanel, #chatForm, #queueDock, #attachmentBar, #goalDock, #todoDock, #composerError, #commandMenu, #commandHintBar) { display:none !important; }
+.subagent-readonly .ui-icon { width:15px; height:15px; flex:none; color:var(--violet); }
+.viewing-subagent :is(.chat-heading, #subagentsButton, #tasksPanel, #queueDock, #goalDock, #todoDock, #commandMenu, #commandHintBar, #commandsButton) { display:none !important; }
+.viewing-subagent:not(.subagent-writable) :is(#chatForm, #attachmentBar, #composerError) { display:none !important; }
 
 /* --- The avatar's mini chat ---------------------------------------------------------------- */
 

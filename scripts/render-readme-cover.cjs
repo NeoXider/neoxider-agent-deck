@@ -22,7 +22,7 @@ app.whenReady().then(async () => {
     useContentSize: true,
     frame: false,
     transparent: false,
-    backgroundColor: "#070b12",
+    backgroundColor: "#1a1a19",
     webPreferences: { sandbox: true, contextIsolation: true },
   });
   await window.loadFile(source);

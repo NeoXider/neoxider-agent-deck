@@ -170,8 +170,13 @@ class HarnessApi {
   // chat on "History could not be loaded". "unknown" mode is the one DSH never checks
   // against the child's own, so a continuable or one-shot child opens alike.
   sessionAddress(sessionId) {
-    const parentSessionId = this.subagentParents.get(sessionId);
+    const parentSessionId = this.subagentParents.get(sessionId)?.parentSessionId;
     return parentSessionId ? { kind: "subagent", parentSessionId, childSessionId: sessionId, mode: "unknown" } : { kind: "session", sessionId };
+  }
+
+  // { parentSessionId, mode } for a session the last list reported as a subagent, else null.
+  subagentOf(sessionId) {
+    return this.subagentParents.get(sessionId) || null;
   }
 
   // One history page for either dialect. Legacy pages come from session.history;
@@ -288,7 +293,9 @@ class HarnessApi {
     const sessions = (sessionsValue.items || []).filter((session) => session.origin !== "subagent" && !archived.has(session.sessionId));
     // Subagents are sessions too; their rows say whose they are (subagent-tree.cjs).
     const children = remote ? childrenByParent(sessionsValue.items) : null;
-    if (children) this.subagentParents = new Map([...children].flatMap(([parent, rows]) => rows.map((row) => [row.sessionId, parent])));
+    if (children) this.subagentParents = new Map([...children].flatMap(([parent, rows]) => rows.map((row) => [row.sessionId, {
+      parentSessionId: parent, mode: String(row.projections?.values?.subagent?.mode || ""),
+    }])));
     // Per session, and never rejecting. Only the two RPCs used to be guarded, so a single
     // malformed history event thrown by one of the derivation readers rejected the whole
     // Promise.all — and the renderer received {harness:false, sessions:[]}, which is what
@@ -472,6 +479,8 @@ class HarnessApi {
   // The spread used to come last, so a renderer-supplied selection.sessionId would
   // silently overwrite the real one and retarget the call at another session.
   async selectModel(sessionId, selection) {
+    // A subagent runs on the model its parent gave it.
+    if (this.subagentOf(sessionId)) return null;
     const remote = await this.ensureRemote();
     if (remote) return remote.call("session/selectModel", { request: { ...(selection || {}), sessionId } }, 20000);
     return this.rpc("session.selectModel", { ...(selection || {}), sessionId }, 20000);
@@ -484,6 +493,23 @@ class HarnessApi {
       content.push({ type: "image", mediaType: image.mediaType, data: image.data, name: image.name });
     }
     const remote = await this.ensureRemote();
+    // A subagent takes a message only through its live parent, and only when it was started
+    // continuable: a one-shot child ran once and its parent decides what it does next.
+    const child = remote ? this.subagentOf(sessionId) : null;
+    if (child) {
+      if (child.mode && child.mode !== "continuable") throw new Error("This subagent ran once and takes no messages. Its parent decides what it does next.");
+      return remote.call("subagents/prompt", {
+        request: {
+          requestId: randomUUID(),
+          parentSessionId: child.parentSessionId,
+          childSessionId: sessionId,
+          mode: "continuable",
+          delivery: "queue",
+          content,
+          ...(timeZone ? { clientTimeZone: timeZone } : {}),
+        },
+      }, 30000);
+    }
     if (remote) {
       return remote.call("session/prompt", {
         request: {
@@ -505,6 +531,9 @@ class HarnessApi {
 
   async cancel(sessionId) {
     const remote = await this.ensureRemote();
+    // Stop in a subagent's chat stops it the way its parent would; session/cancel refuses one.
+    const child = remote ? this.subagentOf(sessionId) : null;
+    if (child) return remote.call("subagents/interruptByParent", { childSessionId: sessionId, parentSessionId: child.parentSessionId, mode: "continuable" });
     if (remote) return remote.call("session/cancel", { request: { sessionId } });
     return this.rpc("session.cancel", { sessionId });
   }
@@ -595,7 +624,8 @@ class HarnessApi {
   async ensureFullAccess(sessionId) {
     const key = String(sessionId || "");
     if (!key) throw new Error("A session id is required to enable Full access");
-    if (this.fullAccessSessions.has(key)) return null;
+    // A subagent has no command surface of its own; it works under its parent's permissions.
+    if (this.fullAccessSessions.has(key) || this.subagentOf(key)) return null;
     const response = await this.executeCommand(key, "/permission danger-full-access");
     if (response?.result?.kind !== "success") {
       throw new Error(response?.result?.text || "Harness did not enable Full access");
