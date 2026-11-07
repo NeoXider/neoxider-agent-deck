@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { apply } from './index.js';
-import { fitArguments, parseTrailingCalls, recoverCalls, recoverToolCalls, resolveTool } from './recovery.mjs';
+import { fitArguments, parseTrailingCalls, recoverCalls, recoverToolCalls, resolveTool, suggestTools, unknownToolStreak } from './recovery.mjs';
 
 // The declared tools of a Windows DSH agent, as the request carries them.
 const TOOLS = [
@@ -14,11 +14,16 @@ const TOOLS = [
   { name: 'web_fetch', parameters: { type: 'object', properties: { url: { type: 'string' } } } },
   { name: 'web_search', parameters: { type: 'object', properties: { query: { type: 'string' } } } },
   { name: 'capability_hub', parameters: { type: 'object', properties: { action: { type: 'string' }, name: { type: 'string' }, arguments: { type: 'object', additionalProperties: true } } } },
+  { name: 'job_output', parameters: { type: 'object', properties: { job_id: { type: 'string' }, wait: { type: 'boolean' }, timeout_ms: { type: 'integer' } } } },
 ];
 const NAMES = TOOLS.map((tool) => tool.name);
 
 // What the model wrote in the chat that prompted this plugin.
 const WRITTEN_READ = 'Let me read it.\n<tool_call>\n<function=read_file>\n<parameter=file_path>\nD:/Git/notes.md\n</parameter>\n</function>\n</tool_call>';
+
+// A call to no declared tool at all, as a model wrote it while waiting on a background job:
+// the namespace code mode calls tools through, the job_output arguments nested in a wrapper.
+const WRITTEN_UNKNOWN = 'Waiting for the search.\n<tool_call>\n<function=tools>\n<parameter=arguments>\n{"job_id": "code-19e64e72a4264731", "wait": true, "timeout_ms": 240000}\n</parameter>\n<parameter=description>\nCollect web search results\n</parameter>\n</function>\n</tool_call>';
 
 async function* stream(...chunks) {
   yield* chunks;
@@ -59,6 +64,8 @@ test('written names resolve to the declared tool they mean, and only when it is 
     'mcp__capability-hub__capability_hub': 'capability_hub',
     'mcp__filesystem__read_file': 'read',
     'capability-hub': 'capability_hub',
+    'tools.read': 'read',
+    'functions.web_fetch': 'web_fetch',
   };
   for (const [written, expected] of Object.entries(cases)) assert.equal(resolveTool(written, NAMES), expected, written);
   for (const written of ['web', 'delete_everything', 'list_directory', 'todo']) assert.equal(resolveTool(written, NAMES), undefined, written);
@@ -87,17 +94,61 @@ test('the written call from the chat becomes a read of the same file', () => {
   assert.deepEqual(recoverCalls(json, TOOLS).calls, [{ name: 'pwsh', arguments: { command: 'Get-Date' } }]);
 });
 
-test('text that only quotes, cuts off or misnames a call is left alone', () => {
+test('text that only quotes or cuts off a call is left alone', () => {
   assert.equal(recoverCalls(`${WRITTEN_READ}\nThat is how a call looks.`, TOOLS), undefined);
   assert.equal(recoverCalls(`Example:\n\`\`\`\n${WRITTEN_READ}`, TOOLS), undefined);
   assert.equal(recoverCalls('<tool_call>\n<function=read_file>\n<parameter=file_path>\nD:/Gi', TOOLS), undefined);
-  assert.equal(recoverCalls(WRITTEN_READ.replace('read_file', 'delete_everything'), TOOLS), undefined);
-  assert.equal(recoverCalls(`${WRITTEN_READ}\n${WRITTEN_READ.replace('read_file', 'nope')}`, TOOLS), undefined);
   assert.equal(parseTrailingCalls('<tool_call>\n<function=read>\nloose text\n</function>'), undefined);
 });
 
+test('a call to no declared tool becomes a refused call that names the tools it probably meant', () => {
+  const recovered = recoverCalls(WRITTEN_UNKNOWN, TOOLS);
+  assert.equal(recovered.prose, 'Waiting for the search.');
+  assert.equal(recovered.calls.length, 1);
+  const [call] = recovered.calls;
+  assert.equal(call.name, 'tools');
+  assert.deepEqual(call.arguments, { arguments: '{"job_id": "code-19e64e72a4264731", "wait": true, "timeout_ms": 240000}', description: 'Collect web search results' });
+  assert.match(call.hint, /^unknown tool "tools": it is not one of this agent's tools\. /);
+  assert.match(call.hint, /Closest declared tools: job_output \(job_id, wait, timeout_ms\)/);
+  assert.deepEqual(suggestTools('job_ouput', {}, TOOLS).map((tool) => tool.name), ['job_output']);
+  assert.deepEqual(suggestTools('frobnicate', {}, TOOLS), []);
+  // In code mode the hint says how the other tools are reached.
+  const codeMode = [{ name: 'run_code', parameters: { type: 'object', properties: { code: { type: 'string' }, description: { type: 'string' } } } }];
+  const hint = recoverCalls(WRITTEN_UNKNOWN, codeMode).calls[0].hint;
+  assert.match(hint, /functions inside a run_code program: put `return await tools\.NAME\(\{ \.\.\. \}\)`/);
+  assert.match(hint, /Closest declared tools: run_code \(code, description\)\.$/);
+  assert.doesNotMatch(call.hint, /run_code/);
+
+  // Resolved and unknown calls in one reply both become calls.
+  const mixed = recoverCalls(`${WRITTEN_READ}\n${WRITTEN_READ.replace('read_file', 'nope').replace('Let me read it.', '')}`, TOOLS);
+  assert.deepEqual(mixed.calls.map((entry) => [entry.name, entry.hint !== undefined]), [['read', false], ['nope', true]]);
+  // An offered tool's name is never reused for an unknown call, and a name keeps to the
+  // characters a provider accepts.
+  assert.equal(recoverCalls(WRITTEN_READ.replace('read_file', 'web search!'), TOOLS).calls[0].name, 'web_search_');
+  assert.equal(recoverCalls(WRITTEN_READ.replace('read_file', 'web search'), TOOLS).calls[0].name, 'unknown_tool');
+  // A deferred tool named exactly is DSH's to answer, so it passes as written.
+  assert.deepEqual(recoverCalls(WRITTEN_READ.replace('read_file', 'tool_search'), TOOLS, { known: [...NAMES, 'tool_search'] }).calls, [{ name: 'tool_search', arguments: { file_path: 'D:/Git/notes.md' } }]);
+  // A closed call in no readable form is refused too, and never runs the tool it names.
+  const unreadable = recoverCalls('<tool_call>\n<function=read>\nloose text\n</function>\n</tool_call>', TOOLS);
+  assert.deepEqual(unreadable.calls.map((entry) => entry.name), ['unknown_tool']);
+  assert.match(unreadable.calls[0].hint, /^unknown tool "read": the call was written as text in a form that could not be read/);
+  // With unknown calls switched off, nothing is recovered from a reply that has one.
+  assert.equal(recoverCalls(WRITTEN_UNKNOWN, TOOLS, { unresolved: false }), undefined);
+  assert.equal(recoverCalls(mixed.prose + WRITTEN_UNKNOWN, TOOLS, { unresolved: false }), undefined);
+});
+
+test('unknown-name errors are counted back to the last user message', () => {
+  const refused = { role: 'tool', isError: true, content: [{ type: 'text', text: 'Error: unknown tool "tools": it is not one of this agent\'s tools.' }] };
+  const failed = { role: 'tool', isError: true, content: [{ type: 'text', text: 'Error: file not found' }] };
+  const assistant = { role: 'assistant', content: [] };
+  assert.equal(unknownToolStreak(), 0);
+  assert.equal(unknownToolStreak([{ role: 'user', content: [] }, assistant, refused, assistant, refused]), 2);
+  assert.equal(unknownToolStreak([refused, refused, { role: 'user', content: [] }, assistant, refused]), 1);
+  assert.equal(unknownToolStreak([refused, assistant, failed, assistant, refused]), 1);
+});
+
 test('a recovered reply streams the prose, then real tool-call blocks, and drops the written replay state', async () => {
-  const out = await collect(recoverToolCalls(stream(...textReply(WRITTEN_READ)), TOOLS, () => 'call_1'));
+  const out = await collect(recoverToolCalls(stream(...textReply(WRITTEN_READ)), TOOLS, { newId: () => 'call_1' }));
   assert.deepEqual(out, [
     { type: 'block-start', index: 0, blockType: 'text' },
     { type: 'text-delta', index: 0, text: WRITTEN_READ.slice(0, 12) },
@@ -114,7 +165,6 @@ test('a recovered reply streams the prose, then real tool-call blocks, and drops
 test('replies with nothing to recover pass through with every chunk intact', async () => {
   const cases = [
     textReply('Plain answer.'),
-    textReply(WRITTEN_READ.replace('read_file', 'delete_everything')),
     textReply(WRITTEN_READ, { type: 'finish', reason: { kind: 'max-tokens' } }),
     [
       { type: 'text-delta', index: 0, text: WRITTEN_READ },
@@ -132,14 +182,15 @@ test('replies with nothing to recover pass through with every chunk intact', asy
 });
 
 test('the plugin wraps model streams that offer tools, counting only tools sent to the model', async () => {
-  let listener;
+  const listeners = {};
   apply({
     on: (event, callback, options) => {
-      assert.equal(event, 'llm/stream');
       assert.equal(options.global, true);
-      listener = callback;
+      listeners[event] = { callback, options };
     },
   });
+  assert.deepEqual(Object.keys(listeners).sort(), ['llm/stream', 'tools/pre-execute']);
+  const listener = listeners['llm/stream'].callback;
   const model = () => stream(...textReply(WRITTEN_READ));
   const recovered = await collect(listener({ tools: TOOLS }, model));
   assert.equal(recovered.find((chunk) => chunk.type === 'block-end' && chunk.block.type === 'tool-call')?.block.name, 'read');
@@ -147,4 +198,33 @@ test('the plugin wraps model streams that offer tools, counting only tools sent 
   assert.equal(listener({}, () => untouched), untouched);
   const deferredOnly = await collect(listener({ tools: [{ ...TOOLS[0], deferLoading: true }] }, model));
   assert.equal(deferredOnly.some((chunk) => chunk.type === 'tool-call-delta'), false);
+});
+
+test('a call to an unknown name is refused with its hint before any policy runs', async () => {
+  const listeners = {};
+  apply({ on: (event, callback, options) => { listeners[event] = { callback, options }; } });
+  assert.equal(listeners['tools/pre-execute'].options.prepend, true);
+  const preExecute = listeners['tools/pre-execute'].callback;
+  const out = await collect(listeners['llm/stream'].callback({ tools: TOOLS }, () => stream(...textReply(WRITTEN_UNKNOWN))));
+  const call = out.find((chunk) => chunk.type === 'block-end' && chunk.block.type === 'tool-call').block;
+  assert.equal(call.name, 'tools');
+  assert.deepEqual(out.at(-1), { type: 'finish', reason: { kind: 'tool-calls' } });
+
+  let policies = 0;
+  const allow = () => { policies += 1; return Promise.resolve({ kind: 'allow' }); };
+  const decision = await preExecute({ callId: call.id, name: call.name, arguments: {} }, allow);
+  assert.equal(decision.kind, 'deny');
+  assert.match(decision.reason, /^unknown tool "tools".*job_output/);
+  assert.equal(policies, 0);
+  // Each hint answers its call once; every other call goes on to the policies.
+  assert.deepEqual(await preExecute({ callId: call.id, name: call.name }, allow), { kind: 'allow' });
+  assert.deepEqual(await preExecute({ callId: 'other', name: 'read' }, allow), { kind: 'allow' });
+  assert.equal(policies, 2);
+
+  // A model that keeps writing unknown calls gets its text back after the third error.
+  const refused = { role: 'tool', isError: true, content: [{ type: 'text', text: `Error: ${decision.reason}` }] };
+  const history = [{ role: 'user', content: [] }, refused, refused, refused];
+  const chunks = textReply(WRITTEN_UNKNOWN);
+  const left = await collect(listeners['llm/stream'].callback({ tools: TOOLS, messages: history }, () => stream(...chunks)));
+  assert.deepEqual([...left].sort(byJson), [...chunks].sort(byJson));
 });

@@ -98,3 +98,54 @@ test('a slow run_code is handed to a job whose output is the program value', asy
   assert.equal(outcome.status, 'completed');
   assert.deepEqual(JSON.parse(outcome.result), { logs: ['done'], result: 42 });
 });
+
+test('a handed-off run_code still completes after DSH freezes its execution', async () => {
+  const { apply } = await import('../integrations/dsh-background-code/index.js');
+  const { ctx, listeners, owner, started } = harness();
+  apply(ctx);
+  const [{ listener }] = listeners;
+  const { exec } = execution({ agent: owner });
+  let finish;
+  // The body as DSH 0.2.2 runs it: swap in its fused signal, restore the wrapper's on the
+  // way out. The pipeline freezes the execution when the acknowledgement is delivered.
+  const body = async () => {
+    'use strict'; // as in DSH's ES modules, where writing a frozen property throws
+    const wrapperSignal = exec.signal;
+    exec.signal = new AbortController().signal;
+    try {
+      return await new Promise((resolve) => { finish = resolve; });
+    } finally {
+      exec.signal = wrapperSignal;
+    }
+  };
+  const out = await listener(exec, body);
+  assert.equal(out.value.result.status, 'running');
+  Object.freeze(exec);
+  finish(toolResult({ logs: [], result: 'searched' }));
+  const outcome = await started[0].hooks.done;
+  assert.equal(outcome.status, 'completed', outcome.detail);
+  assert.deepEqual(JSON.parse(outcome.result), { logs: [], result: 'searched' });
+});
+
+test('a handed-off program keeps the tools its step admitted after the step closes', async () => {
+  const { keepToolSet } = await import('../integrations/dsh-background-code/index.js');
+  const agent = { id: 'agent-1' };
+  const hub = { name: 'capability_hub' };
+  const read = { name: 'read' };
+  const registered = new Map([['capability_hub', hub], ['read', read], ['write', { name: 'write' }]]);
+  let closed = false;
+  // A step's tool set as DSH 0.2.2 resolves it: frozen, and empty once disposed.
+  const stepSet = Object.freeze({
+    dispose: () => { closed = true; },
+    view: (scope) => (closed || scope !== agent ? new Map() : new Map([['capability_hub', hub], ['read', read]])),
+  });
+  const kept = keepToolSet(stepSet, agent, { get: (name) => registered.get(name) });
+  assert.deepEqual([...kept.view(agent).keys()], ['capability_hub', 'read']);
+  kept.dispose();
+  assert.equal(closed, true);
+  // After the step: what it admitted, never a tool it did not have, nor one since replaced.
+  registered.set('read', { name: 'read' });
+  assert.deepEqual([...kept.view(agent).keys()], ['capability_hub']);
+  assert.equal(kept.view({ id: 'other' }).size, 0);
+  assert.equal(keepToolSet(undefined, agent, {}), undefined);
+});

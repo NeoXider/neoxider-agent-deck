@@ -5,7 +5,9 @@ import { randomUUID } from 'node:crypto';
 // write the names they were trained on (read_file, run_shell_command) or an MCP-style name
 // for a native tool (mcp__capability_hub), and every such call arrives as message text:
 // nothing runs and the turn ends. This recovers those calls inside the model stream, and
-// only ever as calls to tools the request declared.
+// only ever as calls to tools the request declared. A call whose name means no declared
+// tool still becomes a call, so the model is told the name is unknown and can retry,
+// instead of the turn ending on the written call.
 
 // Names other agents use for the same job, mapped to DSH tools in order of preference.
 const ALIASES = new Map(Object.entries({
@@ -40,11 +42,16 @@ const KEY_ALIASES = {
 const normalize = (name) => name.trim().toLowerCase().replace(/-/g, '_');
 const only = (list) => (list.length === 1 ? list[0] : undefined);
 
+// The start of the error a call to an undeclared name gets, from DSH itself or from this
+// plugin's hint. It marks that call in the history the next request carries.
+export const UNKNOWN_TOOL = 'unknown tool "';
+
 /** The declared tool a written function name means, or undefined when it is not clear. */
 export function resolveTool(written, names) {
   if (names.includes(written)) return written;
   const target = normalize(written);
-  const segments = target.split('__');
+  // `mcp__server__tool`, and the `tools.read` / `functions.read` that code-mode prompts teach.
+  const segments = target.split(/__|\./);
   return only(names.filter((name) => normalize(name) === target))
     ?? only(names.filter((name) => segments.includes(normalize(name))))
     ?? (ALIASES.get(segments.at(-1)) ?? []).find((name) => names.includes(name))
@@ -141,7 +148,9 @@ export function parseTrailingCalls(text) {
     if (!rest.startsWith(open)) return undefined;
     const end = rest.indexOf(close);
     const body = (end < 0 ? rest.slice(open.length) : rest.slice(open.length, end)).trim();
-    const call = body.startsWith('{') ? parseJsonCall(body) : parseXmlCall(body);
+    let call = body.startsWith('{') ? parseJsonCall(body) : parseXmlCall(body);
+    // A closed call the model meant to make, written in no form this reads.
+    if (!call && end >= 0) call = { name: /^<function=([^>\n]+)>/.exec(body)?.[1].trim() ?? '', arguments: {}, unreadable: true };
     if (!call) return undefined;
     calls.push(call);
     rest = end < 0 ? '' : rest.slice(end + close.length);
@@ -149,32 +158,144 @@ export function parseTrailingCalls(text) {
   return calls.length > 0 ? { prose: prose.trimEnd(), calls } : undefined;
 }
 
-/** The written calls as calls to declared tools, or undefined unless every one resolves. */
-export function recoverCalls(text, tools) {
+// Keys a call carries, with those of an `arguments`-style wrapper a confused model nests
+// its real arguments in.
+function writtenKeys(args) {
+  const keys = new Set(Object.keys(args));
+  for (const wrapper of ['arguments', 'args', 'parameters', 'params', 'input']) {
+    let value = args[wrapper];
+    if (typeof value === 'string') {
+      try {
+        value = JSON.parse(value);
+      } catch {
+        value = undefined;
+      }
+    }
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) for (const key of Object.keys(value)) keys.add(key);
+  }
+  return keys;
+}
+
+function distance(left, right) {
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= right.length; column += 1) {
+      current[column] = Math.min(previous[column] + 1, current[column - 1] + 1, previous[column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1));
+    }
+    previous = current;
+  }
+  return previous[right.length];
+}
+
+/** Declared tools a call to an undeclared name most likely meant, best first. */
+export function suggestTools(written, args, tools, limit = 3) {
+  const keys = writtenKeys(args);
+  const target = normalize(written);
+  return tools
+    .map((tool, order) => {
+      const name = normalize(tool.name);
+      const shared = Object.keys(tool.parameters?.properties ?? {}).filter((key) => keys.has(key)).length;
+      const near = target.length >= 3 && (name.includes(target) || target.includes(name) || distance(name, target) <= 2);
+      return { tool, order, score: shared * 2 + (near ? 3 : 0) };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || left.order - right.order)
+    .slice(0, limit)
+    .map((entry) => entry.tool);
+}
+
+/** What the model is told when it calls a name that is none of its tools. */
+export function unknownToolHint(call, tools) {
+  const written = call.name || 'tool_call';
+  const problem = call.unreadable
+    ? `${UNKNOWN_TOOL}${written}": the call was written as text in a form that could not be read`
+    : `${UNKNOWN_TOOL}${written}": it is not one of this agent's tools`;
+  const advice = "Make the call again as a real tool call: the exact name of a declared tool, with that tool's own parameters as the arguments.";
+  const suggestions = suggestTools(written, call.arguments ?? {}, tools).map((tool) => {
+    const parameters = Object.keys(tool.parameters?.properties ?? {});
+    return parameters.length === 0 ? tool.name : `${tool.name} (${parameters.slice(0, 8).join(', ')})`;
+  });
+  // In code mode only run_code is declared, and every other tool is a function on the
+  // `tools` object of its program, so a model reaching for one of those writes its name.
+  const codeMode = tools.some((tool) => tool.name === 'run_code')
+    ? " Here the other tools are functions inside a run_code program: put `return await tools.NAME({ ... })` in its code, with the tool's own name and arguments."
+    : '';
+  return `${problem}. ${advice}${codeMode}${suggestions.length === 0 ? '' : ` Closest declared tools: ${suggestions.join('; ')}.`}`;
+}
+
+// A name the history can carry: providers accept only these characters in a call name.
+// It is never an offered tool's name, or the call would run that tool.
+function unknownName(written, known) {
+  const safe = written.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+  return safe !== '' && !known.includes(safe) ? safe : 'unknown_tool';
+}
+
+/**
+ * The written calls as calls to declared tools. A call naming an offered tool exactly that
+ * is not declared (a deferred one) passes as written, for DSH to answer. Any other name
+ * that resolves to nothing becomes a call carrying `hint`, the error that answers it, or,
+ * with `unresolved` false, leaves the text unrecovered.
+ */
+export function recoverCalls(text, tools, { known = tools.map((tool) => tool.name), unresolved = true } = {}) {
   const parsed = parseTrailingCalls(text);
   if (!parsed) return undefined;
   const names = tools.map((tool) => tool.name);
   const calls = [];
   for (const call of parsed.calls) {
-    const name = resolveTool(call.name, names);
-    if (name === undefined) return undefined;
-    const tool = tools.find((candidate) => candidate.name === name);
-    calls.push({ name, arguments: fitArguments(call.arguments, tool?.parameters) });
+    const name = call.unreadable ? undefined : resolveTool(call.name, names);
+    if (name !== undefined) {
+      const tool = tools.find((candidate) => candidate.name === name);
+      calls.push({ name, arguments: fitArguments(call.arguments, tool?.parameters) });
+    } else if (!call.unreadable && known.includes(call.name)) {
+      calls.push({ name: call.name, arguments: call.arguments });
+    } else if (unresolved) {
+      calls.push({ name: unknownName(call.name, known), arguments: call.arguments, hint: unknownToolHint(call, tools) });
+    } else {
+      return undefined;
+    }
   }
   return { prose: parsed.prose, calls };
 }
 
+function messageText(message) {
+  const content = Array.isArray(message?.content) ? message.content : [];
+  return content.map((block) => (block?.type === 'text' ? block.text : '')).join('\n');
+}
+
+/**
+ * How many tool results in a row, since the user last wrote, answered calls to unknown
+ * names. A model that keeps writing them is not corrected by one more error.
+ */
+export function unknownToolStreak(messages = []) {
+  let streak = 0;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === 'user') break;
+    if (message?.role !== 'tool') continue;
+    if (!message.isError || !messageText(message).includes(UNKNOWN_TOOL)) break;
+    streak += 1;
+  }
+  return streak;
+}
+
 /**
  * Pass a model stream through, and when it ends with no structured tool call and its last
- * text block ends in written calls to declared tools, replace that text with the prose
- * before them and emit the calls as real tool-call blocks.
+ * text block ends in written calls, replace that text with the prose before them and emit
+ * the calls as real tool-call blocks.
  *
  * Text block ends are held back until the stream finishes, because a block's end fixes its
  * final text; the deltas still stream live. The provider's replay state describes the
  * message as it was written, so a recovered message drops it and the next request rebuilds
  * that message from its blocks.
  */
-export async function* recoverToolCalls(stream, tools, newId = () => `call_${randomUUID().replace(/-/g, '').slice(0, 24)}`) {
+export async function* recoverToolCalls(stream, tools, {
+  newId = () => `call_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+  known,
+  unresolved = true,
+  // Told the id and hint of each call to an unknown name, before that call is emitted.
+  onUnknown = () => {},
+} = {}) {
   const texts = new Map();
   const heldEnds = new Map();
   let structured = false;
@@ -219,7 +340,7 @@ export async function* recoverToolCalls(stream, tools, newId = () => `call_${ran
 
     const kind = chunk.reason?.kind;
     const recovered = (kind === 'stop' || kind === 'tool-calls') && lastText !== undefined
-      ? recoverCalls(texts.get(lastText) ?? '', tools)
+      ? recoverCalls(texts.get(lastText) ?? '', tools, { ...(known === undefined ? {} : { known }), unresolved })
       : undefined;
     if (!recovered) {
       yield* release();
@@ -233,6 +354,7 @@ export async function* recoverToolCalls(stream, tools, newId = () => `call_${ran
     for (const call of recovered.calls) {
       const index = ++maxIndex;
       const id = newId();
+      if (call.hint !== undefined) onUnknown(id, call.hint);
       const args = JSON.stringify(call.arguments);
       yield { type: 'block-start', index, blockType: 'tool-call' };
       yield { type: 'tool-call-delta', index, id, name: call.name, argumentsDelta: args };

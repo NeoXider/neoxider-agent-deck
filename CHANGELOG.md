@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.14] - 2026-11-07
+
+### Fixed
+
+- **A `run_code` that goes to the background finishes again.** Deck's DSH integration hands a `run_code` call that runs longer than 1.5 seconds to a background job. On DeepSeek Harness 0.2.2 every such job failed in two ways, and the agent saw a hub search or any other slow work in a program fail:
+  - Harness freezes a call once its answer is delivered, and for a job that answer is the "running in the background" note. When the program ended, Harness wrote to the frozen call and the job failed with "Cannot assign to read only property 'signal'", losing the result.
+  - Harness closes a step's tools when the step ends, so every tool the program called after the hand-off failed as `unknown tool`. A program now keeps the tools its step admitted, minus any since removed.
+- **A tool call the model writes as text with a name that is no tool goes back to the model as an error.** Before, the turn ended on the written call, like `<function=tools>` in place of `tools.job_output(...)` inside `run_code`. The call is now refused before it runs or asks for approval, with the declared tools the model most likely meant. In code mode the error says that other tools are called as `tools.NAME(...)` inside a `run_code` program. After three such errors in a row the text is left as it is, so a model that keeps writing them cannot loop. Names like `tools.read` now also resolve to the tool they name.
+
+### Added
+
+- `npm run test:dsh-integrations -- --entry <dsh/lib/bin.js>` runs the DSH integrations in a headless Harness with an isolated home and a scripted model, for checking them after a Harness upgrade.
+
 ## [1.2.13] - 2026-11-07
 
 ### Added

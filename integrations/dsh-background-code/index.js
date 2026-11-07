@@ -14,6 +14,28 @@ function resultText(result) {
   return text || result.error?.message || 'run_code failed';
 }
 
+/**
+ * The step's tool admission, kept for a program that outlives its step. DSH closes a
+ * step's tool set when the step ends, and a closed set shows no tools, so every tool a
+ * handed-off program called after that failed as `unknown tool`. Once the step's own set
+ * shows nothing, this shows what it admitted at the program's start, less anything since
+ * unregistered or replaced, so the program never gains a tool its step did not have.
+ */
+export function keepToolSet(toolSet, agent, tools) {
+  if (toolSet === undefined || agent === undefined) return toolSet;
+  const admitted = toolSet.view(agent);
+  return Object.freeze({
+    dispose: () => toolSet.dispose(),
+    view(scope) {
+      const live = toolSet.view(scope);
+      if (live.size > 0 || scope !== agent) return live;
+      const visible = new Map();
+      for (const [name, definition] of admitted) if (tools.get(name, agent) === definition) visible.set(name, definition);
+      return visible;
+    },
+  });
+}
+
 export function apply(ctx) {
   // DSH 0.2.2 gives every PTC executor its own run_code transport, so the call is caught
   // where all of them meet: the tools/execute waterfall around the tool body.
@@ -30,7 +52,19 @@ export function apply(ctx) {
         exec: outer,
         execute: async (input, context) => {
           exec.arguments = input;
-          exec.signal = context.signal;
+          // DSH freezes the execution once its result is delivered, which for a handed-off
+          // call is the acknowledgement. The body and the wrappers inside this listener
+          // still restore `exec.signal` when they finish; on a frozen data property that
+          // assignment throws, and the job failed with "Cannot assign to read only
+          // property 'signal'" and lost its result. A frozen accessor keeps its setter.
+          let signal = context.signal;
+          Object.defineProperty(exec, 'signal', {
+            configurable: true,
+            enumerable: true,
+            get: () => signal,
+            set: (value) => { signal = value; },
+          });
+          exec.toolSet = keepToolSet(exec.toolSet, exec.agent, ctx.tools);
           exec.deferContext = context.deferContext;
           exec.concludeTurn = context.concludeTurn;
           const result = await next();

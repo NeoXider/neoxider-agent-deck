@@ -1,6 +1,6 @@
 # Background code for DSH
 
-Local integration for DSH 0.2.2-rc.1. It connects `run_code` calls to DSH's native
+Local integration for DSH 0.2.2. It connects `run_code` calls to DSH's native
 job registry without replacing sandbox policy, approval, nested tool dispatch, or
 the code interpreter. Since DSH 0.2.2 every PTC executor owns its own `run_code`
 transport, so the integration listens on the shared `tools/execute` waterfall
@@ -12,6 +12,21 @@ Calls that finish within 1.5 seconds return normally. Longer calls return
 subject to its configured consecutive-wake budget (three by default).
 `job_output` collects the result; `job_kill` cancels it. Short calls leave no jobs
 in the registry. Final retained output is capped at 32,000 UTF-8 bytes.
+
+A handed-off program outlives the step that started it, and DSH 0.2.2 is not built
+for that in two ways the integration works around:
+
+- DSH freezes an execution when its result is delivered, and for a handed-off call
+  that is the acknowledgement. The tool body and the timeout policy still restore
+  `exec.signal` when they finish, and on the frozen object that threw `Cannot assign
+  to read only property 'signal'`: every job failed at its end and lost its result.
+  The integration makes `signal` an accessor before the body runs, and a frozen
+  accessor keeps its setter.
+- DSH closes a step's tool set when the step ends, and a closed set shows no tools,
+  so every tool a program called after that failed as `unknown tool` (a hub search
+  started after the hand-off, for example). The program gets the set its step
+  admitted, kept past the step: it shows what the step admitted at the program's
+  start, less anything since unregistered or replaced.
 
 The default code deadline becomes ten minutes, capped by the runtime maximum.
 Explicit `timeoutMs` is preserved. These are process-local jobs: restarting DSH
