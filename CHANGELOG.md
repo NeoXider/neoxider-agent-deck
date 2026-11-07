@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.16] - 2026-11-08
+
+### Fixed
+
+- **The context meter and the context card work again on DeepSeek Harness 0.2.2.** Harness no longer puts how full a chat's context is into its chat list, so the meter sat at 0% and the card had no figure. Deck now takes it from the snapshot it already opens when it reads a chat, keeps it moving from each reply's token usage and each request's context window as they stream, and hands it to the chat the way the list used to.
+
+
 ## [1.2.15] - 2026-11-07
 
 ### Fixed

@@ -33,6 +33,7 @@ const { childrenByParent, subagentTree, subagentUsage } = require("./subagent-tr
 const { createSubagentRegistry } = require("./subagent-registry.cjs");
 const { readHistory } = require("./history-loader.cjs");
 const { sessionCreateOptions } = require("./agent-presets.cjs");
+const { createContextPressure } = require("./context-pressure.cjs");
 
 // Two dashboard polls: a running chat whose stream spoke within this long is not re-read.
 const LIVE_EVENT_FRESH_MS = 5000;
@@ -55,6 +56,7 @@ class HarnessApi {
     this.subagents = createSubagentRegistry({ now: () => this.now() });
     // sessionId -> when its live follow stream last delivered an event. See enrichSession.
     this.liveEventAt = new Map();
+    this.contextPressure = createContextPressure();
     this.workspaceSnapshot = { items: [], archivedSessionIds: [] };
     // Two Harness generations speak different wire protocols. The probe result is
     // cached for the process lifetime once it is not "down", so a harness that comes
@@ -188,6 +190,7 @@ class HarnessApi {
     const address = this.sessionAddress(sessionId);
     if (beforeSeq == null || throughSeq == null) {
       const snapshot = await this.remoteChannelFirstFrame(remote, "session/follow", { request: { address, maxMessages } });
+      this.contextPressure.seed(sessionId, snapshot.projections);
       const throughSeq = Number.isFinite(snapshot.cursor) ? snapshot.cursor : null;
       return {
         events: Array.isArray(snapshot.records) ? snapshot.records : [],
@@ -317,12 +320,12 @@ class HarnessApi {
     // An open subagent is no row of the Agents list, but its chat reads the same fields one
     // does: its tokens, context and model (tasks-panel.js subagentSessionRow).
     const subagentRow = children && selectedSessionId && this.subagents.of(selectedSessionId)
-      ? sessionsValue.items.find((row) => row?.sessionId === selectedSessionId) : null;
+      ? this.contextPressure.applyTo(sessionsValue.items.find((row) => row?.sessionId === selectedSessionId)) || null : null;
     // A chat's spend counts its subagents too: their models and tokens, priced in the renderer.
     if (children) for (const session of [...enriched, subagentRow]) if (session && children.has(session.sessionId)) session.subagentUsage = subagentUsage(session.sessionId, children);
     return {
       host: host || {},
-      sessions: enriched,
+      sessions: enriched.map((row) => this.contextPressure.applyTo(row)),
       ...(subagentRow ? { subagentSession: { ...subagentRow, title: titleFromSession(subagentRow), subagentUsage: subagentRow.subagentUsage } } : {}),
       workspaces: Array.isArray(workspaceValue?.items) ? workspaceValue.items : [],
       archivedSessionIds,
