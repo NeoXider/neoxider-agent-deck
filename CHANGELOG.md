@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.15] - 2026-11-07
+
+### Fixed
+
+- **Picking a preset no longer leaves a new chat behind.** In an empty chat the pick already switched that chat in place, but Deck announced it as "New session" as though a chat had been made; it now says the preset was switched. The chat is re-created under its own folder, so a chat outside any workspace is reused by Harness instead of risking a copy in the default folder.
+- **A pick from a chat that has messages takes over an empty chat before opening a new one.** A started chat keeps its preset, so the pick needs another chat. Deck used to mint a new one every time and leave the old empty chats piling up in Harness. It now reuses the newest empty chat of the same folder that is not running and has no queued message, and opens a new chat only when there is none.
+
 ## [1.2.14] - 2026-11-07
 
 ### Fixed

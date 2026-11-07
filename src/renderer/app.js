@@ -7636,13 +7636,16 @@ async function stopCurrentTurn() {
 
 // The preset is the one the preset chip remembers for new chats (preset-picker.js); a blank
 // session named by reuseSessionId is re-created in place, as session/create allows.
-async function createNewSession({ restore = true, workspaceId = null, agentPreset = globalThis.newChatPresetId?.() || "", reuseSessionId = null } = {}) {
-  setAvatar("waiting", "creating session");
+async function createNewSession({ restore = true, workspaceId = null, cwd = "", agentPreset = globalThis.newChatPresetId?.() || "", reuseSessionId = null } = {}) {
+  // Re-creating the open blank chat only swaps its preset: no new chat, so no "new session" notices.
+  const inPlace = Boolean(reuseSessionId) && reuseSessionId === state.selectedSessionId;
+  setAvatar("waiting", inPlace ? "switching preset" : "creating session");
   // A notice of Deck's own, not a turn's status, so it shows whatever Think is set to.
-  setActivity({ active: true, kind: "notice", label: "New session", text: "Creating a Harness session…" });
+  setActivity({ active: true, kind: "notice", label: inPlace ? "Preset" : "New session", text: inPlace ? "Switching this chat's preset…" : "Creating a Harness session…" });
   try {
     const result = await window.widget.createSession({
-      ...(workspaceId ? { workspaceId } : {}),
+      // A workspace names its folder; without one the chat's own folder keeps a reused chat where it is.
+      ...(workspaceId ? { workspaceId } : cwd ? { cwd } : {}),
       ...(agentPreset ? { agentPreset } : {}),
       ...(reuseSessionId ? { sessionId: reuseSessionId } : {}),
     });
@@ -7662,8 +7665,9 @@ async function createNewSession({ restore = true, workspaceId = null, agentPrese
       setTab("chat");
       $("#messageInput").focus();
     }
-    setAvatar("done", "session ready");
-    setActivity({ active: true, kind: "done", label: "Session ready", text: "A new Harness session is ready." });
+    const reused = result.sessionId === reuseSessionId;
+    setAvatar("done", reused ? "preset ready" : "session ready");
+    setActivity({ active: true, kind: "done", label: reused ? "Preset ready" : "Session ready", text: reused ? "This chat runs the chosen preset." : "A new Harness session is ready." });
   } catch (error) {
     showError(error);
     setAvatar("error", "session error");

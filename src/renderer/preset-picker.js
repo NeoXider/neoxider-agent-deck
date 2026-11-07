@@ -164,6 +164,18 @@ function renderPresetMenu() {
   root.replaceChildren(...presetPicker.list.map((preset) => presetOption(preset, preset.id === currentId)));
 }
 
+// An empty chat of the same folder that Harness still lists: Deck leaves one behind every time a
+// chat is replaced, and a pick from a started chat takes it over instead of minting yet another.
+function emptyChatToReuse(session) {
+  const sessions = state.dashboard?.sessions || [];
+  const folder = session.workspaceId || "";
+  return sessions
+    .filter((row) => row.blank === true && !row.running && row.sessionId !== session.sessionId && !row.origin && !row.unreadable
+      && !(typeof queuedPromptsFor === "function" && queuedPromptsFor(row.sessionId).length)
+      && (row.workspaceId || "") === folder && (folder || !row.cwd || !session.cwd || row.cwd === session.cwd))
+    .sort((left, right) => (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0))[0] || null;
+}
+
 async function choosePreset(id) {
   const { session, started, currentId } = presetContext();
   closePickers();
@@ -171,11 +183,15 @@ async function choosePreset(id) {
   rememberNewChatPreset(id);
   renderPresetButton();
   if (!session || (started && id === currentId)) return;
-  // A blank chat takes the preset in place; a started one keeps its own and a new chat opens.
+  // A blank chat takes the preset in place. A started one keeps its own: an empty chat of the
+  // same folder takes the pick, or a new chat opens when there is none.
+  const target = started ? emptyChatToReuse(session) : session;
+  // A chat outside any workspace names its own folder, so Harness reuses it rather than minting a chat.
   await createNewSession({
     workspaceId: session.workspaceId || null,
+    cwd: session.workspaceId ? "" : (target?.cwd || session.cwd || ""),
     agentPreset: id,
-    reuseSessionId: started ? null : session.sessionId,
+    reuseSessionId: target ? target.sessionId : null,
   });
 }
 
