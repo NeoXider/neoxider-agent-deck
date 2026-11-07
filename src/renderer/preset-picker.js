@@ -78,18 +78,24 @@ function presetContext() {
   return { session, started, currentId };
 }
 
+// Every poll calls this, and an unchanged poll must leave the DOM untouched, so each value
+// is written only when it differs: assigning even the same `hidden` or text is a mutation.
+function setIfChanged(element, property, value) {
+  if (element[property] !== value) element[property] = value;
+}
+
 function renderPresetButton() {
   const button = $("#presetButton");
   if (!button) return;
   if (!presetPicker.loaded) loadAgentPresets();
   // The legacy generation has no roster: no chip rather than a chip that cannot work.
-  button.hidden = !presetPicker.list.length;
+  setIfChanged(button, "hidden", !presetPicker.list.length);
   if (button.hidden) return;
   const { started, currentId } = presetContext();
   const label = presetLabel(presetById(currentId) || { id: currentId });
-  $("#presetButtonText").textContent = label;
-  button.title = started ? `This chat runs the ${label} preset. Pick another to start a new chat with it.` : `New chats start with the ${label} preset`;
-  button.setAttribute("aria-label", `Agent preset: ${label}`);
+  setIfChanged($("#presetButtonText"), "textContent", label);
+  setIfChanged(button, "title", started ? `This chat runs the ${label} preset. Pick another to start a new chat with it.` : `New chats start with the ${label} preset`);
+  if (button.getAttribute("aria-label") !== `Agent preset: ${label}`) button.setAttribute("aria-label", `Agent preset: ${label}`);
   if ($(".preset-picker")?.classList.contains("open")) renderPresetMenu();
 }
 
@@ -130,12 +136,17 @@ function presetOption(preset, selected) {
 function renderPresetMenu() {
   const { started, currentId } = presetContext();
   const current = presetLabel(presetById(currentId) || { id: currentId });
-  $("#presetHint").textContent = presetPicker.error && !presetPicker.list.length
+  const hint = presetPicker.error && !presetPicker.list.length
     ? `Presets could not be loaded: ${presetPicker.error}`
     : started
       ? `This chat runs ${current}; a chat keeps its preset. Pick one to start a new chat with it.`
       : "New chats start with the chosen preset.";
-  $("#presetOptions").replaceChildren(...presetPicker.list.map((preset) => presetOption(preset, preset.id === currentId)));
+  const root = $("#presetOptions");
+  const signature = JSON.stringify([hint, currentId, presetPicker.list]);
+  if (root.dataset.signature === signature) return;
+  root.dataset.signature = signature;
+  $("#presetHint").textContent = hint;
+  root.replaceChildren(...presetPicker.list.map((preset) => presetOption(preset, preset.id === currentId)));
 }
 
 async function choosePreset(id) {

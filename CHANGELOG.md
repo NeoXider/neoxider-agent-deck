@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.12] - 2026-11-07
+
+1.2.11 was tagged but never published. Its Windows build ran the transcript stability check, which caught the new preset chip rewriting its own attributes on every unchanged poll. The chip now writes only what changed, and the open menu redraws only when the roster or the chat's preset does. Everything in 1.2.11 ships here.
+
 ## [1.2.11] - 2026-11-07
 
 1.2.10 was tagged but never published: GitHub gave its macOS arm64 build no runner. Everything in it ships here.
