@@ -45,4 +45,14 @@
 body[data-font="system"] { --font-ui: var(--font-system); --font-features: normal; }
 /* Verdana's wide letters and large x-height were drawn for small screen sizes. */
 body[data-font="verdana"] { --font-ui: Verdana, "DejaVu Sans", Geneva, var(--font-system); --font-features: normal; }
+body[data-font="tahoma"] { --font-ui: Tahoma, Verdana, "DejaVu Sans", var(--font-system); --font-features: normal; }
+body[data-font="calibri"] { --font-ui: Calibri, Carlito, var(--font-system); --font-features: normal; }
+body[data-font="arial"] { --font-ui: Arial, "Liberation Sans", Helvetica, var(--font-system); --font-features: normal; }
+/* Each option of the font list shows itself in its own face. */
+#fontFamilySelect option[value="inter"] { font-family: "Inter Deck", var(--font-system); }
+#fontFamilySelect option[value="system"] { font-family: var(--font-system); }
+#fontFamilySelect option[value="verdana"] { font-family: Verdana, var(--font-system); }
+#fontFamilySelect option[value="tahoma"] { font-family: Tahoma, var(--font-system); }
+#fontFamilySelect option[value="calibri"] { font-family: Calibri, var(--font-system); }
+#fontFamilySelect option[value="arial"] { font-family: Arial, var(--font-system); }
 body { font-family: var(--font-ui); font-feature-settings: var(--font-features); }

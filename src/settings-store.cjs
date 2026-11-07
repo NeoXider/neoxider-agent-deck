@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const { DEFAULT_HOTKEYS, normalizeHotkeyBindings } = require("./hotkey-manager.cjs");
 
 // The widget's text faces (renderer fonts.css): Inter is bundled and the default.
-const FONT_FAMILIES = Object.freeze(["inter", "system", "verdana"]);
+const FONT_FAMILIES = Object.freeze(["inter", "system", "verdana", "tahoma", "calibri", "arial"]);
 
 const DEFAULT_PREFERENCES = Object.freeze({
   opacity: 0.96,

@@ -592,7 +592,7 @@ function registerWidgetIpc() {
     // Deny-by-default permissions belong on the session the renderer actually uses.
     session: session.defaultSession,
     dialog,
-    openExternal: (url) => shell.openExternal(url),
+    openExternal: (url) => shell.openExternal(url), writeClipboardText: (text) => clipboard.writeText(text),
     getAppVersion: () => app.getVersion(),
     api,
     queueSnapshots,

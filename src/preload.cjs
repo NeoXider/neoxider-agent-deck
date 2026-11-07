@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld("widget", {
   },
   createSession: (options) => ipcRenderer.invoke("create-session", options),
   agentPresets: () => ipcRenderer.invoke("agent-presets"),
+  copyText: (text) => ipcRenderer.invoke("copy-text", text),
+  goalActivation: (sessionId) => ipcRenderer.invoke("goal-activation", sessionId),
   selectModel: (payload) => ipcRenderer.invoke("select-model", payload),
   send: (payload) => ipcRenderer.invoke("send", payload),
   cancel: (sessionId) => ipcRenderer.invoke("cancel", sessionId),

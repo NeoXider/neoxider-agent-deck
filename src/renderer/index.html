@@ -241,6 +241,7 @@
             <button id="goalPauseResume" type="button" class="goal-strip-action" title="Pause the goal" aria-label="Pause the goal"><svg class="ui-icon"><use id="goalPauseIcon" href="#icon-pause"/></svg></button>
             <span class="goal-track"><span id="goalTrackFill" class="goal-track-fill"></span></span>
             <small id="goalRounds" class="goal-rounds"></small>
+            <button id="goalStripDelete" type="button" class="goal-strip-action goal-strip-delete" title="Delete the goal" aria-label="Delete the goal"><svg class="ui-icon"><use href="#icon-trash"/></svg></button>
             <svg class="ui-icon goal-chevron"><use href="#icon-chevron"/></svg>
           </summary>
           <div class="goal-dock-body">
@@ -273,7 +274,14 @@
         <label id="opacitySetting" class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /><small id="opacityStatus" class="setting-hint" role="status" hidden></small></label>
         <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>
         <label class="range-label"><span>Text size <b id="fontScaleValue">100%</b></span><input id="fontScaleRange" type="range" min="85" max="135" step="5" aria-label="Widget text size" /></label>
-        <div class="setting-block layer-setting font-setting"><span>Font</span><div id="fontFamilySwitch" class="layer-switch" role="group" aria-label="Widget font"><button data-font="inter" type="button" title="Inter, bundled with Deck: tall lowercase letters that stay readable at small sizes" aria-pressed="true">Inter</button><button data-font="system" type="button" title="The system interface font (Segoe UI on Windows)" aria-pressed="false">System</button><button data-font="verdana" type="button" title="Verdana: wide letters drawn for small screen sizes" aria-pressed="false">Verdana</button></div></div>
+        <label class="font-setting"><span>Font</span><select id="fontFamilySelect" aria-label="Widget font" title="The face for all of the widget's text">
+          <option value="inter" title="Bundled with Deck: tall lowercase letters that stay readable at small sizes">Inter</option>
+          <option value="system" title="The system interface font (Segoe UI on Windows)">System UI</option>
+          <option value="verdana" title="Wide letters drawn for small screen sizes">Verdana</option>
+          <option value="tahoma" title="Verdana's narrower sibling: compact and clear">Tahoma</option>
+          <option value="calibri" title="Soft, rounded and compact">Calibri</option>
+          <option value="arial" title="Plain and familiar">Arial</option>
+        </select></label>
         <label class="range-label"><span>Background opacity <b id="backgroundOpacityValue">90%</b></span><input id="backgroundOpacityRange" type="range" min="0" max="100" step="1" /><small class="setting-hint">Panel background only; text and controls stay clear</small></label>
         <label class="range-label"><span>Text opacity <b id="textOpacityValue">100%</b></span><input id="textOpacityRange" type="range" min="20" max="100" step="1" /></label>
         <label class="toggle-setting"><span><span>Show live activity</span><small>Thinking, tool and working status above the chat</small></span><input id="showThinkingToggle" type="checkbox" checked /></label>

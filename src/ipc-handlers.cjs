@@ -43,7 +43,7 @@ function registerIpcHandlers({
   ipcMain,
   session = null,
   dialog,
-  openExternal,
+  openExternal, writeClipboardText = () => {},
   getAppVersion = () => "",
   // Values that genuinely never change.
   api,
@@ -330,7 +330,7 @@ function registerIpcHandlers({
     api, launcher: getHarnessLauncher(), persistCapturedLaunchUrl, invalidateDashboard,
   }));
   // The Harness itself: runtime updates, which Harness is followed, session tasks.
-  registerDeckHandlers({ handle, api, getHarnessLauncher, getHarnessRuntime, getHarnessServices, getViewer, invalidateDashboard, persistCapturedLaunchUrl, getPreferences, schedulePreferenceSave });
+  registerDeckHandlers({ handle, api, getHarnessLauncher, getHarnessRuntime, getHarnessServices, getViewer, invalidateDashboard, persistCapturedLaunchUrl, getPreferences, schedulePreferenceSave, writeClipboardText });
   // Crash recovery for the owned Harness. Open log takes no argument from the renderer.
   // The agent's questions (question-relay.cjs): the ones waiting now, and the user's answer.
   handle("get-pending-questions", () => getQuestionRelay()?.list() || []);

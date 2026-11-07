@@ -2328,7 +2328,16 @@ function renderReasoning() {
   modelsButton.type = "button"; modelsButton.className = "reasoning-model-choice";
   modelsButton.textContent = "Choose model";
   modelsButton.addEventListener("click", event => { event.stopPropagation(); openModelPicker({ retry: true }); });
-  track.append(fill, range, dots); root.append(heading, track, modelsButton); paint(!selectedId);
+  // The agent preset beside the model it runs with; preset-picker.js keeps its label and
+  // hides it while Harness lists no presets.
+  const presetButton = document.createElement("button");
+  presetButton.type = "button"; presetButton.id = "reasoningPresetChoice"; presetButton.className = "reasoning-model-choice reasoning-preset-choice";
+  presetButton.title = "Agent preset for new chats";
+  presetButton.append(createIcon("agents"), Object.assign(document.createElement("span"), { textContent: "Preset" }), document.createElement("b"));
+  presetButton.hidden = true;
+  presetButton.addEventListener("click", event => { event.stopPropagation(); closePickers(); globalThis.openPresetMenu?.(); });
+  track.append(fill, range, dots); root.append(heading, track, modelsButton, presetButton); paint(!selectedId);
+  globalThis.renderPresetButton?.();
 }
 
 function modelDisplay(selection) {
@@ -3044,14 +3053,52 @@ function goalFor(sessionId = state.selectedSessionId) {
   // Harness has four phases. A paused and a blocked goal both wait for /goal resume (it refuses
   // to pause a blocked one), so they share the paused look and the resume press; a complete
   // goal has nothing left to toggle.
-  const reported = held?.phase || goal.phase;
+  let reported = held?.phase || goal.phase;
+  // An active goal Harness has not armed (every agent starts disarmed, so after a restart or
+  // a session load) runs no rounds until /goal resume: it gets the stopped look and the
+  // resume press, not a pause that would do nothing.
+  if (reported === "active" && goalActivationFor(sessionId, goal) === "disarmed") reported = "stopped";
   return {
     objective: String(held?.objective ?? goal.objective),
-    phase: reported === "complete" ? "complete" : reported === "paused" || reported === "blocked" ? "paused" : "active",
-    status: ["paused", "blocked", "complete"].includes(reported) ? reported : "active",
+    phase: reported === "complete" ? "complete" : ["paused", "blocked", "stopped"].includes(reported) ? "paused" : "active",
+    status: ["paused", "blocked", "stopped", "complete"].includes(reported) ? reported : "active",
     maxRounds: Number(goal.maxGoalRounds) || null,
     rounds: Number(projection.roundsStarted) || 0,
   };
+}
+
+const GOAL_ACTIVATION_REFRESH_MS = 10000;
+
+// Harness keeps whether a goal is armed outside the projection the session list carries
+// (main: goal-activation.cjs), so it is read for the open chat's goal, at most every 10 s.
+function goalActivationFor(sessionId, goal) {
+  const known = state.goalActivations?.get(sessionId);
+  return known && known.goalId === goal.id ? known.activation : null;
+}
+
+function noteGoalActivation(sessionId, goalId, activation) {
+  state.goalActivations ??= new Map();
+  state.goalActivations.set(sessionId, { goalId, activation, at: Date.now() });
+}
+
+function refreshGoalActivation(sessionId = state.selectedSessionId) {
+  const session = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId);
+  const goal = session?.projections?.values?.goal?.goal;
+  if (!goal?.id || goal.phase !== "active" || !window.widget.goalActivation) return;
+  const known = state.goalActivations?.get(sessionId);
+  if (state.goalActivationLoading || (known?.goalId === goal.id && Date.now() - known.at < GOAL_ACTIVATION_REFRESH_MS)) return;
+  state.goalActivationLoading = true;
+  window.widget.goalActivation(sessionId)
+    .then((activation) => {
+      const before = goalActivationFor(sessionId, goal);
+      noteGoalActivation(sessionId, goal.id, activation);
+      if (before !== activation && sessionId === state.selectedSessionId) {
+        state.goalSignature = "";
+        renderGoal();
+      }
+    })
+    .catch(() => noteGoalActivation(sessionId, goal.id, null))
+    .finally(() => { state.goalActivationLoading = false; });
 }
 
 // The goal used to live only as a /goal card inline in the log, so it scrolled off and
@@ -3063,6 +3110,7 @@ function goalFor(sessionId = state.selectedSessionId) {
 // a /goal subcommand over the command path, so Harness stays the one owner of goal state.
 function renderGoal() {
   const dock = $("#goalDock");
+  refreshGoalActivation();
   const goal = goalFor();
   const busy = state.goalBusy;
   const signature = JSON.stringify([goal, state.goalEditing, busy]);
@@ -3096,10 +3144,13 @@ ${rounds} · ${goal.status}`;
   $("#goalPhase").classList.toggle("paused", paused);
   $("#goalObjective").textContent = goal.objective;
   $("#goalMeta").textContent = rounds;
-  $("#goalPauseResume").title = paused ? "Resume the goal" : "Pause the goal";
+  $("#goalPauseResume").title = goal.status === "stopped"
+    ? "Start the goal: it has not run since Harness or this chat started"
+    : paused ? "Resume the goal" : "Pause the goal and stop the round under way";
   $("#goalPauseResume").setAttribute("aria-label", paused ? "Resume the goal" : "Pause the goal");
   $("#goalEdit").disabled = busy;
   $("#goalDelete").disabled = busy;
+  $("#goalStripDelete").disabled = busy;
   $("#goalPauseResume").disabled = busy;
   $("#goalPauseResume").hidden = finished;
   $("#goalEditor").hidden = !state.goalEditing;
@@ -3140,7 +3191,9 @@ function holdGoalOutcome(sessionId, line) {
   state.goalHold = hold;
 }
 
-async function runGoalCommand(line) {
+// stopTurn: a pause also stops the round under way. Harness's pause only disarms the next
+// round, so the agent kept working, sometimes for minutes, after the press that said Paused.
+async function runGoalCommand(line, { stopTurn = false } = {}) {
   const sessionId = state.selectedSessionId;
   if (!sessionId || state.goalBusy) return;
   state.goalBusy = true;
@@ -3152,8 +3205,14 @@ async function runGoalCommand(line) {
     // "Goal paused" toast (the log already says what Harness said), and an edit stays open.
     if (result && result.kind !== "error") {
       state.goalEditing = false;
+      const goalId = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId)?.projections?.values?.goal?.goal?.id;
+      if (goalId && line.startsWith("/goal resume")) noteGoalActivation(sessionId, goalId, "armed");
+      if (goalId && line.startsWith("/goal pause")) noteGoalActivation(sessionId, goalId, "disarmed");
+      if (line.startsWith("/goal clear")) state.goalActivations?.delete(sessionId);
       holdGoalOutcome(sessionId, line);
       showToast(GOAL_TOASTS.find(([prefix]) => line.startsWith(prefix))?.[1] || "Goal updated", "goal");
+      const running = state.dashboard?.sessions?.find((item) => item.sessionId === sessionId)?.running;
+      if (stopTurn && running && sessionId === state.selectedSessionId) await stopCurrentTurn();
     }
     await refresh({ afterCurrent: true });
   } catch (error) {
@@ -4365,7 +4424,10 @@ function createMessageBubble(message, bubble = document.createElement("div")) {
     if (!message.text) bubble.classList.add("attachment-only");
     bubble.append(attachmentStrip);
   }
-  if (["user", "assistant"].includes(message.role) && message.text) bubble.prepend(createBubbleActions(message));
+  // Your own message keeps its actions in the gutter on its left; an answer's sit in a row
+  // under it, where a reader who has just finished it looks for them.
+  if (message.role === "user" && message.text) bubble.prepend(createBubbleActions(message));
+  if (message.role === "assistant" && message.text) bubble.append(createBubbleActions(message));
   return bubble;
 }
 
@@ -4498,9 +4560,11 @@ function bubbleActionButton(icon, title, onClick) {
   return button;
 }
 
+// The main process writes the clipboard: the page's own clipboard API needs a permission
+// Deck denies to its renderer, and a focused window the widget often is not.
 async function copyMessageText(text, button) {
   try {
-    await navigator.clipboard.writeText(String(text || ""));
+    await window.widget.copyText(String(text || ""));
   } catch {
     showToast("Could not copy", "alert", { kind: "error" });
     return false;
@@ -7724,9 +7788,10 @@ function applyGlowIntensity(value) {
 
 // The text face (fonts.css); Inter, bundled, unless the settings name another.
 function applyFontFamily(value) {
-  const family = ["inter", "system", "verdana"].includes(value) ? value : "inter";
+  const select = $("#fontFamilySelect");
+  const family = [...select.options].some((option) => option.value === value) ? value : "inter";
   document.body.dataset.font = family;
-  syncPressed($$("#fontFamilySwitch button"), family, "font");
+  select.value = family;
   resizeMessageInput();
   return family;
 }
@@ -8795,18 +8860,17 @@ $("#goalPauseResume").addEventListener("click", (event) => {
   event.stopPropagation();
   const goal = goalFor();
   if (!goal || goal.phase === "complete") return;
-  runGoalCommand(goal.phase === "paused" ? "/goal resume" : "/goal pause");
+  if (goal.phase === "paused") runGoalCommand("/goal resume");
+  else runGoalCommand("/goal pause", { stopTurn: true });
 });
-$("#goalDelete").addEventListener("click", () => {
-  // Clearing the goal is destructive and the projection vanishes with it, so it takes a
-  // second press. The button says so in between rather than opening a modal over a widget
-  // this small.
-  const button = $("#goalDelete");
-  const labelNode = $("#goalDeleteLabel");
-  const rest = () => { button.dataset.confirm = ""; labelNode.hidden = true; button.title = "Delete the goal"; };
+// Clearing the goal is destructive and the projection vanishes with it, so it takes a second
+// press. The button says so in between rather than opening a modal over a widget this small.
+// The panel's button and the strip's (there without opening the panel) share it.
+function confirmGoalDelete(button, labelNode = null) {
+  const rest = () => { button.dataset.confirm = ""; if (labelNode) labelNode.hidden = true; button.title = "Delete the goal"; };
   if (button.dataset.confirm !== "1") {
     button.dataset.confirm = "1";
-    labelNode.hidden = false;
+    if (labelNode) labelNode.hidden = false;
     button.title = "Press again to delete the goal";
     clearTimeout(state.goalDeleteConfirmTimer);
     state.goalDeleteConfirmTimer = setTimeout(rest, 3200);
@@ -8815,6 +8879,13 @@ $("#goalDelete").addEventListener("click", () => {
   clearTimeout(state.goalDeleteConfirmTimer);
   rest();
   runGoalCommand("/goal clear");
+}
+$("#goalDelete").addEventListener("click", () => confirmGoalDelete($("#goalDelete"), $("#goalDeleteLabel")));
+// Inside the strip's <summary>, so the press must not also toggle the panel.
+$("#goalStripDelete").addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  confirmGoalDelete(event.currentTarget);
 });
 $("#cancelButton").addEventListener("click", () => { stopCurrentTurn().catch(showError); });
 $("#historyRetryButton").addEventListener("click", () => { retrySelectedHistory().catch(showError); });
@@ -8966,15 +9037,15 @@ $("#projectLink").addEventListener("click", (event) => {
 });
 $("#settingsButton").addEventListener("click", () => setSettingsOpen(!$("#settingsPanel").classList.contains("open")));
 $("#closeSettings").addEventListener("click", () => setSettingsOpen(false));
-$$("#fontFamilySwitch button").forEach((button) => button.addEventListener("click", async () => {
+$("#fontFamilySelect").addEventListener("change", async (event) => {
   const previous = document.body.dataset.font || "inter";
-  applyFontFamily(button.dataset.font);
+  applyFontFamily(event.currentTarget.value);
   try {
-    applyFontFamily(await window.widget.setFontFamily(button.dataset.font));
+    applyFontFamily(await window.widget.setFontFamily(event.currentTarget.value));
   } catch {
     applyFontFamily(previous);
   }
-}));
+});
 $$('#windowLayerSwitch button').forEach((button) => button.addEventListener("click", async () => {
   if (button.disabled) return;
   const value = await window.widget.setWindowLayer(button.dataset.layer);
@@ -9959,6 +10030,8 @@ if (screenshotFixture) {
         { role: "assistant", text: "The chip beside the model says it; pick another to start a new chat with that one." },
       ]);
       if (screenshotFixture === "preset-picker") openPresetMenu();
+      // The narrow case opens the model menu instead, whose preset row names the chat's preset.
+      else { renderReasoning(); togglePicker($("#reasoningButton")); }
     } else if (screenshotFixture === "spend-agents") {
       setTab("agents");
       const spendNow = Date.now();

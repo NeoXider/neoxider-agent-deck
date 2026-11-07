@@ -232,3 +232,35 @@
 .preset-default { flex:none; padding:1px 6px; border-radius:99px; background:color-mix(in srgb,var(--mint) 12%,transparent); color:var(--mint); font-size:10px; font-style:normal; font-weight:650; }
 /* On a narrow window the chip keeps its icon and the name moves to the tooltip and the menu. */
 @media (max-width:380px) { .preset-button > span, .preset-button > .picker-chevron { display:none; } .preset-picker > .preset-button { padding:0 7px; } }
+/* The font list in Settings: a compact native select that follows the dark scheme. */
+.settings-panel .font-setting select { flex:none; width:150px; height:30px; padding:0 8px; border:1px solid var(--line); border-radius:var(--radius-sm); outline:0; background:var(--surface-1); color:var(--text); font-size:12.5px; cursor:pointer; }
+.settings-panel .font-setting select:hover { border-color:var(--line-strong); background:var(--surface-2); }
+.settings-panel .font-setting select:focus-visible { border-color:color-mix(in srgb,var(--mint) 60%,transparent); box-shadow:0 0 0 3px color-mix(in srgb,var(--mint) 14%,transparent); }
+.settings-panel .font-setting option { background:var(--surface-2); color:var(--text); }
+/* An answer's actions sit in a row under it: always findable, brighter on hover. Your own
+   messages keep theirs in the gutter on their left (styles.css). */
+.bubble.assistant > .bubble-actions { float:none; clear:both; justify-content:flex-start; height:14px; margin:0 0 -14px; opacity:.6; transform:none; pointer-events:auto; }
+/* The row lives in the room under the answer (its 12px margin, and the log's 10px padding under the last one), so an answer is no taller with it; an answer followed by more gets a little extra room. */
+.bubble.assistant:has(> .bubble-actions):not(:last-child) { margin-bottom:20px; }
+.bubble.assistant:hover > .bubble-actions, .bubble.assistant:focus-within > .bubble-actions, .bubble.assistant.actions-visible > .bubble-actions { opacity:1; }
+.bubble.assistant > .bubble-actions .bubble-action { width:22px; height:22px; }
+/* The model menu's preset row: the same quiet button as "Choose model", naming the preset. */
+.reasoning-preset-choice { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:2px; }
+.reasoning-preset-choice[hidden] { display:none; }
+.reasoning-preset-choice > .ui-icon { width:13px; height:13px; }
+.reasoning-preset-choice > b { max-width:60%; overflow:hidden; color:var(--text); font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+
+/* The heading's middle (preset chip and spend) keeps the room its content needs, so a long
+   model name shortens with an ellipsis instead of pushing the two into each other. */
+.chat-heading { grid-template-columns:36px 36px minmax(min-content,1fr) auto; }
+.chat-heading:has(#returnToAvatarButton:not([hidden])) { grid-template-columns:36px 36px 36px minmax(min-content,1fr) auto; }
+@media (max-width:390px), (max-height:560px) {
+  .chat-heading { grid-template-columns:34px 34px minmax(min-content,1fr) auto; }
+  .chat-heading:has(#returnToAvatarButton:not([hidden])) { grid-template-columns:34px 34px 34px minmax(min-content,1fr) auto; }
+}
+.chat-heading > .reasoning-picker { min-width:0; }
+
+/* Deleting the goal from the strip itself, two presses like the panel's button. */
+.goal-strip-action.goal-strip-delete { color:var(--muted); }
+.goal-strip-action.goal-strip-delete:hover, .goal-strip-action.goal-strip-delete[data-confirm="1"] { background:color-mix(in srgb,#ff7390 14%,transparent); color:#ff8aa2; }
+.goal-dock:not([open]) .goal-strip-delete .ui-icon { width:11px; height:11px; }

@@ -751,8 +751,13 @@ test("the goal is a hairline strip under the composer that opens into queue-styl
   // The controls are /goal subcommands over the command path, so Harness stays the one
   // owner of goal state rather than the widget guessing at it.
   assert.match(renderer, /runGoalCommand\(`\/goal edit \$\{text\}`\)/);
-  assert.match(renderer, /runGoalCommand\(goal\.phase === "paused" \? "\/goal resume" : "\/goal pause"\)/);
+  assert.match(renderer, /if \(goal\.phase === "paused"\) runGoalCommand\("\/goal resume"\);\s+else runGoalCommand\("\/goal pause", \{ stopTurn: true \}\);/);
+  // A pause also stops the round under way; Harness's pause only disarms the next one.
+  assert.match(renderer, /if \(stopTurn && running && sessionId === state\.selectedSessionId\) await stopCurrentTurn\(\);/);
   assert.match(renderer, /runGoalCommand\("\/goal clear"\)/);
+  // The strip deletes too, with the same two-press confirm as the panel.
+  assert.match(html, /<summary id="goalSummary">[\s\S]{0,700}id="goalStripDelete"/);
+  assert.match(renderer, /confirmGoalDelete\(event\.currentTarget\)/);
   // Clearing is destructive and the projection vanishes with it, so it is a two-press
   // confirm rather than a modal over a widget this small.
   assert.match(renderer, /button\.dataset\.confirm !== "1"/);
@@ -794,10 +799,12 @@ test("the goal is a hairline strip under the composer that opens into queue-styl
 test("the goal strip trusts what Harness answered, not a snapshot read before the command", () => {
   const handlers = readSource("src", "ipc-handlers.cjs");
   // Harness has four goal phases: folding blocked into active offered a Pause it refuses.
-  assert.match(renderer, /phase: reported === "complete" \? "complete" : reported === "paused" \|\| reported === "blocked" \? "paused" : "active"/);
-  assert.match(renderer, /if \(!goal \|\| goal\.phase === "complete"\) return;\s+runGoalCommand\(/);
+  assert.match(renderer, /phase: reported === "complete" \? "complete" : \["paused", "blocked", "stopped"\]\.includes\(reported\) \? "paused" : "active"/);
+  // An active goal Harness has not armed runs no rounds: it offers resume, not a pause.
+  assert.match(renderer, /if \(reported === "active" && goalActivationFor\(sessionId, goal\) === "disarmed"\) reported = "stopped";/);
+  assert.match(renderer, /if \(!goal \|\| goal\.phase === "complete"\) return;\s+if \(goal\.phase === "paused"\) runGoalCommand\(/);
   // A refused or unrecognised command is no success: no "Goal paused" toast, the editor stays open.
-  assert.match(renderer, /const result = await executeHarnessCommand\(line, sessionId\);[\s\S]{0,500}if \(result && result\.kind !== "error"\) \{\s+state\.goalEditing = false;\s+holdGoalOutcome\(sessionId, line\);/);
+  assert.match(renderer, /const result = await executeHarnessCommand\(line, sessionId\);[\s\S]{0,500}if \(result && result\.kind !== "error"\) \{\s+state\.goalEditing = false;[\s\S]{0,600}holdGoalOutcome\(sessionId, line\);/);
   assert.match(renderer, /const unresolved = !result;\s+const failed = unresolved \|\| result\.kind === "error";/);
   // The refresh right after a command must not be served the snapshot read before it...
   assert.match(handlers, /api\.executeWidgetCommand\([^\n]*\)\.finally\(invalidateDashboard\)/);
@@ -1912,7 +1919,9 @@ test("messages carry copy and reuse actions with a toast for feedback", () => {
   const actions = functionBody(renderer, "function createBubbleActions(message)");
   assert.match(actions, /bubbleActionButton\("copy", "Copy message"/);
   assert.match(actions, /if \(message\.role === "user"\) actions\.append\(bubbleActionButton\("reuse"/);
-  assert.match(renderer, /await navigator\.clipboard\.writeText\(String\(text \|\| ""\)\);/);
+  // Copy goes through the main process: Deck denies its renderer the clipboard permission.
+  assert.match(renderer, /await window\.widget\.copyText\(String\(text \|\| ""\)\);/);
+  assert.doesNotMatch(renderer, /navigator\.clipboard/);
   // The action's press never reaches the log's own click handling.
   const button = functionBody(renderer, "function bubbleActionButton(icon, title, onClick)");
   assert.match(button, /event\.stopPropagation\(\);/);
@@ -1929,7 +1938,10 @@ test("messages carry copy and reuse actions with a toast for feedback", () => {
   assert.match(css, /\.bubble-actions \{ position:relative; float:right;[^}]*width:auto;[^}]*flex-direction:row;/);
   // One line tall: a button-tall float also notched the second line of every answer.
   assert.match(css, /\.bubble-actions \{[^}]*height:20px;[^}]*margin:0 0 0 10px;/);
-  assert.match(renderer, /bubble\.prepend\(createBubbleActions\(message\)\)/);
+  assert.match(renderer, /if \(message\.role === "user" && message\.text\) bubble\.prepend\(createBubbleActions\(message\)\);/);
+  // An answer's actions sit in a row under it.
+  assert.match(renderer, /if \(message\.role === "assistant" && message\.text\) bubble\.append\(createBubbleActions\(message\)\);/);
+  assert.match(readSource("src", "renderer", "deck.css"), /\.bubble\.assistant > \.bubble-actions \{ float:none; clear:both;[^}]*opacity:\.6;/);
   // The assistant's prose spans the log; your own messages are bubbles hugging the right
   // edge, and their actions wait in the gutter the bubble leaves on its left - never over a
   // word and never as a reserved footer.

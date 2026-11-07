@@ -4,6 +4,7 @@
 // every channel here is sender-checked like every other.
 
 const { listAgentPresets } = require("./agent-presets.cjs");
+const { goalActivation } = require("./goal-activation.cjs");
 const { FONT_FAMILIES } = require("./settings-store.cjs");
 
 function requireSessionId(value) {
@@ -23,6 +24,7 @@ function registerDeckHandlers({
   persistCapturedLaunchUrl = () => false,
   getPreferences = () => ({}),
   schedulePreferenceSave = () => {},
+  writeClipboardText = () => {},
 }) {
   const services = () => {
     const value = getHarnessServices();
@@ -62,6 +64,8 @@ function registerDeckHandlers({
 
   // The presets a new session can start with (agent-presets.cjs).
   handle("agent-presets", () => listAgentPresets(api));
+  // Whether the chat's goal runs on its own or waits for a resume (goal-activation.cjs).
+  handle("goal-activation", (_event, sessionId) => goalActivation(api, requireSessionId(sessionId)));
   handle("get-harness-target", () => getHarnessServices()?.state() || null);
   handle("set-harness-target", async (_event, value) => services().setTarget(String(value || "")));
   handle("open-dsh-desktop", async () => services().openDesktop());
@@ -82,6 +86,14 @@ function registerDeckHandlers({
       return viewer.openBytes({ name: value?.attachment?.name || payload?.name, mediaType: value?.attachment?.mediaType, data: value?.data });
     }
     throw new Error("Nothing to show");
+  });
+  // Copy buttons write plain text here: the renderer's own clipboard API needs a permission
+  // Deck denies, and a focused window. Writing is all it can do; reading stays closed.
+  handle("copy-text", (_event, text) => {
+    const value = String(text ?? "");
+    if (value.length > 5_000_000) throw new Error("This is too long to copy");
+    writeClipboardText(value);
+    return true;
   });
   handle("set-font-family", (_event, value) => {
     const preferences = getPreferences();

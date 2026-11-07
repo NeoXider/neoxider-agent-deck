@@ -19,9 +19,18 @@ function register(overrides = {}) {
 test("every Harness channel is registered through the guarded handle()", () => {
   const { handlers } = register();
   assert.deepEqual([...handlers.keys()].sort(), [
-    "agent-presets", "archive-session", "check-harness-runtime", "get-harness-runtime", "get-harness-target", "interrupt-subagent", "job-output",
+    "agent-presets", "archive-session", "check-harness-runtime", "copy-text", "get-harness-runtime", "get-harness-target", "goal-activation", "interrupt-subagent", "job-output",
     "kill-job", "open-dsh-desktop", "open-viewer", "pin-session", "restart-harness", "session-jobs", "set-font-family", "set-harness-target", "set-recent-sessions-open", "unarchive-session", "update-harness",
   ]);
+});
+
+test("copy writes plain text through the main process clipboard", async () => {
+  const written = [];
+  const { call } = register({ writeClipboardText: (text) => written.push(text) });
+  assert.equal(await call("copy-text", "answer\n```js\ncode\n```"), true);
+  assert.equal(await call("copy-text", 42), true);
+  assert.deepEqual(written, ["answer\n```js\ncode\n```", "42"]);
+  await assert.rejects(async () => call("copy-text", "x".repeat(5_000_001)), /too long/);
 });
 
 test("the font is saved only as one of the known faces", async () => {

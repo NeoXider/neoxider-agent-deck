@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.13] - 2026-11-07
+
+### Added
+
+- **The model menu names the agent preset too.** Under "Choose model", a "Preset" row names the preset and opens the preset list.
+- **The font is a list with six faces:** Inter (bundled, the default), System UI, Verdana, Tahoma, Calibri and Arial. Each one shows in its own face in the list.
+- **A goal can be deleted from its strip.** The trash beside the round counter takes two presses, like the one in the open panel, which was the only place delete lived.
+
+### Fixed
+
+- **Copying works.** Every copy button said "Could not copy", both the one for a whole answer and the one on each code block. They wrote through the page's clipboard API, which needs a permission Deck denies its renderer, and a focused window. The main process now writes the text, and reading the clipboard stays closed.
+- **An answer's copy button sits under the answer.** It used to float beside its first line. The row lives in the room already left under an answer, so the answer grows no taller.
+- **The preset chip appears when Deck starts before Harness.** The first roster request came back empty while Harness was still starting, and Deck took that for "no presets" for good. An empty roster is now asked again every 15 seconds.
+- **A long model name no longer pushes the preset chip into spend.** The middle of the chat heading keeps the room it needs, and the model name shortens with an ellipsis.
+- **The goal strip tells a running goal from one that only looks active.** DeepSeek Harness 0.2.2 keeps whether a goal runs on its own outside the goal state it publishes, and every agent starts with it off. So after a Harness restart, or once a chat is opened again, a goal whose phase says "active" ran no rounds, and the strip offered a Pause that did nothing. Deck now reads that switch for the open chat's goal (`goals/get`). Such a goal shows as stopped, with a Start that resumes it.
+- **Pause also stops the round under way.** Harness's pause only holds back the next round, so the agent kept working, sometimes for minutes, after the strip said Paused.
+
 ## [1.2.12] - 2026-11-07
 
 1.2.11 was tagged but never published. Its Windows build ran the transcript stability check, which caught the new preset chip rewriting its own attributes on every unchanged poll. The chip now writes only what changed, and the open menu redraws only when the roster or the chat's preset does. Everything in 1.2.11 ships here.

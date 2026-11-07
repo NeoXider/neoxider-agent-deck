@@ -52,6 +52,8 @@ function sessionPresetId(session) {
   return typeof id === "string" ? id : "";
 }
 
+let presetRetryTimer = null;
+
 function loadAgentPresets({ force = false } = {}) {
   if (presetPicker.loading) return presetPicker.loading;
   if (!force && (presetPicker.loaded || Date.now() - presetPicker.triedAt < PRESET_RETRY_MS)) return Promise.resolve(presetPicker.list);
@@ -59,12 +61,21 @@ function loadAgentPresets({ force = false } = {}) {
   presetPicker.loading = window.widget.agentPresets()
     .then((list) => {
       presetPicker.list = Array.isArray(list) ? list : [];
-      presetPicker.loaded = true;
+      // An empty roster usually means Harness was not up yet when Deck asked (Deck often
+      // starts first), not that it has none, so it is asked again.
+      presetPicker.loaded = presetPicker.list.length > 0;
       presetPicker.error = "";
     })
     .catch((error) => { presetPicker.error = String(error?.message || error); })
     .finally(() => {
       presetPicker.loading = null;
+      // Asking again on a timer rather than on the next render: a quiet chat may not render.
+      if (!presetPicker.loaded && !presetRetryTimer) {
+        presetRetryTimer = setTimeout(() => {
+          presetRetryTimer = null;
+          loadAgentPresets({ force: true });
+        }, PRESET_RETRY_MS);
+      }
       renderPresetButton();
     });
   return presetPicker.loading;
@@ -88,12 +99,16 @@ function renderPresetButton() {
   const button = $("#presetButton");
   if (!button) return;
   if (!presetPicker.loaded) loadAgentPresets();
-  // The legacy generation has no roster: no chip rather than a chip that cannot work.
+  // The legacy generation has no roster: no chip rather than a chip that cannot work. The
+  // model menu's preset row (app.js renderReasoning) follows the chip.
+  const row = $("#reasoningPresetChoice");
   setIfChanged(button, "hidden", !presetPicker.list.length);
+  if (row) setIfChanged(row, "hidden", button.hidden);
   if (button.hidden) return;
   const { started, currentId } = presetContext();
   const label = presetLabel(presetById(currentId) || { id: currentId });
   setIfChanged($("#presetButtonText"), "textContent", label);
+  if (row) setIfChanged(row.querySelector("b"), "textContent", label);
   setIfChanged(button, "title", started ? `This chat runs the ${label} preset. Pick another to start a new chat with it.` : `New chats start with the ${label} preset`);
   if (button.getAttribute("aria-label") !== `Agent preset: ${label}`) button.setAttribute("aria-label", `Agent preset: ${label}`);
   if ($(".preset-picker")?.classList.contains("open")) renderPresetMenu();
@@ -177,4 +192,5 @@ document.addEventListener("DOMContentLoaded", () => {
     event.stopPropagation();
     openPresetMenu();
   });
+  loadAgentPresets({ force: true });
 });

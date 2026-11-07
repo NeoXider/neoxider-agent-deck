@@ -660,6 +660,11 @@ function attachScreenshotHarness({
               return chip.right <= (spendRect ? spendRect.left : model.left) + 0.5 && chip.right <= model.left + 0.5;
             })(),
             presetMenuOpen: Boolean(document.querySelector('.preset-picker.open')),
+            reasoningPresetLabel: (() => {
+              const row = document.querySelector('#reasoningPresetChoice');
+              return row && !row.hidden && row.getBoundingClientRect().height > 0 ? row.querySelector('b')?.textContent || '' : '';
+            })(),
+            fontSelectValue: document.querySelector('#fontFamilySelect')?.value || '',
             presetOptions: document.querySelectorAll('#presetOptions .preset-option').length,
             presetSelected: document.querySelector('#presetOptions .preset-option[aria-selected="true"] b')?.textContent || '',
             presetDisabled: document.querySelectorAll('#presetOptions .preset-option:disabled').length,
@@ -782,9 +787,9 @@ function attachScreenshotHarness({
             bubbleActionGroups: document.querySelectorAll('#messages .bubble-actions').length,
             bubbleCopyActions: document.querySelectorAll('#messages .bubble-action.copy').length,
             bubbleReuseActions: document.querySelectorAll('#messages .bubble-action.reuse').length,
-            // The assistant's prose keeps its actions in an interior float; a user bubble keeps
-            // them in the gutter it leaves on its left. Either way they stay inside the log and
-            // never sit on top of the message they act on.
+            // An answer keeps its actions in a row under its text; a user bubble keeps them in
+            // the gutter it leaves on its left. Either way they stay inside the log and never
+            // sit on top of the message they act on.
             bubbleActionsPlaced: (() => {
               const pinned = [...document.querySelectorAll('#messages .bubble.actions-visible')];
               if (!pinned.length) return false;
@@ -796,7 +801,9 @@ function attachScreenshotHarness({
                 if (bubble.classList.contains('user')) {
                   return buttons.length > 0 && buttons.every((rect) => inLog(rect) && rect.right <= box.left && rect.bottom <= box.bottom + 1 && rect.top >= box.top - 24);
                 }
-                return buttons.length > 0 && buttons.every((rect) => inLog(rect) && rect.left >= box.left && rect.right <= box.right && rect.bottom <= box.bottom);
+                // An answer's row sits under all of its text.
+                const textBottom = Math.max(0, ...[...bubble.children].filter((child) => !child.classList.contains('bubble-actions')).map((child) => child.getBoundingClientRect().bottom));
+                return buttons.length > 0 && buttons.every((rect) => inLog(rect) && rect.left >= box.left - 6 && rect.right <= box.right && (rect.top + rect.bottom) / 2 >= textBottom);
               });
             })(),
             composerValue: document.querySelector('#messageInput')?.value || '',
