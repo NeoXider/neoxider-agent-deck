@@ -8,6 +8,7 @@
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'"
     />
     <title>NeoXider Agent Deck</title>
+    <link rel="stylesheet" href="fonts.css" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="appearance.css" />
     <link rel="stylesheet" href="motion.css" />
@@ -152,7 +153,15 @@
               </button>
               <div id="reasoningMenu" class="picker-menu align-right" role="dialog" aria-label="Reasoning effort"><div id="reasoningOptions" class="picker-options"></div></div>
             </div>
-            <span id="sessionSpend" class="session-spend no-drag" hidden></span>
+            <div class="heading-middle">
+              <div class="picker preset-picker no-drag">
+                <button id="presetButton" class="picker-button preset-button" type="button" aria-haspopup="listbox" aria-controls="presetMenu" aria-expanded="false" title="Agent preset" hidden>
+                  <svg class="ui-icon"><use href="#icon-agents"/></svg><span id="presetButtonText">Preset</span><svg class="ui-icon picker-chevron"><use href="#icon-chevron"/></svg>
+                </button>
+                <div id="presetMenu" class="picker-menu preset-menu" role="listbox" aria-label="Agent presets"><div id="presetHint" class="preset-hint"></div><div id="presetOptions" class="picker-options"></div></div>
+              </div>
+              <span id="sessionSpend" class="session-spend no-drag" hidden></span>
+            </div>
         </div>
 
         <details id="activityCard" class="activity-card no-drag">
@@ -264,6 +273,7 @@
         <label id="opacitySetting" class="range-label"><span>Opacity <b id="opacityValue">96%</b></span><input id="opacityRange" type="range" min="65" max="100" step="1" /><small id="opacityStatus" class="setting-hint" role="status" hidden></small></label>
         <label class="range-label"><span>Activity glow <b id="glowValue">82%</b></span><input id="glowRange" type="range" min="0" max="100" step="1" /></label>
         <label class="range-label"><span>Text size <b id="fontScaleValue">100%</b></span><input id="fontScaleRange" type="range" min="85" max="135" step="5" aria-label="Widget text size" /></label>
+        <div class="setting-block layer-setting font-setting"><span>Font</span><div id="fontFamilySwitch" class="layer-switch" role="group" aria-label="Widget font"><button data-font="inter" type="button" title="Inter, bundled with Deck: tall lowercase letters that stay readable at small sizes" aria-pressed="true">Inter</button><button data-font="system" type="button" title="The system interface font (Segoe UI on Windows)" aria-pressed="false">System</button><button data-font="verdana" type="button" title="Verdana: wide letters drawn for small screen sizes" aria-pressed="false">Verdana</button></div></div>
         <label class="range-label"><span>Background opacity <b id="backgroundOpacityValue">90%</b></span><input id="backgroundOpacityRange" type="range" min="0" max="100" step="1" /><small class="setting-hint">Panel background only; text and controls stay clear</small></label>
         <label class="range-label"><span>Text opacity <b id="textOpacityValue">100%</b></span><input id="textOpacityRange" type="range" min="20" max="100" step="1" /></label>
         <label class="toggle-setting"><span><span>Show live activity</span><small>Thinking, tool and working status above the chat</small></span><input id="showThinkingToggle" type="checkbox" checked /></label>
@@ -370,6 +380,7 @@
     <script src="tasks-panel.js"></script>
     <script src="harness-panel.js"></script>
     <script src="orb-chat.js"></script>
+    <script src="preset-picker.js"></script>
     <script src="session-stats.js"></script>
   <script src="model-pricing.js"></script>
     <script src="clipboard-attachments.js"></script>

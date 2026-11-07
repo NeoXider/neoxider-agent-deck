@@ -2126,6 +2126,8 @@ function canPatchSessionGroups(root, groups, { picker = false } = {}) {
 }
 
 function renderSessions() {
+  // Every refresh lands here; the preset chip reads the selected chat's row (preset-picker.js).
+  globalThis.renderPresetButton?.();
   const root = $("#sessions");
   const recent = globalThis.recentSessionGroup?.() || null;
   const groups = recent ? [recent, ...groupedSessions()] : groupedSessions();
@@ -3469,6 +3471,7 @@ async function selectSession(sessionId, openChat = false) {
   globalThis.syncSubagentView?.(state.selectedSessionId);
   renderHistoryLoadError();
   renderReturnToAvatarButton();
+  globalThis.renderPresetButton?.();
   rememberSelectedSession();
   // The error belongs to the message that failed, and that message stays behind with its
   // own session's composer content.
@@ -7567,12 +7570,18 @@ async function stopCurrentTurn() {
   }
 }
 
-async function createNewSession({ restore = true, workspaceId = null } = {}) {
+// The preset is the one the preset chip remembers for new chats (preset-picker.js); a blank
+// session named by reuseSessionId is re-created in place, as session/create allows.
+async function createNewSession({ restore = true, workspaceId = null, agentPreset = globalThis.newChatPresetId?.() || "", reuseSessionId = null } = {}) {
   setAvatar("waiting", "creating session");
   // A notice of Deck's own, not a turn's status, so it shows whatever Think is set to.
   setActivity({ active: true, kind: "notice", label: "New session", text: "Creating a Harness session…" });
   try {
-    const result = await window.widget.createSession(workspaceId ? { workspaceId } : {});
+    const result = await window.widget.createSession({
+      ...(workspaceId ? { workspaceId } : {}),
+      ...(agentPreset ? { agentPreset } : {}),
+      ...(reuseSessionId ? { sessionId: reuseSessionId } : {}),
+    });
     state.selectedSessionId = result.sessionId;
     invalidateSelectedHistoryVersion();
     state.selectedWorkspaceId = workspaceId || null;
@@ -7604,7 +7613,7 @@ async function switchWorkspace(workspaceId) {
   setActivity({ active: true, kind: "notice", label: "Workspace", text: "Opening the selected workspace…" });
   try {
     state.selectedWorkspaceId = workspaceId;
-    const result = await window.widget.createSession({ workspaceId });
+    const result = await window.widget.createSession({ workspaceId, agentPreset: globalThis.newChatPresetId?.() || "" });
     await refresh({ afterCurrent: true });
     await selectSession(result.sessionId, true);
     setAvatar("idle", "workspace ready");
@@ -7711,6 +7720,15 @@ function applyGlowIntensity(value) {
   $("#glowRange").value = String(Math.round(intensity * 100));
   $("#glowValue").textContent = `${Math.round(intensity * 100)}%`;
   return intensity;
+}
+
+// The text face (fonts.css); Inter, bundled, unless the settings name another.
+function applyFontFamily(value) {
+  const family = ["inter", "system", "verdana"].includes(value) ? value : "inter";
+  document.body.dataset.font = family;
+  syncPressed($$("#fontFamilySwitch button"), family, "font");
+  resizeMessageInput();
+  return family;
 }
 
 function applyFontScale(value) {
@@ -8236,6 +8254,7 @@ async function hydratePreferences() {
     $("#opacityValue").textContent = `${Math.round(preferences.opacity * 100)}%`;
     applyGlowIntensity(preferences.glowIntensity);
     applyFontScale(preferences.fontScale);
+    applyFontFamily(preferences.fontFamily);
     confirmedBackgroundOpacity = applyBackgroundOpacity(preferences.backgroundOpacity ?? 0.9);
     confirmedTextOpacity = applyTextOpacity(preferences.textOpacity ?? 1);
     applyShowThinking(preferences.showThinking);
@@ -8349,7 +8368,7 @@ $("#addWorkspaceButton").addEventListener("click", async () => {
     state.workspaces = await window.widget.workspaces();
     state.selectedWorkspaceId = result.workspace.workspaceId;
     renderWorkspaces();
-    const session = await window.widget.createSession({ workspaceId: state.selectedWorkspaceId });
+    const session = await window.widget.createSession({ workspaceId: state.selectedWorkspaceId, agentPreset: globalThis.newChatPresetId?.() || "" });
     await refresh({ afterCurrent: true });
     await selectSession(session.sessionId, true);
     setAvatar("idle", "workspace ready");
@@ -8464,6 +8483,8 @@ $("#chatForm").addEventListener("submit", async (event) => {
         selection: submittedSelection,
         attachments: submittedAttachments,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        // A chat the first message creates starts with the preset the chip remembers.
+        ...(targetSessionId ? {} : { agentPreset: globalThis.newChatPresetId?.() || "" }),
       });
       const stillOwnsVisibleSession = state.selectedSessionId === targetSessionId;
       if (chatVisual && targetSessionId && !queueingBehindTurn) chatVisual.noteSendAccepted(targetSessionId);
@@ -8945,6 +8966,15 @@ $("#projectLink").addEventListener("click", (event) => {
 });
 $("#settingsButton").addEventListener("click", () => setSettingsOpen(!$("#settingsPanel").classList.contains("open")));
 $("#closeSettings").addEventListener("click", () => setSettingsOpen(false));
+$$("#fontFamilySwitch button").forEach((button) => button.addEventListener("click", async () => {
+  const previous = document.body.dataset.font || "inter";
+  applyFontFamily(button.dataset.font);
+  try {
+    applyFontFamily(await window.widget.setFontFamily(button.dataset.font));
+  } catch {
+    applyFontFamily(previous);
+  }
+}));
 $$('#windowLayerSwitch button').forEach((button) => button.addEventListener("click", async () => {
   if (button.disabled) return;
   const value = await window.widget.setWindowLayer(button.dataset.layer);
@@ -9896,6 +9926,39 @@ if (screenshotFixture) {
         { role: "user", text: "Why does this session cost what it does?" },
         { role: "assistant", text: "The chip says what it spent, and the meter tooltip breaks the sum down." },
       ]);
+    } else if (["preset-picker", "preset-picker-360"].includes(screenshotFixture)) {
+      setTab("chat");
+      presetPicker.list = [
+        { id: "standard", name: null, description: "", isDefault: true },
+        { id: "ptc", name: null, description: "", isDefault: false },
+        { id: "neoxiderorchestration", name: "Neoxider Orchestration", description: "Personal orchestration preset", isDefault: false },
+        { id: "smart", name: "Smart", description: "Thinks carefully, works like a senior engineer and keeps lasting facts in memory", isDefault: false },
+        { id: "stale", name: "Stale preset", description: "", isDefault: false, broken: "tool-subagent-list-agents: never started" },
+      ];
+      presetPicker.loaded = true;
+      state.dashboard = { harness: true, sessions: [{
+        sessionId: "demo-preset",
+        title: "Careful work",
+        running: false,
+        state: "idle",
+        workspaceId: "demo-workspace",
+        projections: { values: {
+          agentPreset: "smart",
+          contextPressure: { projectedTokens: 24000, contextWindow: 131072 },
+          modelSelection: { lastUsed: { provider: "anthropic", model: "claude-opus-5-5", reasoningEffort: "xhigh" } },
+          tokenUsage: { uncachedInputTokens: 302, outputTokens: 170791, cacheReadTokens: 45477197, cacheWriteTokens: 480327 },
+        } },
+        subagents: [],
+      }] };
+      state.selectedSessionId = "demo-preset";
+      renderSessionToolbar();
+      renderContext();
+      renderPresetButton();
+      renderMessages([
+        { role: "user", text: "Which preset does this chat run?" },
+        { role: "assistant", text: "The chip beside the model says it; pick another to start a new chat with that one." },
+      ]);
+      if (screenshotFixture === "preset-picker") openPresetMenu();
     } else if (screenshotFixture === "spend-agents") {
       setTab("agents");
       const spendNow = Date.now();

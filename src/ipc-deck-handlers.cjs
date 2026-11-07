@@ -3,6 +3,9 @@
 // its subagents), and opening what a chat points at in the viewer window. Registered through the guarded handle() of ipc-handlers.cjs, so
 // every channel here is sender-checked like every other.
 
+const { listAgentPresets } = require("./agent-presets.cjs");
+const { FONT_FAMILIES } = require("./settings-store.cjs");
+
 function requireSessionId(value) {
   const sessionId = String(value ?? "").trim();
   if (!sessionId || sessionId.length > 512) throw new Error("A session id is required");
@@ -57,6 +60,8 @@ function registerDeckHandlers({
     return { ok: Boolean(result?.ok), updated: Boolean(result?.ok), result, runtime: runtime.state() };
   });
 
+  // The presets a new session can start with (agent-presets.cjs).
+  handle("agent-presets", () => listAgentPresets(api));
   handle("get-harness-target", () => getHarnessServices()?.state() || null);
   handle("set-harness-target", async (_event, value) => services().setTarget(String(value || "")));
   handle("open-dsh-desktop", async () => services().openDesktop());
@@ -77,6 +82,12 @@ function registerDeckHandlers({
       return viewer.openBytes({ name: value?.attachment?.name || payload?.name, mediaType: value?.attachment?.mediaType, data: value?.data });
     }
     throw new Error("Nothing to show");
+  });
+  handle("set-font-family", (_event, value) => {
+    const preferences = getPreferences();
+    preferences.fontFamily = FONT_FAMILIES.includes(value) ? value : "inter";
+    schedulePreferenceSave();
+    return preferences.fontFamily;
   });
   handle("set-recent-sessions-open", (_event, value) => {
     const preferences = getPreferences();

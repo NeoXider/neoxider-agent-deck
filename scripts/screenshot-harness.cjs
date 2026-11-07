@@ -644,6 +644,29 @@ function attachScreenshotHarness({
             sessionSpendAmount: document.querySelector('#sessionSpend')?.hidden ? '' : document.querySelector('#sessionSpend')?.textContent || '',
             sessionSpendTitle: document.querySelector('#sessionSpend')?.title || '',
             sessionSpendWidth: Math.round(document.querySelector('#sessionSpend')?.getBoundingClientRect().width || 0),
+            // The preset chip shares the heading's middle with spend and must never run into it
+            // or into the model chip.
+            presetButtonText: document.querySelector('#presetButton')?.hidden ? '' : document.querySelector('#presetButtonText')?.textContent || '',
+            presetButtonLabelShown: (() => {
+              const label = document.querySelector('#presetButtonText');
+              return Boolean(label && getComputedStyle(label).display !== 'none' && label.getBoundingClientRect().width > 0);
+            })(),
+            presetChipClear: (() => {
+              const chip = document.querySelector('#presetButton')?.getBoundingClientRect();
+              if (!chip || !chip.width) return false;
+              const spend = document.querySelector('#sessionSpend');
+              const model = document.querySelector('#reasoningButton').getBoundingClientRect();
+              const spendRect = spend && !spend.hidden ? spend.getBoundingClientRect() : null;
+              return chip.right <= (spendRect ? spendRect.left : model.left) + 0.5 && chip.right <= model.left + 0.5;
+            })(),
+            presetMenuOpen: Boolean(document.querySelector('.preset-picker.open')),
+            presetOptions: document.querySelectorAll('#presetOptions .preset-option').length,
+            presetSelected: document.querySelector('#presetOptions .preset-option[aria-selected="true"] b')?.textContent || '',
+            presetDisabled: document.querySelectorAll('#presetOptions .preset-option:disabled').length,
+            presetMenuInView: (() => {
+              const menu = document.querySelector('.preset-picker.open .picker-menu')?.getBoundingClientRect();
+              return Boolean(menu && menu.left >= 0 && menu.right <= innerWidth + 0.5 && menu.bottom <= innerHeight + 0.5);
+            })(),
             sessionMetaSpendCount: [...document.querySelectorAll('#sessions .session-meta-text')]
               .filter((node) => node.textContent.includes('~$')).length,
             contextVisible: (() => {

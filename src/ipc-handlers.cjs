@@ -227,7 +227,7 @@ function registerIpcHandlers({
     const attachments = attachmentRegistry.resolvePayload(payload?.attachments);
     if (!text && !attachments.length) throw new Error("Message is empty");
     const created = !(payload && payload.sessionId);
-    const sessionId = created ? await api.createSession() : payload.sessionId;
+    const sessionId = created ? await api.createSession({ agentPreset: payload?.agentPreset }) : payload.sessionId;
     if (created) invalidateDashboard();
     await api.ensureFullAccess(sessionId);
     if (payload && payload.selection) await api.selectModel(sessionId, payload.selection);
@@ -515,6 +515,7 @@ function registerIpcHandlers({
       textOpacity: preferences.textOpacity ?? 1,
       glowIntensity: preferences.glowIntensity,
       fontScale: preferences.fontScale,
+      fontFamily: preferences.fontFamily || "inter",
       showThinking: preferences.showThinking !== false,
       motionEffects: preferences.motionEffects !== false,
       appearance: preferences.appearance,

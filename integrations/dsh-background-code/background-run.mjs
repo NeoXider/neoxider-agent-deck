@@ -82,6 +82,9 @@ export async function runBackgroundCode({
   exec,
   execute,
   jobs,
+  // What a finished job reports: DSH 0.2.2's tools/execute hands back a whole tool
+  // result, of which only the value is the program's output.
+  jobValue = (value) => value,
   yieldMs = 1500,
   timeoutMs = 600000,
   outputLimitBytes = 32000,
@@ -121,7 +124,7 @@ export async function runBackgroundCode({
       // DSH 0.1.7+ delivers a finished job's payload through `result` (read
       // once via job_output) and ignores `output`; older releases do the
       // opposite. Carrying both keeps one producer working on either.
-      const output = retainHeadAndTail(serializeOutput(value), outputLimitBytes);
+      const output = retainHeadAndTail(serializeOutput(jobValue(value)), outputLimitBytes);
       return {
         status: "completed",
         output,

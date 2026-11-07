@@ -1,0 +1,3 @@
+- insert:
+    - id: neoxider-tool-call-recovery
+      name: dsh-tool-call-recovery

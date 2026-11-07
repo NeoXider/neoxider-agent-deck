@@ -63,6 +63,9 @@ const cases = [
   }, min: { sessionSpendWidth: 40 } },
   { name: "spend-agents", tab: "agents", fixture: "spend-agents", expect: { sessionMetaSpendCount: 2 } },
   { name: "spend-chat-360", tab: "chat", fixture: "spend-chat", width: 360, height: 500, expect: { sessionSpendAmount: "~$14.91", contextValue: "18%" }, min: { sessionSpendWidth: 40 } },
+  // The chat runs "Smart"; the menu lists the roster with the broken preset disabled.
+  { name: "preset-picker", tab: "chat", fixture: "preset-picker", width: 420, height: 620, expect: { presetButtonText: "Smart", presetButtonLabelShown: true, presetChipClear: true, presetMenuOpen: true, presetOptions: 5, presetSelected: "Smart", presetDisabled: 1, presetMenuInView: true, sessionSpendAmount: "~$14.91" } },
+  { name: "preset-picker-360", tab: "chat", fixture: "preset-picker-360", width: 360, height: 500, expect: { presetButtonText: "Smart", presetButtonLabelShown: false, presetChipClear: true, presetMenuOpen: false, sessionSpendAmount: "~$14.91" }, min: { sessionSpendWidth: 40 } },
   { name: "history-loading", tab: "chat", fixture: "history-loading", width: 380, height: 400, expect: { skeletonRows: 3, emptyStateText: "", conversationBubbles: 0 } },
   { name: "toast", tab: "chat", fixture: "toast", width: 380, height: 400, expect: { toastVisible: true, toastText: "Copied to clipboard", conversationBubbles: 2 } },
   { name: "bubble-actions", tab: "chat", fixture: "bubble-actions", width: 380, height: 400, expect: { bubbleActionGroups: 2, bubbleCopyActions: 2, bubbleReuseActions: 1, bubbleActionsPlaced: true, conversationBubbles: 2 } },

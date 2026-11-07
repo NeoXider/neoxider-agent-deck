@@ -3,6 +3,9 @@ const path = require("node:path");
 const fs = require("node:fs");
 const { DEFAULT_HOTKEYS, normalizeHotkeyBindings } = require("./hotkey-manager.cjs");
 
+// The widget's text faces (renderer fonts.css): Inter is bundled and the default.
+const FONT_FAMILIES = Object.freeze(["inter", "system", "verdana"]);
+
 const DEFAULT_PREFERENCES = Object.freeze({
   opacity: 0.96,
   backgroundOpacity: 0.90,
@@ -10,6 +13,7 @@ const DEFAULT_PREFERENCES = Object.freeze({
   textOpacity: 1,
   glowIntensity: 0.82,
   fontScale: 1,
+  fontFamily: "inter",
   showThinking: true,
   // The widget leans on motion to say what it is doing - a flowing goal rail, a breathing
   // pause glyph, a pulsing tool group. Anyone who wants it plain can switch the lot off.
@@ -118,6 +122,7 @@ function normalizePreferences(raw = {}) {
     textOpacity: boundedNumber(source.textOpacity, DEFAULT_PREFERENCES.textOpacity, 0.2, 1),
     glowIntensity: boundedNumber(source.glowIntensity, DEFAULT_PREFERENCES.glowIntensity, 0, 1),
     fontScale: boundedNumber(source.fontScale, DEFAULT_PREFERENCES.fontScale, 0.85, 1.35),
+    fontFamily: FONT_FAMILIES.includes(source.fontFamily) ? source.fontFamily : DEFAULT_PREFERENCES.fontFamily,
     showThinking: source.showThinking !== false,
     motionEffects: source.motionEffects !== false,
     appearance: normalizeAppearance(source.appearance, source.appearanceRevision),
@@ -319,4 +324,4 @@ function createSettingsStore({
   };
 }
 
-module.exports = { DEFAULT_PREFERENCES, createSettingsStore, normalizePreferences };
+module.exports = { DEFAULT_PREFERENCES, FONT_FAMILIES, createSettingsStore, normalizePreferences };

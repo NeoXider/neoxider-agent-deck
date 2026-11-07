@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("widget", {
     return filePath ? ipcRenderer.sendSync("register-selected-file", filePath) : "";
   },
   createSession: (options) => ipcRenderer.invoke("create-session", options),
+  agentPresets: () => ipcRenderer.invoke("agent-presets"),
   selectModel: (payload) => ipcRenderer.invoke("select-model", payload),
   send: (payload) => ipcRenderer.invoke("send", payload),
   cancel: (sessionId) => ipcRenderer.invoke("cancel", sessionId),
@@ -67,6 +68,7 @@ contextBridge.exposeInMainWorld("widget", {
   setTextOpacity: (value) => ipcRenderer.invoke("set-text-opacity", value),
   setGlowIntensity: (value) => ipcRenderer.invoke("set-glow-intensity", value),
   setFontScale: (value) => ipcRenderer.invoke("set-font-scale", value),
+  setFontFamily: (value) => ipcRenderer.invoke("set-font-family", value),
   setShowThinking: (value) => ipcRenderer.invoke("set-show-thinking", Boolean(value)),
   setMotionEffects: (value) => ipcRenderer.invoke("set-motion-effects", Boolean(value)),
   setAppearance: (value) => ipcRenderer.invoke("set-appearance", value),

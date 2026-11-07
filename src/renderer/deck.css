@@ -211,3 +211,24 @@
 #messages a[data-file]:hover { text-decoration-style:solid; }
 #messages code.file-ref { cursor:pointer; text-decoration:underline dotted color-mix(in srgb,var(--violet) 55%,transparent); text-underline-offset:3px; transition:background var(--dur-1) ease,color var(--dur-1) ease; }
 #messages code.file-ref:hover { background:color-mix(in srgb,var(--violet) 16%,transparent); color:#e4ddff; text-decoration-style:solid; }
+/* The middle of the chat heading: the agent preset chip on the left, spend on the right (preset-picker.js). */
+.chat-heading > .heading-middle { grid-column:-3 / -2; grid-row:1; z-index:11; display:flex; align-items:center; gap:6px; min-width:0; }
+.heading-middle > .session-spend { margin-left:auto; }
+.preset-picker { flex:0 1 auto; min-width:0; }
+.preset-picker > .preset-button { width:auto; max-width:136px; height:28px; gap:5px; padding:0 8px 0 7px; border-radius:999px; }
+.preset-picker > .preset-button[hidden] { display:none; }
+.preset-button > span { font-size:11.5px; font-weight:650; letter-spacing:.01em; }
+.preset-button > .ui-icon { flex:none; width:13px; height:13px; }
+.preset-button > .picker-chevron { width:10px; height:10px; color:var(--muted); }
+.preset-menu { width:min(290px,calc(100vw - 24px)); }
+/* Presets carry a description each, so the list may grow to the room below before it scrolls. */
+.preset-menu .picker-options { max-height:min(340px,calc(var(--picker-max-height,360px) - 52px)); }
+.preset-hint { padding:3px 8px 7px; color:var(--muted); font-size:11px; line-height:1.4; }
+.preset-option { height:auto; min-height:38px; align-items:flex-start; }
+.preset-option-copy { min-width:0; flex:1; display:flex; flex-direction:column; gap:2px; }
+.preset-option-copy > b { overflow:hidden; color:var(--text); font-size:12.5px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+.preset-option-copy > small { color:var(--muted); font-size:11px; line-height:1.35; white-space:normal; }
+.preset-option:disabled { opacity:.5; cursor:not-allowed; }
+.preset-default { flex:none; padding:1px 6px; border-radius:99px; background:color-mix(in srgb,var(--mint) 12%,transparent); color:var(--mint); font-size:10px; font-style:normal; font-weight:650; }
+/* On a narrow window the chip keeps its icon and the name moves to the tooltip and the menu. */
+@media (max-width:380px) { .preset-button > span, .preset-button > .picker-chevron { display:none; } .preset-picker > .preset-button { padding:0 7px; } }

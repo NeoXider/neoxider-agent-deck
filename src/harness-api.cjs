@@ -32,6 +32,7 @@ const {
 const { childrenByParent, subagentTree, subagentUsage } = require("./subagent-tree.cjs");
 const { createSubagentRegistry } = require("./subagent-registry.cjs");
 const { readHistory } = require("./history-loader.cjs");
+const { sessionCreateOptions } = require("./agent-presets.cjs");
 
 // Two dashboard polls: a running chat whose stream spoke within this long is not re-read.
 const LIVE_EVENT_FRESH_MS = 5000;
@@ -436,10 +437,11 @@ class HarnessApi {
   async createSession(options = {}) {
     const remote = await this.ensureRemote();
     if (remote) {
-      const value = await remote.call("session/create", { request: options });
+      const value = await remote.call("session/create", { request: sessionCreateOptions(options) });
       return value.sessionId;
     }
-    const value = await this.rpc("session.create", options);
+    const { agentPreset: _noRoster, ...legacy } = options || {};
+    const value = await this.rpc("session.create", legacy);
     return value.sessionId;
   }
 

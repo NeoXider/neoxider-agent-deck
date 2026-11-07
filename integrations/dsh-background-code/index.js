@@ -3,26 +3,49 @@ import { runBackgroundCode } from './background-run.mjs';
 export const name = 'dsh-background-code';
 export const inject = ['tools', 'jobs', 'systemPrompt', 'ptcRuntime'];
 
+const RUN_CODE = 'run_code';
+
+// A result as the tool pipeline returns it, as opposed to the raw value a hand-off returns.
+const isToolResult = (value) => value !== null && typeof value === 'object'
+  && Array.isArray(value.content) && typeof value.isError === 'boolean';
+
+function resultText(result) {
+  const text = result.content.filter((block) => block?.type === 'text').map((block) => block.text).join('\n');
+  return text || result.error?.message || 'run_code failed';
+}
+
 export function apply(ctx) {
-  const definition = ctx.tools.requirePtcTransport();
-  const original = definition.execute;
-  const wrapped = function (args, exec) {
+  // DSH 0.2.2 gives every PTC executor its own run_code transport, so the call is caught
+  // where all of them meet: the tools/execute waterfall around the tool body.
+  ctx.on('tools/execute', async (exec, next) => {
     // Preserve normal execution when no native job controller owns this agent.
-    if (!exec.agent || !ctx.jobs.servesOwner(exec.agent)) return original.call(this, args, exec);
+    if (exec.name !== RUN_CODE || exec.parent !== undefined || !exec.agent || !ctx.jobs.servesOwner(exec.agent)) return next();
     const maxMs = ctx.ptcRuntime.timeout?.maxMs;
-    return runBackgroundCode({
-      args,
-      exec,
-      execute: (input, context) => original.call(this, input, context),
-      jobs: ctx.jobs,
-      timeoutMs: Number.isFinite(maxMs) ? Math.min(600000, maxMs) : 600000,
-    });
-  };
-  ctx.effect(() => {
-    definition.execute = wrapped;
-    return () => {
-      if (definition.execute === wrapped) definition.execute = original;
-    };
+    // The body is handed this runner's own signal and hooks through the live execution;
+    // the runner reports back through the original hooks, bound here before they change.
+    const outer = { ...exec, deferContext: exec.deferContext.bind(exec), concludeTurn: exec.concludeTurn.bind(exec) };
+    try {
+      const value = await runBackgroundCode({
+        args: exec.arguments,
+        exec: outer,
+        execute: async (input, context) => {
+          exec.arguments = input;
+          exec.signal = context.signal;
+          exec.deferContext = context.deferContext;
+          exec.concludeTurn = context.concludeTurn;
+          const result = await next();
+          if (result.isError) throw Object.assign(new Error(resultText(result)), { toolResult: result });
+          return result;
+        },
+        jobValue: (result) => (isToolResult(result) ? result.value : result),
+        jobs: ctx.jobs,
+        timeoutMs: Number.isFinite(maxMs) ? Math.min(600000, maxMs) : 600000,
+      });
+      return isToolResult(value) ? value : { value };
+    } catch (error) {
+      if (error?.toolResult) return error.toolResult;
+      throw error;
+    }
   });
   ctx.systemPrompt.section({
     name: 'tool:background-code',

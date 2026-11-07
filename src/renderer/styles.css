@@ -26,7 +26,7 @@
   --status-error-primary:255,115,143;
   --status-error-secondary:255,79,120;
   color-scheme: dark;
-  font-family: system-ui, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-ui, system-ui), sans-serif;
   --font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
   /* One neutral ladder. Depth comes from lightness and a hairline, not from colour or glow:
      the window, then raised surfaces (composer, cards, docks), then floating ones (menus,

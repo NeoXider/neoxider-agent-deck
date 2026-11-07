@@ -92,6 +92,7 @@ const completePreferences = {
   textOpacity: 0.85,
   glowIntensity: 0.41,
   fontScale: 1.15,
+  fontFamily: "verdana",
   showThinking: false,
   motionEffects: true,
   appearance: { theme: "claude", motion: "fluid", inputBorder: true, windowBorder: false, background: "none", customBackground: "", imageOpacity: .30, overrideBackground: false, profiles: [] },
@@ -125,6 +126,15 @@ test("text size survives restart and is clamped to the supported range", () => {
   assert.equal(normalizePreferences({ fontScale: 0 }).fontScale, 0.85);
   assert.equal(normalizePreferences({ fontScale: 2 }).fontScale, 1.35);
   assert.equal(normalizePreferences({ fontScale: "invalid" }).fontScale, 1);
+});
+
+test("the font survives restart, and an unknown one falls back to the bundled Inter", () => {
+  withTemporaryStore(({ filePath, store }) => {
+    store.save({ ...completePreferences, fontFamily: "system" });
+    assert.equal(createSettingsStore({ filePath }).load().fontFamily, "system");
+  });
+  assert.equal(normalizePreferences({}).fontFamily, "inter");
+  assert.equal(normalizePreferences({ fontFamily: "Comic Sans" }).fontFamily, "inter");
 });
 
 test("all preferences and all mode bounds survive a disk round-trip", () => {
@@ -432,6 +442,7 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     textOpacity: 1,
     glowIntensity: 0.25,
     fontScale: 1,
+    fontFamily: "inter",
     showThinking: true,
     // Absent from an older file, so the defaults apply rather than the old behaviour being
     // silently carried forward: effects on, avatar collapsed.

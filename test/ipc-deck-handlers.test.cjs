@@ -19,9 +19,25 @@ function register(overrides = {}) {
 test("every Harness channel is registered through the guarded handle()", () => {
   const { handlers } = register();
   assert.deepEqual([...handlers.keys()].sort(), [
-    "archive-session", "check-harness-runtime", "get-harness-runtime", "get-harness-target", "interrupt-subagent", "job-output",
-    "kill-job", "open-dsh-desktop", "open-viewer", "pin-session", "restart-harness", "session-jobs", "set-harness-target", "set-recent-sessions-open", "unarchive-session", "update-harness",
+    "agent-presets", "archive-session", "check-harness-runtime", "get-harness-runtime", "get-harness-target", "interrupt-subagent", "job-output",
+    "kill-job", "open-dsh-desktop", "open-viewer", "pin-session", "restart-harness", "session-jobs", "set-font-family", "set-harness-target", "set-recent-sessions-open", "unarchive-session", "update-harness",
   ]);
+});
+
+test("the font is saved only as one of the known faces", async () => {
+  const preferences = {};
+  let saves = 0;
+  const { call } = register({ getPreferences: () => preferences, schedulePreferenceSave: () => { saves += 1; } });
+  assert.equal(await call("set-font-family", "verdana"), "verdana");
+  assert.equal(await call("set-font-family", "Comic Sans"), "inter");
+  assert.equal(preferences.fontFamily, "inter");
+  assert.equal(saves, 2);
+});
+
+test("the preset roster comes from the Harness the widget follows", async () => {
+  const api = { ensureRemote: async () => ({ call: async (endpoint) => (endpoint === "agentPresets/list" ? { presets: [{ id: "smart", name: "Smart", isDefault: false }] } : null) }) };
+  const { call } = register({ api });
+  assert.deepEqual(await call("agent-presets"), [{ id: "smart", name: "Smart", description: "", isDefault: false }]);
 });
 
 test("the viewer opens an image, a path against the chat's folder, or an attachment read from Harness", async () => {

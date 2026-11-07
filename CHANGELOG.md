@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.11] - 2026-11-07
+
+1.2.10 was tagged but never published: GitHub gave its macOS arm64 build no runner. Everything in it ships here.
+
+### Added
+
+- **An agent preset chip beside the model.** It names the preset the open chat runs, as Harness records it, and opens the roster with each preset's description. Harness's default is marked, and a preset Harness cannot compose is shown disabled with the reason. A preset is fixed when a chat is created, so a pick opens a new chat with that preset in the same workspace. A blank chat takes the preset in place. With no chat open, the pick waits for the first message. Deck remembers the pick, and "+" starts with it too. On a narrow window the chip keeps its icon only, and the name moves to the tooltip and the menu.
+- **A font setting, and a new default face.** Settings → Font offers three faces:
+  - **Inter**, the new default. It is bundled, so it reads the same offline and on every machine. Its tall lowercase stays legible at 11–12 px, with Inter's tailed l and serifed I, so "Il1" never reads as three strokes.
+  - **System**, the face the widget used before.
+  - **Verdana**, whose wide letters were drawn for small screen sizes.
+
+  Inter is licensed under the SIL Open Font License (`src/renderer/assets/fonts/Inter-OFL.txt`).
+- **Integration `dsh-tool-call-recovery`.** It runs the tool calls a local model wrote as text. Strata and llama-server turn `<tool_call>` text into a call only when the function name is declared. Qwen-family models often write the names they were trained on, such as `read_file` or `run_shell_command`, or an MCP-style name for a native tool, and such a call came back as message text that never ran.
+
+  When a reply has no tool call and its text ends in written calls, each call is matched to a declared tool and run as a real call:
+  - by its exact name;
+  - by a segment of an MCP-style name;
+  - by a known alias (`read_file` is `read`, `run_shell_command` is `pwsh` or `bash`);
+  - by a unique word prefix.
+
+  Argument names are fitted to the tool's schema the same way. Quoted examples, cut-off calls and names that do not resolve are left alone, and no alias tool is added to the prompt.
+- **Integration `dsh-memory`.** It gives a preset memory that lasts across sessions:
+  - one Markdown file per fact in `~/.dsh/memory`, with an index derived from them;
+  - the index reaches the model as runtime context, within a byte budget;
+  - `memory_save`, `memory_read`, `memory_search` and `memory_delete`, and a prompt section on what is worth keeping and what never is.
+
+  It needs no database, network access or third-party code.
+
+### Fixed
+
+- **The `dsh-background-code` integration works on DSH 0.2.2.** DSH 0.2.2 gives every PTC executor its own `run_code` transport and no longer has `ctx.tools.requirePtcTransport()`, so the plugin failed to load and long `run_code` calls stayed in the foreground. It now listens on the shared `tools/execute` waterfall, and a finished job reports the program's value rather than the whole tool result.
+
 ## [1.2.10] - 2026-10-28
 
 1.2.9 was tagged but never published: a timing test failed on the macOS Intel build. Everything in it ships here.
