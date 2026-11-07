@@ -127,6 +127,28 @@ test('a handed-off run_code still completes after DSH freezes its execution', as
   assert.deepEqual(JSON.parse(outcome.result), { logs: [], result: 'searched' });
 });
 
+test('a handed-off program never writes a tool dispatch between turns', async () => {
+  const { gateDispatchLog } = await import('../integrations/dsh-background-code/index.js');
+  const log = [];
+  const session = { append(type, data) { log.push(type + (data?.subCallId ? ':' + data.subCallId : '')); return { type }; } };
+  assert.equal(gateDispatchLog(session), true);
+  assert.equal(gateDispatchLog(session), false, 'one gate per session');
+  session.append('tool/ptc-dispatch-start', { subCallId: 'a' });
+  session.append('tool/ptc-dispatch', { subCallId: 'a' });
+  session.append('turn/end', {});
+  // The program goes on after its turn: nothing reaches the log until a turn is open again.
+  session.append('tool/ptc-dispatch-start', { subCallId: 'b' });
+  session.append('job/settled', {});
+  session.append('tool/ptc-dispatch', { subCallId: 'b' });
+  assert.deepEqual(log, ['tool/ptc-dispatch-start:a', 'tool/ptc-dispatch:a', 'turn/end', 'job/settled']);
+  session.append('turn/start', {});
+  assert.deepEqual(log.slice(4), ['turn/start', 'tool/ptc-dispatch-start:b', 'tool/ptc-dispatch:b']);
+  session.append('tool/ptc-dispatch-start', { subCallId: 'c' });
+  assert.equal(log.at(-1), 'tool/ptc-dispatch-start:c', 'inside a turn it writes straight through');
+  assert.equal(gateDispatchLog(Object.freeze({ append() {} })), false, 'a session it cannot wrap is left alone');
+  assert.equal(gateDispatchLog(undefined), false);
+});
+
 test('a handed-off program keeps the tools its step admitted after the step closes', async () => {
   const { keepToolSet } = await import('../integrations/dsh-background-code/index.js');
   const agent = { id: 'agent-1' };

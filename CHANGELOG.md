@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.17] - 2026-11-08
+
+### Fixed
+
+- **A background `run_code` no longer leaves a chat that Harness refuses to open.** A script that went to the background keeps calling tools after its turn ended, and DeepSeek Harness 0.2.2 writes each of those calls into the chat's log; a log with such a call between turns fails to load as "tool/ptc-dispatch is outside an open turn". Deck's background-code integration now holds those entries and writes them as the next turn opens, so the log stays valid. A chat already damaged this way still has to be repaired once.
+
 ## [1.2.16] - 2026-11-08
 
 ### Fixed

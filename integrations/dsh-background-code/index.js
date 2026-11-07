@@ -36,6 +36,53 @@ export function keepToolSet(toolSet, agent, tools) {
   });
 }
 
+const DISPATCH_EVENTS = new Set(['tool/ptc-dispatch-start', 'tool/ptc-dispatch']);
+const HELD_STARTS_MAX = 2000;
+const GATED = Symbol.for('neoxider.dispatch-gate');
+
+/**
+ * Keeps a chat's log valid while a handed-off program is still calling tools. PTC writes
+ * a `tool/ptc-dispatch-start` and a `tool/ptc-dispatch` event into the chat's log for every
+ * tool call a run_code program makes, and DSH refuses a log that holds one outside a turn
+ * ("tool/ptc-dispatch is outside an open turn": the whole chat then fails to load). A
+ * program that went to the background outlives its turn, so its calls landed between
+ * turns. Such events are held and written right after the next turn opens, in order; a
+ * log that never gets another turn simply never receives them.
+ */
+export function gateDispatchLog(session) {
+  if (!session || typeof session.append !== 'function' || session[GATED]) return false;
+  const append = session.append;
+  const held = [];
+  const dropped = new Set();
+  let open = true; // a run_code is being called, so a turn is open right now
+  const flush = () => {
+    while (held.length > 0) {
+      const [type, data] = held.shift();
+      try { Reflect.apply(append, session, [type, data]); } catch { /* an event the log refuses is dropped, not retried */ }
+    }
+  };
+  const gate = function gatedAppend(type, data, ...rest) {
+    if (!open && DISPATCH_EVENTS.has(type)) {
+      const id = data?.subCallId;
+      if (dropped.has(id)) return undefined;
+      if (type === 'tool/ptc-dispatch-start' && held.length >= HELD_STARTS_MAX) dropped.add(id);
+      else held.push([type, data]);
+      return undefined;
+    }
+    const event = Reflect.apply(append, session, [type, data, ...rest]);
+    if (type === 'turn/end') open = false;
+    else if (type === 'turn/start') { open = true; flush(); }
+    return event;
+  };
+  try {
+    Object.defineProperty(session, GATED, { value: true });
+    Object.defineProperty(session, 'append', { value: gate, configurable: true, writable: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function apply(ctx) {
   // DSH 0.2.2 gives every PTC executor its own run_code transport, so the call is caught
   // where all of them meet: the tools/execute waterfall around the tool body.
@@ -65,6 +112,7 @@ export function apply(ctx) {
             set: (value) => { signal = value; },
           });
           exec.toolSet = keepToolSet(exec.toolSet, exec.agent, ctx.tools);
+          gateDispatchLog(exec.agent?.session);
           exec.deferContext = context.deferContext;
           exec.concludeTurn = context.concludeTurn;
           const result = await next();

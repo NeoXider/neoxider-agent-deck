@@ -63,3 +63,7 @@ the server restarts.
 
 Run `npm test` from the Deck repository, or `node --test
 integrations/dsh-background-code/background-run.test.mjs` for focused coverage.
+
+## The chat log between turns
+
+PTC writes a `tool/ptc-dispatch-start` and a `tool/ptc-dispatch` event into the chat's log for each tool call a `run_code` program makes, and DSH 0.2.2 refuses to load a log holding one outside a turn. A program handed off to the background outlives its turn, so the integration wraps that session's `append` (`gateDispatchLog`): dispatch events that arrive while no turn is open are held and written, in order, right after the next `turn/start`. A chat that never gets another turn simply never receives them.
