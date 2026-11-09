@@ -65,7 +65,7 @@ if (process.platform === "win32") app.setAppUserModelId(APP_ID);
 configureProductUserData({ app });
 // A throw during startup or in a socket callback used to end the app without a word.
 installProcessGuards();
-const api = new HarnessApi(HARNESS_URL, globalThis.fetch, { getLaunchBrowserUrl: () => harnessServices.desktopLaunchUrl() || harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl || "" });
+const api = new HarnessApi(HARNESS_URL, globalThis.fetch, { contextPressureFile: () => path.join(app.getPath("userData"), "context-pressure.json"), getLaunchBrowserUrl: () => harnessServices.desktopLaunchUrl() || harnessLauncher?.browserUrl() || preferences.harnessLaunchUrl || "" });
 const dashboardReader = createSharedDashboardReader({
   api,
   onSessions: (sessionIds, sessions) => {

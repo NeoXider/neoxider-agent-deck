@@ -56,7 +56,7 @@ class HarnessApi {
     this.subagents = createSubagentRegistry({ now: () => this.now() });
     // sessionId -> when its live follow stream last delivered an event. See enrichSession.
     this.liveEventAt = new Map();
-    this.contextPressure = createContextPressure();
+    this.contextPressure = createContextPressure({ file: options.contextPressureFile });
     this.workspaceSnapshot = { items: [], archivedSessionIds: [] };
     // Two Harness generations speak different wire protocols. The probe result is
     // cached for the process lifetime once it is not "down", so a harness that comes

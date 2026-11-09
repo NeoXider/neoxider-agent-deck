@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.18] - 2026-11-10
+
+### Fixed
+
+- **The context meter no longer drops out from time to time.** DeepSeek Harness 0.2.2 forgets a chat's context window whenever a request names a model whose window it does not know, and counts a reply that reported no usage (a stopped or failed attempt) as an empty context. Deck took either answer at its word, so the ring fell to 0% or went blank until the next good request. It now keeps the last real figure until a real one replaces it; a compaction still lowers it.
+- **Usage is read wherever Harness puts it.** A reply can carry its token usage in its stream instead of on the message itself, and a failed attempt carries it only there. Deck now reads both, the way Harness's own meter does, so the ring moves with every request.
+
+### Changed
+
+- **Context figures survive a Deck restart.** The per-chat figures (token counts and window sizes only, never chat text) are kept in Deck's data folder, so the ring and the `ctx` percentages in the Agents list are there right after an update instead of appearing chat by chat as each one is opened.
+
 ## [1.2.17] - 2026-11-08
 
 ### Fixed
