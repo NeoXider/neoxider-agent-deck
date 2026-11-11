@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld("widget", {
   setGlowIntensity: (value) => ipcRenderer.invoke("set-glow-intensity", value),
   setFontScale: (value) => ipcRenderer.invoke("set-font-scale", value),
   setFontFamily: (value) => ipcRenderer.invoke("set-font-family", value),
+  takeKeyboardFocus: () => ipcRenderer.invoke("take-keyboard-focus"),
+  setKeepGamesInFront: (value) => ipcRenderer.invoke("set-keep-games-in-front", value !== false),
   setShowThinking: (value) => ipcRenderer.invoke("set-show-thinking", Boolean(value)),
   setMotionEffects: (value) => ipcRenderer.invoke("set-motion-effects", Boolean(value)),
   setAppearance: (value) => ipcRenderer.invoke("set-appearance", value),

@@ -30,6 +30,9 @@ const DEFAULT_PREFERENCES = Object.freeze({
   // The avatar lives on the desktop like a pet: it climbs its edge, drops to the taskbar,
   // hops about and naps. It never moves while it is being looked at or an agent is busy.
   petMode: true,
+  // Over a fullscreen game a click on the widget does not take the focus from it
+  // (fullscreen-guard.cjs); a click in a text field still does.
+  keepGamesInFront: true,
   size: "standard",
   windowLayer: "above",
   compactSide: "right",
@@ -130,6 +133,7 @@ function normalizePreferences(raw = {}) {
     compactAutoExpand: source.compactAutoExpand === true,
     collapseAfterSend: source.collapseAfterSend !== false,
     petMode: source.petMode !== false,
+    keepGamesInFront: source.keepGamesInFront !== false,
     size: ["compact", "standard", "large"].includes(source.size) ? source.size : DEFAULT_PREFERENCES.size,
     windowLayer,
     compactSide,

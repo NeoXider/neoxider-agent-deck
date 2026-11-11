@@ -57,6 +57,7 @@
       <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/></symbol>
       <symbol id="icon-subagent" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.2"/><circle cx="18" cy="12" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="M6 7.2V17a2 2 0 0 0 2 2h7.8M6 12h9.8"/></symbol>
       <symbol id="icon-switch" viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
       <symbol id="icon-reuse" viewBox="0 0 24 24"><path d="M5 8h11a4 4 0 0 1 0 8H9"/><path d="m11.5 12.5-3 3.5 3 3.5"/></symbol>
       <defs><linearGradient id="context-ring-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#49e7c6"/><stop offset="1" stop-color="#8b79ff"/></linearGradient></defs>
     </svg>
@@ -71,9 +72,9 @@
               <span data-notification class="avatar-count">0</span>
             </span>
           </button>
-          <button id="projectLink" class="brand-copy-button" type="button" title="Open NeoXider/neoxider-agent-deck on GitHub" aria-label="Open this project on GitHub">
+          <button id="projectLink" class="brand-copy-button" type="button" title="Show all chats" aria-label="Show all chats">
             <span class="eyebrow">NEOXIDER / AGENT DECK</span>
-            <span class="title"><span class="product-name">Agent Deck</span><span id="versionLabel" class="version-badge">v…</span><small id="avatarState">ready</small></span>
+            <span class="title"><span id="headerTitle" class="product-name">Agent Deck</span><span id="versionLabel" class="version-badge">v…</span><small id="avatarState">ready</small></span>
           </button>
         </div>
         <button id="headerUpdateButton" class="header-update-button" type="button" title="Install the verified update and restart" hidden>Update</button>
@@ -185,6 +186,14 @@
           <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions"><div class="empty-state">Select a session or start a new one.</div></div>
             <nav id="messageMarks" class="message-marks no-drag" aria-label="Conversation navigator"></nav>
           <button id="scrollLatestButton" class="scroll-latest no-drag" type="button" title="Jump to latest message" aria-label="Jump to latest message" hidden><svg class="ui-icon"><use href="#icon-down"/></svg><span id="scrollLatestCount">New</span></button>
+          <div id="findBar" class="find-bar no-drag" role="search" hidden>
+            <svg class="ui-icon" aria-hidden="true"><use href="#icon-search"/></svg>
+            <input id="findInput" type="text" placeholder="Find in this chat" aria-label="Find in this chat" autocomplete="off" spellcheck="false" />
+            <span id="findCount" class="find-count" aria-live="polite"></span>
+            <button id="findPrev" type="button" title="Older match (Enter)" aria-label="Older match"><svg class="ui-icon"><use href="#icon-chevron"/></svg></button>
+            <button id="findNext" type="button" title="Newer match (Shift+Enter)" aria-label="Newer match"><svg class="ui-icon"><use href="#icon-chevron"/></svg></button>
+            <button id="findClose" type="button" title="Close (Esc)" aria-label="Close find"><svg class="ui-icon"><use href="#icon-close"/></svg></button>
+          </div>
           <div id="toastStack" class="toast-stack" role="status" aria-live="polite"></div>
         </div>
 
@@ -267,6 +276,12 @@
         <div id="dropOverlay" class="drop-overlay no-drag"><svg class="drop-icon"><use href="#icon-paperclip"/></svg><span>Drop files here</span></div>
       </section>
 
+      <section id="quickNav" class="quick-nav no-drag" role="dialog" aria-modal="true" aria-label="Go to a chat or run an action" hidden>
+        <label class="quick-nav-field"><svg class="ui-icon" aria-hidden="true"><use href="#icon-search"/></svg><input id="quickNavInput" type="text" placeholder="Go to a chat or run an action" aria-label="Go to a chat or run an action" aria-controls="quickNavList" autocomplete="off" spellcheck="false" /></label>
+        <div id="quickNavList" class="quick-nav-list" role="listbox" aria-label="Chats and actions"></div>
+        <div class="quick-nav-hint" aria-hidden="true"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>Enter</kbd> open</span><span><kbd>Esc</kbd> close</span><span><kbd>Ctrl</kbd><kbd>Tab</kbd> next chat</span></div>
+      </section>
+
       <section id="settingsPanel" class="settings-panel no-drag" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" aria-hidden="true" inert>
         <div class="settings-head"><b id="settingsTitle">Settings</b><button id="closeSettings" class="icon-button" type="button" title="Close settings" aria-label="Close settings"><svg class="ui-icon"><use href="#icon-close"/></svg></button></div>
         <div class="setting-block layer-setting"><span>Window layer</span><div id="windowLayerSwitch" class="layer-switch" role="group" aria-label="Window layer"><button data-layer="normal" type="button" title="Desktop layer — every normal app window covers the widget" aria-pressed="false">Desktop</button><button data-layer="above" type="button" title="Stay above ordinary windows" aria-pressed="true">Above</button><button data-layer="game" type="button" title="Enhanced always-on-top mode. Does not guarantee visibility over exclusive fullscreen games." aria-pressed="false">Always on top+</button><button data-layer="private" type="button" title="Stay above windows and exclude Deck from supported Windows screen captures" aria-pressed="false">Private overlay</button></div><small id="platformStatus" class="setting-hint" role="status" aria-live="polite" hidden></small></div>
@@ -288,6 +303,7 @@
         <label class="toggle-setting"><span><span>Motion effects</span><small>Aurora, easing strips, message entrances, hover and press feedback</small></span><input id="motionEffectsToggle" type="checkbox" checked /></label>
         <label class="toggle-setting"><span><span>Every message beside the avatar</span><small>Off: only the finished reply. Never tool calls or thinking</small></span><input id="compactAutoExpandToggle" type="checkbox" /></label>
         <label class="toggle-setting"><span><span>Back to the avatar after sending</span><small>For a chat opened from the avatar's recent chats</small></span><input id="collapseAfterSendToggle" type="checkbox" /></label>
+        <label class="toggle-setting"><span><span>Keep fullscreen games in front</span><small>Clicks on the widget leave a fullscreen game focused; click the message field to type</small></span><input id="keepGamesInFrontToggle" type="checkbox" checked /></label>
         <label class="toggle-setting"><span><span>Pet mode</span><small>The avatar climbs its edge, hops along the taskbar and naps; it holds still while you look at it or an agent works</small></span><input id="petModeToggle" type="checkbox" checked /></label>
         <div class="setting-block"><span>Size</span><div id="sizeSwitch" class="size-switch" role="group" aria-label="Widget size"><button data-size="compact" type="button" aria-pressed="false">S</button><button data-size="standard" type="button" aria-pressed="true">M</button><button data-size="large" type="button" aria-pressed="false">L</button></div></div>
         <div id="harnessRuntimeSettings" class="update-settings setting-block">
@@ -311,6 +327,7 @@
           <div id="updateProgress" class="update-progress" role="progressbar" aria-label="Update download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><span></span></div>
           <div class="update-actions">
             <button id="checkUpdateButton" type="button">Check</button>
+            <button id="projectButton" type="button" title="Open NeoXider/neoxider-agent-deck on GitHub">GitHub</button>
             <button id="installUpdateButton" class="accent" type="button" hidden>Install & restart</button>
           </div>
         </div>
@@ -377,7 +394,7 @@
     </section>
 
     <button id="edgeMode" class="edge-mode no-drag" type="button" aria-label="Restore widget">
-      <span class="edge-line"></span>
+      <span class="edge-line"><i class="edge-flow" aria-hidden="true"></i></span>
       <span data-notification class="edge-count">0</span>
     </button>
     <button id="edgeToOrbButton" class="edge-to-orb no-drag" type="button" title="Become the avatar" aria-label="Become the avatar"><img data-avatar src="assets/neoxider-github.png" alt="" draggable="false" /></button>
@@ -395,6 +412,7 @@
     <script src="platform-presentation.js"></script>
     <script src="chat-visual-state.js"></script>
     <script src="question-dock.js"></script>
+    <script src="quick-nav.js"></script>
     <script src="engine-crash.js"></script>
     <script src="appearance.js"></script>
     <script src="app.js"></script>

@@ -330,7 +330,11 @@ test("live assistant deltas grow a bubble instead of leaving a Writing reasoning
   assert.match(renderer, /activity\?\.active && activity\.kind === "writing" && activity\.text/);
   // While the answer streams the card keeps the turn's last thought, never the answer itself,
   // so the text is not shown twice.
-  assert.match(renderer, /const shown = live\s+\? \(state\.showThinking && state\.lastThought \? \{ kind: "thinking", label: state\.lastThought\.label, text: state\.lastThought\.text \} : null\)/);
+  assert.match(renderer, /const thought = state\.lastThought \? \{ kind: "thinking", label: state\.lastThought\.label, text: state\.lastThought\.text \} : null;/);
+  assert.match(renderer, /const shown = live\s+\? \(state\.showThinking \? thought \|\| \{ kind: "thinking", label: "Working"/);
+  // With live activity on the row never leaves the chat: between turns it rests instead.
+  assert.match(renderer, /: \(activity\?\.text \? activity : state\.showThinking \? resting : null\);/);
+  assert.match(css, /\.activity-card\.resting::before \{ animation:none; opacity:0; \}/);
   // The caret is an element, not ::after, so it can sit inside the last paragraph of a
   // formatted answer rather than on a line of its own underneath it.
   assert.match(css, /\.live-caret \{[^}]+width:4px[^}]+animation:live-caret/);
@@ -438,8 +442,11 @@ test("live Think is a persistent optional overlay that cannot move the conversat
   // This assertion used to pin that narrow predicate verbatim, so the fix had to change it.
   assert.match(renderer, /LIVE_ACTIVITY_KINDS = new Set\(\["thinking", "writing", "tool", "working", "waiting"\]\)/);
   assert.match(renderer, /const live = LIVE_ACTIVITY_KINDS\.has\(activity\?\.kind\);/);
-  // The kept thought belongs to one chat's turn: the turn's end or another chat drops it.
-  assert.match(renderer, /else if \(!live \|\| state\.lastThought\?\.sessionId !== state\.selectedSessionId\) state\.lastThought = null;/);
+  // The kept thought belongs to one chat: it rests on the row after the turn, and another
+  // chat drops it.
+  assert.match(renderer, /else if \(state\.lastThought\?\.sessionId !== state\.selectedSessionId\) state\.lastThought = null;/);
+  // ...and so does the next turn: a thought the chat has rested on is never shown as current.
+  assert.match(renderer, /else if \(state\.lastThought && !live\) state\.lastThought\.rested = true;\s+else if \(state\.lastThought\?\.rested\) state\.lastThought = null;/);
   // Flipping the toggle must repaint the compact chrome too, which shows the same text.
   // Sliced to the end of the function itself, not to whichever function happens to follow.
   const showThinkingStart = renderer.indexOf("function applyShowThinking");
@@ -614,7 +621,9 @@ test("edge mode only captures the visible handle and passes transparent glow cli
   assert.match(css, /--edge-primary:rgb\(var\(--status-idle-primary\)\)/);
   assert.match(css, /--edge-secondary:rgb\(var\(--status-idle-secondary\)\)/);
   assert.match(css, /--edge-halo-opacity:\.22/);
-  assert.match(css, /\.mode-edge\.state-idle \.edge-line\s*\{[^}]*animation:edge-flow 5\.4s/);
+  // The colours run on a strip inside the line, so the line itself is never repainted.
+  assert.match(css, /\.mode-edge\.state-idle \.edge-flow::before \{[^}]*animation:edge-flow 5\.4s/);
+  assert.match(html, /<span class="edge-line"><i class="edge-flow" aria-hidden="true"><\/i><\/span>/);
   assert.match(css, /\.edge-hit-active \.edge-line::after, \.edge-mode:focus-visible \.edge-line::after/);
   assert.match(css, /\.edge-mode\.edge-hit-active\s*\{[^}]*edge-hover-spring-right/);
   assert.match(css, /\.edge-mode\.edge-drop\s*\{[^}]*edge-drop-right/);
@@ -728,7 +737,7 @@ test("motion is a preference, not a hard-coded flourish", () => {
   // The jump pulse is a signal rather than decoration, so it keeps a still form of itself.
   assert.match(css, /body\.motion-off \.bubble\.mark-target \{[^}]*outline:/);
   // The effects themselves live on surfaces that carry state, never under the text.
-  assert.match(css, /\.activity-card\.has-activity \{[^}]*animation:activity-drift/);
+  assert.match(css, /\.activity-card\.has-activity::before \{[^}]*animation:activity-drift/);
   assert.match(css, /\.composer:focus-within \{[^}]*box-shadow:/);
   assert.match(css, /\.tool-group\.running > summary > \.ui-icon:first-child \{[^}]*animation:tool-running/);
   assert.match(visualSmokeSource, /motionEffectsChecked: true, motionOff: false/);
@@ -771,10 +780,10 @@ test("the goal is a hairline strip under the composer that opens into queue-styl
   assert.match(css, /\.goal-track \{[^}]*height:6px/);
   // The rail flows while the goal runs and goes still and amber once it is paused, so the
   // state reads off the strip without a word on it.
-  assert.match(css, /\.goal-track-fill \{[^}]*animation:goal-flow/);
-  assert.match(css, /@keyframes goal-flow/);
-  assert.match(css, /\.goal-dock\[data-phase="paused"\] \.goal-track-fill \{[^}]*animation:none/);
-  assert.match(css, /\.goal-dock\.goal-unbounded \.goal-track \{[^}]*animation:goal-flow/);
+  assert.match(css, /\.goal-track-fill::before, \.goal-dock\.goal-unbounded \.goal-track::before \{[^}]*animation:goal-flow/);
+  assert.match(css, /@keyframes goal-flow \{[^}]*transform/);
+  assert.match(css, /\.goal-dock\[data-phase="paused"\] \.goal-track-fill::before \{ display:none; \}/);
+  assert.match(css, /\.goal-dock\.goal-unbounded\[data-phase="paused"\] \.goal-track::before \{ display:none; \}/);
   // Pause and resume is the control pressed mid-run, so it sits on the strip itself and is
   // the glyph alone - no ring, no plate, no label - and its press must not also toggle the
   // panel. The panel's own controls carry no frame either.
@@ -1267,7 +1276,11 @@ test("all global shortcuts can be rebound, disabled, reset, and persisted", () =
   assert.match(preload, /setHotkeys/);
   assert.match(preload, /resetHotkeys/);
   assert.match(main, /createHotkeyManager/);
-  assert.match(main, /showRestore: \(\) => \{ const next = showShortcutTarget\(\{ mode: windowMode, visible: windowRef\?\.isVisible\(\), focused: windowRef\?\.isFocused\(\), lastCompact: lastCompactMode \}\); if \(next === "focus"\) windowRef\.focus\(\); else applyWindowMode\(next\); \}/);
+  assert.match(main, /showRestore: \(\) => \{ const next = showShortcutTarget\(\{ mode: windowMode, visible: windowRef\?\.isVisible\(\), focused: windowRef\?\.isFocused\(\), lastCompact: lastCompactMode \}\); if \(next === "focus"\) windowRef\.focus\(\); else applyWindowMode\(next\); if \(next !== "orb" && next !== "edge"\) fullscreenGuard\?\.takeFocus\(\); \}/);
+  // Over a fullscreen game the window opens without the focus, except when a shortcut asked
+  // for the widget itself.
+  assert.match(main, /if \(nextMode === "full" && !fullscreenGuard\?\.isGuarding\(\)\) windowRef\.show\(\);\s+else windowRef\.showInactive\(\);/);
+  assert.match(main, /toggleFocusChat: \(\) => \{ applyWindowMode\("full"\); fullscreenGuard\?\.takeFocus\(\);/);
   assert.match(main, /if \(nextMode !== "full"\) lastCompactMode = nextMode;/);
   assert.match(main, /minHeight: SCREENSHOT_MODE \? 1 : FULL_MIN_HEIGHT, pixels,/, "the full window is placed on the device-pixel grid");
   assert.match(main, /registerConfiguredHotkeys\(preferences\.hotkeys\)/);
@@ -1582,7 +1595,9 @@ test("a tap on the brand is resolved by the drag handler, not by a stolen click"
   assert.match(renderer, /origin: event\.target/);
   assert.match(renderer, /function activateBrandTarget\(origin\)/);
   assert.match(renderer, /origin\.closest\("#avatarButton"\)\) setWindowMode\("orb"\)/);
-  assert.match(renderer, /origin\.closest\("#projectLink"\)\) window\.widget\.openProject\(\)/);
+  // The title names the open chat; a tap on it shows the others. GitHub lives in Settings.
+  assert.match(renderer, /origin\.closest\("#projectLink"\)\) toggleChatList\(\)/);
+  assert.match(renderer, /\$\("#projectButton"\)\.addEventListener\("click", \(\) => window\.widget\.openProject\(\)\)/);
   const endFull = renderer.slice(renderer.indexOf("function endFullDrag"), renderer.indexOf("function activateBrandTarget"));
   assert.match(endFull, /\} else if \(event\.type !== "pointercancel"\) \{\s*\n\s*activateBrandTarget\(origin\);/);
   // Keyboard activation must still work, and must not double-fire with the tap path.
@@ -1907,7 +1922,7 @@ test("a chosen session shows a loading skeleton, never a wrong empty state", () 
   const render = functionBody(renderer, "function renderMessages(messages)");
   assert.match(render, /awaitingHistory\s*\? \{ key: "skeleton", signature: "skeleton", build: transcriptSkeleton \}/);
   const css = readSource("src", "renderer", "styles.css");
-  assert.match(css, /\.skeleton-bubble \{[^}]*animation:skeleton-sweep/);
+  assert.match(css, /\.skeleton-bubble::before \{[^}]*animation:skeleton-sweep/);
   const skeleton = functionBody(renderer, "function transcriptSkeleton()");
   assert.match(skeleton, /node\.setAttribute\("aria-hidden", "true"\);/);
 });
@@ -1979,7 +1994,7 @@ test("the wow is on the surfaces that carry state, and every bit of it obeys the
   // The aurora drifts behind everything, follows the glow slider, and brightens with work.
   assert.match(css, /\.widget-shell::before \{[^}]*z-index:-1;[^}]*opacity:calc\(var\(--chat-glow-intensity\) \* var\(--panel-background-opacity\)/);
   for (const phase of ["waiting", "thinking", "writing", "tool", "done", "error"]) {
-    assert.ok(css.includes(`body[data-chat-state="${phase}"] { --chat-light-primary:`));
+    assert.ok(css.includes(`body[data-chat-state="${phase}"] :is(.widget-shell,.composer,.chat-activity-border,.mode-morph-rim,#avatarShell,.arrive-pulse) { --chat-light-primary:`));
   }
   assert.match(css, /animation:aurora-drift 28s/);
   // One plate slides between the tabs.
@@ -2379,4 +2394,33 @@ test("a long command lets the composer go so messages can be queued behind it", 
   assert.match(renderer, /await Promise\.race\(\[running, new Promise\(\(resolve\) => setTimeout\(resolve, COMMAND_COMPOSER_HOLD_MS\)\)\]\);/);
   assert.match(renderer, /if \(detached && state\.selectedSessionId === targetSessionId\) showComposerError\(error, "Command failed"\);/);
   assert.doesNotMatch(renderer, /await executeHarnessCommand\(text, targetSessionId/);
+});
+
+test("a loop that never ends moves only what the compositor can move", () => {
+  // An endless animation of a background position, a shadow or a colour restyles the page on
+  // every frame for as long as it runs: 14-26% of the main thread at 144 Hz while an agent
+  // worked, taken from the transcript being streamed. Only transform and opacity (and filter,
+  // which the compositor also animates) may loop for ever.
+  const sheets = ["styles.css", "appearance.css", "motion.css", "deck.css"].map((name) => readSource("src", "renderer", name)).join("\n");
+  const keyframes = new Map();
+  for (const [, name, body] of sheets.matchAll(/@keyframes ([\w-]+)\s*\{((?:[^{}]*\{[^}]*\})+)\s*\}/g)) {
+    const properties = keyframes.get(name) || new Set();
+    for (const [, block] of body.matchAll(/\{([^}]*)\}/g)) for (const declaration of block.split(";")) {
+      const property = declaration.split(":")[0].trim();
+      if (property) properties.add(property);
+    }
+    keyframes.set(name, properties);
+  }
+  // The effort slider's own lights move a background, but only while its menu is open; the
+  // send button's ring lasts as long as one send.
+  const shortLived = new Set(["reasoning-tide", "reasoning-sheen", "reasoning-current", "reasoning-sweep", "send-spring"]);
+  const endless = new Set();
+  for (const [, value] of sheets.matchAll(/animation:([^;}]*)/g)) {
+    for (const part of value.replace(/\([^)]*\)/g, "").split(",")) if (/\binfinite\b/.test(part)) endless.add(part.trim().split(/\s+/)[0]);
+  }
+  assert.ok(endless.size > 30, "the endless animations are found");
+  for (const name of endless) {
+    if (shortLived.has(name) || !keyframes.has(name)) continue;
+    for (const property of keyframes.get(name)) assert.ok(["transform", "opacity", "filter"].includes(property), `${name} loops for ever and animates ${property}`);
+  }
 });

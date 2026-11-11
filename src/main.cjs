@@ -33,6 +33,7 @@ const {
 } = require("./platform-capabilities.cjs");
 const { APP_ID, PRODUCT_NAME, REPOSITORY_URL } = require("./product.cjs");
 const { PRODUCT_WINDOW_OPTIONS, applyWindowIdentity } = require("./window-identity.cjs");
+const { createFullscreenGuard } = require("./fullscreen-guard.cjs");
 const { createAttachmentReader, MAX_IMAGE_BYTES } = require("./attachments.cjs");
 const { createAttachmentRegistry } = require("./attachment-registry.cjs");
 const { createFileSelectionBroker } = require("./file-selection-broker.cjs");
@@ -106,7 +107,7 @@ let settingsStore;
 let autoStartController;
 let harnessLauncher;
 let harnessSupervisor;
-let gameLayerKeeper;
+let gameLayerKeeper, fullscreenGuard;
 let compactHitTracker;
 let hotkeyManager;
 let quitCoordinator;
@@ -160,7 +161,7 @@ function cleanupApplication() {
   questionRelay.stop();
   harnessRuntime.stop();
   harnessServices.stop();
-  gameLayerKeeper?.stop();
+  gameLayerKeeper?.stop(); fullscreenGuard?.stop();
   compactHitTracker?.stop();
   hotkeyManager?.dispose();
   selectRegion?.dispose();
@@ -329,7 +330,7 @@ function setWindowLayerPreference(value) {
   preferences.windowLayer = normalizeWindowLayer(value, PLATFORM_CAPABILITIES);
   applyWindowLayer();
   viewer?.applyLayer();
-  gameLayerKeeper?.sync();
+  gameLayerKeeper?.sync(); fullscreenGuard?.sync();
   savePreferences();
   return preferences.windowLayer;
 }
@@ -462,7 +463,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   applyWindowLayer(nextMode);
   applyCompactPointerHit(false);
   compactHitTracker?.sync();
-  if (nextMode === "full") windowRef.show();
+  if (nextMode === "full" && !fullscreenGuard?.isGuarding()) windowRef.show();
   else windowRef.showInactive();
   gameLayerKeeper?.trigger();
   sendToRenderer("window-mode", windowMode);
@@ -569,7 +570,7 @@ function createWindow() {
     captureFullBounds();
     schedulePreferenceSave();
   });
-  gameLayerKeeper?.attach(windowRef);
+  gameLayerKeeper?.attach(windowRef); fullscreenGuard?.attach(windowRef);
 
   if (screenshotPath) {
     const { attachScreenshotHarness } = require("../scripts/screenshot-harness.cjs");
@@ -628,7 +629,7 @@ function registerWidgetIpc() {
     getHarnessRuntime: () => harnessRuntime,
     getHarnessServices: () => harnessServices,
     getViewer: () => viewer,
-    getHotkeyManager: () => hotkeyManager,
+    getHotkeyManager: () => hotkeyManager, getFullscreenGuard: () => fullscreenGuard,
     getCompactHitTracker: () => compactHitTracker,
     getScreenshotService: () => screenshotService,
     getUpdateService: () => updateService,
@@ -700,6 +701,8 @@ app.whenReady().then(() => {
     getMode: () => windowMode,
     capabilities: PLATFORM_CAPABILITIES,
   });
+  // A fullscreen game keeps the focus while the widget is clicked (fullscreen-guard.cjs). Off in a visual-smoke run unless it asks.
+  fullscreenGuard = createFullscreenGuard({ getWindow: () => windowRef, isEnabled: () => (!ISOLATED_SMOKE_MODE || process.env.WIDGET_SMOKE_FULLSCREEN_GUARD === "1") && preferences.keepGamesInFront !== false, getLayer: () => preferences.windowLayer, restoreTaskbar: (target) => setPlatformSkipTaskbar(target, windowMode !== "full", PLATFORM_CAPABILITIES) });
   if (PLATFORM_CAPABILITIES.edgeMouseForwarding) {
     compactHitTracker = createCompactHitTracker({
       screen,
@@ -732,8 +735,8 @@ app.whenReady().then(() => {
     app,
     globalShortcut,
     handlers: {
-      showRestore: () => { const next = showShortcutTarget({ mode: windowMode, visible: windowRef?.isVisible(), focused: windowRef?.isFocused(), lastCompact: lastCompactMode }); if (next === "focus") windowRef.focus(); else applyWindowMode(next); },
-      toggleFocusChat: () => { applyWindowMode("full"); sendToRenderer("hotkey-action", "toggleFocusChat"); },
+      showRestore: () => { const next = showShortcutTarget({ mode: windowMode, visible: windowRef?.isVisible(), focused: windowRef?.isFocused(), lastCompact: lastCompactMode }); if (next === "focus") windowRef.focus(); else applyWindowMode(next); if (next !== "orb" && next !== "edge") fullscreenGuard?.takeFocus(); },
+      toggleFocusChat: () => { applyWindowMode("full"); fullscreenGuard?.takeFocus(); sendToRenderer("hotkey-action", "toggleFocusChat"); },
       collapseAvatar: () => applyWindowMode("orb"),
       collapseEdge: () => applyWindowMode("edge"),
       newSession: () => {

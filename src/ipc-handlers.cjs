@@ -80,7 +80,7 @@ function registerIpcHandlers({
   getHarnessLauncher,
   getHarnessSupervisor = () => null,
   getQuestionRelay = () => null,
-  getHotkeyManager,
+  getHotkeyManager, getFullscreenGuard = () => null,
   getCompactHitTracker,
   getScreenshotService,
   getUpdateService,
@@ -330,7 +330,7 @@ function registerIpcHandlers({
     api, launcher: getHarnessLauncher(), persistCapturedLaunchUrl, invalidateDashboard,
   }));
   // The Harness itself: runtime updates, which Harness is followed, session tasks.
-  registerDeckHandlers({ handle, api, getHarnessLauncher, getHarnessRuntime, getHarnessServices, getViewer, invalidateDashboard, persistCapturedLaunchUrl, getPreferences, schedulePreferenceSave, writeClipboardText });
+  registerDeckHandlers({ handle, api, getFullscreenGuard, getHarnessLauncher, getHarnessRuntime, getHarnessServices, getViewer, invalidateDashboard, persistCapturedLaunchUrl, getPreferences, schedulePreferenceSave, writeClipboardText });
   // Crash recovery for the owned Harness. Open log takes no argument from the renderer.
   // The agent's questions (question-relay.cjs): the ones waiting now, and the user's answer.
   handle("get-pending-questions", () => getQuestionRelay()?.list() || []);
@@ -521,7 +521,7 @@ function registerIpcHandlers({
       appearance: preferences.appearance,
       compactAutoExpand: preferences.compactAutoExpand === true,
       collapseAfterSend: preferences.collapseAfterSend !== false,
-      petMode: preferences.petMode !== false,
+      petMode: preferences.petMode !== false, keepGamesInFront: preferences.keepGamesInFront !== false,
       recentSessionsOpen: preferences.recentSessionsOpen !== false,
       harnessTarget: preferences.harnessTarget || "auto",
       size: preferences.size,

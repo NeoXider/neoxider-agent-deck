@@ -20,7 +20,7 @@ test("every Harness channel is registered through the guarded handle()", () => {
   const { handlers } = register();
   assert.deepEqual([...handlers.keys()].sort(), [
     "agent-presets", "archive-session", "check-harness-runtime", "copy-text", "get-harness-runtime", "get-harness-target", "goal-activation", "interrupt-subagent", "job-output",
-    "kill-job", "open-dsh-desktop", "open-viewer", "pin-session", "restart-harness", "session-jobs", "set-font-family", "set-harness-target", "set-recent-sessions-open", "unarchive-session", "update-harness",
+    "kill-job", "open-dsh-desktop", "open-viewer", "pin-session", "restart-harness", "session-jobs", "set-font-family", "set-harness-target", "set-keep-games-in-front", "set-recent-sessions-open", "take-keyboard-focus", "unarchive-session", "update-harness",
   ]);
 });
 
@@ -41,6 +41,21 @@ test("the font is saved only as one of the known faces", async () => {
   assert.equal(await call("set-font-family", "Comic Sans"), "inter");
   assert.equal(preferences.fontFamily, "inter");
   assert.equal(saves, 2);
+});
+
+test("asking for the keyboard and the keep-games preference go through the fullscreen guard", async () => {
+  const preferences = {};
+  const guard = { focused: 0, synced: 0, takeFocus() { this.focused += 1; return true; }, sync() { this.synced += 1; } };
+  let saves = 0;
+  const { call } = register({ getFullscreenGuard: () => guard, getPreferences: () => preferences, schedulePreferenceSave: () => { saves += 1; } });
+  assert.equal(await call("take-keyboard-focus"), true);
+  assert.equal(guard.focused, 1);
+  assert.equal(await call("set-keep-games-in-front", false), false);
+  assert.equal(preferences.keepGamesInFront, false);
+  assert.equal(await call("set-keep-games-in-front", "anything"), true);
+  assert.deepEqual([saves, guard.synced], [2, 2]);
+  // Without a guard (another platform, an early call) the request is simply not granted.
+  assert.equal(await register().call("take-keyboard-focus"), false);
 });
 
 test("the preset roster comes from the Harness the widget follows", async () => {

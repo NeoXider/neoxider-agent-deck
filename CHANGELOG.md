@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-11
+
+### Added
+
+- **Go to a chat or run an action: Ctrl+K.** A switcher over the widget lists the chats (with what each is doing) and the common actions; typing filters both, the arrows move, Enter opens. A chat opened this way is ready to type into.
+- **Find in the open chat: Ctrl+F.** Matches are highlighted in place, the bar counts them, Enter walks back through the chat and Shift+Enter comes forward. It searches what you and the agent wrote, across the whole loaded history, not only the part on screen.
+- **Ctrl+Tab and Ctrl+Shift+Tab step through chats.**
+- **The header names the open chat.** The title bar shows the chat's title instead of the product name, and a click on it goes to the list of chats and back. The window carries the same name, so Alt+Tab and the taskbar say which chat is open. The version and the GitHub link live in Settings → Updates.
+- **Alt+Tab lands in the message field.** Switching to Deck from the keyboard puts the cursor where you type, unless a menu, Settings or a question is open or you were already in another field.
+- **Keep fullscreen games in front** (Windows, on by default). While a fullscreen game or presentation holds the screen, clicking Deck no longer takes the focus from it, so a game that minimises when it loses focus stays up while you use the buttons, scroll or switch chats. Clicking a text field, or a Deck shortcut, still takes the keyboard on purpose.
+
+### Changed
+
+- **Endless animations no longer run on the main thread.** The light on the activity row, the sweep on a working chat's card, the goal's flow, the loading skeleton, the question pulse, the update chips, the edge line's colours, the rim light round the composer and the window, and the effort chip's wash and rim were all animated by repainting (a moving background, a shadow, a gradient angle), which restyled the page on every frame for as long as an agent worked: 14-26% of the main thread at 144 Hz. Each is now a layer of its own that the compositor moves, and the page does no work for them at rest: 0.1-0.3%. They look the same.
+- **A change of agent state no longer restyles the conversation.** The colours of the state light were inherited from the page's root, so every switch between thinking, tools and writing restyled every message on every frame of a 0.9 s fade: 70-90% of the main thread on a long chat, about once a second while an agent works. The light now belongs to the few elements that draw with it; a switch costs 2-4 ms instead of 15-28 ms. In the streaming benchmark (13 chats streaming over a 2,400-message chat) the worst frame went from 117 ms to 33 ms and long tasks from 16 to none.
+- **The activity row stays where it is.** With "Show live activity" on, the row above the chat used to appear with a turn's first thought and leave when the turn ended, and the conversation under it moved both times. It now keeps its place: between turns it rests on the chat's last thought or says the chat is idle, and a turn that has not reasoned yet says so. Windows 420 px tall or shorter give the resting row up for the conversation.
+- **Closer text.** Lines in the conversation sit at 1.42 instead of 1.55, with paragraphs, list items and headings drawn in to match.
+
+### Fixed
+
+- **A thought from the previous turn is never shown as the current one.** A turn that opened with a tool call could show the last turn's reasoning under "Thinking".
+
 ## [1.2.18] - 2026-11-10
 
 ### Fixed

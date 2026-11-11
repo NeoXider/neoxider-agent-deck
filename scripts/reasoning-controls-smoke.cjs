@@ -37,7 +37,8 @@ app.whenReady().then(async () => {
       for (const index of [0,1,2]) {
         state.pendingSelection = { provider:'local', model:'test', reasoningEffort:['off','medium','high'][index] }; renderReasoning();
         const fill = getComputedStyle(document.querySelector('.reasoning-fill'), '::before');
-        const badge = getComputedStyle(button, '::before');
+        const chipLight = (name) => getComputedStyle(button.querySelector(name)).display === 'none' ? null : getComputedStyle(button.querySelector(name), '::before');
+        const badge = chipLight('.reasoning-rim') || chipLight('.reasoning-wash') || { animationName: 'none' };
         motion.push({ theme,index,fill:fill.animationName,badge:badge.animationName,duration:fill.animationDuration,accent:getComputedStyle(document.querySelector('#reasoningMenu')).getPropertyValue('--reasoning-accent').trim(),themeAccent:getComputedStyle(document.body).getPropertyValue('--mint').trim(),pixels:getComputedStyle(document.querySelector('.reasoning-fill'),'::after').animationName,buttonPixels:getComputedStyle(button,'::after').animationName,star:getComputedStyle(document.querySelector('.reasoning-fill .reasoning-starfield i')).animationName,buttonStar:getComputedStyle(button.querySelector('.reasoning-starfield i')).animationName,starsShown:getComputedStyle(document.querySelector('.reasoning-fill .reasoning-starfield')).display==='block',starShape:getComputedStyle(document.querySelector('.reasoning-fill .reasoning-starfield i')).clipPath });
       }
     }
@@ -67,18 +68,20 @@ app.whenReady().then(async () => {
     await new Promise(resolve => setTimeout(resolve, 220));
     const starOpacityAfter = getComputedStyle(star).opacity;
     state.pendingSelection = { provider:'local', model:'test', reasoningEffort:'high' }; renderReasoning();
+    await new Promise(resolve => setTimeout(resolve, 600)); // the menu's own spring has to land first
     const frozenSlider = document.querySelector('.reasoning-slider');
     const frozenFill = document.querySelector('.reasoning-fill');
     const frozenBefore = { value:frozenSlider.value, x:frozenSlider.getBoundingClientRect().x, width:frozenFill.getBoundingClientRect().width };
     const pixelWaveBefore = getComputedStyle(frozenFill,'::before').backgroundPosition;
-    const chipWaveBefore = getComputedStyle(button,'::before').backgroundPosition;
-    const chipMask = getComputedStyle(button,'::before').maskImage;
-    const chipMaskComposite = getComputedStyle(button,'::before').maskComposite;
-    const chipDuration = getComputedStyle(button,'::before').animationDuration;
+    const chipRim = button.querySelector('.reasoning-rim');
+    const chipWaveBefore = getComputedStyle(chipRim,'::before').transform;
+    const chipMask = getComputedStyle(chipRim).maskImage;
+    const chipMaskComposite = getComputedStyle(chipRim).maskComposite;
+    const chipDuration = getComputedStyle(chipRim,'::before').animationDuration;
     await new Promise(resolve => setTimeout(resolve, 220));
     const frozenAfter = { value:frozenSlider.value, x:frozenSlider.getBoundingClientRect().x, width:frozenFill.getBoundingClientRect().width };
     const pixelWaveAfter = getComputedStyle(frozenFill,'::before').backgroundPosition;
-    const chipWaveAfter = getComputedStyle(button,'::before').backgroundPosition;
+    const chipWaveAfter = getComputedStyle(chipRim,'::before').transform;
     const frozenStyles = { sliderAnimation:getComputedStyle(frozenSlider).animationName, thumbAnimation:getComputedStyle(frozenSlider,'::-webkit-slider-thumb').animationName, pixelTransform:getComputedStyle(frozenFill,'::before').transform };
     const sliderFrozen = JSON.stringify(frozenBefore) === JSON.stringify(frozenAfter)
       && frozenStyles.sliderAnimation === 'none'
@@ -126,7 +129,7 @@ app.whenReady().then(async () => {
     assert.equal(item.fill,['none','reasoning-tide','reasoning-current'][item.index]);
     assert.equal(item.badge,['none','reasoning-chip-tide','reasoning-rim'][item.index]);
     assert.equal(item.pixels,['none','reasoning-sheen','reasoning-sweep'][item.index]);
-    assert.equal(item.buttonPixels,['none','reasoning-sheen','reasoning-sweep'][item.index]);
+    assert.equal(item.buttonPixels,['none','reasoning-chip-sheen','reasoning-chip-sweep'][item.index]);
     assert.equal(item.duration,['0s','9s','2.8s'][item.index]);
     assert.equal(item.accent,item.themeAccent);
     // Sparks belong to the top effort alone.

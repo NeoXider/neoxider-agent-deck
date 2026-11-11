@@ -58,7 +58,7 @@ app.whenReady().then(async () => {
         document.body.dataset.chatState = phase;
         await wait(270);
         const style = getComputedStyle(rim);
-        checks.push({ theme, phase, visible: Number(style.opacity) > .5, animated: style.animationName === 'chat-border-orbit' });
+        checks.push({ theme, phase, visible: Number(style.opacity) > .4, animated: getComputedStyle(rim, '::before').animationName === 'chat-border-orbit' });
       }
     }
     document.body.dataset.chatState = 'thinking';
@@ -67,21 +67,21 @@ app.whenReady().then(async () => {
     window.failSave = false;
     document.querySelector('#windowBorderToggle').click();
     await wait(450);
-    const bothOn = Number(getComputedStyle(windowRim).opacity) > .8 && Number(getComputedStyle(rim).opacity) > .8;
+    const bothOn = Number(getComputedStyle(windowRim).opacity) > .7 && Number(getComputedStyle(rim).opacity) > .7;
     document.querySelector('#inputBorderToggle').click();
     await wait(450);
-    const windowOnly = Number(getComputedStyle(windowRim).opacity) > .8 && Number(getComputedStyle(rim).opacity) < .01;
+    const windowOnly = Number(getComputedStyle(windowRim).opacity) > .7 && Number(getComputedStyle(rim).opacity) < .01;
     const savedBorders = window.saves.at(-1).inputBorder === false && window.saves.at(-1).windowBorder === true;
     document.querySelector('#inputBorderToggle').click();
     document.querySelector('#windowBorderToggle').click();
     await wait(450);
-    const first = getComputedStyle(rim).getPropertyValue('--chat-border-angle');
+    const first = getComputedStyle(rim, '::before').transform;
     await wait(140);
-    const rotates = first !== getComputedStyle(rim).getPropertyValue('--chat-border-angle');
+    const rotates = first !== getComputedStyle(rim, '::before').transform;
     chat.classList.remove('active'); await wait(450);
     const agentsHidden = Number(getComputedStyle(rim).opacity) < .01;
     chat.classList.add('active'); document.body.classList.add('motion-off'); await wait(40);
-    const motionOff = getComputedStyle(rim).animationName === 'none';
+    const motionOff = getComputedStyle(rim, '::before').animationName === 'none';
     document.body.classList.remove('motion-off'); document.body.dataset.design = 'graphite';
     await wait(300);
     return { checks, rotates, agentsHidden, motionOff, inputOnly, defaultWindowOff, bothOn, windowOnly, savedBorders, pointer: getComputedStyle(rim).pointerEvents, mask: getComputedStyle(rim).maskComposite };

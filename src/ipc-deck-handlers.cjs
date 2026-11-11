@@ -16,6 +16,7 @@ function requireSessionId(value) {
 function registerDeckHandlers({
   handle,
   api,
+  getFullscreenGuard = () => null,
   getHarnessLauncher = () => null,
   getHarnessRuntime = () => null,
   getHarnessServices = () => null,
@@ -94,6 +95,16 @@ function registerDeckHandlers({
     if (value.length > 5_000_000) throw new Error("This is too long to copy");
     writeClipboardText(value);
     return true;
+  });
+  // A click in a text field asks for the keyboard; over a fullscreen game the window does
+  // not take it by itself (fullscreen-guard.cjs).
+  handle("take-keyboard-focus", () => getFullscreenGuard()?.takeFocus() === true);
+  handle("set-keep-games-in-front", (_event, value) => {
+    const preferences = getPreferences();
+    preferences.keepGamesInFront = value !== false;
+    schedulePreferenceSave();
+    getFullscreenGuard()?.sync();
+    return preferences.keepGamesInFront;
   });
   handle("set-font-family", (_event, value) => {
     const preferences = getPreferences();

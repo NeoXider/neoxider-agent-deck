@@ -1065,8 +1065,12 @@ async function main() {
     shownAgain.paused = document.querySelector("#activityCard").classList.contains("thinking-paused");
     setActivity(null);
     shownAgain.ended = document.querySelector("#activityCard").classList.contains("has-activity");
-    // A turn that opens with a tool call has no thought to show yet.
+    shownAgain.endedLabel = document.querySelector("#activityLabel").textContent;
+    shownAgain.endedResting = document.querySelector("#activityCard").classList.contains("resting");
+    // A turn that opens with a tool call has no thought to show yet: the row holds its place
+    // and says so, and never passes the last turn's thought off as this one's.
     shownAgain.toolFirst = probe("tool", "Using tool", "read");
+    shownAgain.toolFirstPreview = document.querySelector("#activityPreview").textContent;
     setActivity(null);
     return { baseline, appeared, streamed, disappeared, hidden, tool, writing, working, done, shownAgain, showThinking: showThinkingWhileOff, restored: state.showThinking };
   })()`);
@@ -1075,13 +1079,15 @@ async function main() {
   const liveHiddenWhenOff = [thinkingPreference.hidden, thinkingPreference.tool, thinkingPreference.writing, thinkingPreference.working]
     .every((snapshot) => snapshot.visible === false);
   // Switched on, the card shows reasoning and nothing else of the turn, and keeps the latest
-  // thought up while the model acts on it instead of coming and going; the turn's end takes it.
+  // thought up while the model acts on it instead of coming and going. The turn's end no
+  // longer takes the row away (the log under it used to jump): it rests on the last thought.
   const { shownAgain } = thinkingPreference;
   const liveShownWhenOn = shownAgain.thinking.visible === true
     && shownAgain.tool.visible === true && shownAgain.tool.label === "Thinking"
     && shownAgain.working.visible === true && shownAgain.working.label === "Thinking"
     && shownAgain.kept.includes("Visible again") && shownAgain.paused === true
-    && shownAgain.ended === false && shownAgain.toolFirst.visible === false;
+    && shownAgain.ended === true && shownAgain.endedLabel === "Last thought" && shownAgain.endedResting === true
+    && shownAgain.toolFirst.visible === true && shownAgain.toolFirst.label === "Working" && !shownAgain.toolFirstPreview.includes("Visible again");
   if (!thinkingPreference.appeared.visible || !stableThinkingViewport || thinkingPreference.showThinking
       || !liveHiddenWhenOff
       || !thinkingPreference.done.visible || thinkingPreference.done.label !== "Done"

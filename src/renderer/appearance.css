@@ -1,6 +1,9 @@
 /* One motion rhythm; no staggered controls or scaling of readable content. */
 :root { --ease-deck:cubic-bezier(.16,1,.3,1); --motion-control:var(--dur-2); --motion-panel:var(--dur-3); }
-.widget-shell { transition:--chat-light-primary .9s ease,--chat-light-secondary .9s ease,background-color 320ms ease,border-color 320ms ease; }
+/* The shell never eases the state light itself: a custom property in transition on an
+   element restyles everything inside it on every frame. Each leaf that draws with the light
+   eases its own copy instead. */
+.widget-shell { transition:background-color 320ms ease,border-color 320ms ease; }
 body[data-motion="subtle"] { --motion-control:120ms; --motion-panel:160ms; --dur-2:140ms; --dur-3:180ms; }
 .settings-panel { transition:transform var(--motion-panel) var(--ease-deck),opacity 160ms ease; }
 .settings-panel.open > * { animation:none; }
@@ -89,18 +92,33 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.97); transition-
 .panel.active { animation-duration:var(--motion-panel); animation-timing-function:var(--ease-deck); }
 .picker-menu,.command-menu { transition-timing-function:var(--ease-deck); }
 /* Background light is optional; subtle motion keeps feedback without perpetual sweeps. */
-body[data-motion="subtle"] .widget-shell::before,body[data-motion="subtle"] .session-card.state-working::after,body[data-motion="subtle"] .activity-card.has-activity { animation:none; }
+body[data-motion="subtle"] .widget-shell::before,body[data-motion="subtle"] .session-card.state-working::after,body[data-motion="subtle"] .activity-card.has-activity::before { animation:none; }
 body[data-motion="subtle"] .settings-page { animation:none; }
 body.motion-off .settings-page { animation:none; }
 @media(prefers-reduced-motion:reduce) { .settings-page { animation:none; } }
 
 /* A session activity signal independent of decorative glow and the selected theme.
    Mask only the rim; the overlay never covers text or intercepts a pointer. */
-@property --chat-border-angle { syntax:"<angle>"; inherits:false; initial-value:0deg; }
+/* The light travels round the rim on the compositor: the ring is a mask on this box and the
+   cone is a square of its own behind it, turned by a transform. Turning the cone's start
+   angle instead repainted the whole rim on every frame for as long as an agent worked.
+   --chat-border-angle still places the cone when nothing is animating it. */
+@property --chat-border-angle { syntax:"<angle>"; inherits:true; initial-value:0deg; }
 .chat-activity-border {
-  position:absolute; inset:0; z-index:3; border-radius:inherit; padding:1px;
-  pointer-events:none; opacity:0;
-  background:conic-gradient(from var(--chat-border-angle),
+  position:absolute; inset:0; z-index:3; border-radius:inherit; padding:1px; overflow:hidden;
+  container-type:size; pointer-events:none; opacity:0;
+  background:var(--chat-border-base);
+  --chat-border-base:color-mix(in srgb,color-mix(in srgb,var(--chat-light-primary) 55%,var(--chat-light-secondary)) 45%,transparent);
+  mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  mask-composite:exclude;
+  transition:opacity 240ms ease,background-color .9s ease;
+  animation:none;
+}
+.chat-activity-border::before {
+  content:""; position:absolute; top:50%; left:50%;
+  --cone:hypot(100cqw,100cqh);
+  width:var(--cone); height:var(--cone); margin:calc(var(--cone) / -2) 0 0 calc(var(--cone) / -2);
+  background:conic-gradient(from 0deg,
     color-mix(in srgb,var(--chat-light-primary) 12%,transparent) 0deg,
     color-mix(in srgb,var(--chat-light-secondary) 45%,transparent) 55deg,
     var(--chat-light-primary) 100deg,
@@ -109,22 +127,22 @@ body.motion-off .settings-page { animation:none; }
     color-mix(in srgb,var(--chat-light-primary) 45%,transparent) 235deg,
     var(--chat-light-secondary) 280deg,
     color-mix(in srgb,var(--chat-light-primary) 45%,transparent) 325deg,
-    color-mix(in srgb,var(--chat-light-primary) 12%,transparent) 360deg),
-    linear-gradient(var(--chat-border-base),var(--chat-border-base));
-  --chat-border-base:color-mix(in srgb,color-mix(in srgb,var(--chat-light-primary) 55%,var(--chat-light-secondary)) 45%,transparent);
-  mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
-  mask-composite:exclude;
-  transition:opacity 240ms ease;
-  animation:none;
+    color-mix(in srgb,var(--chat-light-primary) 12%,transparent) 360deg);
+  transform:rotate(var(--chat-border-angle));
+  transition:--chat-light-primary .9s ease,--chat-light-secondary .9s ease;
 }
 body.mode-full:not([data-input-border="false"]):is([data-chat-state="waiting"],[data-chat-state="thinking"],[data-chat-state="writing"],[data-chat-state="tool"]) #chatPanel.active .composer > .chat-activity-border,
 body.mode-full[data-window-border="true"]:is([data-chat-state="waiting"],[data-chat-state="thinking"],[data-chat-state="writing"],[data-chat-state="tool"]) .widget-shell:has(#chatPanel.active) > .window-activity-border {
-  opacity:.75; animation:chat-border-orbit 8s linear infinite;
+  opacity:.75;
 }
-@keyframes chat-border-orbit { to { --chat-border-angle:360deg; } }
+body.mode-full:not([data-input-border="false"]):is([data-chat-state="waiting"],[data-chat-state="thinking"],[data-chat-state="writing"],[data-chat-state="tool"]) #chatPanel.active .composer > .chat-activity-border::before,
+body.mode-full[data-window-border="true"]:is([data-chat-state="waiting"],[data-chat-state="thinking"],[data-chat-state="writing"],[data-chat-state="tool"]) .widget-shell:has(#chatPanel.active) > .window-activity-border::before {
+  animation:chat-border-orbit 8s linear infinite;
+}
+@keyframes chat-border-orbit { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
 /* Keep the status colour without rotation when motion is disabled. */
-body.motion-off .chat-activity-border { animation:none !important; transition:none !important; }
-@media(prefers-reduced-motion:reduce) { .chat-activity-border { animation:none !important; transition:none !important; } }
+body.motion-off .chat-activity-border, body.motion-off .chat-activity-border::before { animation:none !important; transition:none !important; }
+@media(prefers-reduced-motion:reduce) { .chat-activity-border, .chat-activity-border::before { animation:none !important; transition:none !important; } }
 .workspace-control[hidden] { display:none; }
 #settings-keys .hotkey-settings > summary { pointer-events:none; list-style:none; }
 #settings-keys .hotkey-settings > summary .ui-icon { display:none; }
@@ -136,9 +154,11 @@ body.motion-off .chat-activity-border { animation:none !important; transition:no
 /* Over a picture the prose gets a plate of the window's own colour, so it stays as readable
    as it is over the plain surface. */
 body:not([data-background="none"]) .bubble.assistant { padding:8px 10px; background-color:rgba(var(--shell-rgb),calc(.74 * var(--panel-alpha))); }
-body[data-chat-state="background"] { --chat-light-primary:#79b6ff; --chat-light-secondary:#b59bfa; }
+body[data-chat-state="background"] :is(.widget-shell,.composer,.chat-activity-border,.mode-morph-rim,#avatarShell,.arrive-pulse) { --chat-light-primary:#79b6ff; --chat-light-secondary:#b59bfa; }
 body.mode-full:not([data-input-border="false"])[data-chat-state="background"] #chatPanel.active .composer > .chat-activity-border,
-body.mode-full[data-window-border="true"][data-chat-state="background"] .widget-shell:has(#chatPanel.active) > .window-activity-border { opacity:.5; animation:chat-border-orbit 18s linear infinite; }
+body.mode-full[data-window-border="true"][data-chat-state="background"] .widget-shell:has(#chatPanel.active) > .window-activity-border { opacity:.5; }
+body.mode-full:not([data-input-border="false"])[data-chat-state="background"] #chatPanel.active .composer > .chat-activity-border::before,
+body.mode-full[data-window-border="true"][data-chat-state="background"] .widget-shell:has(#chatPanel.active) > .window-activity-border::before { animation:chat-border-orbit 18s linear infinite; }
 .theme-picker { margin-bottom:12px; border:1px solid var(--line); border-radius:var(--radius-md); background:rgba(255,255,255,.02); }
 .theme-picker > summary { display:flex; align-items:center; gap:8px; min-height:44px; padding:10px 12px; cursor:pointer; list-style:none; font-size:13px; }
 .theme-picker > summary::-webkit-details-marker { display:none; }
@@ -389,20 +409,32 @@ body.mode-full .composer :is(.composer-view-stack,.composer-utility-stack) { ali
 #reasoningButton[data-intensity="deep"] > .reasoning-starfield::before { animation:reasoning-breathe 4.2s ease-in-out infinite; }
 #reasoningButton[data-intensity="peak"] > .reasoning-starfield::before { box-shadow:inset 0 0 16px color-mix(in srgb,var(--reasoning-accent) 32%,transparent),inset 0 0 4px color-mix(in srgb,var(--reasoning-secondary) 34%,transparent); animation:reasoning-breathe 2.6s ease-in-out infinite; }
 #reasoningButton[data-intensity="deep"] { border-color:color-mix(in srgb,var(--reasoning-accent) 32%,var(--line)); }
-#reasoningButton[data-intensity="deep"]::before { inset:0; opacity:.55; background:
-    radial-gradient(72px 30px at 30% 26%,color-mix(in srgb,var(--reasoning-accent) 40%,transparent),transparent 72%) 0 0 / 240px 100% repeat-x,
-    radial-gradient(92px 34px at 62% 84%,color-mix(in srgb,var(--reasoning-secondary) 36%,transparent),transparent 74%) 0 0 / 320px 100% repeat-x;
-  mask-image:linear-gradient(90deg,transparent 20%,#000 64%); animation:reasoning-chip-tide 12s linear infinite; }
-@keyframes reasoning-chip-tide { to { background-position:240px 0,-320px 0; } }
-#reasoningButton[data-intensity="deep"]::after { inset:0; opacity:1; background:linear-gradient(100deg,transparent 35%,rgba(255,255,255,.1) 50%,transparent 65%) -120% 0 / 40% 100% no-repeat; animation:reasoning-sheen 6.2s cubic-bezier(.4,0,.2,1) infinite; }
-#reasoningButton[data-intensity="deep"] #reasoningButtonText { color:color-mix(in srgb,var(--reasoning-accent) 72%,white); background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.22) 50%,transparent 70%) -150% 0 / 60% 100% no-repeat,color-mix(in srgb,var(--reasoning-accent) 20%,var(--surface-1)); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--reasoning-accent) 36%,transparent); animation:reasoning-badge-sheen 5.4s ease-in-out infinite; }
-@keyframes reasoning-badge-sheen { 0%,40% { background-position:-150% 0,0 0; } 78%,100% { background-position:250% 0,0 0; } }
+/* The chip is on screen for as long as the chat is, so every light on it is a layer of its
+   own moved by a transform: the wash is two strips inside a masked box, the rim a strip
+   inside a ring, the sheens narrow bands that cross the chip. Moving a background instead
+   restyled the page on every frame, for hours, whenever a top effort was selected. */
+#reasoningButton > :is(.reasoning-wash,.reasoning-rim) { display:none; position:absolute; z-index:0; inset:0; overflow:hidden; border-radius:inherit; pointer-events:none; }
+.reasoning-wash::before,.reasoning-wash::after,.reasoning-rim::before { content:""; position:absolute; top:0; bottom:0; }
+#reasoningButton[data-intensity="deep"] > .reasoning-wash { display:block; opacity:.55; mask-image:linear-gradient(90deg,transparent 20%,#000 64%); }
+.reasoning-wash::before { right:0; left:-240px; background:radial-gradient(72px 30px at 30% 26%,color-mix(in srgb,var(--reasoning-accent) 40%,transparent),transparent 72%) 0 0 / 240px 100% repeat-x; animation:reasoning-chip-tide 12s linear infinite; }
+.reasoning-wash::after { right:-320px; left:0; background:radial-gradient(92px 34px at 62% 84%,color-mix(in srgb,var(--reasoning-secondary) 36%,transparent),transparent 74%) 0 0 / 320px 100% repeat-x; animation:reasoning-chip-undertow 12s linear infinite; }
+@keyframes reasoning-chip-tide { to { transform:translateX(240px); } }
+@keyframes reasoning-chip-undertow { to { transform:translateX(-320px); } }
+#reasoningButton[data-intensity="deep"]::after { top:0; bottom:0; left:0; width:40%; opacity:1; background:linear-gradient(100deg,transparent 35%,rgba(255,255,255,.1) 50%,transparent 65%); transform:translateX(-180%); animation:reasoning-chip-sheen 6.2s cubic-bezier(.4,0,.2,1) infinite; }
+@keyframes reasoning-chip-sheen { 0% { transform:translateX(-180%); } 55%,100% { transform:translateX(360%); } }
+#reasoningButton[data-intensity="deep"] #reasoningButtonText { color:color-mix(in srgb,var(--reasoning-accent) 72%,white); background:color-mix(in srgb,var(--reasoning-accent) 20%,var(--surface-1)); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--reasoning-accent) 36%,transparent); }
+#reasoningButton:is([data-intensity="deep"],[data-intensity="peak"]) #reasoningButtonText::after { content:""; position:absolute; z-index:-1; top:0; bottom:0; left:0; pointer-events:none; }
+#reasoningButton[data-intensity="deep"] #reasoningButtonText::after { width:60%; background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.22) 50%,transparent 70%); transform:translateX(-100%); animation:reasoning-badge-sheen 5.4s ease-in-out infinite; }
+@keyframes reasoning-badge-sheen { 0%,40% { transform:translateX(-100%); } 78%,100% { transform:translateX(167%); } }
 #reasoningButton[data-intensity="peak"] { border-color:transparent; }
-#reasoningButton[data-intensity="peak"]::before { inset:0; padding:1px; border-radius:inherit; opacity:1; background:linear-gradient(90deg,var(--reasoning-secondary),var(--reasoning-accent) 30%,var(--reasoning-light) 50%,var(--reasoning-accent) 70%,var(--reasoning-secondary)) 0 0 / 220px 100% repeat-x; mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); mask-composite:exclude; animation:reasoning-rim 3.2s linear infinite; }
-@keyframes reasoning-rim { to { background-position:220px 0; } }
-#reasoningButton[data-intensity="peak"]::after { inset:0; opacity:1; background:linear-gradient(100deg,transparent 40%,rgba(255,255,255,.16) 50%,transparent 60%) -120% 0 / 34% 100% no-repeat; animation:reasoning-sweep 3.4s cubic-bezier(.5,0,.2,1) infinite; }
-#reasoningButton[data-intensity="peak"] #reasoningButtonText { color:#071210; background:linear-gradient(90deg,var(--reasoning-accent),var(--reasoning-light),var(--reasoning-accent),color-mix(in srgb,var(--reasoning-accent) 62%,var(--reasoning-secondary)),var(--reasoning-accent)) 0 0 / 200% 100%; box-shadow:inset 0 1px rgba(255,255,255,.45); animation:reasoning-badge-flow 3.2s linear infinite; }
-@keyframes reasoning-badge-flow { to { background-position:200% 0; } }
+#reasoningButton[data-intensity="peak"] > .reasoning-rim { display:block; padding:1px; mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); mask-composite:exclude; }
+.reasoning-rim::before { right:0; left:-220px; background:linear-gradient(90deg,var(--reasoning-secondary),var(--reasoning-accent) 30%,var(--reasoning-light) 50%,var(--reasoning-accent) 70%,var(--reasoning-secondary)) 0 0 / 220px 100% repeat-x; animation:reasoning-rim 3.2s linear infinite; }
+@keyframes reasoning-rim { to { transform:translateX(220px); } }
+#reasoningButton[data-intensity="peak"]::after { top:0; bottom:0; left:0; width:34%; opacity:1; background:linear-gradient(100deg,transparent 40%,rgba(255,255,255,.16) 50%,transparent 60%); transform:translateX(-233%); animation:reasoning-chip-sweep 3.4s cubic-bezier(.5,0,.2,1) infinite; }
+@keyframes reasoning-chip-sweep { 0% { transform:translateX(-233%); } 45%,100% { transform:translateX(427%); } }
+#reasoningButton[data-intensity="peak"] #reasoningButtonText { color:#071210; background:var(--reasoning-accent); }
+#reasoningButton[data-intensity="peak"] #reasoningButtonText::after { width:300%; background:linear-gradient(rgba(255,255,255,.45),rgba(255,255,255,.45)) 0 0 / 100% 1px no-repeat,linear-gradient(90deg,var(--reasoning-accent),var(--reasoning-light),var(--reasoning-accent),color-mix(in srgb,var(--reasoning-accent) 62%,var(--reasoning-secondary)),var(--reasoning-accent)) 0 0 / 66.667% 100% repeat-x; animation:reasoning-badge-flow 3.2s linear infinite; }
+@keyframes reasoning-badge-flow { to { transform:translateX(-66.667%); } }
 #reasoningButton[data-intensity="peak"] #reasoningButtonText::before { content:""; position:absolute; z-index:-1; inset:-1px; border-radius:inherit; box-shadow:0 0 10px 1px color-mix(in srgb,var(--reasoning-accent) 55%,transparent); opacity:.4; pointer-events:none; animation:reasoning-breathe 2.6s ease-in-out infinite; }
 
 /* The moment the top effort is chosen: one burst of light and sparks from the handle, a flash
@@ -421,7 +453,7 @@ body.mode-full .composer :is(.composer-view-stack,.composer-utility-stack) { ali
 #reasoningButton > .reasoning-starfield::after { content:""; position:absolute; inset:0; opacity:0; background:radial-gradient(110px 36px at 82% 50%,color-mix(in srgb,var(--reasoning-light) 55%,transparent),transparent 70%); transform-origin:82% 50%; }
 #reasoningButton.effort-burst > .reasoning-starfield::after { animation:reasoning-chip-flash .76s cubic-bezier(.2,.8,.3,1) var(--burst-delay,0ms) both; }
 @keyframes reasoning-chip-flash { 0% { opacity:0; transform:scale(.6); } 22% { opacity:1; } 100% { opacity:0; transform:scale(1.5); } }
-#reasoningButton[data-intensity="peak"].effort-burst #reasoningButtonText { animation:reasoning-badge-flow 3.2s linear infinite,reasoning-badge-pop .52s cubic-bezier(.2,.9,.3,1.35) var(--burst-delay,0ms); }
+#reasoningButton[data-intensity="peak"].effort-burst #reasoningButtonText { animation:reasoning-badge-pop .52s cubic-bezier(.2,.9,.3,1.35) var(--burst-delay,0ms); }
 @keyframes reasoning-badge-pop { 0% { transform:scale(.86); } 55% { transform:scale(1.1); } 100% { transform:none; } }
 
 /* Still: the same light, held. Sparks stay as faint glints, glows at their resting strength. */
@@ -430,7 +462,7 @@ body.motion-off #reasoningButton > .reasoning-starfield i { opacity:.45; }
 body.motion-off .reasoning-track::before, body.motion-off .reasoning-starfield::before { opacity:.6; }
 body.motion-off .reasoning-track::after, body.motion-off #reasoningButton > .reasoning-starfield::after { opacity:0; }
 @media(prefers-reduced-motion:reduce) {
-  .reasoning-fill::before,.reasoning-fill::after,.reasoning-track::before,.reasoning-track::after,#reasoningButton::before,#reasoningButton::after,.reasoning-starfield i,.reasoning-starfield::before,.reasoning-starfield::after,#reasoningButton #reasoningButtonText,#reasoningButton #reasoningButtonText::before { animation:none !important; }
+  .reasoning-fill::before,.reasoning-fill::after,.reasoning-track::before,.reasoning-track::after,#reasoningButton::before,#reasoningButton::after,.reasoning-starfield i,.reasoning-starfield::before,.reasoning-starfield::after,#reasoningButton #reasoningButtonText,#reasoningButton #reasoningButtonText::before,#reasoningButton #reasoningButtonText::after,.reasoning-wash::before,.reasoning-wash::after,.reasoning-rim::before { animation:none !important; }
   .reasoning-starfield i { opacity:.7; transform:scale(.85) rotate(45deg); }
   #reasoningButton > .reasoning-starfield i { opacity:.45; }
   .reasoning-track::before, .reasoning-starfield::before { opacity:.6; }

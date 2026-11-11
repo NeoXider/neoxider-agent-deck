@@ -918,10 +918,20 @@ function syncActivityCard() {
   // other states show in the avatar, the rim light and the tool cards. Notices that are not
   // part of a turn (an error, a capture, files ready) still use the card either way.
   if (live && activity.kind === "thinking" && activity.text) state.lastThought = { sessionId: state.selectedSessionId, label: activity.label, text: activity.text };
-  else if (!live || state.lastThought?.sessionId !== state.selectedSessionId) state.lastThought = null;
+  else if (state.lastThought?.sessionId !== state.selectedSessionId) state.lastThought = null;
+  // A thought outlives its turn only as "the last thought". Once the chat has rested on it,
+  // the next turn starts clean: it is never shown as what the model is thinking now.
+  else if (state.lastThought && !live) state.lastThought.rested = true;
+  else if (state.lastThought?.rested) state.lastThought = null;
+  // With "Show live activity" on, the card is a fixed row of the chat: it used to come with
+  // the turn's first thought and go when the turn ended, and the log under it moved both
+  // times. Between turns it now rests on the last thought of this chat, or says it is idle;
+  // a working model that has not reasoned yet says so in the same row.
+  const thought = state.lastThought ? { kind: "thinking", label: state.lastThought.label, text: state.lastThought.text } : null;
+  const resting = thought ? { ...thought, label: "Last thought" } : { kind: "thinking", label: "Idle", text: "Nothing is running in this chat." };
   const shown = live
-    ? (state.showThinking && state.lastThought ? { kind: "thinking", label: state.lastThought.label, text: state.lastThought.text } : null)
-    : (activity?.text ? activity : null);
+    ? (state.showThinking ? thought || { kind: "thinking", label: "Working", text: "The model has not shared a thought yet." } : null)
+    : (activity?.text ? activity : state.showThinking ? resting : null);
   const showCard = Boolean(shown);
   // Reasoning used to get its own strip: absolutely positioned inside .messages-wrap, with
   // room reserved by padding-top on .messages. That padding scrolls away with the content,
@@ -935,6 +945,12 @@ function syncActivityCard() {
   // Ahead of the early return below: a turn that runs for minutes without changing its
   // label still has to advance its clock and pick up background tasks starting or ending.
   renderActivityMeta(showCard);
+  const atRest = showCard && !live && shown.kind === "thinking";
+  if (card.classList.contains("resting") !== atRest) card.classList.toggle("resting", atRest);
+  // A row that only holds the place (idle, the last thought, a turn with no thought yet) is
+  // the first thing a very short window gives up (styles.css).
+  const filler = showCard && shown.kind === "thinking" && !(live && thought);
+  if (card.classList.contains("placeholder") !== filler) card.classList.toggle("placeholder", filler);
   const signature = showCard ? JSON.stringify([true, shown.kind || "", shown.label || "", shown.text || ""]) : "hidden";
   if (signature === state.activityCardSignature) return false;
   // Only a change of the card's height moves the log under it: the card appearing or going,
@@ -1612,7 +1628,28 @@ function activateBrandTarget(origin) {
   if (!origin || typeof origin.closest !== "function") return;
   if (origin.closest("#collapseHandle")) setWindowMode(state.platformPresentation?.edgeAvailable === false ? "orb" : "edge");
   else if (origin.closest("#avatarButton")) setWindowMode("orb");
-  else if (origin.closest("#projectLink")) window.widget.openProject();
+  else if (origin.closest("#projectLink")) toggleChatList();
+}
+
+// The title names the open chat, and a tap on it is the way to the others and back.
+function toggleChatList() {
+  setTab(state.tab === "agents" ? "chat" : "agents");
+}
+
+// The header and the window (Alt+Tab, the taskbar) carry the open chat's name; with no chat
+// open they carry the product's, and its version beside it.
+function renderHeaderTitle() {
+  const name = String(selectedSessionRow()?.title || "").trim();
+  const title = $("#headerTitle");
+  const text = name || "Agent Deck";
+  if (title.textContent !== text) title.textContent = text;
+  const brand = $(".brand");
+  if (brand.classList.contains("has-chat") !== Boolean(name)) brand.classList.toggle("has-chat", Boolean(name));
+  const hint = name ? `${name} · show all chats` : "Show all chats";
+  const link = $("#projectLink");
+  if (link.title !== hint) { link.title = hint; link.setAttribute("aria-label", hint); }
+  const windowTitle = name ? `${name} · Agent Deck` : "NeoXider Agent Deck";
+  if (document.title !== windowTitle) document.title = windowTitle;
 }
 
 // Avatar mode is dragged BY THE CIRCLE, not by the 172x128 window around it. Treating the
@@ -2184,6 +2221,7 @@ function renderSessionToolbar() {
     ? `Open ${selected.title || "current session"} in DeepSeek Harness`
     : "Select a session in Agents to open it in DeepSeek Harness";
   if (button.title !== title) button.title = title;
+  renderHeaderTitle();
 }
 
 function modelSelectionValue(selection) {
@@ -2239,6 +2277,17 @@ function createReasoningStars() {
   return field;
 }
 
+// The chip's moving lights (appearance.css): a wash for the penultimate effort, a rim for the
+// top one. Each is a clip box whose strips the compositor slides.
+function createReasoningChipLights() {
+  return ["reasoning-wash", "reasoning-rim"].map((name) => {
+    const light = document.createElement("span");
+    light.className = name;
+    light.setAttribute("aria-hidden", "true");
+    return light;
+  });
+}
+
 function renderReasoning() {
   const model = selectedModelDefinition();
   const efforts = model?.reasoning?.efforts || [];
@@ -2247,7 +2296,7 @@ function renderReasoning() {
   const autoLabel = model?.reasoning?.defaultEffort ? `Auto · ${model.reasoning.defaultEffort}` : "Auto";
   $("#reasoningButtonText").textContent = selectedEffort?.name || selectedEffort?.id || autoLabel;
   $("#reasoningButton").disabled = false;
-  if (!$("#reasoningButton").querySelector(".reasoning-starfield")) $("#reasoningButton").prepend(createReasoningStars());
+  if (!$("#reasoningButton").querySelector(".reasoning-starfield")) $("#reasoningButton").prepend(...createReasoningChipLights(), createReasoningStars());
   $("#reasoningModelName").textContent = model?.name || model?.id || "Choose model";
   const currentEffortIndex = efforts.findIndex(effort => effort.id === (selectedId || model?.reasoning?.defaultEffort));
   $("#reasoningButton").dataset.intensity = reasoningIntensity(currentEffortIndex, efforts.length);
@@ -8332,6 +8381,7 @@ async function hydratePreferences() {
     applyCompactAutoExpand(preferences.compactAutoExpand);
     applyCollapseAfterSend(preferences.collapseAfterSend);
     applyPetMode(preferences.petMode);
+    $("#keepGamesInFrontToggle").checked = preferences.keepGamesInFront !== false;
     if (preferences.recentSessionsOpen === false) state.collapsedSessionGroupKeys.add("recent");
     syncPressed($$('#sizeSwitch button'), preferences.size, "size");
     applyPlatformCapabilities(preferences.platformCapabilities);
@@ -9012,6 +9062,40 @@ document.addEventListener("mouseleave", () => {
 window.addEventListener("blur", () => {
   if (!compactDrag) setEdgePointerActive(false);
 });
+// Coming to the widget from the keyboard (Alt+Tab, the taskbar, a shortcut) lands in the
+// message field, ready to type. A click chooses its own focus, so an activation that arrives
+// with a pointer press is left alone; so is a field the user was already typing in, and any
+// open menu, settings or question.
+let lastPointerDownAt = 0;
+document.addEventListener("pointerdown", () => { lastPointerDownAt = performance.now(); }, true);
+function focusComposerOnActivation() {
+  // A capture run never moves the focus by itself: which of its windows the system happened
+  // to activate would decide what the picture shows.
+  if (state.windowMode !== "full" || state.tab !== "chat" || document.body.classList.contains("screenshot-static")) return false;
+  if (performance.now() - lastPointerDownAt < 400 || !document.hasFocus()) return false;
+  if ($("#settingsPanel")?.classList.contains("open") || $(".picker.open") || $("#modelMenu")?.matches(":popover-open")) return false;
+  if (!$("#questionDock")?.hidden || $(".deck-confirm") || $(".floating-menu")) return false;
+  const active = document.activeElement;
+  if (active?.matches?.("input, textarea, select, [contenteditable='true']")) return false;
+  const input = $("#messageInput");
+  if (!input || input.disabled || !input.offsetParent) return false;
+  input.focus({ preventScroll: true });
+  return true;
+}
+window.addEventListener("focus", () => { setTimeout(focusComposerOnActivation, 80); });
+// Over a fullscreen game the window does not take the focus when it is clicked, so the game
+// stays in front (fullscreen-guard.cjs). Typing needs the keyboard: a press in a text field
+// asks the main process for it.
+document.addEventListener("pointerdown", (event) => {
+  if (document.hasFocus() || event.button !== 0) return;
+  if (event.target?.closest?.("textarea, input:not([type='checkbox']):not([type='range']):not([type='button']), [contenteditable='true']")) window.widget.takeKeyboardFocus?.().catch(() => null);
+}, true);
+$("#keepGamesInFrontToggle").addEventListener("change", async (event) => {
+  const toggle = event.currentTarget;
+  const requested = toggle.checked;
+  try { toggle.checked = await window.widget.setKeepGamesInFront(requested); }
+  catch { toggle.checked = !requested; }
+});
 // In Avatar mode the native resize after the chat button lands a frame or more after the
 // click. Rectangles measured before it describe the narrow window, so the close button, now
 // elsewhere in a wider one, took no clicks until the pointer left and came back.
@@ -9037,8 +9121,9 @@ $("#avatarButton").addEventListener("click", (event) => {
 });
 $("#projectLink").addEventListener("click", (event) => {
   if (event.detail !== 0 || suppressProjectClick) return;
-  window.widget.openProject();
+  toggleChatList();
 });
+$("#projectButton").addEventListener("click", () => window.widget.openProject());
 $("#settingsButton").addEventListener("click", () => setSettingsOpen(!$("#settingsPanel").classList.contains("open")));
 $("#closeSettings").addEventListener("click", () => setSettingsOpen(false));
 $("#fontFamilySelect").addEventListener("change", async (event) => {
@@ -9302,7 +9387,7 @@ state.preferencesReadyPromise = hydratePreferences();
 window.widget.getAppInfo().then((info) => {
   state.appVersion = info.version;
   $("#versionLabel").textContent = `v${info.version}`;
-  $("#projectLink").title = `Open NeoXider/neoxider-agent-deck v${info.version} on GitHub`;
+  $("#projectButton").title = `Open NeoXider/neoxider-agent-deck v${info.version} on GitHub`;
   $("#updateVersion").textContent = `Current v${info.version}`;
 });
 window.widget.getUpdateState().then((value) => renderUpdateState(value)).catch(() => {});

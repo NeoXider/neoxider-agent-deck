@@ -5,8 +5,14 @@
 @property --edge-primary { syntax:"<color>"; inherits:true; initial-value:#49e7c6; }
 @property --edge-secondary { syntax:"<color>"; inherits:true; initial-value:#48bfff; }
 @property --edge-halo-color { syntax:"<color>"; inherits:true; initial-value:rgba(72,193,255,.25); }
-@property --chat-light-primary { syntax:"<color>"; inherits:true; initial-value:#49b9b0; }
-@property --chat-light-secondary { syntax:"<color>"; inherits:true; initial-value:#7774c0; }
+/* The state light does not inherit. It used to be set on body and eased on the shell, and an
+   inherited property that changes restyles every element below it: each change of state
+   (thinking, tool, writing: about once a second while an agent works) restyled the whole
+   conversation on every frame of a .9s transition, 70-90% of the main thread. It is now set
+   on the few elements that draw with it, and their pseudo-elements ask for it by name. */
+@property --chat-light-primary { syntax:"<color>"; inherits:false; initial-value:#49b9b0; }
+@property --chat-light-secondary { syntax:"<color>"; inherits:false; initial-value:#7774c0; }
+@property --chat-light-energy { syntax:"<number>"; inherits:false; initial-value:.24; }
 
 :root {
   --status-offline-primary:142,155,177;
@@ -74,9 +80,6 @@
      are what let another window's text ghost through behind the conversation. The curve
      keeps 0 fully clear and halfway still see-through, but makes 90% and up read as solid. */
   --panel-alpha: calc(1 - (1 - var(--panel-background-opacity)) * (1 - var(--panel-background-opacity)));
-  --chat-light-primary:rgb(var(--status-idle-primary));
-  --chat-light-secondary:rgb(var(--status-idle-secondary));
-  --chat-light-energy:.24;
   --orb-ring-primary:rgb(var(--status-idle-primary));
   --orb-ring-secondary:rgb(var(--status-idle-secondary));
   --orb-halo-primary:rgba(73,231,198,.27);
@@ -150,17 +153,19 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.96); transition-
   border:1px solid var(--shell-border,rgba(255,255,255,.09));
   border-radius:var(--radius-lg);
   box-shadow:inset 0 1px rgba(255,255,255,.035);
-  transition:--chat-light-primary .9s ease,--chat-light-secondary .9s ease;
 }
+/* Who draws with the state light: these elements carry it, at rest and in every state. */
+:where(.widget-shell,.composer,.chat-activity-border,.mode-morph-rim,#avatarShell,.arrive-pulse) { --chat-light-primary:rgb(var(--status-idle-primary)); --chat-light-secondary:rgb(var(--status-idle-secondary)); --chat-light-energy:.24; }
+.widget-shell::before, .widget-shell::after, .chat-activity-border::before, #avatarShell::before, #messages > .arrive-pulse::after { --chat-light-primary:inherit; --chat-light-secondary:inherit; --chat-light-energy:inherit; }
 /* The state light is a whisper at the rim, not a wash over the reading surface. */
 .widget-shell::after { content:""; position:absolute; z-index:-1; inset:1px; border-radius:15px; pointer-events:none; opacity:var(--chat-glow-intensity); box-shadow:inset 0 -18px 40px color-mix(in srgb,var(--chat-light-primary) calc(var(--panel-background-opacity) * var(--chat-light-energy) * 20%),transparent),inset 0 12px 36px color-mix(in srgb,var(--chat-light-secondary) calc(var(--panel-background-opacity) * var(--chat-light-energy) * 13%),transparent); transition:opacity .7s ease,box-shadow .55s cubic-bezier(.22,1,.36,1); }
-body[data-chat-state="waiting"] { --chat-light-primary:rgb(var(--status-waiting-primary)); --chat-light-secondary:rgb(var(--status-waiting-secondary)); --chat-light-energy:.85; }
-body[data-chat-state="thinking"] { --chat-light-primary:rgb(var(--status-thinking-primary)); --chat-light-secondary:rgb(var(--status-thinking-secondary)); --chat-light-energy:.85; }
-body[data-chat-state="writing"] { --chat-light-primary:rgb(var(--status-writing-primary)); --chat-light-secondary:rgb(var(--status-writing-secondary)); --chat-light-energy:.9; }
-body[data-chat-state="tool"] { --chat-light-primary:rgb(var(--status-tool-primary)); --chat-light-secondary:rgb(var(--status-tool-secondary)); --chat-light-energy:.85; }
-body[data-chat-state="done"] { --chat-light-primary:rgb(var(--status-done-primary)); --chat-light-secondary:rgb(var(--status-done-secondary)); --chat-light-energy:.52; }
-body[data-chat-state="error"] { --chat-light-primary:rgb(var(--status-error-primary)); --chat-light-secondary:rgb(var(--status-error-secondary)); --chat-light-energy:.58; }
-body[data-chat-state="offline"] { --chat-light-primary:rgb(var(--status-offline-primary)); --chat-light-secondary:rgb(var(--status-offline-secondary)); --chat-light-energy:.2; }
+body[data-chat-state="waiting"] :is(.widget-shell,.composer,.chat-activity-border,.mode-morph-rim,#avatarShell,.arrive-pulse) { --chat-light-primary:rgb(var(--status-waiting-primary)); --chat-light-secondary:rgb(var(--status-waiting-secondary)); --chat-light-energy:.85; }
+body[data-chat-state="thinking"] :is(.widget-shell,.composer,.chat-activity-border,.mode-morph-rim,#avatarShell,.arrive-pulse) { --chat-light-primary:rgb(var(--status-thinking-primary)); --chat-light-secondary:rgb(var(--status-thinking-secondary)); --chat-light-energy:.85; }
+body[data-chat-state="writing"] :is(.widget-shell,.composer,.chat-activity-border,.mode-morph-rim,#avatarShell,.arrive-pulse) { --chat-light-primary:rgb(var(--status-writing-primary)); --chat-light-secondary:rgb(var(--status-writing-secondary)); --chat-light-energy:.9; }
+body[data-chat-state="tool"] :is(.widget-shell,.composer,.chat-activity-border,.mode-morph-rim,#avatarShell,.arrive-pulse) { --chat-light-primary:rgb(var(--status-tool-primary)); --chat-light-secondary:rgb(var(--status-tool-secondary)); --chat-light-energy:.85; }
+body[data-chat-state="done"] :is(.widget-shell,.composer,.chat-activity-border,.mode-morph-rim,#avatarShell,.arrive-pulse) { --chat-light-primary:rgb(var(--status-done-primary)); --chat-light-secondary:rgb(var(--status-done-secondary)); --chat-light-energy:.52; }
+body[data-chat-state="error"] :is(.widget-shell,.composer,.chat-activity-border,.mode-morph-rim,#avatarShell,.arrive-pulse) { --chat-light-primary:rgb(var(--status-error-primary)); --chat-light-secondary:rgb(var(--status-error-secondary)); --chat-light-energy:.58; }
+body[data-chat-state="offline"] :is(.widget-shell,.composer,.chat-activity-border,.mode-morph-rim,#avatarShell,.arrive-pulse) { --chat-light-primary:rgb(var(--status-offline-primary)); --chat-light-secondary:rgb(var(--status-offline-secondary)); --chat-light-energy:.2; }
 body[data-chat-state="offline"] .widget-shell::before, body[data-chat-state="offline"] .widget-shell::after, .mode-full[data-chat-state="offline"] #avatarShell::before, .mode-full[data-chat-state="offline"] #avatarShell img { animation:none; }
 body[data-chat-state="waiting"] .widget-shell::after { animation:chat-glow-breathe 3.8s ease-in-out infinite; }
 body[data-chat-state="thinking"] .widget-shell::after { animation:chat-glow-breathe 5s ease-in-out infinite; }
@@ -189,12 +194,16 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .eyebrow { display:block; max-width:100%; overflow:hidden; color:var(--dim); font-size:9.5px; font-weight:650; letter-spacing:.12em; text-overflow:ellipsis; white-space:nowrap; }
 .title { max-width:100%; min-width:0; margin-top:1px; display:flex; align-items:center; gap:7px; overflow:hidden; font-size:15px; font-weight:650; letter-spacing:-.01em; white-space:nowrap; }
 .product-name { min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--text); }
+/* With a chat open the title is the chat's name, and the version steps aside for it. */
+.brand.has-chat .version-badge { display:none; }
+.brand-copy-button:hover .product-name { color:#fff; }
 .title small { margin-left:2px; color:var(--muted); font-size:11px; font-weight:500; }
 /* At 7px and below "v0.9.0" rendered as a blob in which the leading zero and its dot
    vanished, and the widget read as version 9. Tabular figures and a little tracking
    keep every digit and separator distinct at the smallest size the header can afford. */
 .version-badge { flex:none; display:inline-flex; align-items:center; padding:3px 6px; border:1px solid var(--line); border-radius:999px; background:rgba(255,255,255,.035); color:var(--muted); font-size:10px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:.01em; line-height:1; vertical-align:1px; }
-.header-update-button { flex:none; min-width:0; height:24px; padding:0 9px; border:1px solid color-mix(in srgb,var(--mint) 40%,transparent); border-radius:999px; background:color-mix(in srgb,var(--mint) 14%,transparent); color:#e4fff8; font-size:11px; font-weight:650; letter-spacing:0; cursor:pointer; animation:update-ready-pulse 3.2s ease-in-out infinite; }
+.header-update-button { position:relative; flex:none; min-width:0; height:24px; padding:0 9px; border:1px solid color-mix(in srgb,var(--mint) 40%,transparent); border-radius:999px; background:color-mix(in srgb,var(--mint) 14%,transparent); color:#e4fff8; font-size:11px; font-weight:650; letter-spacing:0; cursor:pointer; }
+.header-update-button::after { content:""; position:absolute; inset:-1px; border-radius:inherit; box-shadow:0 0 0 3px color-mix(in srgb,var(--mint) 16%,transparent); opacity:0; pointer-events:none; animation:update-ready-pulse 3.2s ease-in-out infinite; }
 .header-update-button:hover,.header-update-button:focus-visible { border-color:color-mix(in srgb,var(--mint) 70%,transparent); background:color-mix(in srgb,var(--mint) 22%,transparent); }
 .header-update-button[hidden] { display:none; }
 .window-actions { flex:none; gap:2px; }
@@ -535,10 +544,13 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 /* Three quiet placeholders shaped like the conversation they stand in for: prose, a reply
    bubble, prose. A soft shimmer passes through them while history is on its way. */
 .transcript-skeleton { display:grid; gap:14px; padding:6px 0; }
-.skeleton-bubble { height:44px; border-radius:var(--radius-sm); background:linear-gradient(100deg,rgba(255,255,255,.035) 25%,rgba(255,255,255,.075) 50%,rgba(255,255,255,.035) 75%); background-size:240% 100%; animation:skeleton-sweep 1.4s ease-in-out infinite; }
-.skeleton-bubble:nth-child(2) { height:34px; justify-self:end; border-radius:16px 16px 6px 16px; background-image:linear-gradient(100deg,color-mix(in srgb,var(--mint) 7%,transparent) 25%,color-mix(in srgb,var(--violet) 12%,transparent) 50%,color-mix(in srgb,var(--mint) 7%,transparent) 75%); }
-.skeleton-bubble:nth-child(3) { height:60px; animation-delay:.12s; }
-@keyframes skeleton-sweep { from { background-position:120% 0; } to { background-position:-120% 0; } }
+.skeleton-bubble { position:relative; height:44px; overflow:hidden; border-radius:var(--radius-sm); background:rgba(255,255,255,.035); }
+.skeleton-bubble::before { content:""; position:absolute; top:0; bottom:0; left:0; width:240%; background:linear-gradient(100deg,transparent 25%,rgba(255,255,255,.045) 50%,transparent 75%); animation:skeleton-sweep 1.4s ease-in-out infinite; }
+.skeleton-bubble:nth-child(2) { height:34px; justify-self:end; border-radius:16px 16px 6px 16px; background:color-mix(in srgb,var(--mint) 7%,transparent); }
+.skeleton-bubble:nth-child(2)::before { background-image:linear-gradient(100deg,transparent 25%,color-mix(in srgb,var(--violet) 10%,transparent) 50%,transparent 75%); }
+.skeleton-bubble:nth-child(3) { height:60px; }
+.skeleton-bubble:nth-child(3)::before { animation-delay:.12s; }
+@keyframes skeleton-sweep { from { transform:translateX(-70%); } to { transform:translateX(70%); } }
 .bubble.mark-target { animation:mark-target-pulse 1.1s ease-out; }
 @keyframes mark-target-pulse {
   0%, 100% { box-shadow:0 0 0 0 rgba(73,231,198,0); }
@@ -566,7 +578,7 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
    the things that are not prose - your own messages, notices and failures. A row's height
    never depends on the window's width class: crossing a breakpoint while reading must not
    move every row above the anchor and slide the conversation out from under the reader. */
-.bubble { position:relative; display:flow-root; width:100%; max-width:none; margin:0 0 12px; padding:1px 2px; border-radius:var(--radius-md); background:transparent; color:color-mix(in srgb,#e4e8ee calc(var(--text-alpha,1) * 100%),transparent); font-size:14px; line-height:1.55; overflow-wrap:anywhere; }
+.bubble { position:relative; display:flow-root; width:100%; max-width:none; margin:0 0 12px; padding:1px 2px; border-radius:var(--radius-md); background:transparent; color:color-mix(in srgb,#e4e8ee calc(var(--text-alpha,1) * 100%),transparent); font-size:14px; line-height:1.42; overflow-wrap:anywhere; }
 /* Wide messages leave no exterior action gutter. Float controls inside the
    first line so short messages do not gain an invisible 24px footer. The float is a line
    tall, not a button tall: at 24px it also pushed in the second line of every answer, and
@@ -655,8 +667,8 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .tool-group > summary:hover { background:rgba(255,255,255,.035); }
 .tool-group > summary > .ui-icon:first-child { width:15px; height:15px; color:var(--muted); }
 /* A group still working says so on its own glyph rather than with another line of text. */
-.tool-group.running > summary > .ui-icon:first-child { animation:tool-running 1.7s ease-in-out infinite; }
-@keyframes tool-running { 0%,100% { opacity:.55; color:var(--warning); } 50% { opacity:1; color:var(--warning); } }
+.tool-group.running > summary > .ui-icon:first-child { color:var(--warning); animation:tool-running 1.7s ease-in-out infinite; }
+@keyframes tool-running { 0%,100% { opacity:.55; } 50% { opacity:1; } }
 .tool-group.failed > summary > .ui-icon:first-child { color:#ff8fa5; }
 .tool-group.partial-failure > summary > .ui-icon:first-child { color:var(--warning); }
 .tool-group-identity { min-width:0; flex:1; display:flex; align-items:baseline; gap:8px; }
@@ -669,11 +681,12 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .tool-group-body { padding:2px 6px 2px; }
 .tool-group-body > .tool-call { max-width:100%; margin-bottom:5px; background:rgba(255,255,255,.02); }
 .tool-group-body > .tool-call.nested { margin-left:12px; }
-/* Markdown typography: headings by weight and size rather than colour, generous paragraph
-   rhythm, code and tables on their own darker plates. */
-.bubble p, .reasoning-text p { margin:0 0 .65em; }
+/* Markdown typography: headings by weight and size rather than colour, a close reading
+   rhythm (lines sit at 1.42, paragraphs half a line apart), code and tables on their own
+   darker plates. */
+.bubble p, .reasoning-text p { margin:0 0 .5em; }
 .bubble p:last-child, .reasoning-text p:last-child { margin-bottom:0; }
-.bubble h1, .bubble h2, .bubble h3, .bubble h4, .bubble h5, .bubble h6, .reasoning-text h1, .reasoning-text h2, .reasoning-text h3, .reasoning-text h4 { margin:.95em 0 .4em; color:#f5f7fa; font-weight:650; line-height:1.3; letter-spacing:-.005em; }
+.bubble h1, .bubble h2, .bubble h3, .bubble h4, .bubble h5, .bubble h6, .reasoning-text h1, .reasoning-text h2, .reasoning-text h3, .reasoning-text h4 { margin:.8em 0 .35em; color:#f5f7fa; font-weight:650; line-height:1.3; letter-spacing:-.005em; }
 .bubble > :is(h1,h2,h3,h4,h5,h6):first-child, .bubble > .bubble-actions + :is(h1,h2,h3,h4,h5,h6,p,ul,ol,pre,blockquote,table,.code-block) { margin-top:0; }
 .bubble h1 { font-size:1.28em; }
 .bubble h2 { font-size:1.16em; }
@@ -682,8 +695,8 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 .bubble strong, .reasoning-text strong { color:#fff; font-weight:650; }
 .bubble em, .reasoning-text em { color:inherit; font-style:italic; }
 .bubble s, .reasoning-text s { color:var(--muted); text-decoration-color:rgba(255,255,255,.4); }
-.bubble ul, .bubble ol, .reasoning-text ul, .reasoning-text ol { margin:.35em 0 .7em; padding-left:1.35em; }
-.bubble li, .reasoning-text li { margin:.22em 0; padding-left:.15em; }
+.bubble ul, .bubble ol, .reasoning-text ul, .reasoning-text ol { margin:.3em 0 .55em; padding-left:1.35em; }
+.bubble li, .reasoning-text li { margin:.1em 0; padding-left:.15em; }
 .bubble li > p { margin:0; }
 .bubble li::marker, .reasoning-text li::marker { color:color-mix(in srgb,var(--mint) 70%,var(--muted)); }
 .bubble blockquote, .reasoning-text blockquote { margin:.6em 0; padding:1px 0 1px 12px; border-left:2px solid rgba(255,255,255,.18); color:var(--text-2); }
@@ -746,16 +759,24 @@ body[data-chat-state="tool"] .widget-shell::after { animation:chat-glow-breathe 
 /* While the loop runs the glyph breathes; paused it is simply still. */
 .goal-dock[data-phase="active"] .goal-strip-action .ui-icon { animation:goal-breathe 2.8s ease-in-out infinite; }
 @keyframes goal-breathe { 0%,100% { opacity:.7; } 50% { opacity:1; } }
-.goal-track { min-width:0; flex:1; height:6px; overflow:hidden; border-radius:99px; background:rgba(255,255,255,.08); }
-.goal-track-fill { display:block; width:0; height:100%; border-radius:99px; background:linear-gradient(90deg,var(--mint),var(--violet),var(--mint)); background-size:200% 100%; animation:goal-flow 3.4s linear infinite; transition:width .3s var(--ease-out); }
-@keyframes goal-flow { from { background-position:0 0; } to { background-position:200% 0; } }
+.goal-track { position:relative; min-width:0; flex:1; height:6px; overflow:hidden; border-radius:99px; background:rgba(255,255,255,.08); }
+.goal-track-fill { position:relative; display:block; width:0; height:100%; overflow:hidden; border-radius:99px; background:var(--mint); transition:width .3s var(--ease-out); }
+/* The flow is a strip three fills long that slides by one period, so the colours run without
+   the fill being painted again. */
+.goal-track-fill::before, .goal-dock.goal-unbounded .goal-track::before { content:""; position:absolute; top:0; bottom:0; left:0; width:300%; background:linear-gradient(90deg,var(--mint),var(--violet),var(--mint)) 0 0 / 66.667% 100% repeat-x; animation:goal-flow 3.4s linear infinite; }
+@keyframes goal-flow { from { transform:none; } to { transform:translateX(-66.667%); } }
 /* An open-ended goal has no fraction to draw, so the whole rail carries the flow instead. */
-.goal-dock.goal-unbounded .goal-track { background:linear-gradient(90deg,color-mix(in srgb,var(--mint) 30%,transparent),color-mix(in srgb,var(--violet) 16%,transparent),color-mix(in srgb,var(--mint) 30%,transparent)); background-size:200% 100%; animation:goal-flow 3.4s linear infinite; }
-.goal-dock[data-phase="paused"] .goal-track-fill { background:linear-gradient(90deg,#ffc178,#ff9f6a); box-shadow:none; animation:none; }
-.goal-dock.goal-unbounded[data-phase="paused"] .goal-track { background:rgba(255,193,120,.2); animation:none; }
+.goal-dock.goal-unbounded .goal-track { background:transparent; }
+.goal-dock.goal-unbounded .goal-track::before { background-image:linear-gradient(90deg,color-mix(in srgb,var(--mint) 30%,transparent),color-mix(in srgb,var(--violet) 16%,transparent),color-mix(in srgb,var(--mint) 30%,transparent)); }
+.goal-dock[data-phase="paused"] .goal-track-fill { background:linear-gradient(90deg,#ffc178,#ff9f6a); box-shadow:none; }
+.goal-dock[data-phase="paused"] .goal-track-fill::before { display:none; }
+.goal-dock.goal-unbounded[data-phase="paused"] .goal-track { background:rgba(255,193,120,.2); }
+.goal-dock.goal-unbounded[data-phase="paused"] .goal-track::before { display:none; }
 /* A goal that reached its end stops flowing too, but keeps its own colour: it is done, not waiting. */
-.goal-dock[data-phase="complete"] .goal-track-fill { box-shadow:none; animation:none; }
-.goal-dock.goal-unbounded[data-phase="complete"] .goal-track { animation:none; }
+.goal-dock[data-phase="complete"] .goal-track-fill { box-shadow:none; background:linear-gradient(90deg,var(--mint),var(--violet)); }
+.goal-dock[data-phase="complete"] .goal-track-fill::before { display:none; }
+.goal-dock.goal-unbounded[data-phase="complete"] .goal-track { background:linear-gradient(90deg,color-mix(in srgb,var(--mint) 30%,transparent),color-mix(in srgb,var(--violet) 16%,transparent)); }
+.goal-dock.goal-unbounded[data-phase="complete"] .goal-track::before { display:none; }
 .goal-rounds { flex:none; color:var(--muted); font-size:10px; font-weight:600; letter-spacing:.02em; font-variant-numeric:tabular-nums; }
 .goal-chevron { flex:none; width:15px; height:15px; color:var(--dim); transform:rotate(180deg); transition:transform var(--dur-2) var(--ease-out); }
 .goal-dock[open] .goal-chevron { transform:rotate(0deg); }
@@ -1224,10 +1245,17 @@ input[type="range"] { -webkit-user-drag:none; touch-action:none; }
 .mode-edge.state-error { --edge-primary:rgb(var(--status-error-primary)); --edge-secondary:rgb(var(--status-error-secondary)); --edge-halo-color:rgba(var(--status-error-primary),.5); --edge-halo-opacity:.58; }
 .mode-edge.state-done { --edge-primary:rgb(var(--status-done-primary)); --edge-secondary:rgb(var(--status-done-secondary)); --edge-halo-color:rgba(var(--status-done-primary),.5); --edge-halo-opacity:.6; }
 .mode-edge.state-offline { --edge-primary:rgb(var(--status-offline-primary)); --edge-secondary:rgb(var(--status-offline-secondary)); --edge-halo-color:rgba(var(--status-offline-secondary),.3); --edge-halo-opacity:.18; }
-.mode-edge.state-idle .edge-line { animation:edge-flow 5.4s linear infinite; }
-.mode-edge.state-working .edge-line, .mode-edge.activity-writing .edge-line { animation:edge-flow 1.15s linear infinite,edge-working-energy .82s ease-in-out infinite alternate; }
+/* The colours run along the line on a strip of their own (.edge-flow), slid by the
+   compositor: the line rests in this mode for hours, and a moving background repainted it
+   on every frame of them. */
+.edge-flow { position:absolute; inset:0; overflow:hidden; border-radius:inherit; pointer-events:none; }
+.edge-flow::before { content:""; position:absolute; top:0; right:0; left:0; height:420%; background:linear-gradient(180deg,var(--edge-primary),var(--edge-secondary),var(--edge-primary)) 0 0 / 100% 52.381% repeat-y; }
+.mode-edge.state-idle .edge-flow::before { animation:edge-flow 5.4s linear infinite; }
+.mode-edge.state-working .edge-flow::before, .mode-edge.activity-writing .edge-flow::before { animation:edge-flow 1.15s linear infinite; }
+.mode-edge.state-working .edge-line, .mode-edge.activity-writing .edge-line { animation:edge-working-energy .82s ease-in-out infinite alternate; }
 .mode-edge.state-working .edge-line::before, .mode-edge.activity-writing .edge-line::before { animation:edge-halo-pulse .9s ease-in-out infinite; }
-.mode-edge.activity-thinking .edge-line, .mode-edge.activity-tool .edge-line, .mode-edge.state-waiting .edge-line { animation:edge-flow 1.9s linear infinite; }
+.mode-edge.activity-thinking .edge-flow::before, .mode-edge.activity-tool .edge-flow::before, .mode-edge.state-waiting .edge-flow::before { animation:edge-flow 1.9s linear infinite; }
+.mode-edge.activity-thinking .edge-line, .mode-edge.activity-tool .edge-line, .mode-edge.state-waiting .edge-line { animation:none; }
 .mode-edge.activity-thinking .edge-line::before, .mode-edge.activity-tool .edge-line::before, .mode-edge.state-waiting .edge-line::before { animation:edge-halo-pulse 1.7s ease-in-out infinite; }
 .mode-edge.state-error .edge-line { animation:edge-error-pulse .62s ease-in-out 4 alternate; }
 .mode-edge.state-error .edge-line::before { animation:edge-halo-pulse .62s ease-in-out 4 alternate; }
@@ -1269,7 +1297,7 @@ input[type="range"] { -webkit-user-drag:none; touch-action:none; }
 @keyframes orb-ring-turn { to{transform:rotate(360deg)} }
 @keyframes orb-halo-pulse { 0%,100%{opacity:calc(var(--orb-ring-opacity) * .24);transform:scale(.96)} 50%{opacity:calc(var(--orb-ring-opacity) * .34);transform:scale(1.02)} }
 @keyframes edge-halo-pulse { 0%,100%{opacity:calc(var(--edge-halo-opacity) * .72);transform:scaleX(.92)} 50%{opacity:var(--edge-halo-opacity);transform:scaleX(1)} }
-@keyframes edge-flow { to{background-position:0 220%} }
+@keyframes edge-flow { from{transform:none} to{transform:translateY(-52.381%)} }
 @keyframes edge-working-energy { from{filter:brightness(.96) saturate(1);transform:translateY(-50%) scaleY(.97)} to{filter:brightness(1.24) saturate(1.18);transform:translateY(-50%) scaleY(1.035)} }
 @keyframes edge-hover-spring-right { 0%{transform:none} 58%{transform:translateX(-4px) scaleY(1.055)} 100%{transform:translateX(-3px) scaleY(1.035)} }
 @keyframes edge-hover-spring-left { 0%{transform:none} 58%{transform:translateX(4px) scaleY(1.055)} 100%{transform:translateX(3px) scaleY(1.035)} }
@@ -1374,7 +1402,7 @@ input[type="range"] { -webkit-user-drag:none; touch-action:none; }
   .titlebar:has(.header-update-button:not([hidden])) .tabs { width:56px; }
 }
 
-@keyframes update-ready-pulse { 0%,100% { box-shadow:0 0 0 0 color-mix(in srgb,var(--mint) 0%,transparent); } 50% { box-shadow:0 0 0 3px color-mix(in srgb,var(--mint) 16%,transparent); } }
+@keyframes update-ready-pulse { 50% { opacity:1; } }
 
 @media (max-height:420px) {
   .command-menu-head { min-height:30px; padding:4px 10px; }
@@ -1414,8 +1442,18 @@ input[type="range"] { -webkit-user-drag:none; touch-action:none; }
 /* Motion is how the widget says what it is doing. It stays on the surfaces that carry
    state - the live activity, the composer you are typing into, the controls you press -
    and never on the reading surfaces, so nothing moves under the text. */
-.activity-card.has-activity { background-size:200% 100%; animation:activity-drift 7.5s ease-in-out infinite; }
-@keyframes activity-drift { 0%,100% { background-position:0% 50%; } 50% { background-position:100% 50%; } }
+/* A loop that never ends moves a layer, never a paint: the light is a strip of its own that
+   the compositor slides, so a working agent costs the page nothing per frame. Animating a
+   background position instead restyled the page on every frame for as long as it worked. */
+.activity-card.has-activity { position:relative; isolation:isolate; }
+.activity-card.has-activity::before { content:""; position:absolute; z-index:-1; top:0; bottom:0; left:0; width:200%; background:inherit; pointer-events:none; animation:activity-drift 7.5s ease-in-out infinite; }
+@keyframes activity-drift { 0%,100% { transform:none; } 50% { transform:translateX(-50%); } }
+/* Between turns the row stays where it is and goes quiet: no light, a dimmer eye. */
+.activity-card.resting::before { animation:none; opacity:0; }
+.activity-card.resting > summary > .ui-icon:first-child { opacity:.5; }
+.activity-card.resting.thinking-activity { border-color:var(--line-soft); }
+/* At the smallest sizes the conversation needs those 30 pixels more than the row does. */
+@media (max-height:420px) { .activity-card.placeholder.has-activity { display:none; } }
 .composer { transition:border-color var(--dur-2) ease, box-shadow var(--dur-3) ease; }
 .composer:focus-within { border-color:color-mix(in srgb,var(--mint) 42%,transparent); box-shadow:0 0 0 3px color-mix(in srgb,var(--mint) 11%,transparent), var(--shadow-1); }
 .composer #sendButton { transition:transform var(--dur-1) ease, filter var(--dur-1) ease, background-color var(--dur-2) ease, color var(--dur-2) ease, box-shadow var(--dur-2) ease; }
@@ -1437,8 +1475,8 @@ input[type="range"] { -webkit-user-drag:none; touch-action:none; }
 .session-card { transition:border-color var(--dur-2) ease, background-color var(--dur-2) ease, box-shadow var(--dur-2) ease; }
 .session-card:hover { box-shadow:var(--shadow-1); }
 .session-card.state-working { position:relative; overflow:hidden; }
-.session-card.state-working::after { content:""; position:absolute; inset:0; pointer-events:none; background:linear-gradient(105deg,transparent 35%,color-mix(in srgb,var(--mint) 6%,transparent) 50%,transparent 65%); background-size:250% 100%; animation:card-sweep 3.6s linear infinite; }
-@keyframes card-sweep { from { background-position:120% 0; } to { background-position:-120% 0; } }
+.session-card.state-working::after { content:""; position:absolute; top:0; bottom:0; left:0; width:250%; pointer-events:none; background:linear-gradient(105deg,transparent 35%,color-mix(in srgb,var(--mint) 6%,transparent) 50%,transparent 65%); animation:card-sweep 3.6s linear infinite; }
+@keyframes card-sweep { from { transform:translateX(-72%); } to { transform:translateX(72%); } }
 /* Settings rows arrive one after another, a few milliseconds apart. */
 .settings-panel.open > * { animation:settings-row .32s cubic-bezier(.16,1,.3,1) both; }
 .settings-panel.open > :nth-child(2) { animation-delay:.025s; }
@@ -1453,7 +1491,7 @@ input[type="range"] { -webkit-user-drag:none; touch-action:none; }
 
 /* The isolated shell keeps its light behind controls and above its own background. It is a
    faint tint of the state colour drifting at the edges - present, never competing with text. */
-.widget-shell::before { content:""; position:absolute; z-index:-1; inset:-8%; pointer-events:none; background:radial-gradient(ellipse at 18% 18%,color-mix(in srgb,var(--chat-light-secondary) 30%,transparent),transparent 50%),radial-gradient(ellipse at 85% 82%,color-mix(in srgb,var(--chat-light-primary) 26%,transparent),transparent 48%); opacity:calc(var(--chat-glow-intensity) * var(--panel-background-opacity) * (.12 + var(--chat-light-energy) * .3)); transform:translate3d(0,0,0); animation:aurora-drift 28s ease-in-out infinite alternate; transition:opacity .9s ease; }
+.widget-shell::before { content:""; position:absolute; z-index:-1; inset:-8%; pointer-events:none; background:radial-gradient(ellipse at 18% 18%,color-mix(in srgb,var(--chat-light-secondary) 30%,transparent),transparent 50%),radial-gradient(ellipse at 85% 82%,color-mix(in srgb,var(--chat-light-primary) 26%,transparent),transparent 48%); opacity:calc(var(--chat-glow-intensity) * var(--panel-background-opacity) * (.12 + var(--chat-light-energy) * .3)); transform:translate3d(0,0,0); animation:aurora-drift 28s ease-in-out infinite alternate; transition:opacity .9s ease,--chat-light-primary .9s ease,--chat-light-secondary .9s ease; }
 body[data-chat-state="writing"] .widget-shell::before { animation-duration:14s; }
 body[data-chat-state="waiting"] .widget-shell::before, body[data-chat-state="thinking"] .widget-shell::before { animation-duration:20s; }
 @keyframes aurora-drift { 0% { transform:translate3d(-3%,-2%,0) scale(1); } 50% { transform:translate3d(2%,3%,0) scale(1.035); } 100% { transform:translate3d(-1%,4%,0) scale(1.015); } }
@@ -1558,7 +1596,8 @@ body.screenshot-backdrop-checkerboard { background:conic-gradient(#eef2f7 25%,#2
 .question-dock.collapsed .question-peek { display:block; }
 .question-dock.collapsed .question-head small { margin-left:0; }
 .question-dock.collapsed .question-fold .ui-icon { transform:none; }
-.question-pulse { width:8px; height:8px; flex:none; border-radius:50%; background:var(--violet); animation:question-pulse 1.8s ease-out infinite; }
+.question-pulse { position:relative; width:8px; height:8px; flex:none; border-radius:50%; background:var(--violet); }
+.question-pulse::after { content:""; position:absolute; inset:0; border-radius:50%; background:var(--violet); opacity:.65; animation:question-pulse 1.8s ease-out infinite; }
 .question-body { min-height:0; display:flex; flex-direction:column; gap:12px; overflow-y:auto; overscroll-behavior:contain; padding-right:2px; }
 .question-body::-webkit-scrollbar { width:5px; }
 .question-body::-webkit-scrollbar-thumb { background:rgba(255,255,255,.14); border-radius:5px; }
@@ -1591,7 +1630,7 @@ body.screenshot-backdrop-checkerboard { background:conic-gradient(#eef2f7 25%,#2
 .question-submit:disabled { opacity:.42; cursor:default; }
 .question-submit:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
 @keyframes question-in { from { opacity:0; transform:translateY(8px) scale(.985); } to { opacity:1; transform:none; } }
-@keyframes question-pulse { 0% { box-shadow:0 0 0 0 color-mix(in srgb,var(--violet) 65%,transparent); } 70%,100% { box-shadow:0 0 0 7px color-mix(in srgb,var(--violet) 0%,transparent); } }
+@keyframes question-pulse { 0% { opacity:.65; transform:none; } 70%,100% { opacity:0; transform:scale(2.75); } }
 /* A chat stopped on a question, in Agents: waiting on the user, not working. */
 .session-state.asking { border-color:color-mix(in srgb,var(--violet) 42%,transparent); background:color-mix(in srgb,var(--violet) 14%,transparent); color:#d6cfff; }
 .session-card.asking { border-color:color-mix(in srgb,var(--violet) 24%,transparent); }

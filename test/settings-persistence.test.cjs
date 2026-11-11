@@ -100,6 +100,7 @@ const completePreferences = {
   compactAutoExpand: true,
   collapseAfterSend: false,
   petMode: false,
+  keepGamesInFront: false,
   size: "large",
   windowLayer: "game",
   compactSide: "left",
@@ -311,6 +312,7 @@ const preferenceMutations = [
   ["avatar auto expand", (value) => ({ ...value, compactAutoExpand: false })],
   ["back to the avatar after sending", (value) => ({ ...value, collapseAfterSend: true })],
   ["pet mode", (value) => ({ ...value, petMode: true })],
+  ["keeping fullscreen games in front", (value) => ({ ...value, keepGamesInFront: true })],
   ["size", (value) => ({ ...value, size: "compact" })],
   ["window layer", (value) => ({ ...value, windowLayer: "normal" })],
   ["private overlay", (value) => ({ ...value, windowLayer: "private" })],
@@ -454,6 +456,8 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     collapseAfterSend: true,
     // On unless the file says otherwise: the avatar lives on the desktop as a pet.
     petMode: true,
+    // On unless the file says otherwise: a click on the widget leaves a fullscreen game focused.
+    keepGamesInFront: true,
     size: "compact",
     windowLayer: "normal",
     compactSide: "left",
