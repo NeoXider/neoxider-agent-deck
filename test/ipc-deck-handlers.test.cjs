@@ -20,7 +20,7 @@ test("every Harness channel is registered through the guarded handle()", () => {
   const { handlers } = register();
   assert.deepEqual([...handlers.keys()].sort(), [
     "agent-presets", "archive-session", "check-harness-runtime", "copy-text", "get-harness-runtime", "get-harness-target", "goal-activation", "interrupt-subagent", "job-output",
-    "kill-job", "open-dsh-desktop", "open-viewer", "pin-session", "restart-harness", "session-jobs", "set-font-family", "set-harness-target", "set-keep-games-in-front", "set-recent-sessions-open", "take-keyboard-focus", "unarchive-session", "update-harness",
+    "kill-job", "open-dsh-desktop", "open-viewer", "pin-session", "release-window-surface", "restart-harness", "session-jobs", "set-font-family", "set-harness-target", "set-keep-games-in-front", "set-performance-mode", "set-recent-sessions-open", "set-solid-window", "settle-window-surface", "take-keyboard-focus", "unarchive-session", "update-harness",
   ]);
 });
 
@@ -140,4 +140,23 @@ test("session tasks validate ids, reach the task service and refresh the list af
   await assert.rejects(call("archive-session", "  "), /session id is required/);
   assert.deepEqual(await call("interrupt-subagent", "kid", "parent"), { child: "kid", parent: "parent" });
   await assert.rejects(call("interrupt-subagent", "kid", ""), /session id is required/);
+});
+
+test("the solid window and optimized mode are saved and applied to the window at once", async () => {
+  const preferences = {};
+  const surface = { calls: [], apply() { this.calls.push("apply"); return preferences.solidWindow || preferences.performanceMode ? "solid" : "clear"; }, settle(color) { this.calls.push(`settle ${color}`); return "solid"; }, release() { this.calls.push("release"); return "clear"; } };
+  let saves = 0;
+  const { call } = register({ getWindowSurface: () => surface, getPreferences: () => preferences, schedulePreferenceSave: () => { saves += 1; } });
+  assert.deepEqual(await call("set-solid-window", true), { solidWindow: true, surface: "solid" });
+  assert.deepEqual(await call("set-solid-window", "yes"), { solidWindow: false, surface: "clear" }, "only a real true turns it on");
+  assert.deepEqual(await call("set-performance-mode", true), { performanceMode: true, surface: "solid" });
+  assert.deepEqual(preferences, { solidWindow: false, performanceMode: true });
+  assert.equal(await call("settle-window-surface", "#1a2b3c"), "solid");
+  assert.equal(await call("release-window-surface"), "clear");
+  assert.deepEqual([saves, surface.calls], [3, ["apply", "apply", "apply", "settle #1a2b3c", "release"]]);
+  // Before the window exists there is nothing to make solid.
+  const early = register({ getPreferences: () => ({}) });
+  assert.deepEqual(await early.call("set-solid-window", true), { solidWindow: true, surface: "clear" });
+  assert.equal(await early.call("settle-window-surface", "#1a2b3c"), "clear");
+  assert.equal(await early.call("release-window-surface"), "clear");
 });

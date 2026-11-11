@@ -44,6 +44,8 @@ const state = {
   currentActivity: null,
   showThinking: true,
   motionEffects: true,
+  solidWindow: false,
+  performanceMode: false,
   compactAutoExpand: false,
   collapseAfterSend: true,
   petMode: true,
@@ -1193,6 +1195,10 @@ function playFirstVisibleEntry() {
   firstVisibleEntryPlayed = true;
   document.body.classList.remove("pre-native-visible");
   if (prefersReducedMotion()) return false;
+  // The entrance grows the widget inside its window, so a window that settled solid before
+  // the main process said it was visible gives its alpha back first.
+  if (windowSurfaceState !== "clear") releaseWindowSurface();
+  queueWindowSurfaceSettle();
   // The full widget opens out of the slime in its own title bar.
   const brand = state.windowMode === "full" ? $("#avatarShell")?.getBoundingClientRect() : null;
   if (brand?.width) setModeMorphOrigin(null, { x: brand.left + brand.width / 2, y: brand.top + brand.height / 2 });
@@ -1406,6 +1412,8 @@ function applyWindowMode(mode) {
   clearModeTransitionClasses("out");
   hideChatTooltip();
   state.windowMode = mode;
+  clearTimeout(windowSurfaceTimer);
+  markWindowSurface("clear");
   if (mode !== "full") {
     state.transcriptModeRestore = null;
     state.returnToAvatarSessionId = null;
@@ -1442,7 +1450,7 @@ function applyWindowMode(mode) {
     if (state.currentActivity?.kind === "error") setActivity(null);
   }
   animateModeEnter(previousMode);
-  if (mode === "full") restoreTranscriptAfterModeChange();
+  if (mode === "full") { restoreTranscriptAfterModeChange(); queueWindowSurfaceSettle(); }
   syncCompactStatus();
   // syncCompactStatus only republishes when its own signature changed, and entering avatar
   // mode usually changes nothing it tracks — so the measurement has to be forced here, or
@@ -1455,6 +1463,8 @@ async function setWindowMode(mode) {
   if (mode !== "full") clearAcknowledgedErrorPresentation();
   const requestSequence = ++modeRequestSequence;
   try {
+    if (state.windowMode === "full" && mode !== "full") await releaseWindowSurface();
+    if (requestSequence !== modeRequestSequence) return state.windowMode;
     if (!await animateModeExit(mode, requestSequence) || requestSequence !== modeRequestSequence) return state.windowMode;
     const appliedMode = await window.widget.setWindowMode(mode);
     if (requestSequence !== modeRequestSequence) return state.windowMode;
@@ -7897,11 +7907,104 @@ function applyShowThinking(value) {
 // the whole lot off for anyone who would rather have it still.
 function applyMotionEffects(value) {
   state.motionEffects = value !== false;
-  $("#motionEffectsToggle").checked = state.motionEffects;
-  document.body.classList.toggle("motion-off", !state.motionEffects);
-  // Nothing built while motion was off may replay its entrance now that it is back on.
-  if (state.motionEffects) $$("#messages > .enter").forEach((node) => node.classList.remove("enter"));
+  syncMotionClass();
   return state.motionEffects;
+}
+
+function syncMotionClass() {
+  const moving = state.motionEffects && !state.performanceMode;
+  const toggle = $("#motionEffectsToggle");
+  toggle.checked = moving;
+  toggle.disabled = state.performanceMode;
+  document.body.classList.toggle("motion-off", !moving);
+  // Nothing built while motion was off may replay its entrance now that it is back on.
+  if (moving) $$("#messages > .enter").forEach((node) => node.classList.remove("enter"));
+}
+
+// Solid window and Optimized mode. A transparent window has to be blended by the desktop
+// compositor on every frame, and on some machines that stalls every animation in it for a
+// tenth of a second at a time; a solid one does not (window-surface.cjs has the numbers).
+// The main process owns the window; this side says when the full widget is at rest, which is
+// the only time it may be solid, and takes the solid surface back before a fold.
+let windowSurfaceState = "clear";
+let windowSurfaceTimer = 0;
+const solidWindowWanted = () => state.solidWindow || state.performanceMode;
+
+function markWindowSurface(surface) {
+  windowSurfaceState = surface === "solid" ? "solid" : "clear";
+  document.body.classList.toggle("surface-solid", windowSurfaceState === "solid");
+}
+
+function fullWidgetAtRest() {
+  const classes = document.body.classList;
+  return state.windowMode === "full"
+    && !["mode-transition-in", "mode-transition-out", "mode-transition-pending", "first-visible-entry"].some((name) => classes.contains(name));
+}
+
+function shellColorHex() {
+  const match = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle($(".widget-shell")).backgroundColor);
+  return match ? `#${match.slice(1, 4).map((part) => Number(part).toString(16).padStart(2, "0")).join("")}` : "";
+}
+
+// The transitions end on timers of their own, so this looks again until nothing is folding,
+// unfolding or making its entrance, and only then asks for the solid surface.
+function queueWindowSurfaceSettle() {
+  clearTimeout(windowSurfaceTimer);
+  if (!solidWindowWanted() || state.windowMode !== "full" || !window.widget.settleWindowSurface) return;
+  windowSurfaceTimer = setTimeout(async () => {
+    if (!fullWidgetAtRest()) { queueWindowSurfaceSettle(); return; }
+    windowSurfaceState = "settling";
+    try {
+      const surface = await window.widget.settleWindowSurface(shellColorHex());
+      // A fold that began while the answer was on its way has already released it.
+      if (windowSurfaceState === "settling") markWindowSurface(fullWidgetAtRest() ? surface : "clear");
+    } catch { markWindowSurface("clear"); }
+  }, 140);
+}
+
+async function releaseWindowSurface() {
+  clearTimeout(windowSurfaceTimer);
+  if (windowSurfaceState === "clear") return;
+  markWindowSurface("clear");
+  try { await window.widget.releaseWindowSurface(); } catch { /* the main process releases on the mode change as well */ }
+  // Two frames, so the window has its alpha back before anything shrinks inside it.
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+function applySurfacePreferences() {
+  const solid = solidWindowWanted();
+  document.body.classList.toggle("solid-window", solid);
+  document.body.classList.toggle("performance-mode", state.performanceMode);
+  const solidToggle = $("#solidWindowToggle");
+  solidToggle.checked = solid;
+  solidToggle.disabled = state.performanceMode;
+  $("#performanceModeToggle").checked = state.performanceMode;
+  // The three sliders say how see-through the widget is; solid, it is not.
+  for (const id of ["opacityRange", "backgroundOpacityRange", "textOpacityRange"]) {
+    const range = $(`#${id}`);
+    if (!range) continue;
+    const unavailable = id === "opacityRange" && state.platformPresentation?.opacityAvailable === false;
+    range.disabled = solid || unavailable;
+    range.title = solid ? "Off while the window is solid" : "";
+  }
+  syncMotionClass();
+  if (solid) queueWindowSurfaceSettle();
+  else { clearTimeout(windowSurfaceTimer); markWindowSurface("clear"); }
+}
+
+async function setSurfacePreference(key, value) {
+  const previous = state[key];
+  state[key] = value === true;
+  applySurfacePreferences();
+  try {
+    const result = await (key === "performanceMode" ? window.widget.setPerformanceMode(state[key]) : window.widget.setSolidWindow(state[key]));
+    state[key] = result?.[key] === true;
+  } catch (error) {
+    state[key] = previous;
+    showError(error);
+  }
+  applySurfacePreferences();
+  return state[key];
 }
 
 function applyCompactAutoExpand(value) {
@@ -8304,7 +8407,7 @@ function applyPlatformCapabilities(capabilities) {
   const opacityRange = $("#opacityRange");
   const opacityStatus = $("#opacityStatus");
   opacitySetting.classList.toggle("unsupported", !presentation.opacityAvailable);
-  opacityRange.disabled = !presentation.opacityAvailable;
+  opacityRange.disabled = !presentation.opacityAvailable || solidWindowWanted();
   opacityRange.setAttribute("aria-disabled", String(!presentation.opacityAvailable));
   opacityStatus.textContent = presentation.opacityHint;
   opacityStatus.hidden = !presentation.opacityHint;
@@ -8377,6 +8480,11 @@ async function hydratePreferences() {
     confirmedTextOpacity = applyTextOpacity(preferences.textOpacity ?? 1);
     applyShowThinking(preferences.showThinking);
     applyMotionEffects(preferences.motionEffects);
+    state.solidWindow = preferences.solidWindow === true;
+    state.performanceMode = preferences.performanceMode === true;
+    // A renderer that was reloaded finds the window as the last one left it.
+    window.widget.releaseWindowSurface?.().catch(() => {});
+    applySurfacePreferences();
     window.deckAppearance?.apply(preferences.appearance);
     applyCompactAutoExpand(preferences.compactAutoExpand);
     applyCollapseAfterSend(preferences.collapseAfterSend);
@@ -9141,6 +9249,8 @@ $$('#windowLayerSwitch button').forEach((button) => button.addEventListener("cli
   syncPressed($$('#windowLayerSwitch button'), value, "layer");
 }));
 $("#autoStartToggle").addEventListener("change", updateAutoStartToggle);
+$("#solidWindowToggle").addEventListener("change", (event) => { setSurfacePreference("solidWindow", event.currentTarget.checked); });
+$("#performanceModeToggle").addEventListener("change", (event) => { setSurfacePreference("performanceMode", event.currentTarget.checked); });
 $("#motionEffectsToggle").addEventListener("change", async (event) => {
   const toggle = event.currentTarget;
   const previous = state.motionEffects;
@@ -9151,7 +9261,7 @@ $("#motionEffectsToggle").addEventListener("change", async (event) => {
   } catch {
     applyMotionEffects(previous);
   } finally {
-    toggle.disabled = false;
+    syncMotionClass();
   }
 });
 $("#showThinkingToggle").addEventListener("change", async (event) => {

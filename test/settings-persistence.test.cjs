@@ -101,6 +101,8 @@ const completePreferences = {
   collapseAfterSend: false,
   petMode: false,
   keepGamesInFront: false,
+  solidWindow: true,
+  performanceMode: true,
   size: "large",
   windowLayer: "game",
   compactSide: "left",
@@ -313,6 +315,8 @@ const preferenceMutations = [
   ["back to the avatar after sending", (value) => ({ ...value, collapseAfterSend: true })],
   ["pet mode", (value) => ({ ...value, petMode: true })],
   ["keeping fullscreen games in front", (value) => ({ ...value, keepGamesInFront: true })],
+  ["the solid window", (value) => ({ ...value, solidWindow: false })],
+  ["optimized mode", (value) => ({ ...value, performanceMode: false })],
   ["size", (value) => ({ ...value, size: "compact" })],
   ["window layer", (value) => ({ ...value, windowLayer: "normal" })],
   ["private overlay", (value) => ({ ...value, windowLayer: "private" })],
@@ -458,6 +462,9 @@ test("legacy alwaysOnTop migrates without losing other user settings", () => {
     petMode: true,
     // On unless the file says otherwise: a click on the widget leaves a fullscreen game focused.
     keepGamesInFront: true,
+    // Off unless the file says otherwise: the widget keeps its see-through look and its motion.
+    solidWindow: false,
+    performanceMode: false,
     size: "compact",
     windowLayer: "normal",
     compactSide: "left",

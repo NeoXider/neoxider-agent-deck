@@ -98,6 +98,8 @@ if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded
       { icon: "search", title: "Find in this chat", detail: "search messages", note: "Ctrl+F", run: () => openFind() },
       { icon: "focus", title: focused ? "Leave focus mode" : "Focus mode", detail: "chat only", run: () => setFocusMode(!focused) },
       { icon: "capture", title: "Capture a region", detail: "screenshot attach", run: () => document.querySelector('[data-capture="region"]')?.click() },
+      { icon: "display", title: state.solidWindow ? "See-through window" : "Solid window", detail: "opaque transparent smooth", note: state.performanceMode ? "optimized mode keeps it solid" : "", run: () => setSurfacePreference("solidWindow", !state.solidWindow) },
+      { icon: "play", title: state.performanceMode ? "Leave optimized mode" : "Optimized mode", detail: "fast performance no animation solid", run: () => setSurfacePreference("performanceMode", !state.performanceMode) },
       { icon: "settings", title: "Settings", detail: "preferences appearance shortcuts", run: () => setSettingsOpen(true) },
       { icon: "dock", title: "Collapse to the avatar", detail: "compact", run: () => setWindowMode("orb") },
     ];

@@ -137,6 +137,12 @@ button:not(.edge-mode):not(.orb-mode):active { transform:scale(.96); transition-
 ::selection { background:color-mix(in srgb,var(--mint) 32%,transparent); color:#fff; }
 .icon-defs { position:absolute; width:0; height:0; overflow:hidden; }
 .ui-icon, .drop-icon { width:18px; height:18px; flex:none; fill:none; stroke:currentColor; stroke-width:1.75; stroke-linecap:round; stroke-linejoin:round; }
+/* Solid window (window-surface.cjs): nothing in the panel is see-through, and once the main
+   process has made the window itself opaque the shell fills it corner to corner. The corners
+   come back for a fold, which needs the desktop to show round the shrinking widget. */
+body.solid-window { --panel-background-opacity:1; --panel-alpha:1; --panel-text-opacity:1; }
+body.surface-solid.mode-full .widget-shell { border-radius:0; }
+.settings-panel input[type="range"]:disabled { opacity:.42; cursor:default; }
 
 .widget-shell {
   position:relative;

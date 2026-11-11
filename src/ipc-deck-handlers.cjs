@@ -17,6 +17,7 @@ function registerDeckHandlers({
   handle,
   api,
   getFullscreenGuard = () => null,
+  getWindowSurface = () => null,
   getHarnessLauncher = () => null,
   getHarnessRuntime = () => null,
   getHarnessServices = () => null,
@@ -106,6 +107,20 @@ function registerDeckHandlers({
     getFullscreenGuard()?.sync();
     return preferences.keepGamesInFront;
   });
+  // A solid window is composed without alpha and does not stall on machines where a
+  // transparent one does (window-surface.cjs). Optimized mode is the solid window with all
+  // motion off. Both answer with what the window is right now.
+  const setSurfacePreference = (key, value) => {
+    const preferences = getPreferences();
+    preferences[key] = value === true;
+    schedulePreferenceSave();
+    return { [key]: preferences[key], surface: getWindowSurface()?.apply() || "clear" };
+  };
+  handle("set-solid-window", (_event, value) => setSurfacePreference("solidWindow", value));
+  handle("set-performance-mode", (_event, value) => setSurfacePreference("performanceMode", value));
+  // The renderer says when the full widget is at rest and when it is about to fold.
+  handle("settle-window-surface", (_event, color) => getWindowSurface()?.settle(color) || "clear");
+  handle("release-window-surface", () => getWindowSurface()?.release() || "clear");
   handle("set-font-family", (_event, value) => {
     const preferences = getPreferences();
     preferences.fontFamily = FONT_FAMILIES.includes(value) ? value : "inter";

@@ -33,7 +33,7 @@ const {
 } = require("./platform-capabilities.cjs");
 const { APP_ID, PRODUCT_NAME, REPOSITORY_URL } = require("./product.cjs");
 const { PRODUCT_WINDOW_OPTIONS, applyWindowIdentity } = require("./window-identity.cjs");
-const { createFullscreenGuard } = require("./fullscreen-guard.cjs");
+const { createFullscreenGuard } = require("./fullscreen-guard.cjs"), { createWindowSurface, preferSteadyPresentation } = require("./window-surface.cjs");
 const { createAttachmentReader, MAX_IMAGE_BYTES } = require("./attachments.cjs");
 const { createAttachmentRegistry } = require("./attachment-registry.cjs");
 const { createFileSelectionBroker } = require("./file-selection-broker.cjs");
@@ -57,7 +57,7 @@ const { createViewer } = require("./viewer-window.cjs");
 const HARNESS_URL = process.env.DSH_WIDGET_URL || "http://127.0.0.1:3080";
 const { isScreenshotMode, pinScreenshotRenderScale, screenshotRequest } = require("./screenshot-mode.cjs");
 const SCREENSHOT_MODE = isScreenshotMode();
-pinScreenshotRenderScale(app.commandLine); preferFastScreenCapture(app.commandLine);
+pinScreenshotRenderScale(app.commandLine); preferFastScreenCapture(app.commandLine); preferSteadyPresentation(app.commandLine);
 const PACKAGED_SMOKE_PATH = process.env.WIDGET_PACKAGED_SMOKE_PATH || "";
 const ISOLATED_SMOKE_MODE = SCREENSHOT_MODE || Boolean(PACKAGED_SMOKE_PATH);
 const PLATFORM_CAPABILITIES = detectPlatformCapabilities();
@@ -108,6 +108,8 @@ let autoStartController;
 let harnessLauncher;
 let harnessSupervisor;
 let gameLayerKeeper, fullscreenGuard;
+// Solid while the full widget rests, clear whenever something folds or floats (window-surface.cjs).
+const windowSurface = createWindowSurface({ getWindow: () => windowRef, getPreferences: () => preferences, getMode: () => windowMode, applyOpacity: (target, opacity) => applyPlatformOpacity(target, opacity, PLATFORM_CAPABILITIES) });
 let compactHitTracker;
 let hotkeyManager;
 let quitCoordinator;
@@ -418,7 +420,7 @@ function applyWindowMode(nextMode, { captureCurrent = true, persist = true, pres
   // A drag interrupted by a mode change never delivers its pointerup: the element that
   // started it is display:none by then. See releaseDragOrigins for what a stranded one costs.
   if (nextMode !== windowMode) releaseDragOrigins();
-  compactGlide.stop();
+  compactGlide.stop(); if (nextMode !== windowMode) windowSurface.release();
   if (captureCurrent) captureWindowBounds(windowMode, windowRef.getBounds());
   windowMode = nextMode;
   preferences.windowState.mode = nextMode;
@@ -629,7 +631,7 @@ function registerWidgetIpc() {
     getHarnessRuntime: () => harnessRuntime,
     getHarnessServices: () => harnessServices,
     getViewer: () => viewer,
-    getHotkeyManager: () => hotkeyManager, getFullscreenGuard: () => fullscreenGuard,
+    getHotkeyManager: () => hotkeyManager, getFullscreenGuard: () => fullscreenGuard, getWindowSurface: () => windowSurface,
     getCompactHitTracker: () => compactHitTracker,
     getScreenshotService: () => screenshotService,
     getUpdateService: () => updateService,

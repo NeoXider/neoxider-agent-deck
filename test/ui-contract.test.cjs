@@ -729,7 +729,9 @@ test("motion is a preference, not a hard-coded flourish", () => {
   assert.match(ipc, /motionEffects: preferences\.motionEffects !== false,/);
   assert.match(preload, /setMotionEffects: \(value\) => ipcRenderer\.invoke\("set-motion-effects"/);
   assert.match(renderer, /function applyMotionEffects\(value\)/);
-  assert.match(renderer, /classList\.toggle\("motion-off", !state\.motionEffects\)/);
+  // Optimized mode switches the motion off too, whatever this toggle says, and gives it back.
+  assert.match(renderer, /const moving = state\.motionEffects && !state\.performanceMode;/);
+  assert.match(renderer, /classList\.toggle\("motion-off", !moving\)/);
   assert.match(renderer, /applyMotionEffects\(preferences\.motionEffects\)/);
   assert.match(renderer, /await window\.widget\.setMotionEffects\(requested\)/);
   assert.match(html, /id="motionEffectsToggle"/);
@@ -2423,4 +2425,32 @@ test("a loop that never ends moves only what the compositor can move", () => {
     if (shortLived.has(name) || !keyframes.has(name)) continue;
     for (const property of keyframes.get(name)) assert.ok(["transform", "opacity", "filter"].includes(property), `${name} loops for ever and animates ${property}`);
   }
+});
+
+test("the solid window is a state of the full widget at rest, never of a fold or the avatar", () => {
+  const renderer = readSource("src", "renderer", "app.js");
+  const css = readSource("src", "renderer", "styles.css");
+  const html = readSource("src", "renderer", "index.html");
+  const main = readSource("src", "main.cjs");
+  const preload = readSource("src", "preload.cjs");
+  const quickNav = readSource("src", "renderer", "quick-nav.js");
+  // Two switches in Settings and two actions in the switcher.
+  assert.match(html, /id="solidWindowToggle"/);
+  assert.match(html, /id="performanceModeToggle"/);
+  assert.match(quickNav, /setSurfacePreference\("solidWindow", !state\.solidWindow\)/);
+  assert.match(quickNav, /setSurfacePreference\("performanceMode", !state\.performanceMode\)/);
+  for (const channel of ["set-solid-window", "set-performance-mode", "settle-window-surface", "release-window-surface"]) assert.ok(preload.includes('"' + channel + '"'), channel);
+  // Solid, nothing in the panel is see-through; the corners go square only once the window
+  // itself is opaque, and come back for a fold.
+  assert.match(css, /body\.solid-window \{ --panel-background-opacity:1; --panel-alpha:1; --panel-text-opacity:1; \}/);
+  assert.match(css, /body\.surface-solid\.mode-full \.widget-shell \{ border-radius:0; \}/);
+  // The renderer asks for the solid surface only when nothing is folding, unfolding or
+  // entering, takes it back before a fold starts, and drops it on every mode change.
+  assert.match(renderer, /function fullWidgetAtRest\(\) \{[\s\S]{0,260}"mode-transition-in", "mode-transition-out", "mode-transition-pending", "first-visible-entry"/);
+  assert.match(renderer, /if \(state\.windowMode === "full" && mode !== "full"\) await releaseWindowSurface\(\);/);
+  assert.match(renderer, /state\.windowMode = mode;\r?\n  clearTimeout\(windowSurfaceTimer\);\r?\n  markWindowSurface\("clear"\);/);
+  assert.match(renderer, /if \(mode === "full"\) \{ restoreTranscriptAfterModeChange\(\); queueWindowSurfaceSettle\(\); \}/);
+  // The main process releases it too, for mode changes the renderer did not start.
+  assert.match(main, /if \(nextMode !== windowMode\) windowSurface\.release\(\);/);
+  assert.match(main, /preferSteadyPresentation\(app\.commandLine\)/);
 });

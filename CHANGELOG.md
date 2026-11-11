@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-11
+
+### Added
+
+- **Solid window** (Settings, and Ctrl+K). The full widget becomes a solid rectangle while it rests: nothing in the panel is see-through and the corners are square. One switch instead of three opacity sliders, which keep their values for when it is turned off again. The avatar and the edge line keep their look, and the window takes its transparency back for a fold and returns to solid about a second after it has unfolded.
+- **Optimized mode** (Settings, and Ctrl+K). The solid window with every animation and transition off, whatever the Motion effects switch says; switching it off gives both back as they were.
+
+### Fixed
+
+- **Jerky animation in a transparent window on Windows.** 1.3.0 took the endless animations off the main thread, and on the machine it was measured on the widget still stuttered, in every animation, with nothing running on the page at all. A trace of the GPU process showed why: a transparent window (and any window with a native opacity under 100%) has to be blended into the desktop by the Windows compositor, and there that blending stalled inside `Present` for 100-500 ms at a time. One dot moving in the real widget window: 57-96 frames a second with 18-42 pauses over 25 ms in six seconds. The same window made solid: 121-144 frames a second with 0-9 pauses. That is what Solid window is for. The earlier measurements missed it because they were taken in an opaque test window.
+- **Fewer and shorter pauses while the window is transparent.** On Windows Deck now asks Chromium for a waitable swap chain, so a frame the compositor is slow to take no longer blocks the GPU process: 8-17 pauses instead of 18-42 in the same test, none longer than 105 ms where they used to reach 500 ms. `AGENT_DECK_PLAIN_SWAP_CHAIN=1` turns it off.
+
+### Known
+
+- A fold to the avatar or the edge, and the unfold back, still play in a transparent window, so on a machine with this problem they can still stutter. Optimized mode has no fold animation to stutter.
+
 ## [1.3.0] - 2026-11-11
 
 ### Added

@@ -33,6 +33,11 @@ const DEFAULT_PREFERENCES = Object.freeze({
   // Over a fullscreen game a click on the widget does not take the focus from it
   // (fullscreen-guard.cjs); a click in a text field still does.
   keepGamesInFront: true,
+  // The full widget as a solid rectangle: no see-through panel, no round corners, and no
+  // blending by the desktop compositor (window-surface.cjs). Optimized mode is that with all
+  // motion off, whatever the separate switches say.
+  solidWindow: false,
+  performanceMode: false,
   size: "standard",
   windowLayer: "above",
   compactSide: "right",
@@ -134,6 +139,8 @@ function normalizePreferences(raw = {}) {
     collapseAfterSend: source.collapseAfterSend !== false,
     petMode: source.petMode !== false,
     keepGamesInFront: source.keepGamesInFront !== false,
+    solidWindow: source.solidWindow === true,
+    performanceMode: source.performanceMode === true,
     size: ["compact", "standard", "large"].includes(source.size) ? source.size : DEFAULT_PREFERENCES.size,
     windowLayer,
     compactSide,
