@@ -63,6 +63,33 @@ test("DSH inbox projections publish editable messages and survive reconnect", as
   } finally { mux.stop(); }
 });
 
+test("DSH 0.2.2 batched projection frames update the queue live", async () => {
+  const transport = createFakeTransport();
+  const queues = [];
+  const mux = createRemoteMuxClient({ getTransport: () => transport, onQueue: (id, items) => queues.push([id, items]) });
+  mux.start();
+  await tick();
+  try {
+    const channel = transport.channels[0];
+    const message = { id: "later", role: "user", source: { kind: "user" }, content: [{ type: "text", text: "Then run the checks" }] };
+    channel.onFrame({ type: "baseline", value: { projections: { s1: { asOfSeq: 10, values: { inbox: { "next-turn": [], "next-step": [] } } } } } });
+    assert.deepEqual(queues.at(-1), ["s1", []]);
+    // A queued message appears without a reconnect.
+    channel.onFrame({ type: "projection", sessionId: "s1", seq: 11, changes: [{ key: "title", val: "Work" }, { key: "inbox", val: { "next-turn": [message], "next-step": [] } }] });
+    assert.deepEqual(queues.at(-1), ["s1", [{ id: "later", placement: "queued", message, editable: true }]]);
+    // Send now moves it to the next step; it leaves the queue and shows as steering.
+    channel.onFrame({ type: "projection", sessionId: "s1", seq: 12, changes: [{ key: "inbox", val: { "next-turn": [], "next-step": [message] } }] });
+    assert.deepEqual(queues.at(-1), ["s1", [{ id: "later", placement: "steering", message }]]);
+    // The step claims it.
+    channel.onFrame({ type: "projection", sessionId: "s1", seq: 13, changes: [{ key: "inbox", val: { "next-turn": [], "next-step": [] } }] });
+    assert.deepEqual(queues.at(-1), ["s1", []]);
+    const count = queues.length;
+    channel.onFrame({ type: "projection", sessionId: "s1", seq: 14, changes: [{ key: "todos", val: [] }] });
+    channel.onFrame({ type: "projection", sessionId: "s1", seq: 9, changes: [{ key: "inbox", val: { "next-turn": [message], "next-step": [] } }] });
+    assert.equal(queues.length, count, "other keys and older frames leave the queue alone");
+  } finally { mux.stop(); }
+});
+
 test("job snapshots replace live state and reconnect clears removed sessions", async () => {
   const transport = createFakeTransport();
   const updates = [];

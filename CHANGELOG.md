@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-11-13
+
+### Fixed
+
+- **The queue on DSH 0.2.2.** DSH 0.2.2 sends every projection an event changed in one frame (`changes: [{ key, val }]`), and Deck only read the 0.2.1 frame with one `key` and `value`. So after connecting Deck never saw the queue change: a message queued behind a running turn vanished from the queue dock a second after it was sent, and one sent with Send now stayed listed in the dock instead of moving to the transcript as steering. Deck reads both shapes now.
+
+### Note
+
+- Send now hands the message to the agent's next step, which is how DSH steering works: the agent reads it when its current model call or tool call ends, not in the middle of one. A long thinking step still has to finish first.
+
 ## [1.3.1] - 2026-11-11
 
 ### Added

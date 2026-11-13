@@ -108,7 +108,14 @@ function createRemoteMuxClient({ getTransport, onQueue = () => {}, onJobs = () =
                 onQueue(sessionId, Array.isArray(items) ? items : []);
               }
             } else if (value.type === "projection" && value.key === "inbox") {
+              // DSH 0.2.1: one frame per changed key.
               publishInbox(value.sessionId, value.value, value.seq);
+            } else if (value.type === "projection" && Array.isArray(value.changes)) {
+              // DSH 0.2.2 batches every key one event changed into `changes: [{ key, val }]`.
+              // Deck only read the 0.2.1 shape, so after the baseline it never saw the queue
+              // change: new queued messages stayed invisible and a sent one stayed listed.
+              const inbox = value.changes.find(change => change?.key === "inbox");
+              if (inbox) publishInbox(value.sessionId, inbox.val, value.seq);
             } else if (value.type === "jobs" && value.sessionId) {
               jobSessions.add(value.sessionId);
               onJobs(value.sessionId, Array.isArray(value.jobs) ? value.jobs : []);
