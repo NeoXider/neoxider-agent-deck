@@ -2,6 +2,12 @@
 
 This backlog records planned work only. Items are not part of the current release until their acceptance checks pass.
 
+## Shipped in 1.3.3
+
+- Image previews and full-size images work on DSH 0.2.2: every attachment read sends the whole durable reference, with the id-only shape kept for 0.2.1; pinned by test/attachment-reference.test.cjs and the queued-attachments smoke.
+- Providers and their models read apart in the model picker (header band with a count badge, models indented on a rail).
+- Copy and Reuse beside your own message stay reachable: the gutter belongs to the button row and hiding waits; pinned by a real-pointer case in `npm run test:input`.
+
 ## 0.7.1 release preparation
 
 - Implemented selected-session API-wait, thinking, writing, tool and outcome lighting, with separate aggregate compact notifications.

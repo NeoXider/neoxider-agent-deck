@@ -4,6 +4,7 @@
 // every channel here is sender-checked like every other.
 
 const { listAgentPresets } = require("./agent-presets.cjs");
+const { requireAttachmentReference } = require("./attachment-reference.cjs");
 const { goalActivation } = require("./goal-activation.cjs");
 const { FONT_FAMILIES } = require("./settings-store.cjs");
 
@@ -82,9 +83,7 @@ function registerDeckHandlers({
     if (type === "path") return viewer.openPath(String(payload?.path || "").slice(0, 4096), { cwd: String(payload?.cwd || "").slice(0, 4096) });
     if (type === "attachment") {
       const sessionId = requireSessionId(payload?.sessionId);
-      const attachmentId = String(payload?.attachmentId || "").trim();
-      if (!attachmentId || attachmentId.length > 256) throw new Error("A valid attachment id is required");
-      const value = await api.readAttachment(sessionId, attachmentId);
+      const value = await api.readAttachment(sessionId, requireAttachmentReference(payload));
       return viewer.openBytes({ name: value?.attachment?.name || payload?.name, mediaType: value?.attachment?.mediaType, data: value?.data });
     }
     throw new Error("Nothing to show");

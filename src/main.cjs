@@ -275,7 +275,7 @@ function registerConfiguredHotkeys(bindings) {
 
 const { publishLiveEvent, publishQueue, publishJobs } = createStreamPublisher({
   queueSnapshots, backgroundJobs: api.backgroundJobs, send: sendToRenderer,
-  readAttachment: (sessionId, attachmentId) => api.readAttachment(sessionId, attachmentId),
+  readAttachment: (sessionId, reference) => api.readAttachment(sessionId, reference),
 });
 
 const muxClient = createMuxClient({

@@ -1950,7 +1950,10 @@ test("messages carry copy and reuse actions with a toast for feedback", () => {
   // With motion off there is no animation to end, so a timer removes the toast.
   assert.match(toast, /setTimeout\(\(\) => toast\.remove\(\), 320\);/);
   const css = readSource("src", "renderer", "styles.css");
-  assert.match(css, /\.bubble:hover \.bubble-actions, \.bubble:focus-within \.bubble-actions, \.bubble\.actions-visible \.bubble-actions \{ opacity:1; transform:none; pointer-events:auto; \}/);
+  assert.match(css, /\.bubble:hover \.bubble-actions, \.bubble:focus-within \.bubble-actions, \.bubble\.actions-visible \.bubble-actions \{ opacity:1; visibility:visible; transform:none; pointer-events:auto; transition-delay:0s; \}/);
+  // Hidden actions linger, still clickable, so the pointer can reach them after leaving the text.
+  assert.match(css, /\.bubble-actions \{[^}]*opacity:0; visibility:hidden;[^}]*visibility 0s linear calc\(\.35s \+ var\(--dur-2\)\); \}/);
+  assert.doesNotMatch(css.match(/\.bubble-actions \{[^}]*\}/)[0], /pointer-events:none/);
   // Interior floats reserve text space without an invisible footer in small chats.
   assert.match(css, /\.bubble-actions \{ position:relative; float:right;[^}]*width:auto;[^}]*flex-direction:row;/);
   // One line tall: a button-tall float also notched the second line of every answer.
@@ -1964,7 +1967,7 @@ test("messages carry copy and reuse actions with a toast for feedback", () => {
   // word and never as a reserved footer.
   assert.match(css, /\.bubble \{[^}]*width:100%; max-width:none;/);
   assert.match(css, /\.bubble\.user \{[^}]*width:fit-content; max-width:calc\(100% - 60px\); margin-left:auto;/);
-  assert.match(css, /\.bubble\.user > \.bubble-actions \{ position:absolute;[^}]*right:calc\(100% \+ 6px\);[^}]*float:none;/);
+  assert.match(css, /\.bubble\.user > \.bubble-actions \{ position:absolute;[^}]*right:100%;[^}]*float:none;[^}]*padding-right:6px;/);
   assert.match(css, /\.messages \{[^}]*overflow:hidden auto;/);
   // Goal and queue actions say what they did the same way.
   assert.match(renderer, /showToast\(GOAL_TOASTS\.find/);

@@ -25,6 +25,7 @@ const { harnessSessionUrl } = require("./harness-url.cjs");
 const { isSameHarnessOrigin, normalizeHarnessLaunchUrl } = require("./harness-transport.cjs");
 const { harnessNeedsAuth: dashboardNeedsAuth, startHarnessConnection } = require("./harness-connection.cjs");
 const { QUEUE_CONTENT, editableQueueContent } = require("./queue-view.cjs");
+const { requireAttachmentReference } = require("./attachment-reference.cjs");
 const { renderMarkdownBatch, renderMarkdownAsync } = require("./markdown-service.cjs");
 const { applyPlatformOpacity } = require("./platform-capabilities.cjs");
 const { UNTRUSTED_SENDER_CODE, UntrustedSenderError, createSenderCheck, denyAllPermissions } = require("./ipc-guard.cjs");
@@ -243,9 +244,7 @@ function registerIpcHandlers({
   handle("get-queue", (_event, sessionId) => queueSnapshots.get(String(sessionId || "")) || { revision: 0, items: [] });
   handle("read-attachment", async (_event, payload) => {
     const sessionId = requireSessionId(payload?.sessionId);
-    const attachmentId = String(payload?.attachmentId || "").trim();
-    if (!attachmentId || attachmentId.length > 256) throw new Error("A valid attachment id is required");
-    const value = await api.readAttachment(sessionId, attachmentId);
+    const value = await api.readAttachment(sessionId, requireAttachmentReference(payload));
     const mediaType = String(value?.attachment?.mediaType || "").toLowerCase();
     const data = String(value?.data || "");
     const bytes = Buffer.byteLength(data, "base64");

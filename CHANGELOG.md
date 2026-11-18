@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-11-18
+
+### Fixed
+
+- **Image previews and full-size images on DSH 0.2.2.** A sent or queued image showed only an `image` chip, and clicking it failed with `wire field "request..."`. DSH 0.2.2 reads an image from its whole durable reference (`attachmentId`, `mediaType`, `bytes`, `width`, `height`) instead of looking the id up in the session, and Deck still sent the id alone. Deck now carries the reference from the history and queue blocks to every read (thumbnails, the queue strip, the full-size view and the viewer window) and falls back to the id for a 0.2.1 Harness.
+- **Copy and Reuse beside your own message vanished on the way to them.** The buttons sit to the left of your bubble with a 6px gap, and crossing that gap ended the bubble's hover, so the buttons disappeared before the pointer reached them. The gap is now part of the button row, and the row waits a moment, still clickable, after the pointer leaves.
+
+### Changed
+
+- **Providers and models read apart in the model picker.** A provider is now a header band with its model count in a badge, and its models are indented on a rail beneath it; before both were rows of nearly the same size and colour, and a provider named like its only model could not be told from it.
+
+### Security
+
+- `npm audit` reported GHSA-fc5q-39xc-vjpf (picomatch ReDoS, high) with no patched picomatch yet. It reached Deck only through the build tooling (`electron-builder` → `@electron/rebuild` → `node-gyp` 12 → `tinyglobby`). Deck has no native modules for node-gyp to build, so `node-gyp` is pinned to 11.1.0, which does not use picomatch. Nothing in the app itself changed.
+
 ## [1.3.2] - 2026-11-13
 
 ### Fixed

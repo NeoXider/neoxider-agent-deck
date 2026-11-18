@@ -2,6 +2,7 @@ const { createHash } = require("node:crypto");
 const { resultCallId, toMillis } = require("./session-activity.cjs");
 const { createCompactionContextTracker } = require("./context-compaction.cjs");
 const { turnOutcome } = require("./turn-outcome.cjs");
+const { attachmentReferenceFields } = require("./attachment-reference.cjs");
 
 const HISTORY_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const HISTORY_IMAGE_BASE64_LIMIT = Math.ceil(8 * 1024 * 1024 * 4 / 3) + 8;
@@ -68,17 +69,18 @@ function boundedHistoryEntries(entries, maxPreviewBytes = HISTORY_PREVIEW_BYTES_
 async function hydrateHistoryImages(entries, readAttachment, maxPreviewBytes = HISTORY_PREVIEW_BYTES_BUDGET) {
   let remaining = Math.max(0, Number(maxPreviewBytes) || 0);
   const wanted = new Map();
+  const references = new Map();
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     for (const block of entries[index]?.event?.data?.content || []) {
       const ref = block?.type === "image" ? block.attachment : null;
       const id = String(ref?.attachmentId || "");
       const bytes = Number(ref?.bytes || 0);
       if (!id || block.data || wanted.has(id) || wanted.size >= 12 || !Number.isSafeInteger(bytes) || bytes < 1 || bytes > remaining) continue;
-      wanted.set(id, null); remaining -= bytes;
+      wanted.set(id, null); references.set(id, ref); remaining -= bytes;
     }
   }
   await Promise.all([...wanted.keys()].map(async (id) => {
-    try { const data = await readAttachment(id); if (historyImageBytes(data) > 0) wanted.set(id, data); } catch {}
+    try { const data = await readAttachment(references.get(id)); if (historyImageBytes(data) > 0) wanted.set(id, data); } catch {}
   }));
   return entries.map((entry) => {
     const content = entry?.event?.data?.content;
@@ -140,6 +142,8 @@ function userContentFromBlocks(blocks) {
         name: shortAttachmentName(block.name || reference?.name, "image"),
       };
       if (reference?.attachmentId) attachment.attachmentId = String(reference.attachmentId).slice(0, 256);
+      // DSH 0.2.2 reads the image back only from its whole reference (attachment-reference.cjs).
+      if (reference) Object.assign(attachment, attachmentReferenceFields(reference));
       if (historyImageBytes(data) > 0) attachment.data = data;
       attachments.push(attachment);
     } else if (block?.type === "file" && reference) {

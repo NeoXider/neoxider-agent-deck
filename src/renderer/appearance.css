@@ -247,6 +247,23 @@ body[data-design="cyberpunk"] #reasoningMenu { --reasoning-secondary:#867400; }
 .model-provider-group[open] > summary::before { transform:rotate(90deg); }
 .model-provider-group > summary::-webkit-details-marker { display:none; }
 .model-provider-group .picker-option[data-vision="true"] { box-shadow:inset 2px 0 color-mix(in srgb,var(--mint) 45%,transparent); }
+/* A provider is a header band, its models an indented list on a rail beneath it: the two used
+   to share one row style and a provider named like its only model could not be told apart. */
+.model-provider-group + .model-provider-group { margin-top:3px; }
+#modelMenu .model-provider-group > summary { display:flex; align-items:center; gap:8px; height:32px; min-height:32px; padding:0 8px 0 9px; border-radius:var(--radius-sm); background:var(--surface-3); color:var(--text); font-size:calc(12.5px * var(--font-scale)); font-weight:650; transition:background-color var(--dur-1) ease; }
+#modelMenu .model-provider-group > summary:hover,#modelMenu .model-provider-group > summary:focus-visible { background:color-mix(in srgb,var(--surface-3) 82%,var(--text)); }
+.model-picker.compact-overlay #modelMenu .model-provider-group > summary { height:28px; min-height:28px; }
+#modelMenu .model-provider-group > summary::before { flex:none; width:10px; margin-right:0; color:var(--muted); text-align:center; }
+#modelMenu .model-provider-group[open] > summary::before { color:var(--mint); }
+.model-provider-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.model-provider-count { flex:none; display:inline-grid; place-items:center; min-width:20px; height:18px; padding:0 6px; border-radius:99px; background:var(--surface-strong); color:var(--muted); font-size:calc(10.5px * var(--font-scale)); font-weight:600; font-variant-numeric:tabular-nums; }
+.model-provider-group[open] > summary .model-provider-count { background:color-mix(in srgb,var(--mint) 16%,transparent); color:var(--text-2); }
+#modelMenu .model-provider-group > .picker-option { position:relative; width:calc(100% - 17px); margin-left:17px; padding-left:11px; font-weight:400; }
+#modelMenu .model-provider-group > .picker-option::before { content:""; position:absolute; left:-8px; top:0; bottom:0; width:1px; background:var(--line-strong); pointer-events:none; }
+#modelMenu .model-provider-group > .picker-option:first-of-type::before { top:4px; }
+#modelMenu .model-provider-group > .picker-option:last-child::before { bottom:4px; }
+#modelMenu .model-provider-group > .picker-option.selected::before { width:2px; left:-8.5px; background:var(--mint); }
+#modelMenu .model-provider-group > .picker-option > small { opacity:.8; }
 
 /* Four layer choices are independent cards, not a two-row segmented pill. */
 #windowLayerSwitch { grid-template-columns:repeat(2,minmax(0,1fr)); border:0; border-radius:0; background:transparent; padding:0; gap:6px; }

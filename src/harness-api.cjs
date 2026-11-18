@@ -1,6 +1,7 @@
 const { randomUUID } = require("node:crypto");
 const { isMainThread } = require("node:worker_threads");
 const { createHistoryReader } = require("./history-reader.cjs");
+const { attachmentReference, readAttachmentWire } = require("./attachment-reference.cjs");
 const {
   channelFirstFrame,
   commandTimeoutMs,
@@ -558,10 +559,9 @@ class HarnessApi {
     return this.rpc("session.updateQueue", { sessionId, itemId, action: legacyAction }, 10000);
   }
 
-  async readAttachment(sessionId, attachmentId) {
+  async readAttachment(sessionId, reference) {
     const remote = await this.ensureRemote();
-    return remote ? remote.call("session/attachment", { request: { sessionId, attachmentId } }, 10000)
-      : this.rpc("session.attachment", { sessionId, attachmentId }, 10000);
+    return remote ? readAttachmentWire(remote, sessionId, reference) : this.rpc("session.attachment", { sessionId, attachmentId: attachmentReference(reference)?.attachmentId }, 10000);
   }
 
   async commands(sessionId) {

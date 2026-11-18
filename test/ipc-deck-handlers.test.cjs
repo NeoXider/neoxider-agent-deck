@@ -71,12 +71,13 @@ test("the viewer opens an image, a path against the chat's folder, or an attachm
     openPath: (value, options) => opened.push(["path", value, options.cwd]),
     openBytes: (value) => opened.push(["bytes", value.name, value.mediaType, value.data]),
   };
-  const api = { readAttachment: async (sessionId, attachmentId) => ({ attachment: { name: "notes.md", mediaType: "text/markdown" }, data: `${sessionId}:${attachmentId}` }) };
+  const api = { readAttachment: async (sessionId, ref) => ({ attachment: { name: "notes.md", mediaType: "text/markdown" }, data: `${sessionId}:${ref.attachmentId}:${ref.width || 0}` }) };
   const { call } = register({ getViewer: () => viewer, api });
   await call("open-viewer", { type: "image", name: "shot.png", dataUrl: "data:image/png;base64,AA==" });
   await call("open-viewer", { type: "path", path: "docs/plan.md", cwd: "D:\\deck" });
-  await call("open-viewer", { type: "attachment", sessionId: "s1", attachmentId: "a1" });
-  assert.deepEqual(opened, [["image", "shot.png"], ["path", "docs/plan.md", "D:\\deck"], ["bytes", "notes.md", "text/markdown", "s1:a1"]]);
+  // DSH 0.2.2 needs the whole image reference; the handler passes it through, not just the id.
+  await call("open-viewer", { type: "attachment", sessionId: "s1", attachmentId: "a1", mediaType: "image/png", bytes: 4, width: 5, height: 6 });
+  assert.deepEqual(opened, [["image", "shot.png"], ["path", "docs/plan.md", "D:\\deck"], ["bytes", "notes.md", "text/markdown", "s1:a1:5"]]);
   await assert.rejects(call("open-viewer", { type: "attachment", sessionId: "", attachmentId: "a1" }), /session id/);
   await assert.rejects(call("open-viewer", { type: "shell", path: "calc.exe" }), /Nothing to show/);
 });

@@ -1,4 +1,5 @@
 const { activityFromHistory } = require("./session-activity.cjs");
+const { attachmentReference, readAttachmentWire } = require("./attachment-reference.cjs");
 const {
   boundedHistoryEntries,
   historyImageBytes,
@@ -139,7 +140,7 @@ async function readHistoryNow(api, sessionId, key, older) {
       hasOlder = true;
     }
   }
-  const hydrated = await hydrateHistoryImages(entries, (attachmentId) => readCachedAttachment(api, remote, sessionId, attachmentId));
+  const hydrated = await hydrateHistoryImages(entries, (reference) => readCachedAttachment(api, remote, sessionId, reference));
   const events = boundedHistoryEntries(hydrated);
   const revision = historyRevision(events);
   api.cacheHistory(key, { events, revision, hasOlder, throughSeq });
@@ -152,12 +153,14 @@ async function readHistoryNow(api, sessionId, key, older) {
   };
 }
 
-async function readCachedAttachment(api, remote, sessionId, attachmentId) {
+// DSH 0.2.2 reads an image from its full reference, not its id: see attachment-reference.cjs.
+async function readCachedAttachment(api, remote, sessionId, reference) {
   api.attachmentCache ||= createAttachmentCache();
+  const attachmentId = String(attachmentReference(reference)?.attachmentId || "");
   const key = `${sessionId}\u0000${attachmentId}`;
   const known = api.attachmentCache.get(key);
   if (known !== undefined) return known;
-  const value = remote ? await remote.call("session/attachment", { request: { sessionId, attachmentId } }, 10000)
+  const value = remote ? await readAttachmentWire(remote, sessionId, reference)
     : await api.rpc("session.attachment", { sessionId, attachmentId }, 10000);
   const data = value?.data;
   if (historyImageBytes(data) > 0) api.attachmentCache.set(key, data);

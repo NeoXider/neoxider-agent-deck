@@ -131,9 +131,10 @@ test("boundedHistoryEntries strips image data over budget", () => {
 
 test("durable history image references are hydrated within the preview budget", async () => {
   const entries = [{ event: { data: { content: [{ type: "image", attachment: {
-    attachmentId: "durable-1", mediaType: "image/png", name: "shot.png", bytes: 1,
+    attachmentId: "durable-1", mediaType: "image/png", name: "shot.png", bytes: 1, width: 2, height: 3,
   } }] } } }];
-  const hydrated = await hydrateHistoryImages(entries, async (id) => (id === "durable-1" ? "AA==" : ""));
+  // DSH 0.2.2 reads an image from its whole reference, so the reader gets the reference.
+  const hydrated = await hydrateHistoryImages(entries, async (ref) => (ref?.attachmentId === "durable-1" && ref.width === 2 ? "AA==" : ""));
   const bounded = boundedHistoryEntries(hydrated);
   assert.equal(bounded[0].event.data.content[0].data, "AA==");
   assert.equal(entries[0].event.data.content[0].data, undefined);

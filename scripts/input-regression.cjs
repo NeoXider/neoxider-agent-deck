@@ -41,6 +41,7 @@ let createdSessionId = "created-session";
 let dashboardCalls = 0;
 let startHarnessCalls = 0;
 const modelReadCalls = [];
+const copiedTexts = [];
 let startHarnessError = "";
 let installUpdateCalls = 0;
 let showThinkingPreference = true;
@@ -156,6 +157,7 @@ function registerStubs() {
   ipcMain.handle("workspaces", () => []);
   ipcMain.handle("open-harness-session", (_event, sessionId) => { harnessOpenedSessionIds.push(sessionId); return { ok: true }; });
   ipcMain.handle("get-queue", () => queueSnapshotValue);
+  ipcMain.handle("copy-text", (_event, text) => { copiedTexts.push(String(text)); return true; });
   for (const channel of ["begin-compact-drag", "move-compact-drag", "begin-full-drag", "move-full-drag", "set-edge-pointer-active", "agent-complete"]) {
     ipcMain.on(channel, () => {
       if (channel === "begin-compact-drag") compactDragEvents.push("begin");
@@ -687,6 +689,51 @@ async function main() {
     return { initiallyClosed, searchExpanded, searchPreserved, persisted, highlighted: Boolean(vision && getComputedStyle(vision).boxShadow !== 'none') };
   })()`);
   if (Object.values(providerDisclosure).some(v => !v)) failures.push('Provider disclosure/vision highlight failed: ' + JSON.stringify(providerDisclosure));
+
+  // --- Your own message's Copy/Reuse sit left of the bubble. Moving the pointer there used to
+  // cross a 6px gap that dropped the bubble's hover and hid the buttons before they could be
+  // clicked. Driven with real mouse moves: through the gutter, and via a detour outside.
+  const bubbleGeometry = await contents.executeJavaScript(`(async () => {
+    state.windowMode = "full";
+    renderMessages([{ role: "user", text: "COPY ME" }, { role: "assistant", text: "Answer" }]);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const bubble = document.querySelector('#messages .bubble.user');
+    const copy = bubble?.querySelector('.bubble-action.copy');
+    if (!bubble || !copy) return null;
+    bubble.scrollIntoView({ block: 'center' });
+    await new Promise(r => requestAnimationFrame(r));
+    const b = bubble.getBoundingClientRect(), c = copy.getBoundingClientRect();
+    const reuse = bubble.querySelector('.bubble-action.reuse').getBoundingClientRect();
+    return { bubble: { x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2), left: b.left },
+      copy: { x: Math.round(c.left + c.width / 2), y: Math.round(c.top + c.height / 2) },
+      gap: { x: Math.round((reuse.right + b.left) / 2), y: Math.round(c.top + c.height / 2) } };
+  })()`);
+  const actionsState = (point) => contents.executeJavaScript(`(() => {
+    const actions = document.querySelector('#messages .bubble.user .bubble-actions');
+    const hit = document.elementFromPoint(${point.x}, ${point.y});
+    return { visible: getComputedStyle(actions).visibility === 'visible' && Number(getComputedStyle(actions).opacity) > .5, onCopy: Boolean(hit?.closest?.('.bubble-action.copy')) };
+  })()`);
+  const move = (point) => contents.sendInputEvent({ type: "mouseMove", x: point.x, y: point.y });
+  if (!bubbleGeometry) failures.push("bubble action regression could not find the user bubble's Copy button");
+  else {
+    move({ x: bubbleGeometry.bubble.x, y: bubbleGeometry.bubble.y }); await wait(260);
+    move(bubbleGeometry.gap); await wait(120);
+    move(bubbleGeometry.copy); await wait(260);
+    const throughGutter = await actionsState(bubbleGeometry.copy);
+    click(contents, bubbleGeometry.copy.x, bubbleGeometry.copy.y); await wait(120);
+    const copiedThroughGutter = copiedTexts.at(-1) === "COPY ME";
+    move({ x: bubbleGeometry.bubble.x, y: bubbleGeometry.bubble.y }); await wait(260);
+    move({ x: bubbleGeometry.copy.x, y: Math.max(2, bubbleGeometry.copy.y - 60) }); await wait(150);
+    move(bubbleGeometry.copy); await wait(60);
+    const afterDetour = await actionsState(bubbleGeometry.copy);
+    // A clicked button keeps its row up through :focus-within; leaving for real means blurred.
+    await contents.executeJavaScript("document.activeElement?.blur()");
+    move({ x: bubbleGeometry.copy.x, y: Math.max(2, bubbleGeometry.copy.y - 60) }); await wait(900);
+    const afterLeaving = await actionsState(bubbleGeometry.copy);
+    if (!throughGutter.visible || !throughGutter.onCopy || !copiedThroughGutter || !afterDetour.visible || !afterDetour.onCopy || afterLeaving.visible) {
+      failures.push(`user bubble actions vanished before they could be clicked: ${JSON.stringify({ throughGutter, copiedThroughGutter, afterDetour, afterLeaving, copiedTexts })}`);
+    }
+  }
 
   const immediateClear = await contents.executeJavaScript(`(() => {
     state.windowMode = "full";

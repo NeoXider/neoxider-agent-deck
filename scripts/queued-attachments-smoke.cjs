@@ -87,7 +87,7 @@ async function main() {
       { id: 'edit-text', placement: 'queued', text: 'Original queued text', preview: 'Original queued text', attachmentCount: 2, attachments },
       { id: 'edit-empty', placement: 'queued', text: null, preview: null, attachmentCount: 2, attachments },
       { id: 'metadata-original', placement: 'queued', text: 'Read original on demand', preview: 'Read original on demand', attachmentCount: 1, attachments: [
-        { kind: 'image', attachmentId: 'metadata-original', mediaType: 'image/png', name: 'metadata-original.png' },
+        { kind: 'image', attachmentId: 'metadata-original', mediaType: 'image/png', name: 'metadata-original.png', bytes: 68, width: 1, height: 1 },
       ] },
       { id: 'metadata-switch', placement: 'queued', text: 'Do not cross sessions', preview: 'Do not cross sessions', attachmentCount: 1, attachments: [
         { kind: 'image', attachmentId: 'metadata-switch', mediaType: 'image/png', name: 'metadata-switch.png' },
@@ -164,14 +164,15 @@ async function main() {
     removed: true,
     focusRestored: true,
   }, "metadata-only images should load the original, preview it, and clean up the dialog");
-  assert.deepEqual(attachmentReads, [{ sessionId: "queued-attachments", attachmentId: "metadata-original" }], "one click should read the metadata-only image once");
+  // DSH 0.2.2 reads an image only from its whole reference, so the read carries all of it.
+  assert.deepEqual(attachmentReads, [{ sessionId: "queued-attachments", attachmentId: "metadata-original", mediaType: "image/png", bytes: 68, width: 1, height: 1 }], "one click should read the metadata-only image once, by its full reference");
 
   await contents.executeJavaScript(`document.querySelector('[data-queue-id="metadata-switch"] .message-attachment[data-attachment-kind="image"]').click()`);
   for (let attempt = 0; attempt < 100 && attachmentReads.length < 2; attempt += 1) await wait(5);
   await contents.executeJavaScript("state.selectedSessionId = 'another-session'");
   resolveSwitchedAttachment({ mediaType: "image/png", data: tinyPng, name: "metadata-switch.png" });
   await wait(50);
-  assert.deepEqual(attachmentReads[1], { sessionId: "queued-attachments", attachmentId: "metadata-switch" }, "attachment reads should stay bound to the row's original session");
+  assert.deepEqual(attachmentReads[1], { sessionId: "queued-attachments", attachmentId: "metadata-switch", mediaType: "image/png" }, "attachment reads should stay bound to the row's original session");
   assert.equal(await contents.executeJavaScript("Boolean(document.querySelector('.message-image-dialog'))"), false, "an attachment read finishing after a session switch should not open a preview");
   await contents.executeJavaScript("state.selectedSessionId = 'queued-attachments'");
 

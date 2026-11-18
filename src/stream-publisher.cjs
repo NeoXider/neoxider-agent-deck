@@ -24,15 +24,15 @@ function createStreamPublisher({ queueSnapshots, backgroundJobs = new Map(), sen
     const wanted = [];
     for (const item of snapshot.items) for (const attachment of item.attachments || []) {
       if (attachment.kind !== "image" || attachment.data || !attachment.attachmentId || wanted.some((entry) => entry.id === attachment.attachmentId)) continue;
-      wanted.push({ id: attachment.attachmentId, mediaType: attachment.mediaType });
+      wanted.push({ id: attachment.attachmentId, mediaType: attachment.mediaType, attachment });
     }
     const dataById = new Map();
-    await Promise.all(wanted.slice(0, 12).map(async ({ id, mediaType }) => {
+    await Promise.all(wanted.slice(0, 12).map(async ({ id, mediaType, attachment }) => {
       try {
         const cacheKey = `${sessionId}\0${id}`;
         let pending = previewCache.get(cacheKey);
         if (!pending) {
-          pending = Promise.resolve(readAttachment(sessionId, id)).then((value) => {
+          pending = Promise.resolve(readAttachment(sessionId, attachment)).then((value) => {
             const data = String(value?.data || "");
             const bytes = Buffer.byteLength(data, "base64");
             return value?.attachment?.mediaType === mediaType && data.length % 4 === 0

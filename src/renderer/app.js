@@ -517,7 +517,10 @@ function scrollSelectedModelIntoView() {
     const list = $("#modelOptions");
     const row = selected.getBoundingClientRect();
     const bounds = list.getBoundingClientRect();
-    if (row.top < bounds.top) list.scrollTop -= bounds.top - row.top;
+    // The provider header is sticky: a row scrolled to the very top would sit under it.
+    const header = selected.closest?.(".model-provider-group")?.querySelector(":scope > summary");
+    const top = bounds.top + (header?.getBoundingClientRect().height || 0);
+    if (row.top < top) list.scrollTop -= top - row.top;
     else if (row.bottom > bounds.bottom) list.scrollTop += row.bottom - bounds.bottom;
   }
 }
@@ -2516,7 +2519,15 @@ function renderModelOptions(query = "") {
     section.open = Boolean(normalized) || savedModelProviderExpansion().has(group.id);
     const heading = document.createElement("summary");
     heading.className = "picker-group";
-    heading.textContent = `${group.name || group.id} (${models.length})`;
+    heading.title = group.name || group.id;
+    const headingName = document.createElement("span");
+    headingName.className = "model-provider-name";
+    headingName.textContent = group.name || group.id;
+    const headingCount = document.createElement("span");
+    headingCount.className = "model-provider-count";
+    headingCount.textContent = String(models.length);
+    headingCount.setAttribute("aria-label", `${models.length} ${models.length === 1 ? "model" : "models"}`);
+    heading.append(headingName, headingCount);
     section.append(heading); root.append(section);
     const saveExpansion = open => {
       const expanded = savedModelProviderExpansion();
@@ -5841,13 +5852,21 @@ let messageThumbnailActive = 0;
 let messageThumbnailObserver;
 const messageThumbnailObserved = new Set();
 
+// DSH 0.2.2 reads an image back only from its whole durable reference (id, type, size and
+// dimensions), so a read sends every field the history or queue block carried.
+function attachmentReadPayload(sessionId, attachment) {
+  const payload = { sessionId, attachmentId: attachment?.attachmentId };
+  for (const key of ["mediaType", "bytes", "width", "height", "originalDimensions"]) if (attachment?.[key] !== undefined) payload[key] = attachment[key];
+  return payload;
+}
+
 function watchMessageThumbnail(preview, attachment, sessionId) {
   if (!attachment.attachmentId || !sessionId || typeof window.widget.readAttachment !== "function") return;
   const load = async () => {
     const key = `${sessionId}:${attachment.attachmentId}`;
     let source = messageThumbnailCache.get(key);
     if (!source) {
-      const original = await window.widget.readAttachment({ sessionId, attachmentId: attachment.attachmentId });
+      const original = await window.widget.readAttachment(attachmentReadPayload(sessionId, attachment));
       const image = new Image();
       await new Promise((resolve, reject) => {
         image.onload = resolve; image.onerror = () => reject(new Error("Image preview unavailable"));
@@ -5932,7 +5951,7 @@ function createMessageAttachmentStrip(attachments) {
       item.setAttribute("role", "button");
       item.setAttribute("aria-label", `Open ${attachment.name || "attachment"}`);
       const sessionId = state.selectedSessionId;
-      const open = () => openInViewer({ type: "attachment", sessionId, attachmentId: attachment.attachmentId, name: attachment.name })
+      const open = () => openInViewer({ type: "attachment", ...attachmentReadPayload(sessionId, attachment), name: attachment.name })
         .catch((error) => showToast(viewerErrorText(error), "alert", { kind: "error" }));
       item.addEventListener("click", open);
       item.addEventListener("keydown", event => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); void open(); } });
@@ -5950,7 +5969,7 @@ function createMessageAttachmentStrip(attachments) {
         try {
           let source = preview.querySelector("img:not([data-thumbnail])")?.src;
           if (!source) {
-            const original = await window.widget.readAttachment({ sessionId, attachmentId: attachment.attachmentId });
+            const original = await window.widget.readAttachment(attachmentReadPayload(sessionId, attachment));
             source = `data:${original.mediaType};base64,${original.data}`;
           }
           if (item.isConnected && state.selectedSessionId === sessionId) await viewImage(source, attachment.name || "Image");
